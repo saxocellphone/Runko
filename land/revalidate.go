@@ -1,5 +1,7 @@
 package land
 
+import "github.com/saxocellphone/runko/affected"
+
 // RevalidationScope controls when landing requires re-running checks (§13.5).
 type RevalidationScope string
 
@@ -14,25 +16,32 @@ const (
 )
 
 // NeedsRevalidation implements §13.5's optimistic-land rule as a pure
-// function: given the Change's own affected project set and the set of
-// projects touched by the trunk delta since the Change's base, decide
-// whether checks must be re-run before landing. RevalidationAlways always
-// requires it; the empty RevalidationScope behaves as
-// RevalidationAffectedIntersection (the default).
-func NeedsRevalidation(scope RevalidationScope, changeAffectedProjects, trunkDeltaAffectedProjects []string) bool {
+// function over both sides' full affected.Result, not just project names.
+// This matters: RunEverything on either side means that side's Projects list
+// is an incomplete view BY CONSTRUCTION (§13.3 - "fail closed... never fail
+// open to run nothing"). Comparing names alone against an incomplete list is
+// exactly the silent fail-open that rule forbids, so RunEverything on either
+// changeAffected or trunkDelta always forces revalidation, regardless of
+// whether their (possibly-incomplete) project name sets happen to intersect.
+// RevalidationAlways always requires it; the empty RevalidationScope behaves
+// as RevalidationAffectedIntersection (the default).
+func NeedsRevalidation(scope RevalidationScope, changeAffected, trunkDelta affected.Result) bool {
 	if scope == RevalidationAlways {
 		return true
 	}
-	return intersects(changeAffectedProjects, trunkDeltaAffectedProjects)
+	if changeAffected.RunEverything || trunkDelta.RunEverything {
+		return true
+	}
+	return intersectsProjects(changeAffected.Projects, trunkDelta.Projects)
 }
 
-func intersects(a, b []string) bool {
+func intersectsProjects(a, b []affected.ProjectRef) bool {
 	set := make(map[string]bool, len(a))
 	for _, x := range a {
-		set[x] = true
+		set[x.Name] = true
 	}
 	for _, y := range b {
-		if set[y] {
+		if set[y.Name] {
 			return true
 		}
 	}

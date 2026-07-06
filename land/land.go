@@ -37,15 +37,18 @@ type Outcome struct {
 //  1. Resolve the current trunk tip.
 //  2. If trunk hasn't moved since the Change's base, fast-forward trunk to
 //     changeHead directly (no rebase needed).
-//  3. Otherwise, compute the trunk delta's affected projects and decide via
+//  3. Otherwise, compute the trunk delta's affected projects (using the same
+//     affectedOpts - root-invalidation patterns, strictness - the org
+//     configures for regular affected computation) and decide via
 //     NeedsRevalidation whether checks must be re-run; if so, stop here
 //     without landing.
 //  4. Otherwise, rebase (§Rebase) onto the new tip; if clean, commit the
 //     result and advance trunk with a compare-and-swap ref update.
 //
-// The ref update is always a CAS against the trunk tip this attempt observed
-// - if it fails, another land won the race and the caller should retry from
-// step 1 against the new tip.
+// changeAffected is the Change's own affected computation, recorded when its
+// checks last ran - not recomputed here. The ref update is always a CAS
+// against the trunk tip this attempt observed - if it fails, another land
+// won the race and the caller should retry from step 1 against the new tip.
 func Land(
 	store core.MonorepoStore,
 	repoDir string,
@@ -53,8 +56,9 @@ func Land(
 	oldBase string,
 	changeHead string,
 	scope RevalidationScope,
-	changeAffectedProjects []string,
+	changeAffected affected.Result,
 	projects []affected.ProjectInfo,
+	affectedOpts affected.Options,
 	meta core.CommitMeta,
 ) (Outcome, error) {
 	trunkRefName := "refs/heads/" + trunkRef
@@ -75,8 +79,8 @@ func Land(
 	if err != nil {
 		return Outcome{}, err
 	}
-	trunkDelta := affected.Compute(projects, trunkDeltaPaths, affected.Options{})
-	if NeedsRevalidation(scope, changeAffectedProjects, projectNames(trunkDelta.Projects)) {
+	trunkDelta := affected.Compute(projects, trunkDeltaPaths, affectedOpts)
+	if NeedsRevalidation(scope, changeAffected, trunkDelta) {
 		return Outcome{RequiresRevalidation: true}, nil
 	}
 
@@ -98,12 +102,4 @@ func Land(
 		return Outcome{RaceRetry: true}, nil
 	}
 	return Outcome{Landed: true, LandedSHA: newSHA}, nil
-}
-
-func projectNames(refs []affected.ProjectRef) []string {
-	out := make([]string, len(refs))
-	for i, r := range refs {
-		out[i] = r.Name
-	}
-	return out
 }

@@ -20,7 +20,9 @@ func TestLandFastForwardWhenTrunkUnchanged(t *testing.T) {
 	changeHead := repo.Commit("change")
 
 	store := gitstore.New(repo.Dir)
-	outcome, err := Land(store, repo.Dir, "main", base, changeHead, RevalidationAffectedIntersection, nil, nil, core.CommitMeta{Message: "land"})
+	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
+		RevalidationAffectedIntersection, affected.Result{}, nil, affected.Options{},
+		core.CommitMeta{Message: "land"})
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
@@ -51,9 +53,11 @@ func TestLandRebasesWhenNoIntersection(t *testing.T) {
 		{Name: "checkout-api", Path: "commerce/checkout"},
 	}
 
+	changeAffected := affected.Result{Projects: []affected.ProjectRef{{Name: "checkout-api", Path: "commerce/checkout"}}}
+
 	store := gitstore.New(repo.Dir)
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
-		RevalidationAffectedIntersection, []string{"checkout-api"}, projects,
+		RevalidationAffectedIntersection, changeAffected, projects, affected.Options{},
 		core.CommitMeta{Message: "land"})
 	if err != nil {
 		t.Fatalf("Land: %v", err)
@@ -89,10 +93,11 @@ func TestLandRequiresRevalidationOnIntersection(t *testing.T) {
 	changeHead := repo.Commit("change touches checkout-api")
 
 	projects := []affected.ProjectInfo{{Name: "checkout-api", Path: "commerce/checkout"}}
+	changeAffected := affected.Result{Projects: []affected.ProjectRef{{Name: "checkout-api", Path: "commerce/checkout"}}}
 
 	store := gitstore.New(repo.Dir)
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
-		RevalidationAffectedIntersection, []string{"checkout-api"}, projects,
+		RevalidationAffectedIntersection, changeAffected, projects, affected.Options{},
 		core.CommitMeta{Message: "land"})
 	if err != nil {
 		t.Fatalf("Land: %v", err)
@@ -131,10 +136,12 @@ func TestLandRevalidationAlwaysOverridesIntersection(t *testing.T) {
 		{Name: "checkout-api", Path: "commerce/checkout"},
 	}
 
+	changeAffected := affected.Result{Projects: []affected.ProjectRef{{Name: "checkout-api", Path: "commerce/checkout"}}}
+
 	store := gitstore.New(repo.Dir)
 	// Even though the sets don't intersect, RevalidationAlways must force it.
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
-		RevalidationAlways, []string{"checkout-api"}, projects,
+		RevalidationAlways, changeAffected, projects, affected.Options{},
 		core.CommitMeta{Message: "land"})
 	if err != nil {
 		t.Fatalf("Land: %v", err)
@@ -157,8 +164,17 @@ func TestLandConflict(t *testing.T) {
 	changeHead := repo.Commit("change also changes a.txt")
 
 	store := gitstore.New(repo.Dir)
+	// a.txt is unowned by any registered project (there are none here), so
+	// the conservative default would correctly fail closed to
+	// RequiresRevalidation before ever reaching Rebase() - exactly the
+	// fixed behavior this package now guarantees. Use aggressive strictness
+	// deliberately to reach the rebase-conflict path in isolation; this
+	// mirrors an org that has explicitly accepted that risk for
+	// unregistered paths (§14.5.3), not a gap in the default.
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
-		RevalidationAffectedIntersection, nil, nil, core.CommitMeta{Message: "land"})
+		RevalidationAffectedIntersection, affected.Result{}, nil,
+		affected.Options{Strictness: affected.StrictnessAggressive},
+		core.CommitMeta{Message: "land"})
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
@@ -167,6 +183,117 @@ func TestLandConflict(t *testing.T) {
 	}
 	if len(outcome.Conflicts) != 1 || outcome.Conflicts[0] != "a.txt" {
 		t.Fatalf("expected a conflict on a.txt, got %+v", outcome)
+	}
+}
+
+// TestLandChangeRunEverythingForcesRevalidation proves NeedsRevalidation
+// honors RunEverything on the CHANGE's own affected result, not just
+// project-name intersection. RunEverything means the Projects list is an
+// incomplete view by construction (§13.3) - a Change whose own affected
+// computation had to fail closed must never land on a "no intersection"
+// technicality just because its (incomplete) project list happens not to
+// overlap the trunk delta's.
+func TestLandChangeRunEverythingForcesRevalidation(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("libs/billing/lib.go", "package billing\n")
+	repo.WriteFile("commerce/checkout/handler.go", "package checkout\n")
+	base := repo.Commit("base")
+
+	// Trunk touches ONLY billing - no name overlap with checkout-api at all.
+	repo.WriteFile("libs/billing/lib.go", "package billing\n// trunk change\n")
+	repo.Commit("trunk touches billing only")
+
+	repo.Run("checkout -q " + base)
+	repo.WriteFile("commerce/checkout/handler.go", "package checkout\n// change\n")
+	changeHead := repo.Commit("change touches checkout only")
+
+	projects := []affected.ProjectInfo{
+		{Name: "billing-lib", Path: "libs/billing"},
+		{Name: "checkout-api", Path: "commerce/checkout"},
+	}
+	changeAffected := affected.Result{
+		RunEverything: true, // simulates the Change's own affected computation having failed closed
+		Projects:      []affected.ProjectRef{{Name: "checkout-api", Path: "commerce/checkout"}},
+	}
+
+	store := gitstore.New(repo.Dir)
+	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
+		RevalidationAffectedIntersection, changeAffected, projects, affected.Options{},
+		core.CommitMeta{Message: "land"})
+	if err != nil {
+		t.Fatalf("Land: %v", err)
+	}
+	if !outcome.RequiresRevalidation || outcome.Landed {
+		t.Fatalf("expected the Change's own RunEverything to force revalidation despite no name intersection, got %+v", outcome)
+	}
+}
+
+// TestLandTrunkRootInvalidationForcesRevalidation and its companion below
+// prove affectedOpts (root-invalidation patterns, strictness) is genuinely
+// threaded through to the trunk-delta computation, not hardcoded to
+// affected.Options{}. Aggressive strictness isolates this from the separate
+// conservative-default "any unowned path fails closed" rule, which would
+// otherwise mask whether RootInvalidationPatterns was wired through at all.
+func TestLandTrunkRootInvalidationForcesRevalidation(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/handler.go", "package checkout\n")
+	repo.WriteFile("go.mod", "module example\n")
+	base := repo.Commit("base")
+
+	repo.WriteFile("go.mod", "module example\nrequire foo v1.0.0\n")
+	repo.Commit("trunk bumps a dependency in go.mod")
+
+	repo.Run("checkout -q " + base)
+	repo.WriteFile("commerce/checkout/handler.go", "package checkout\n// change\n")
+	changeHead := repo.Commit("change touches checkout only")
+
+	projects := []affected.ProjectInfo{{Name: "checkout-api", Path: "commerce/checkout"}}
+	changeAffected := affected.Result{Projects: []affected.ProjectRef{{Name: "checkout-api", Path: "commerce/checkout"}}}
+
+	store := gitstore.New(repo.Dir)
+	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
+		RevalidationAffectedIntersection, changeAffected, projects,
+		affected.Options{Strictness: affected.StrictnessAggressive, RootInvalidationPatterns: []string{"go.mod"}},
+		core.CommitMeta{Message: "land"})
+	if err != nil {
+		t.Fatalf("Land: %v", err)
+	}
+	if !outcome.RequiresRevalidation || outcome.Landed {
+		t.Fatalf("expected go.mod matching a configured root-invalidation pattern to force revalidation, got %+v", outcome)
+	}
+}
+
+func TestLandAggressiveModeWithoutRootPatternSkipsRevalidation(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/handler.go", "package checkout\n")
+	repo.WriteFile("go.mod", "module example\n")
+	base := repo.Commit("base")
+
+	repo.WriteFile("go.mod", "module example\nrequire foo v1.0.0\n")
+	repo.Commit("trunk bumps a dependency in go.mod")
+
+	repo.Run("checkout -q " + base)
+	repo.WriteFile("commerce/checkout/handler.go", "package checkout\n// change\n")
+	changeHead := repo.Commit("change touches checkout only")
+
+	projects := []affected.ProjectInfo{{Name: "checkout-api", Path: "commerce/checkout"}}
+	changeAffected := affected.Result{Projects: []affected.ProjectRef{{Name: "checkout-api", Path: "commerce/checkout"}}}
+
+	store := gitstore.New(repo.Dir)
+	// Same setup as above, but no root-invalidation patterns configured and
+	// aggressive strictness - the org has explicitly opted out of failing
+	// closed on unowned paths, so this must land without revalidation. If
+	// this test fails, affectedOpts.RootInvalidationPatterns leaked from the
+	// test above or Land() is silently forcing conservative behavior.
+	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
+		RevalidationAffectedIntersection, changeAffected, projects,
+		affected.Options{Strictness: affected.StrictnessAggressive},
+		core.CommitMeta{Message: "land"})
+	if err != nil {
+		t.Fatalf("Land: %v", err)
+	}
+	if outcome.RequiresRevalidation || !outcome.Landed {
+		t.Fatalf("expected aggressive mode with no root patterns to land without revalidation, got %+v", outcome)
 	}
 }
 
@@ -199,7 +326,8 @@ func TestLandConcurrentRaceExactlyOneWins(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			outcome, err := Land(store, repo.Dir, "main", base, changeHeads[i],
-				RevalidationAffectedIntersection, nil, nil, core.CommitMeta{Message: "land"})
+				RevalidationAffectedIntersection, affected.Result{}, nil, affected.Options{},
+				core.CommitMeta{Message: "land"})
 			if err != nil {
 				t.Errorf("Land(%d): %v", i, err)
 				return
