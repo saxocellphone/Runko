@@ -182,16 +182,19 @@ func closeOverDependents(projects []ProjectInfo, direct map[string]bool) (map[st
 
 func matchesAny(patterns []string, changedPath string) bool {
 	for _, pat := range patterns {
-		if matchPattern(pat, changedPath) {
+		if MatchPath(pat, changedPath) {
 			return true
 		}
 	}
 	return false
 }
 
-// matchPattern supports path.Match glob syntax, plus a "prefix/**" form for
-// matching a whole subtree (path.Match's "*" does not cross "/").
-func matchPattern(pattern, changedPath string) bool {
+// MatchPath supports path.Match glob syntax, plus a "prefix/**" form for
+// matching a whole subtree (path.Match's "*" does not cross "/"). Exported
+// for reuse anywhere else in the codebase that needs the same glob dialect
+// (e.g. receive/'s AgentPolicy.DenylistPaths) - keep this the one
+// implementation rather than duplicating it per package.
+func MatchPath(pattern, changedPath string) bool {
 	if strings.HasSuffix(pattern, "/**") {
 		prefix := strings.TrimSuffix(pattern, "/**")
 		return changedPath == prefix || strings.HasPrefix(changedPath, prefix+"/")
