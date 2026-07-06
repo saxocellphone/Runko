@@ -1,0 +1,27 @@
+DROP TABLE IF EXISTS mirror_cursors;
+DROP TABLE IF EXISTS webhook_deliveries;
+DROP TABLE IF EXISTS check_annotations;
+DROP TABLE IF EXISTS check_runs;
+DROP TABLE IF EXISTS change_owner_requirements;
+DROP TABLE IF EXISTS change_comments;
+DROP TABLE IF EXISTS change_affected_projects;
+DROP TABLE IF EXISTS change_affected;
+DROP TABLE IF EXISTS change_assisted_by;
+DROP TABLE IF EXISTS changes;
+DROP TABLE IF EXISTS workspaces;
+DROP TABLE IF EXISTS inferred_dependencies;
+DROP TABLE IF EXISTS project_owners;
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS templates;
+DROP TABLE IF EXISTS actors;
+DROP TABLE IF EXISTS agent_policies;
+DROP TABLE IF EXISTS monorepos;
+DROP TABLE IF EXISTS orgs;
+
+DROP TYPE IF EXISTS webhook_delivery_status;
+DROP TYPE IF EXISTS check_conclusion;
+DROP TYPE IF EXISTS check_status;
+DROP TYPE IF EXISTS change_state;
+DROP TYPE IF EXISTS workspace_status;
+DROP TYPE IF EXISTS workspace_mode;
+DROP TYPE IF EXISTS actor_type;

@@ -5,28 +5,31 @@ Runko is a monorepo platform, currently being implemented from `docs/design.md` 
 ## Commands
 
 ```bash
-export PATH="$HOME/.local/go/bin:$PATH"   # go is not on the default PATH in this environment
+export PATH="$HOME/.local/go/bin:$HOME/go/bin:$PATH"   # go + sqlc are not on the default PATH in this environment
 make check       # fmt + vet + test, all packages, target < 30s
 go test ./...
 go build ./...
+sqlc generate    # regenerate internal/dbgen after editing db/migrations or db/queries
 ```
 
-No compose stack, CI, or web UI exist yet — don't assume they're runnable.
+No compose stack, CI, or web UI exist yet; no live Postgres either — don't assume they're runnable.
 
 ## Layout map
 
 ```
-docs/design.md    # full design spec — cite §s in commits/comments, don't re-derive decisions
-docs/spec/        # generated-type source of truth: PROJECT.yaml schema, MCP tool catalog, webhook/CheckRun schemas
-receive/          # magic-ref + Change-Id + policy + secret scan
-land/             # rebase-land + optimistic revalidation
-affected/         # pure function: paths/deps -> affected projects
-checks/           # Checks API, merge requirements, check-set policies
-project/          # intent -> files pipeline, templates, preview
-mcp/              # MCP server, generated from docs/spec/mcp-tools/catalog.json
-core/             # shared interfaces (MonorepoStore, etc.)
-cmd/runko/        # human/agent CLI
-cmd/runko-ci/     # CI-facing CLI
+docs/design.md      # full design spec — cite §s in commits/comments, don't re-derive decisions
+docs/spec/          # generated-type source of truth: PROJECT.yaml schema, MCP tool catalog, webhook/CheckRun schemas
+db/migrations/      # Postgres DDL; db/queries/ sqlc named queries; internal/dbgen generated from both
+internal/gitfixture/# git-fixture test harness — use this, never mock git
+receive/            # magic-ref + Change-Id + policy + secret scan
+land/               # rebase-land + optimistic revalidation
+affected/           # pure function: paths/deps -> affected projects
+checks/             # Checks API, merge requirements, check-set policies
+project/            # intent -> files pipeline, templates, preview
+mcp/                # MCP server, generated from docs/spec/mcp-tools/catalog.json
+core/               # shared interfaces (MonorepoStore, etc.)
+cmd/runko/          # human/agent CLI
+cmd/runko-ci/       # CI-facing CLI
 ```
 
 ## Rules
