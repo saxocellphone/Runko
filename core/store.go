@@ -1,9 +1,9 @@
 // Package core holds the shared interfaces that every other package depends on,
 // per docs/design.md §9.1 ("thin core/ for interfaces") and §28.2 rule 6.
 //
-// MonorepoStore is the storage abstraction from §11.3. Git is the only implementation
-// in v1 (§11.1); a concrete implementation shells out to system git rather than using
-// a Git-in-Go library (§28.2 rule 4) and lands in a later session, not this bootstrap one.
+// MonorepoStore is the storage abstraction from §11.3. Git is the only
+// implementation in v1 (§11.1); internal/gitstore implements it by shelling
+// out to system git rather than using a Git-in-Go library (§28.2 rule 4).
 package core
 
 // Revision identifies a point in monorepo history (a commit SHA, or something that

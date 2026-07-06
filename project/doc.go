@@ -8,4 +8,8 @@
 //
 // L0 (name/type/owners) must never require L2/L3 fields to create successfully
 // (§6.2 hard rule).
+//
+// Intent and Manifest below are hand-written mirrors of the JSON Schemas in
+// docs/spec/ (no JSON-Schema-to-Go codegen pipeline exists yet - see §28.2
+// rule 2). Keep them in sync by hand until that pipeline lands.
 package project

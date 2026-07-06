@@ -21,6 +21,7 @@ docs/design.md      # full design spec — cite §s in commits/comments, don't r
 docs/spec/          # generated-type source of truth: PROJECT.yaml schema, MCP tool catalog, webhook/CheckRun schemas
 db/migrations/      # Postgres DDL; db/queries/ sqlc named queries; internal/dbgen generated from both
 internal/gitfixture/# git-fixture test harness — use this, never mock git
+internal/gitstore/  # core.MonorepoStore impl (shells out to git plumbing)
 receive/            # magic-ref + Change-Id + policy + secret scan
 land/               # rebase-land + optimistic revalidation
 affected/           # pure function: paths/deps -> affected projects
