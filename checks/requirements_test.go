@@ -1,6 +1,10 @@
 package checks
 
-import "testing"
+import (
+	"fmt"
+	"sort"
+	"testing"
+)
 
 func TestComputeMergeRequirementsAllSatisfied(t *testing.T) {
 	owners := []OwnerRequirement{{OwnerRef: "group:commerce-eng", Satisfied: true}}
@@ -48,14 +52,69 @@ func TestComputeMergeRequirementsCheckSetMissingBlocksMerge(t *testing.T) {
 	if req.Mergeable {
 		t.Fatalf("expected not mergeable with a missing check-set member, got %+v", req)
 	}
-	found := false
-	for _, b := range req.Blockers {
-		if b != "" {
-			found = true
+	if len(req.Blockers) == 0 {
+		t.Fatalf("expected at least one blocker message")
+	}
+
+	// A check-set member with no run posted at all must still show up in
+	// both RequiredChecks and PendingChecks - not vanish from every array
+	// leaving only a blocker string behind. Otherwise an agent reading
+	// get_merge_requirements can't tell required == passing ∪ failing ∪
+	// pending, precisely for the case where CI silently failed to fan out.
+	if !containsString(req.RequiredChecks, "unit:billing-lib") {
+		t.Fatalf("expected missing check-set member unit:billing-lib in RequiredChecks, got %v", req.RequiredChecks)
+	}
+	if !containsString(req.PendingChecks, "unit:billing-lib") {
+		t.Fatalf("expected missing check-set member unit:billing-lib in PendingChecks, got %v", req.PendingChecks)
+	}
+	assertRequiredEqualsUnion(t, req)
+}
+
+func TestComputeMergeRequirementsCheckSetPendingCountMatchesLabel(t *testing.T) {
+	// 3 projects, 1 passed, 2 still queued (not missing, not failed) - the
+	// "still running" blocker's count must be the PENDING count, not
+	// total-minus-pending (which silently reports the number that AREN'T
+	// pending under a "still running" label).
+	checkSets := []CheckSet{{
+		Policy:   CheckSetPolicy{Pattern: "unit:*", Scope: "affected"},
+		Projects: []string{"a", "b", "c"},
+	}}
+	runs := []CheckRunView{
+		{Name: "unit:a", Status: CheckStatusCompleted, Conclusion: ConclusionSuccess},
+		{Name: "unit:b", Status: CheckStatusInProgress},
+		{Name: "unit:c", Status: CheckStatusQueued},
+	}
+
+	req := ComputeMergeRequirements("chg_1", nil, nil, runs, checkSets, nil)
+	want := fmt.Sprintf("%s — %d/%d still running", "unit:*", 2, 3)
+	if !containsString(req.Blockers, want) {
+		t.Fatalf("expected blocker %q, got %v", want, req.Blockers)
+	}
+	assertRequiredEqualsUnion(t, req)
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
 		}
 	}
-	if !found {
-		t.Fatalf("expected at least one blocker message")
+	return false
+}
+
+// assertRequiredEqualsUnion checks the invariant every caller of
+// get_merge_requirements relies on: RequiredChecks is exactly the union of
+// PassingChecks, FailingChecks, and PendingChecks.
+func assertRequiredEqualsUnion(t *testing.T, req MergeRequirements) {
+	t.Helper()
+	union := append([]string{}, req.PassingChecks...)
+	union = append(union, req.FailingChecks...)
+	union = append(union, req.PendingChecks...)
+	sort.Strings(union)
+	required := append([]string{}, req.RequiredChecks...)
+	sort.Strings(required)
+	if fmt.Sprint(union) != fmt.Sprint(required) {
+		t.Fatalf("RequiredChecks must equal PassingChecks ∪ FailingChecks ∪ PendingChecks:\nrequired: %v\nunion:    %v", required, union)
 	}
 }
 

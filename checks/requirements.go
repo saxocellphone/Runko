@@ -86,6 +86,19 @@ func ComputeMergeRequirements(
 
 	for _, cs := range checkSets {
 		passing, failing, pending, missing := expandCheckSet(cs.Policy, cs.Projects, runs)
+
+		// Missing check-set members (no run posted at all) are still part of
+		// the required universe, and - like an individually-required check
+		// that hasn't reported (case !ok above) - count as pending, not as
+		// absent from every bucket. Without this, required != passing ∪
+		// failing ∪ pending precisely when a check-set failed to fan out to
+		// every project, which is the one case callers most need to see.
+		missingChecks := make([]string, len(missing))
+		for i, project := range missing {
+			missingChecks[i] = ExpandCheckName(cs.Policy.Pattern, project)
+		}
+		pending = append(pending, missingChecks...)
+
 		reqChecks = append(reqChecks, passing...)
 		reqChecks = append(reqChecks, failing...)
 		reqChecks = append(reqChecks, pending...)
@@ -100,7 +113,7 @@ func ComputeMergeRequirements(
 		case len(missing) > 0:
 			blockers = append(blockers, fmt.Sprintf("%s — missing runs for %d project(s)", cs.Policy.Pattern, len(missing)))
 		case len(pending) > 0:
-			blockers = append(blockers, fmt.Sprintf("%s — %d/%d still running", cs.Policy.Pattern, total-len(pending), total))
+			blockers = append(blockers, fmt.Sprintf("%s — %d/%d still running", cs.Policy.Pattern, len(pending), total))
 		}
 	}
 

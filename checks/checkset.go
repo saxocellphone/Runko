@@ -73,13 +73,22 @@ func EvaluateCheckSet(policy CheckSetPolicy, expectedProjectNames []string, runs
 	}
 }
 
+// ExpandCheckName substitutes project into policy's "*" placeholder, e.g.
+// "unit:*" + "checkout-api" -> "unit:checkout-api". Exported so callers
+// folding CheckSetStatus.Missing (project names) into a flat check-name
+// list use the same substitution expandCheckSet does, rather than
+// re-deriving it.
+func ExpandCheckName(pattern, project string) string {
+	return strings.ReplaceAll(pattern, "*", project)
+}
+
 // expandCheckSet is EvaluateCheckSet's expansion step, also reused directly
 // by ComputeMergeRequirements to fold check-set members into the flat
 // required/passing/failing/pending check-name lists that schema calls for
 // (§14.4.2's "pre-expanded into concrete names").
 func expandCheckSet(policy CheckSetPolicy, expectedProjectNames []string, runs []CheckRunView) (passingChecks, failingChecks, pendingChecks, missingProjects []string) {
 	for _, project := range expectedProjectNames {
-		checkName := strings.ReplaceAll(policy.Pattern, "*", project)
+		checkName := ExpandCheckName(policy.Pattern, project)
 		run, ok := findRun(runs, checkName)
 		switch {
 		case !ok:
