@@ -22,6 +22,7 @@ docs/spec/          # generated-type source of truth: PROJECT.yaml schema, MCP t
 db/migrations/      # Postgres DDL; db/queries/ sqlc named queries; internal/dbgen generated from both
 internal/gitfixture/# git-fixture test harness — use this, never mock git
 internal/gitstore/  # core.MonorepoStore impl (shells out to git plumbing)
+index/              # tree indexer: PROJECT.yaml/OWNERS -> rebuildable Postgres project index
 receive/            # magic-ref + Change-Id + policy + secret scan
 land/               # rebase-land + optimistic revalidation
 affected/           # pure function: paths/deps -> affected projects

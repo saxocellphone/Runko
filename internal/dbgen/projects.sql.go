@@ -72,6 +72,15 @@ func (q *Queries) DeleteProjectOwners(ctx context.Context, db DBTX, projectID uu
 	return err
 }
 
+const deleteProjectsForMonorepo = `-- name: DeleteProjectsForMonorepo :exec
+DELETE FROM projects WHERE monorepo_id = $1
+`
+
+func (q *Queries) DeleteProjectsForMonorepo(ctx context.Context, db DBTX, monorepoID uuid.UUID) error {
+	_, err := db.Exec(ctx, deleteProjectsForMonorepo, monorepoID)
+	return err
+}
+
 const getProjectByName = `-- name: GetProjectByName :one
 SELECT id, monorepo_id, name, path, project_type, template_id, visibility, capabilities, declared_dependencies, indexed_at_sha, created_at, updated_at FROM projects WHERE monorepo_id = $1 AND name = $2
 `

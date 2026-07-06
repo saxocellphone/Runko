@@ -19,6 +19,9 @@ WHERE monorepo_id = $1
 ORDER BY name
 LIMIT $3 OFFSET $4;
 
+-- name: DeleteProjectsForMonorepo :exec
+DELETE FROM projects WHERE monorepo_id = $1;
+
 -- name: DeleteProjectOwners :exec
 DELETE FROM project_owners WHERE project_id = $1;
 
