@@ -1,0 +1,12 @@
+# Go
+/bin/
+*.test
+*.out
+vendor/
+
+# Local dev
+.env
+*.local.yaml
+
+# OS
+.DS_Store

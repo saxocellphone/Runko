@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runko.dev/schema/mcp/common.json",
+  "title": "Runko MCP catalog - shared definitions",
+  "description": "Shared types referenced by catalog.json (design.md §8.2, §8.3). One schema source feeds platform API types, runko-ci, and the generated MCP server per the codegen rule in §28.2 item 2 - do not hand-duplicate these shapes elsewhere.",
+  "$defs": {
+    "Error": {
+      "type": "object",
+      "required": ["code", "message", "retryable"],
+      "additionalProperties": false,
+      "description": "Canonical structured error, reconciling §6.5's UI error shape with §8.3's agent error contract. Every tool call failure uses this shape; agents should branch on `code`, not parse `message`.",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Stable machine-readable error code, e.g. 'name_taken', 'owners_required', 'not_found', 'permission_denied', 'policy_violation', 'validation_failed'."
+        },
+        "field": {
+          "type": "string",
+          "description": "Optional: dotted path of the offending input field (e.g. 'intent.owners')."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable explanation."
+        },
+        "suggestion": {
+          "type": "string",
+          "description": "Optional: actionable fix, e.g. 'did you mean 'checkout-api'?' or 'add owners: [group:x]'."
+        },
+        "doc_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Optional: deep link to relevant docs section."
+        },
+        "retryable": {
+          "type": "boolean",
+          "description": "Whether retrying the same call (unmodified) could succeed - e.g. true for transient backend errors, false for validation failures."
+        }
+      }
+    },
+    "Actor": {
+      "type": "object",
+      "required": ["type", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["user", "agent", "group"] },
+        "id": { "type": "string" },
+        "display_name": { "type": "string" }
+      },
+      "description": "Principal reference (§7.5). Changes and workspaces always record who performed writes."
+    },
+    "ProjectType": {
+      "type": "string",
+      "enum": ["library", "service", "app", "job", "other"],
+      "description": "§7.2 project types."
+    },
+    "Capability": {
+      "type": "string",
+      "enum": ["rpc", "http", "deploy", "data_store"],
+      "description": "§7.2 opt-in L2 capabilities."
+    },
+    "OwnerRef": {
+      "type": "string",
+      "pattern": "^(user|group):[a-z0-9][a-z0-9._-]*$"
+    },
+    "ProjectSummary": {
+      "type": "object",
+      "required": ["id", "name", "type", "path", "owners_summary"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Canonical control-plane project ID (§10.2) - not written in the tree." },
+        "name": { "type": "string" },
+        "type": { "$ref": "#/$defs/ProjectType" },
+        "path": { "type": "string", "description": "Repo-root-relative path." },
+        "owners_summary": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OwnerRef" },
+          "description": "Effective owners, summarized (not full coverage detail - see who_owns for that)."
+        }
+      },
+      "description": "Compact orientation shape used by list_projects and embedded elsewhere. Context-budget rule (§8.2): default responses are summaries + stable IDs."
+    },
+    "ProjectDetail": {
+      "type": "object",
+      "required": ["id", "name", "type", "path", "effective_owners", "capabilities", "dependencies"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "$ref": "#/$defs/ProjectType" },
+        "path": { "type": "string" },
+        "template_id": { "type": "string" },
+        "visibility": { "type": "string", "enum": ["default", "restricted"] },
+        "effective_owners": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OwnerRef" }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Capability" }
+        },
+        "dependencies": {
+          "type": "object",
+          "required": ["declared", "inferred"],
+          "additionalProperties": false,
+          "properties": {
+            "declared": { "type": "array", "items": { "type": "string" }, "description": "Gates affected computation (§13.3)." },
+            "inferred": { "type": "array", "items": { "type": "string" }, "description": "Advisory-only, never gates merges (§13.3)." }
+          }
+        }
+      },
+      "description": "Full effective view returned by get_project(detail=full)."
+    },
+    "AffectedComputation": {
+      "type": "object",
+      "required": ["computation_id", "projects", "paths", "reason_codes", "run_everything"],
+      "additionalProperties": false,
+      "properties": {
+        "computation_id": { "type": "string" },
+        "projects": { "type": "array", "items": { "$ref": "#/$defs/ProjectSummary" } },
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "reason_codes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["direct_path", "depends_on", "root_invalidation"] }
+        },
+        "run_everything": {
+          "type": "boolean",
+          "description": "CI templates and callers MUST honor this flag - fail closed to a broader run, never fail open to 'run nothing' (§13.3, §14.5.3)."
+        }
+      },
+      "description": "§14.4.1 affected block, reused wherever affected computation is exposed."
+    },
+    "OwnersResult": {
+      "type": "object",
+      "required": ["owners", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "owners": { "type": "array", "items": { "$ref": "#/$defs/OwnerRef" } },
+        "source": {
+          "type": "string",
+          "enum": ["project_manifest", "path_owners", "org_default"],
+          "description": "Where the effective owners resolution came from (§7.3)."
+        }
+      }
+    },
+    "ChangeState": {
+      "type": "string",
+      "enum": ["open", "landed", "abandoned"]
+    },
+    "ChangeSummary": {
+      "type": "object",
+      "required": ["id", "number", "url", "state", "base_sha", "head_sha", "git_ref", "title", "authored_by"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Stable Change-Id; survives rebases and amends (§7.4)." },
+        "number": { "type": "integer" },
+        "url": { "type": "string", "format": "uri" },
+        "state": { "$ref": "#/$defs/ChangeState" },
+        "base_sha": { "type": "string" },
+        "head_sha": { "type": "string" },
+        "git_ref": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "test_plan": { "type": "string" },
+        "authored_by": { "$ref": "#/$defs/Actor" },
+        "assisted_by": { "type": "array", "items": { "$ref": "#/$defs/Actor" }, "description": "Agent co-authors (§8.6)." },
+        "depends_on": { "type": "array", "items": { "type": "string" }, "description": "Stack parent Change-Ids (§7.4)." }
+      }
+    },
+    "ChangeComment": {
+      "type": "object",
+      "required": ["id", "author", "body", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "author": { "$ref": "#/$defs/Actor" },
+        "body": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "path": { "type": "string" },
+        "line": { "type": "integer" }
+      }
+    },
+    "MergeRequirements": {
+      "type": "object",
+      "required": ["change_id", "owners", "checks", "mergeable", "blockers"],
+      "additionalProperties": false,
+      "properties": {
+        "change_id": { "type": "string" },
+        "owners": {
+          "type": "object",
+          "required": ["required", "satisfied", "outstanding"],
+          "additionalProperties": false,
+          "properties": {
+            "required": { "type": "array", "items": { "$ref": "#/$defs/OwnerRef" } },
+            "satisfied": { "type": "array", "items": { "$ref": "#/$defs/OwnerRef" } },
+            "outstanding": { "type": "array", "items": { "$ref": "#/$defs/OwnerRef" } }
+          }
+        },
+        "checks": {
+          "type": "object",
+          "required": ["required", "passing", "failing", "pending"],
+          "additionalProperties": false,
+          "properties": {
+            "required": { "type": "array", "items": { "type": "string" } },
+            "passing": { "type": "array", "items": { "type": "string" } },
+            "failing": { "type": "array", "items": { "type": "string" } },
+            "pending": { "type": "array", "items": { "type": "string" } }
+          },
+          "description": "Check-set policies (e.g. 'unit:* over affected') are pre-expanded into concrete names here (§14.4.2)."
+        },
+        "mergeable": { "type": "boolean" },
+        "blockers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Plain-language blockers per §6.6, e.g. 'workspace is 12 commits behind trunk'."
+        }
+      },
+      "description": "Same structure surfaced to humans (Change page) and agents (get_merge_requirements) - §8.3, §13.4."
+    },
+    "WorkspaceMode": {
+      "type": "string",
+      "enum": ["sparse_local", "remote_vm", "josh_slice"]
+    },
+    "WorkspaceStatus": {
+      "type": "string",
+      "enum": ["active", "detached", "closed"]
+    },
+    "WorkspaceSummary": {
+      "type": "object",
+      "required": ["id", "base_revision", "project_affinity", "mode", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "base_revision": { "type": "string" },
+        "project_affinity": { "type": "array", "items": { "type": "string" } },
+        "mode": { "$ref": "#/$defs/WorkspaceMode" },
+        "status": { "$ref": "#/$defs/WorkspaceStatus" }
+      },
+      "description": "§12.2 Workspace data model, orientation-sized."
+    },
+    "CreateProjectIntent": {
+      "type": "object",
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$" },
+        "type": { "$ref": "#/$defs/ProjectType" },
+        "template_id": { "type": "string" },
+        "path": { "type": "string", "description": "Optional; auto-derived from name/org convention if omitted." },
+        "owners": { "type": "array", "items": { "$ref": "#/$defs/OwnerRef" }, "description": "Optional; defaults to creator's primary group (§6.3)." },
+        "capabilities": { "type": "array", "items": { "$ref": "#/$defs/Capability" } }
+      },
+      "description": "L0-only intent (§10.1, §8.5) - the only shape agents or the create wizard ever need to produce."
+    },
+    "FileWrite": {
+      "type": "object",
+      "required": ["path", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "action": { "type": "string", "enum": ["create", "modify"] },
+        "preview": { "type": "string", "description": "Optional file content preview (preview_create_project only)." }
+      }
+    },
+    "PageParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+        "page_token": { "type": "string" }
+      },
+      "description": "§17.4 pagination / compact-list defaults for token efficiency."
+    }
+  }
+}

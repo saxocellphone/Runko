@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runko.dev/schema/webhooks/checkrun/v1.json",
+  "title": "Runko Checks API v1 (CheckRun, check-set policy, re-runs)",
+  "description": "Pre-session-1 blocker (design.md §26 #8, §28.4). Matches §14.4.2. GitHub-like model adapted to Changes (not PRs). Stale checks auto-invalidate when head_sha changes (revalidation scope per §13.5); required runs carry a TTL and a dead reporter must block loudly, not hang silently.",
+  "$defs": {
+    "CheckStatus": {
+      "type": "string",
+      "enum": ["queued", "in_progress", "completed"]
+    },
+    "CheckConclusion": {
+      "type": "string",
+      "enum": ["success", "failure", "cancelled", "skipped", "timed_out", "action_required", "neutral"]
+    },
+    "CheckAnnotation": {
+      "type": "object",
+      "required": ["path", "start_line", "end_line", "annotation_level", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "start_line": { "type": "integer" },
+        "end_line": { "type": "integer" },
+        "annotation_level": { "type": "string", "enum": ["notice", "warning", "failure"] },
+        "message": { "type": "string" },
+        "title": { "type": "string" }
+      }
+    },
+    "CheckOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "text": { "type": "string" },
+        "annotations": { "type": "array", "items": { "$ref": "#/$defs/CheckAnnotation" } }
+      }
+    },
+    "CheckRun": {
+      "type": "object",
+      "required": ["name", "external_id", "status", "reporter"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "e.g. 'unit', 'lint', 'project:checkout-api'. Names matching a check-set policy pattern (e.g. 'unit:checkout-api' under 'unit:*') aggregate into one requirement row."
+        },
+        "external_id": { "type": "string", "description": "The CI system's own job id." },
+        "status": { "$ref": "#/$defs/CheckStatus" },
+        "conclusion": {
+          "$ref": "#/$defs/CheckConclusion",
+          "description": "Required once status = completed; absent otherwise."
+        },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "details_url": { "type": "string", "format": "uri", "description": "Deep link to the GHA/Buildkite/... job." },
+        "output": { "$ref": "#/$defs/CheckOutput" },
+        "app_id": { "type": "string" },
+        "reporter": { "type": "string", "description": "Which integration posted this run, e.g. 'github-actions', 'buildkite'." },
+        "attempt": { "type": "integer", "minimum": 1, "default": 1, "description": "Increments on each rerun-request for the same (change, head_sha, name)." },
+        "ttl_seconds": {
+          "type": "integer",
+          "default": 86400,
+          "description": "Default 24h in queued/in_progress (§14.4.2). Expiry while non-terminal surfaces as a stale reporter, not a silent hang."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "completed" } } },
+          "then": { "required": ["conclusion", "completed_at"] }
+        }
+      ]
+    },
+    "CheckRunCreateRequest": {
+      "type": "object",
+      "required": ["name", "external_id", "status", "reporter"],
+      "additionalProperties": false,
+      "description": "Body for POST /changes/{id}/checks.",
+      "properties": {
+        "name": { "type": "string" },
+        "external_id": { "type": "string" },
+        "status": { "$ref": "#/$defs/CheckStatus" },
+        "conclusion": { "$ref": "#/$defs/CheckConclusion" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "details_url": { "type": "string", "format": "uri" },
+        "output": { "$ref": "#/$defs/CheckOutput" },
+        "app_id": { "type": "string" },
+        "reporter": { "type": "string" }
+      }
+    },
+    "CheckRunUpdateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Body for POST /changes/{id}/checks/:id. Partial update; typically transitions status -> completed with a conclusion.",
+      "properties": {
+        "status": { "$ref": "#/$defs/CheckStatus" },
+        "conclusion": { "$ref": "#/$defs/CheckConclusion" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "details_url": { "type": "string", "format": "uri" },
+        "output": { "$ref": "#/$defs/CheckOutput" }
+      }
+    },
+    "CheckSetPolicy": {
+      "type": "object",
+      "required": ["pattern", "scope"],
+      "additionalProperties": false,
+      "description": "Per-project fan-out merge requirement, e.g. 'unit:* over affected' means every affected project must have a passing unit:<project> run. Evaluated as a set: 40 affected projects render as one collapsible row ('unit — 38/40 passed'), not 40 required checks (§14.4.2).",
+      "properties": {
+        "pattern": { "type": "string", "description": "e.g. 'unit:*'." },
+        "scope": { "type": "string", "enum": ["affected", "all"] }
+      }
+    },
+    "CheckSetStatus": {
+      "type": "object",
+      "required": ["pattern", "scope", "total", "passed", "failed", "pending", "missing"],
+      "additionalProperties": false,
+      "description": "Expanded evaluation of a CheckSetPolicy against the current affected set, as rendered in one Change-page row and returned by get_merge_requirements.",
+      "properties": {
+        "pattern": { "type": "string" },
+        "scope": { "type": "string", "enum": ["affected", "all"] },
+        "total": { "type": "integer" },
+        "passed": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "pending": { "type": "integer" },
+        "missing": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Project names with no run posted yet for this pattern."
+        }
+      }
+    },
+    "StaleCheck": {
+      "type": "object",
+      "required": ["name", "external_id", "reporter", "last_seen_at"],
+      "additionalProperties": false,
+      "description": "A required run whose TTL expired while non-terminal (§14.4.2) - must block loudly.",
+      "properties": {
+        "name": { "type": "string" },
+        "external_id": { "type": "string" },
+        "reporter": { "type": "string" },
+        "last_seen_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "RerunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Body for POST /changes/{id}/checks/{name}/rerun-request. Permitted principals: change author, owners, CI admins; agents only if AgentPolicy allows (§14.4.2).",
+      "properties": {
+        "reason": { "type": "string" }
+      }
+    },
+    "RerunResponse": {
+      "type": "object",
+      "required": ["check_name", "attempt", "requested_by", "requested_at"],
+      "additionalProperties": false,
+      "properties": {
+        "check_name": { "type": "string" },
+        "attempt": { "type": "integer", "minimum": 2, "description": "The new attempt number linked to the same (change, head_sha, name)." },
+        "requested_by": { "$ref": "../mcp-tools/common.schema.json#/$defs/Actor" },
+        "requested_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

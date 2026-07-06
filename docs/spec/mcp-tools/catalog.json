@@ -1,0 +1,679 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runko.dev/schema/mcp/catalog.json",
+  "title": "Runko MCP tool catalog v1",
+  "spec_version": "1",
+  "description": "Pre-session-1 blocker (design.md §26 #3, §28.4). One source of truth for the MCP server (mcp/ package, §8.3), and equivalent REST/gRPC surface (§9.1). Generate types/handlers/docs from this file rather than hand-writing them per package (§28.2 item 2). Every tool call error uses common.schema.json#/$defs/Error. Categories mirror §8.3's grouping: navigation, project_lifecycle, workspace, change, validation.",
+  "tools": [
+    {
+      "name": "list_projects",
+      "category": "navigation",
+      "description": "List projects, optionally filtered by name/path substring. Summary-shaped by default per the §8.2 context-budget rule.",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": { "type": "string", "description": "Optional substring filter on name or path." },
+          "page_size": { "$ref": "common.schema.json#/$defs/PageParams/properties/page_size" },
+          "page_token": { "$ref": "common.schema.json#/$defs/PageParams/properties/page_token" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["projects"],
+        "additionalProperties": false,
+        "properties": {
+          "projects": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/ProjectSummary" } },
+          "next_page_token": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_project",
+      "category": "navigation",
+      "description": "Fetch the effective view of one project: manifest, capabilities, declared+inferred deps, effective owners.",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["project"],
+        "additionalProperties": false,
+        "properties": {
+          "project": { "type": "string", "description": "Project id or name." },
+          "detail": { "type": "string", "enum": ["summary", "full"], "default": "summary" }
+        }
+      },
+      "output_schema": {
+        "oneOf": [
+          { "$ref": "common.schema.json#/$defs/ProjectSummary" },
+          { "$ref": "common.schema.json#/$defs/ProjectDetail" }
+        ]
+      },
+      "errors": ["not_found"]
+    },
+    {
+      "name": "who_owns",
+      "category": "navigation",
+      "description": "Resolve effective owners for a path or a project (§7.3).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [
+          { "required": ["path"] },
+          { "required": ["project"] }
+        ],
+        "properties": {
+          "path": { "type": "string" },
+          "project": { "type": "string" }
+        }
+      },
+      "output_schema": { "$ref": "common.schema.json#/$defs/OwnersResult" },
+      "errors": ["not_found"]
+    },
+    {
+      "name": "get_affected",
+      "category": "navigation",
+      "description": "Compute affected projects for a set of paths, or re-fetch the computation already attached to a Change (§13.3, §14.4.3).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [
+          { "required": ["paths"] },
+          { "required": ["change_id"] }
+        ],
+        "properties": {
+          "paths": { "type": "array", "items": { "type": "string" } },
+          "change_id": { "type": "string" }
+        }
+      },
+      "output_schema": { "$ref": "common.schema.json#/$defs/AffectedComputation" },
+      "errors": ["not_found", "validation_failed"]
+    },
+    {
+      "name": "search_code",
+      "category": "navigation",
+      "description": "Full-text code search via Zoekt (default engine, §8.2). Returns path hits tagged with project id, not a raw multi-GB grep dump.",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["query"],
+        "additionalProperties": false,
+        "properties": {
+          "query": { "type": "string" },
+          "project": { "type": "string", "description": "Optional: scope search to one project." },
+          "page_size": { "$ref": "common.schema.json#/$defs/PageParams/properties/page_size" },
+          "page_token": { "$ref": "common.schema.json#/$defs/PageParams/properties/page_token" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["hits"],
+        "additionalProperties": false,
+        "properties": {
+          "hits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "project_id", "line", "preview"],
+              "additionalProperties": false,
+              "properties": {
+                "path": { "type": "string" },
+                "project_id": { "type": "string" },
+                "line": { "type": "integer" },
+                "preview": { "type": "string" }
+              }
+            }
+          },
+          "next_page_token": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "search_symbols",
+      "category": "navigation",
+      "description": "Symbol search (functions, types, etc.), same engine and result shape as search_code (§8.2).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["query"],
+        "additionalProperties": false,
+        "properties": {
+          "query": { "type": "string" },
+          "project": { "type": "string" },
+          "page_size": { "$ref": "common.schema.json#/$defs/PageParams/properties/page_size" },
+          "page_token": { "$ref": "common.schema.json#/$defs/PageParams/properties/page_token" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["hits"],
+        "additionalProperties": false,
+        "properties": {
+          "hits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["symbol", "kind", "path", "project_id", "line"],
+              "additionalProperties": false,
+              "properties": {
+                "symbol": { "type": "string" },
+                "kind": { "type": "string" },
+                "path": { "type": "string" },
+                "project_id": { "type": "string" },
+                "line": { "type": "integer" }
+              }
+            }
+          },
+          "next_page_token": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "explain_layout",
+      "category": "navigation",
+      "description": "Short org conventions doc for orientation (from CONVENTIONS.md or a control-plane doc object), §8.2.",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "required": ["conventions_markdown", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "conventions_markdown": { "type": "string" },
+          "source": { "type": "string", "enum": ["conventions_md", "control_plane_doc"] }
+        }
+      }
+    },
+    {
+      "name": "get_template_catalog",
+      "category": "navigation",
+      "description": "List templates allowed for create_project (§8.2, §10.4).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "required": ["templates"],
+        "additionalProperties": false,
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "type", "description", "capabilities_default"],
+              "additionalProperties": false,
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "type": { "$ref": "common.schema.json#/$defs/ProjectType" },
+                "description": { "type": "string" },
+                "capabilities_default": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/Capability" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "validate_project_intent",
+      "category": "validation",
+      "description": "Live-validate a create_project intent without writing anything (§6.5, §8.3).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["intent"],
+        "additionalProperties": false,
+        "properties": { "intent": { "$ref": "common.schema.json#/$defs/CreateProjectIntent" } }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["valid", "errors"],
+        "additionalProperties": false,
+        "properties": {
+          "valid": { "type": "boolean" },
+          "errors": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/Error" } }
+        }
+      }
+    },
+    {
+      "name": "preview_create_project",
+      "category": "validation",
+      "description": "Dry-run preview of the files create_project would write, plus the effective manifest (§6.5, §10.1).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["intent"],
+        "additionalProperties": false,
+        "properties": { "intent": { "$ref": "common.schema.json#/$defs/CreateProjectIntent" } }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["files", "effective_manifest"],
+        "additionalProperties": false,
+        "properties": {
+          "files": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/FileWrite" } },
+          "effective_manifest": { "type": "object", "description": "Resolved PROJECT.yaml content; validates against project.schema.json." }
+        }
+      },
+      "errors": ["validation_failed"]
+    },
+    {
+      "name": "create_project",
+      "category": "project_lifecycle",
+      "description": "L0-only intent -> generated files + control-plane registration (§8.5, §10.1). Never requires hand-authored PROJECT.yaml.",
+      "read_only": false,
+      "idempotent": false,
+      "agent_policy_gated": true,
+      "input_schema": {
+        "type": "object",
+        "required": ["intent"],
+        "additionalProperties": false,
+        "properties": {
+          "intent": { "$ref": "common.schema.json#/$defs/CreateProjectIntent" },
+          "open_workspace": { "type": "boolean", "default": false, "description": "If true, also create a workspace with affinity to the new project." }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["project_id", "path", "files_written"],
+        "additionalProperties": false,
+        "properties": {
+          "project_id": { "type": "string" },
+          "path": { "type": "string" },
+          "files_written": { "type": "array", "items": { "type": "string" } },
+          "workspace_id": { "type": "string" }
+        }
+      },
+      "errors": ["validation_failed", "name_taken", "policy_violation"]
+    },
+    {
+      "name": "add_capability",
+      "category": "project_lifecycle",
+      "description": "Enable an L2 capability as a product action, triggering template codegen (§7.2, §8.5).",
+      "read_only": false,
+      "idempotent": true,
+      "agent_policy_gated": true,
+      "input_schema": {
+        "type": "object",
+        "required": ["project", "capability"],
+        "additionalProperties": false,
+        "properties": {
+          "project": { "type": "string" },
+          "capability": { "$ref": "common.schema.json#/$defs/Capability" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["project_id", "capability", "files_written"],
+        "additionalProperties": false,
+        "properties": {
+          "project_id": { "type": "string" },
+          "capability": { "$ref": "common.schema.json#/$defs/Capability" },
+          "files_written": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "errors": ["not_found", "policy_violation"]
+    },
+    {
+      "name": "adopt_path_as_project",
+      "category": "project_lifecycle",
+      "description": "Adopt an existing tree path as a Project; infers name/type where possible, asks only for owners if missing (§6.3 tertiary path).",
+      "read_only": false,
+      "idempotent": false,
+      "agent_policy_gated": true,
+      "input_schema": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "$ref": "common.schema.json#/$defs/ProjectType" },
+          "owners": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/OwnerRef" } }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["project_id", "inferred", "files_written"],
+        "additionalProperties": false,
+        "properties": {
+          "project_id": { "type": "string" },
+          "inferred": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "$ref": "common.schema.json#/$defs/ProjectType" }
+            }
+          },
+          "files_written": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "errors": ["validation_failed", "owners_required", "policy_violation"]
+    },
+    {
+      "name": "create_workspace",
+      "category": "workspace",
+      "description": "Create a CitC-class workspace with affinity to one or more projects (§8.3, §12.2). Required before an agent may write.",
+      "read_only": false,
+      "idempotent": false,
+      "agent_policy_gated": true,
+      "input_schema": {
+        "type": "object",
+        "required": ["project_ids"],
+        "additionalProperties": false,
+        "properties": {
+          "project_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "purpose": { "type": "string" }
+        }
+      },
+      "output_schema": { "$ref": "common.schema.json#/$defs/WorkspaceSummary" },
+      "errors": ["policy_violation", "not_found"]
+    },
+    {
+      "name": "attach_workspace",
+      "category": "workspace",
+      "description": "Return connection/config info for attaching to an existing workspace from a client (§12.3).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["workspace_id"],
+        "additionalProperties": false,
+        "properties": { "workspace_id": { "type": "string" } }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["workspace_id", "attach_instructions"],
+        "additionalProperties": false,
+        "properties": {
+          "workspace_id": { "type": "string" },
+          "attach_instructions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "git_remote": { "type": "string" },
+              "sparse_patterns": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      },
+      "errors": ["not_found"]
+    },
+    {
+      "name": "get_workspace_status",
+      "category": "workspace",
+      "description": "Current workspace state: dirty overlay, base drift, affinity (§12.2, §12.5).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["workspace_id"],
+        "additionalProperties": false,
+        "properties": { "workspace_id": { "type": "string" } }
+      },
+      "output_schema": {
+        "allOf": [
+          { "$ref": "common.schema.json#/$defs/WorkspaceSummary" },
+          {
+            "type": "object",
+            "required": ["dirty", "base_behind_by"],
+            "properties": {
+              "dirty": { "type": "boolean" },
+              "base_behind_by": { "type": "integer", "minimum": 0 }
+            }
+          }
+        ]
+      },
+      "errors": ["not_found"]
+    },
+    {
+      "name": "prefetch",
+      "category": "workspace",
+      "description": "Prefetch template files, project source, or direct deps for a workspace - tuned for tool-using agent loops (§8.4).",
+      "read_only": false,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["workspace_id"],
+        "additionalProperties": false,
+        "oneOf": [
+          { "required": ["project_id"] },
+          { "required": ["paths"] }
+        ],
+        "properties": {
+          "workspace_id": { "type": "string" },
+          "project_id": { "type": "string" },
+          "paths": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["fetched_paths"],
+        "additionalProperties": false,
+        "properties": {
+          "fetched_paths": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "errors": ["not_found", "policy_violation"]
+    },
+    {
+      "name": "update_workspace_base",
+      "category": "workspace",
+      "description": "Fetch + rebase workspace onto latest trunk, surfacing conflicts in plain language (§6.6, §12.3).",
+      "read_only": false,
+      "idempotent": false,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["workspace_id"],
+        "additionalProperties": false,
+        "properties": { "workspace_id": { "type": "string" } }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["workspace_id", "new_base_revision", "conflicts"],
+        "additionalProperties": false,
+        "properties": {
+          "workspace_id": { "type": "string" },
+          "new_base_revision": { "type": "string" },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path"],
+              "additionalProperties": false,
+              "properties": { "path": { "type": "string" } }
+            }
+          }
+        }
+      },
+      "errors": ["not_found", "detached_refused"]
+    },
+    {
+      "name": "create_change",
+      "category": "change",
+      "description": "Snapshot the workspace overlay server-side into a new Change (§7.4, §11.5, §13.2). Agents are encouraged to set description and test_plan.",
+      "read_only": false,
+      "idempotent": false,
+      "agent_policy_gated": true,
+      "input_schema": {
+        "type": "object",
+        "required": ["workspace_id", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "workspace_id": { "type": "string" },
+          "description": { "type": "string" },
+          "test_plan": { "type": "string" },
+          "depends_on": { "type": "string", "description": "Optional parent Change-Id for stacks (§7.4)." }
+        }
+      },
+      "output_schema": { "$ref": "common.schema.json#/$defs/ChangeSummary" },
+      "errors": ["policy_violation", "not_found"]
+    },
+    {
+      "name": "update_change_description",
+      "category": "change",
+      "description": "Update description/test_plan on an existing Change (§8.6).",
+      "read_only": false,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["change_id"],
+        "additionalProperties": false,
+        "properties": {
+          "change_id": { "type": "string" },
+          "description": { "type": "string" },
+          "test_plan": { "type": "string" }
+        }
+      },
+      "output_schema": { "$ref": "common.schema.json#/$defs/ChangeSummary" },
+      "errors": ["not_found"]
+    },
+    {
+      "name": "get_change",
+      "category": "change",
+      "description": "Fetch a Change plus its current affected computation (§13.2, §14.4.3).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["change_id"],
+        "additionalProperties": false,
+        "properties": { "change_id": { "type": "string" } }
+      },
+      "output_schema": {
+        "allOf": [
+          { "$ref": "common.schema.json#/$defs/ChangeSummary" },
+          {
+            "type": "object",
+            "required": ["affected"],
+            "properties": { "affected": { "$ref": "common.schema.json#/$defs/AffectedComputation" } }
+          }
+        ]
+      },
+      "errors": ["not_found"]
+    },
+    {
+      "name": "list_change_comments",
+      "category": "change",
+      "description": "List review comments on a Change (§6.6).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["change_id"],
+        "additionalProperties": false,
+        "properties": {
+          "change_id": { "type": "string" },
+          "page_size": { "$ref": "common.schema.json#/$defs/PageParams/properties/page_size" },
+          "page_token": { "$ref": "common.schema.json#/$defs/PageParams/properties/page_token" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["comments"],
+        "additionalProperties": false,
+        "properties": {
+          "comments": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/ChangeComment" } },
+          "next_page_token": { "type": "string" }
+        }
+      },
+      "errors": ["not_found"]
+    },
+    {
+      "name": "request_review",
+      "category": "change",
+      "description": "Ping required or explicitly-listed owners for review (§13.4).",
+      "read_only": false,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["change_id"],
+        "additionalProperties": false,
+        "properties": {
+          "change_id": { "type": "string" },
+          "reviewers": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/OwnerRef" } }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["change_id", "requested"],
+        "additionalProperties": false,
+        "properties": {
+          "change_id": { "type": "string" },
+          "requested": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/OwnerRef" } }
+        }
+      },
+      "errors": ["not_found"]
+    },
+    {
+      "name": "land_change",
+      "category": "change",
+      "description": "Land a Change: rebase onto trunk tip with optimistic revalidation (§13.5). Gated by AgentPolicy.can_land_changes, which defaults to false (§8.7) - human land by default.",
+      "read_only": false,
+      "idempotent": false,
+      "agent_policy_gated": true,
+      "input_schema": {
+        "type": "object",
+        "required": ["change_id"],
+        "additionalProperties": false,
+        "properties": { "change_id": { "type": "string" } }
+      },
+      "output_schema": {
+        "type": "object",
+        "required": ["change_id", "landed_sha"],
+        "additionalProperties": false,
+        "properties": {
+          "change_id": { "type": "string" },
+          "landed_sha": { "type": "string" }
+        }
+      },
+      "errors": ["not_found", "policy_violation", "merge_requirements_not_met", "land_race_retry"]
+    },
+    {
+      "name": "get_merge_requirements",
+      "category": "change",
+      "description": "Owners + checks outstanding, in plain language, for both the Change page and agent callers (§8.3, §13.4, §13.5).",
+      "read_only": true,
+      "idempotent": true,
+      "agent_policy_gated": false,
+      "input_schema": {
+        "type": "object",
+        "required": ["change_id"],
+        "additionalProperties": false,
+        "properties": { "change_id": { "type": "string" } }
+      },
+      "output_schema": { "$ref": "common.schema.json#/$defs/MergeRequirements" },
+      "errors": ["not_found"]
+    }
+  ]
+}

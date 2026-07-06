@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runko.dev/schema/project/v1.json",
+  "title": "PROJECT.yaml v1",
+  "description": "Tree-resident manifest for a Runko Project (design.md §7.2, §10.1-10.4, §22.3 #1). This is the L0/L1 core: only 'schema', 'name', and 'type' are required. Everything else is optional and either inherited (owners), inferred (dependencies), or opt-in (capabilities, ci, visibility) per the layering rule in §6.2 - L2/L3 fields must never be required for a default project. Validated against the YAML file's JSON-equivalent parse tree. Canonical project ID, created_at, template version, effective owners, and inferred dependency edges are control-plane-derived (§10.2) and deliberately absent from this on-disk schema.",
+  "type": "object",
+  "required": ["schema", "name", "type"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "project/v1",
+      "description": "Schema version tag. Bump the literal ('project/v2', ...) on any breaking change; readers must reject unknown values rather than guess."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,62}$",
+      "description": "Project identifier, unique within the monorepo. DNS-label-like: lowercase, digits, hyphens. This is the name used in owners rules, dependency edges, affected-project output, and CLI/MCP references."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["library", "service", "app", "job", "other"],
+      "description": "Project intent, per §7.2. 'library': shared code, no deploy surface by default. 'service': long-running backend (deploy capability optional). 'app': user-facing application. 'job': batch/cron worker. 'other': escape hatch for anything that doesn't fit."
+    },
+    "owners": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^(user|group):[a-z0-9][a-z0-9._-]*$"
+      },
+      "description": "L0 field, optional. Explicit owner refs (e.g. 'group:commerce-eng', 'user:jdoe'). Omitted -> effective owners are inherited from the nearest ancestor OWNERS file, or the org's create-time default (creator's primary group) per §7.3, §10.1. Presence here overrides inherited OWNERS for this project's root."
+    },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["rpc", "http", "deploy", "data_store"]
+      },
+      "default": [],
+      "description": "L2, opt-in. Enabling a capability is a product action (`project add-capability <cap>`) that triggers template codegen; hand-editing this array without going through that flow may leave generated files inconsistent (§7.2, §10.4). Absence = no runtime surface beyond code."
+    },
+    "capability_config": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "L2/L3, optional. Org-defined configuration keyed by capability name (e.g. { \"deploy\": {...}, \"rpc\": {...} }). Intentionally loosely typed here: deploy/rpc/http/data_store config shapes are org-specific templates (§7.2) and out of scope for this core schema. Keys should correspond to entries in `capabilities`."
+    },
+    "dependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{1,62}$"
+      },
+      "description": "L2/L3, optional, rare. Explicitly DECLARED dependency edges (other project names) that participate in affected-computation gating (§13.3). Most dependency data should come from the async inferred-dependency indexer, which is advisory-only and never written here; promoting an inferred edge to declared is a deliberate action, not automatic sync."
+    },
+    "visibility": {
+      "type": "string",
+      "enum": ["default", "restricted"],
+      "default": "default",
+      "description": "L3, rare. 'restricted' opts this project into per-principal read enforcement (Josh-filtered remotes, search filtering, orientation redaction) per §15.2. Hard limit: this is access control over a shared object store, not isolation (NG7) - documented, not hidden."
+    },
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "L2, optional. Low-ceremony CI hints per §14.9; the default template for `type` already supplies sane checks (e.g. go-service -> unit + lint) so most projects never edit this.",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "command"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]*$",
+                "description": "Check name; maps to a required Check on Changes touching this project (§14.4.2, §14.9)."
+              },
+              "command": {
+                "type": "string",
+                "description": "Template-defined by default; override only to deviate from the golden path."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema": "project/v1",
+      "name": "checkout-api",
+      "type": "service"
+    },
+    {
+      "schema": "project/v1",
+      "name": "checkout-api",
+      "type": "service",
+      "owners": ["group:commerce-eng"],
+      "capabilities": ["http"],
+      "ci": {
+        "checks": [
+          { "name": "unit", "command": "make test" },
+          { "name": "lint", "command": "make lint" }
+        ]
+      }
+    }
+  ]
+}

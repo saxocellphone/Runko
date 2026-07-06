@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runko.dev/schema/webhooks/envelope/v1.json",
+  "title": "Runko outbound webhook envelope v1",
+  "description": "Pre-session-1 blocker (design.md §26 #8, §28.4). Matches §14.4.1. Requirements that are process, not schema, but MUST hold for any implementation: signed with HMAC; delivery retried with exponential backoff; failed deliveries visible in an admin dead-letter queue; consumers MUST be idempotent keyed on (delivery_id, head_sha); a Replay API lets CI admins redeliver. `spec_version` is additive-only within a major version - breaking changes bump the literal.",
+  "type": "object",
+  "required": ["spec_version", "delivery_id", "type", "occurred_at", "org_id", "monorepo_id", "change", "api"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": { "const": "1" },
+    "delivery_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique per delivery attempt series; stable across retries of the same logical delivery. Combine with change.head_sha for consumer idempotency."
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "change.opened",
+        "change.updated",
+        "change.reopened",
+        "change.landed",
+        "change.check_rerun_requested"
+      ],
+      "description": "change.opened/updated/reopened/landed per §14.4.1; change.check_rerun_requested per the re-run flow in §14.4.2."
+    },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "org_id": { "type": "string" },
+    "monorepo_id": { "type": "string" },
+    "change": {
+      "type": "object",
+      "required": ["id", "number", "url", "state", "base_sha", "head_sha", "git_ref", "title", "actor"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "e.g. 'chg_...' - stable Change-Id, survives rebase/amend (§7.4)." },
+        "number": { "type": "integer" },
+        "url": { "type": "string", "format": "uri" },
+        "state": { "type": "string", "enum": ["open", "landed", "abandoned"] },
+        "base_sha": { "type": "string" },
+        "head_sha": { "type": "string" },
+        "git_ref": { "type": "string", "description": "e.g. 'refs/changes/1042/head'." },
+        "title": { "type": "string" },
+        "actor": {
+          "type": "object",
+          "required": ["type", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "enum": ["user", "agent"] },
+            "id": { "type": "string" }
+          }
+        }
+      }
+    },
+    "affected": {
+      "type": "object",
+      "required": ["computation_id", "projects", "paths", "reason_codes", "run_everything"],
+      "additionalProperties": false,
+      "description": "Present on change.opened/updated/reopened. Mirrors the Affected API response (§14.4.3) so consumers do not need a second round-trip in the common case.",
+      "properties": {
+        "computation_id": { "type": "string" },
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "path"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "path": { "type": "string" }
+            }
+          }
+        },
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "reason_codes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["direct_path", "depends_on", "root_invalidation"] }
+        },
+        "run_everything": {
+          "type": "boolean",
+          "description": "CI templates MUST honor this: fail closed to a broader run when true or on computation error, never fail open to 'run nothing' (§13.3, §14.5.3)."
+        }
+      }
+    },
+    "checks_expected": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Required check names the platform expects to see posted back for this head_sha (§14.4.1 example, §14.9)."
+    },
+    "rerun": {
+      "type": "object",
+      "required": ["check_name", "requested_by"],
+      "additionalProperties": false,
+      "description": "Present only on change.check_rerun_requested; the plugin maps this to a provider-specific re-run (§14.4.2).",
+      "properties": {
+        "check_name": { "type": "string" },
+        "requested_by": {
+          "type": "object",
+          "required": ["type", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "enum": ["user", "agent"] },
+            "id": { "type": "string" }
+          }
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "required": ["change_url", "affected_url", "checks_url"],
+      "additionalProperties": false,
+      "properties": {
+        "change_url": { "type": "string", "format": "uri" },
+        "affected_url": { "type": "string", "format": "uri" },
+        "checks_url": { "type": "string", "format": "uri" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "change.check_rerun_requested" } } },
+      "then": { "required": ["rerun"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": { "enum": ["change.opened", "change.updated", "change.reopened"] }
+        }
+      },
+      "then": { "required": ["affected", "checks_expected"] }
+    }
+  ],
+  "examples": [
+    {
+      "spec_version": "1",
+      "delivery_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "type": "change.updated",
+      "occurred_at": "2026-07-06T12:00:00Z",
+      "org_id": "org_1",
+      "monorepo_id": "repo_1",
+      "change": {
+        "id": "chg_1042",
+        "number": 1042,
+        "url": "https://runko.example/changes/1042",
+        "state": "open",
+        "base_sha": "abc1234",
+        "head_sha": "def5678",
+        "git_ref": "refs/changes/1042/head",
+        "title": "Reject invalid SKUs",
+        "actor": { "type": "user", "id": "user_42" }
+      },
+      "affected": {
+        "computation_id": "aff_9001",
+        "projects": [{ "id": "prj_1", "name": "checkout-api", "path": "commerce/checkout" }],
+        "paths": ["commerce/checkout/handler.go"],
+        "reason_codes": ["direct_path"],
+        "run_everything": false
+      },
+      "checks_expected": ["unit", "lint"],
+      "api": {
+        "change_url": "https://runko.example/api/changes/chg_1042",
+        "affected_url": "https://runko.example/api/changes/chg_1042/affected",
+        "checks_url": "https://runko.example/api/changes/chg_1042/checks"
+      }
+    }
+  ]
+}

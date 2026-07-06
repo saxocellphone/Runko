@@ -1,0 +1,105 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Repository status
+
+Implementation has started, following the session DAG in `docs/design.md` §28.3. The design spec (~1900 lines) lives at `docs/design.md` (moved from the original `spec.md` per its own standing rule, §28.2 item 6) — read the relevant section(s) cited below before editing; the spec is deliberately decided (not a discussion doc) so implementation should be transcription of a decision, not a fresh design exercise.
+
+Progress against the session DAG (§28.3):
+
+| # | Stage | Status |
+|---|-------|--------|
+| 0 | Spec artifacts (`docs/spec/`) | Done — PROJECT.yaml schema, MCP tool catalog, webhook/CheckRun schemas |
+| 1 | Repo bootstrap + git-fixture harness | Done — `go.mod`, package skeletons, `internal/gitfixture` (repo builder + fake clock + seeded IDs + golden-file diffs), `make check` green in ~4s |
+| 2+ | Persistence, project model, affected, receive funnel, land engine, checks, CLI, MCP, web, dogfood | Not started |
+
+Go module: `github.com/saxocellphone/runko`. Go toolchain is **not preinstalled** in this environment — it was installed to `~/.local/go/bin` by hand; export `PATH="$HOME/.local/go/bin:$PATH"` in any shell that needs `go`. Docker is not available in this environment either, so the compose eval loop (§16.4) cannot be run/tested here — code for it, but say so explicitly rather than claiming it was verified.
+
+## Commands
+
+```bash
+export PATH="$HOME/.local/go/bin:$PATH"   # go isn't on PATH by default here
+make check       # fmt + vet + test across all packages, target < 30s (§28.2 rule 3)
+go test ./...    # tests only
+go build ./...   # compile-check only
+```
+
+There is no lint/build/test tooling beyond this yet — no compose stack, no CI wiring, no web UI. Extend `Makefile` rather than introducing a second build entrypoint.
+
+## What Runko is
+
+Runko is a planned **monorepo operating system layered on Git** — self-hostable, OSS (Apache-2.0), for orgs of ~20–300 engineers. Three pillars (spec §1):
+
+1. **One monorepo that feels small** — first-class Projects + CitC-class Workspaces (full-repo view, materialize only your slice).
+2. **Changes that land with confidence** — change-centric review, path ownership, trustworthy affected computation, deep CI integration (never our own runners).
+3. **Humans and coding agents as co-equal clients** — every flow has a GUI/CLI and a stable tool/API (MCP), with project-granular server-side enforcement for agents.
+
+CLI name: `runko`. CI-facing CLI: `runko-ci`. Env prefix: `RUNKO_*`.
+
+## Key architectural decisions (already settled — do not re-litigate)
+
+These are final per spec §22.2 and should be treated as constraints on any implementation:
+
+- **Git is the only substrate.** No custom CAS/overlay store, ever. Workspaces are upstream Git (partial clone + sparse cone + fsmonitor) plus durability via **snapshot refs** (`refs/workspaces/<id>/head`) pushed through the normal receive path (§12.1–12.2).
+- **Tree-as-truth.** `PROJECT.yaml` and OWNERS live in the Git tree; the control plane (Postgres) is a **rebuildable index** of trunk, never an independent source of truth (§10.3). Ephemeral/derived state (inferred deps, workspace registry, check runs, sessions) is fine in Postgres.
+- **Trunk is closed to direct push.** The only write path is change refs: `refs/for/<trunk>` with a `Change-Id` trailer (Gerrit-style), or workspace-overlay snapshot commits — both funnel through one receive path: policy → secret scan (gitleaks) → Change create/update → affected compute → webhooks (§7.4, §11.5).
+- **Landing is rebase-based** with **optimistic revalidation**: if the trunk delta since the Change's checked `head_sha` doesn't intersect its affected set, land without re-running checks; otherwise re-run required checks (§13.5). A merge queue is a later optimization of this same rule, not a new semantic.
+- **Affected computation is declared-only for gating in v1.** Paths → Projects (longest prefix) + declared dependency edges + root-invalidation rules. Import-based inferred deps are advisory-only and never gate merges (§13.3).
+- **We do not build CI execution, a VM fleet, or a virtual filesystem.** CI: we own change identity, webhooks, Checks API, affected API, checkout contract; customers own runners/pipelines (§14). Remote/agent VMs are external via an environment contract (Coder/devcontainer templates). Virtual FS is "adopt-only, likely never" — sparse+partial+fsmonitor (Scalar-class) is the whole workspace story unless real telemetry says otherwise (§12.3).
+- **Josh-proxy is an optional, not default, capability** for restricted-visibility projects, slice-as-repo ergonomics, and import sync — because Josh views carry rewritten SHAs while everything else keys on true monorepo SHAs (§12.3 Phase B).
+- **Agents are normal API clients with stricter defaults**: mandatory workspace affinity for writes, path allow/denylist, diff/file-count caps, no self-approval, no owning production paths alone, server-side enforcement only (never trust client-claimed affinity) — see `AgentPolicy` (§8.7, §15.3).
+- **Configuration is layered (L0–L3), anti-Boq.** Project create requires only name/type/owners (L0); everything else is generated, inferred, or opt-in via `add_capability`. Never require hand-written multi-field YAML for a default project (§2.3, §6, §10).
+- **Mirror-first adoption is the front door**, not a migration afterthought: stage 0 (read-only overlay on GitHub) → stage 1 (Changes/review run on Runko, GitHub stays system of record, mirror is bidirectional) → stage 2 (SoR flips to Runko) → stage 3 (consolidate remaining repos). The mirror is transport, never a second source of truth (§18).
+
+## Repo layout
+
+One Go module, one package per design section, thin `core/` for interfaces (per §28.2 item 6 and the session DAG in §28.3):
+
+```
+docs/design.md    # the full design spec — cite §s from here in package docs and commits
+docs/spec/        # pre-session-1 schema artifacts (PROJECT.yaml, MCP catalog, webhooks/CheckRun) — generate types from these, don't hand-duplicate
+receive/          # magic-ref + Change-Id + policy + secret scan (the "receive funnel") — discovery, not transcription
+land/             # rebase-land + optimistic revalidation + race handling — discovery, not transcription
+affected/         # pure function: paths/deps -> affected projects, + property tests
+checks/           # Checks API, merge requirements, check-set policies, rerun-requests
+project/          # intent -> files pipeline, templates, preview
+mcp/              # MCP server, generated from the tool catalog in docs/spec/mcp-tools/
+core/             # shared interfaces (MonorepoStore, etc.)
+cmd/runko/        # human/agent CLI
+cmd/runko-ci/     # CI-facing CLI/image
+```
+
+Each package header cites the spec section(s) it implements. Shell out to system `git`; do not use a Git-in-Go library (the spec mandates matching real upstream Git behavior).
+
+## Implementation strategy (spec Appendix D, §28) — read before starting real build work
+
+The spec's own build plan, since it's the most concrete guidance available:
+
+- **Spec-before-code**: three pre-session-1 blockers must exist under `docs/spec/` before any implementation session — the `PROJECT.yaml` v1 schema, the MCP tool catalog as real JSON Schemas, and the webhook/CheckRun JSON Schemas (§26 #2/#3/#8, §28.4).
+- **Deterministic codegen over hand-written boilerplate**: `oapi-codegen` from OpenAPI, `sqlc` from DDL + named queries, generated types shared across platform/`runko-ci`/MCP from one schema source. Never hand-edit generated files — regenerate.
+- **Terse git-fixture test harness** (git's own `t/`-suite style): throwaway repos from short scripts, golden-file diffs, fake clock + seeded IDs, `make check` < 30s. Build this before the receive/land engines — they're the highest-risk ("discovery", not "transcription") components per §28.1.
+- **SSR + htmx** for the Phase 0–1 web UI (wizard, change page, merge requirements) — no SPA until Phase 2.
+- **One PR per session, along the dependency DAG in §28.3**; don't touch packages two hops away from the session's focus.
+- **No mid-session dependency additions, no refactors outside the session's package, no UI polish before the end-to-end compose loop (`compose up → create project → change → land`) is green.**
+
+## Where to look in docs/design.md for a given topic
+
+| Topic | Section |
+|---|---|
+| Object model (Org/Monorepo/Project/Workspace/Change/Owner/Agent) | §7 |
+| Agentic coding subsystem, MCP tool catalog, AgentPolicy | §8 |
+| High-level component architecture, data stores, deployment shapes | §9 |
+| Project creation intent→files pipeline | §10 |
+| Git usage, write paths, `MonorepoStore` interface | §11 |
+| Workspaces (CitC-class, snapshot refs, Josh, phases A/B/C) | §12 |
+| Change lifecycle, affected computation, merge gates/landing | §13 |
+| CI/CD integration contracts, webhook/Checks schemas, CI tier matrix | §14 |
+| Auth, multi-tenancy, read ACLs, threat model | §15 |
+| OSS/self-host scope, license, compose eval definition of done | §16 |
+| CLI/Web/Editor/MCP client surfaces | §17 |
+| Migration & mirror-first adoption ladder | §18 |
+| Phased delivery plan (Phase 0–4) | §19 |
+| Competitive landscape and prior art (jj, Josh, Scalar, Gerrit, CitC) | §21 |
+| Decided-vs-open questions | §22 |
+| Implementation strategy, token budget, session DAG | §28 |
