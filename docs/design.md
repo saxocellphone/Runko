@@ -125,7 +125,7 @@ Software is increasingly written by **agents under human supervision**:
 | NG1 | Proprietary non-Git VCS as the daily driver |
 | NG2 | Being the primary CI/CD **execution** platform (runners, RBE, pipeline UI as product core) — **integration is in scope and critical** |
 | NG3 | Feature parity with GitHub/GitLab as a general forge |
-| NG4 | Mandatory Bazel/Buck only (may be *recommended* templates later; not a hard platform law in v1) |
+| NG4 | Platform-wide build-system mandate. Refined (§14.5.4): we are **opinionated by criterion** — only hermetic/incremental systems (Bazel, Buck2) ever get engine status, greenfield golden path is Bazel-first, and orgs may self-mandate via `require_build_binding` — but brownfield adoption is never gated on a build migration |
 | NG5 | Multi-monorepo virtual federation as the primary model |
 | NG6 | Perfect multi-OS production FUSE on day one |
 | NG7 | Path-isolated multi-tenant “hostile co-tenants in one repo” at bank grade (single-tenant self-host is the trust model) |
@@ -382,6 +382,7 @@ Projects have a **type** and optional **capabilities** rather than one giant man
 | `http` | Scaffold HTTP entrypoints |
 | `deploy` | Attach deploy config template (k8s/chart stub—org defined) |
 | `data_store` | Document/store binding placeholders (no forced vendor) |
+| `build` | Declare build-graph binding (engine: `bazel` now, `buck2` planned; target patterns default to `//<project-path>/...`) enabling adapter-refined affected (§14.5.4) |
 
 Enabling a capability is a **product action** (`project add-capability rpc`), not “edit 80 lines of YAML.”
 
@@ -947,7 +948,7 @@ workspace edits (human and/or agent)
 
 **Decided (was an open question):** inferred dependencies are **advisory-only in v1** — surfaced in the UI as "suggested dependency: promote to declared?", never feeding merge gates. Import-based inference is a per-language, multi-year surface (it is Pants' core competency), and a stale async indexer feeding merge gates is a correctness hazard. Gate on facts (paths, declared edges); suggest from inference; fail closed to `run_everything`.
 
-Optional later: Bazel/Buck/language importers—still not required.
+**Build graphs are a third trust class** (promoted from Tier-3; see §14.5.4): BUILD/BUCK files are *declared* facts, evaluated hermetically at the exact `head_sha` — categorically unlike async language-import inference. A **synchronous** build-graph query may therefore *refine* affected — always for CI scoping, and (org opt-in) for gate-grade check-set scoping — failing closed to `run_everything` on any query error, timeout, or version skew. The platform's own computation remains paths + declared project deps: correct with **no build system installed** (NG4 — a build graph sharpens affected; it is never required for it).
 
 ### 13.4 Review UX
 
@@ -963,6 +964,7 @@ Optional later: Bazel/Buck/language importers—still not required.
 | Required human owners approved | Yes — with global-approver / mechanical-change relaxations (§7.3) |
 | Agent-only approval | **No** (default policy) |
 | Unowned paths | Configurable block |
+| Projects without a `build` binding | Org opt-in block (`require_build_binding`, hermetic discipline — §14.5.4) |
 | External CI on affected set | Yes |
 | Land semantics | **Optimistic land with revalidation** (below) |
 | Full merge queue | v1.x — as a batching/pipelining optimization of the same rule |
@@ -1174,7 +1176,7 @@ This is as important as the Checks API—**slow full clones will kill monorepo C
 | Project list | Matrix axes (`project: [a,b,c]`) |
 | Paths | Path-based tools, docker build contexts |
 | `run_everything` | Global jobs (release tooling, root lint) |
-| Optional target labels (later) | Bazel `//foo:bar` style when adapter present |
+| Target labels | `//foo:bar` sets from the §14.5.4 build-graph adapter when enabled |
 | Computation id | Cache keys / reproducibility debug |
 
 #### 14.5.2 When to run what (template policy defaults)
@@ -1191,8 +1193,44 @@ This is as important as the Checks API—**slow full clones will kill monorepo C
 Document clearly:
 
 - v1 affected = path→project + **declared** deps + root-invalidation rules; inference is advisory-only and never gates (§13.3)  
+- Build-graph adapters (§14.5.4) refine this floor to target level — runner-side, fail-closed, optional  
 - Templates should treat unknown/edge as **fail closed to broader run** when `run_everything` or on computation error—not fail open to “run nothing”  
 - Org setting: `affected.strictness` = `conservative` (default) | `aggressive`  
+
+#### 14.5.4 Build-graph adapters (Bazel first; engine-agnostic by design)
+
+Project-level affected is the **floor** — correct with zero build tooling. For monorepos with a real build graph, target-level precision is the difference between "test 4 projects" and "test 37 targets," and it is much of the monorepo's economic argument at scale. We integrate that precision **without becoming a build system** (§2.5, §14.16):
+
+| Contract element | Definition |
+|---|---|
+| Inputs | Checkout at `head_sha`, changed paths, universe pattern (e.g. `//...`), engine binary from the **runner's** toolchain |
+| Output | Target set (e.g. `tests(rdeps(//..., set(<changed files>)))`), optional target→project mapping |
+| Runs | **Runner-side only**: `runko-ci affected --engine bazel` — the platform daemon never executes customer build tooling |
+| Failure mode | Any query error, timeout, or engine/version skew ⇒ `run_everything=true` (fail closed, §14.5.3) |
+| Trust class | **Declared, not inferred** (§13.3): hermetic evaluation at the exact `head_sha` makes engine output gate-eligible — unlike async import inference |
+| Refinement post-back | Adapter may POST the refined target set to the Change as an *affected refinement*, shown alongside the platform's project-level computation; org policy chooses whether check-set policies key on projects (default) or refined targets (opt-in) |
+
+**Engine matrix** — the contract is the product; engines are implementations:
+
+| Engine | Status | Notes |
+|--------|--------|-------|
+| **Bazel** | v1 implementation | `bazel query`/`cquery` rdeps recipes shipped with the adapter |
+| **Buck2** | planned; contract-shaped from day one | `buck2 uquery` exposes the identical rdeps shape — second implementation proves the interface |
+| Pants / others | contract is public | Community implementations welcome |
+
+Division of responsibility stays intact (§14.2): we own the affected floor (paths + declared project deps); the adapter, running on customer runners with the customer's toolchain, supplies the ceiling. RBE and remote caching stay with Namespace/BuildBuddy/EngFlow (§21.3) — they *consume* the adapter's target sets.
+
+**Engine admission criteria (this is where we are opinionated).** A build system qualifies as an engine only if it provides:
+
+1. **Declared** targets (explicit BUILD/BUCK-class files — not config conventions)  
+2. **Hermetic evaluation at a SHA** (same checkout ⇒ same graph, no ambient state)  
+3. **A reverse-dependency query** (`rdeps`-equivalent) over that graph  
+
+Bazel and Buck2 qualify; Pants largely qualifies. **Task runners (Make, Turborepo/Nx task graphs, npm scripts) structurally never qualify** — their graphs are package-coarse and non-hermetic, so they can never earn gate-grade trust, and we will not build engine adapters for them. This is opinionation **by criterion, not by list**: the door is open to any future hermetic system and permanently closed to everything else. Non-qualifying stacks use the platform floor — which is also the escape hatch that keeps NG4 honest.
+
+**Golden-path opinion (greenfield).** Orgs created from a template monorepo may set `build_discipline: hermetic` (recommended default for new orgs): templates emit BUILD files, `project create` wires targets automatically (principle 8 — generated, never hand-authored), and default check-sets run `bazel test` over refined targets. The full opinion, with none of the ceremony that made Bazel adoption infamous. Existing orgs importing brownfield repos (§18) are **never** gated on a build-system migration — that would re-add the adoption cliff §18 exists to remove.
+
+**Org-level mandate (opt-in, not platform law).** `require_build_binding: true` blocks merges for projects lacking a `build` capability — for orgs that want hermetic discipline enforced. The platform recommends the opinion; the org enacts it.
 
 ### 14.6 Plugins vs templates (delivery model)
 
@@ -1237,13 +1275,15 @@ We ship **both**—they solve different problems:
 | **GitLab CI** | `include:` templates; CI OIDC; bridge for non-GitLab-hosted monorepo |
 | **CircleCI** | Orb + config examples |
 | **Jenkins** | Shared library + freestyle/pipeline examples; polling fallback documented |
+| **Bazel adapter** | `runko-ci affected --engine bazel` per the §14.5.4 contract + "affected → bazel test" template; **pulled into Tier 1 if the dogfood monorepo is Bazel-built** |
 
 #### Tier 3 — demand-driven
 
 | System | Notes |
 |--------|-------|
 | **Tekton / Argo Workflows** | Kubernetes-native examples; Task CRDs calling `runko-ci` |
-| **BuildBuddy / Bazel remote** | Not our runners; **template** for “affected → bazel test” when monorepo uses Bazel |
+| **BuildBuddy / Bazel remote execution** | Not our runners; RBE/caching stay customer-side — they consume the §14.5.4 adapter's target sets |
+| **Buck2 engine** | Second §14.5.4 implementation when demand arrives; the contract is Buck2-shaped from day one |
 | **Earthly, Dagger, etc.** | Examples only |
 | **Azure DevOps / Bitbucket Pipelines** | If customer demand |
 
@@ -1603,6 +1643,7 @@ The bidirectional mirror is the highest-risk component in the adoption ladder. W
 - Project default checks from templates  
 - Sparse-checkout API consumed by `runko-ci`  
 - `import` execution hardening (history, tags, permissions mapping, CI shadow — §18.3)  
+- **Build-graph adapter** (§14.5.4): engine contract + Bazel implementation in `runko-ci` (DAG stage 9b)  
 
 ### 19.4 Phase 3 — Stack UX + scale polish + **CI Tier 2**
 
@@ -1618,7 +1659,7 @@ The bidirectional mirror is the highest-risk component in the adoption ladder. W
 
 - Virtual FS: **adopt-only, likely never** (§12.3) — revisit only on multi-org storage-mechanics telemetry  
 - Stronger forge mirrors (hybrid GHA-2 topology polish); SoR-flip + consolidation tooling at scale (§18 stages 2–3)  
-- Optional build-system adapters (Bazel affected targets → CI matrix)  
+- **Buck2 engine** for the §14.5.4 adapter contract (second implementation proves the interface)  
 - Pluggable code search backends beyond the Zoekt default  
 - Demand-driven Tier 3 CI examples  
 
@@ -1716,6 +1757,8 @@ Not any single vendor — the combination a platform team can assemble on GitHub
 | Git hosting substrate | **Bare repo + smart-HTTP + our receive hooks** — not a forge (Gitea/Forgejo stay mirror targets, §21.3): the write path *is* the product |
 | Product **name** | **Runko** (§1) — CLI `runko`, env `RUNKO_*`, CI CLI `runko-ci`; registries clear at decision time; formal TM clearance before public launch |
 | MVP web stack | **Server-rendered + htmx for Phases 0–1** (wizard, change page, merge requirements); SPA investment deferred to Phase 2 review UX (§28.2) |
+| Build-graph integration | **Runner-side adapter contract; Bazel first, Buck2-shaped** (§14.5.4). Platform floor stays paths + declared deps (NG4 intact); engine output refines CI scope by default, gates only by org opt-in; every engine failure ⇒ `run_everything` |
+| Build-system opinionation | **Opinionated by criterion, not mandate** (§14.5.4): engine status requires declared + hermetic-at-SHA + rdeps-queryable (Bazel ✓, Buck2 ✓; task runners never); greenfield golden path `build_discipline: hermetic` with generated BUILD files; org opt-in `require_build_binding` merge gate; brownfield adoption never gated on a build migration (§18 cliff rule) |
 
 ### 22.3 Open questions
 
@@ -1799,6 +1842,8 @@ Agent never authors a multi-section platform manifest from memory.
 | **Snapshot ref** | `refs/workspaces/<id>/head` — workspace durability as real commits through the receive funnel (§12.2) |
 | **Environment contract** | Requirements a remote dev/agent VM image must satisfy; fulfilled by Coder/devcontainer templates (§12.3) |
 | **Josh slice** | Optional per-principal filtered remote (rewritten SHAs) for restricted reads, slice-as-repo, and import sync (§12.3 Phase B) |
+| **Build-graph adapter** | Runner-side engine plugin (Bazel now, Buck2 planned) refining affected to target level under the §14.5.4 contract; fail-closed to `run_everything` |
+| **Affected refinement** | Adapter-posted target-level narrowing of a Change's affected set; CI-scoping by default, gate-grade by org opt-in (§14.5.4) |
 
 ---
 
@@ -1813,6 +1858,9 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-06 | Review-response revision: §1 compressed to 3 pillars; top-5 dogfood metrics (§3.3); closed-trunk human UX (§6.9); plain-Git write path via `refs/for/*` (§11.5); dual governance during mirror stage (§8.10); mirror service in architecture (§9.1) + protocol invariants (§18.6); snapshot-first overlay sync (§12, §19.3); §14.5.3 aligned to declared-only gating; read-ACL model (§15.2); compose-eval scope for the 15-min claim (§16.4); Connect CI / Import client surfaces (§17.2); Phase 1 split into core/stretch (§19.2) |
 | 2026-07-06 | Substrate-radicalization revision: custom CAS/overlay plane **deleted** — workspaces are upstream-Git glue with durability as snapshot refs through the §11.5 receive funnel (§9, §12); remote/agent VMs external via environment contract (Coder/devcontainer templates); Josh-proxy adopted as *optional* capability (restricted reads §15.2, slice-as-repo, import sync) — not the default path (SHA identity); virtual FS hardened to adopt-only-likely-never; Gitea/Forgejo-as-host **rejected** (write path is the product; they remain mirror targets); decisions table extended (§22.2) |
 | 2026-07-06 | Named **Runko** (rejected: banyan, cambium, pando, stemma — all hard collisions); full `maas`→`runko` rename incl. `RUNKO_*` env contract and `runko-ci`; **Appendix D added**: token-efficient implementation strategy (per-component budget, 7 standing rules, 15-stage session DAG, pre-session-1 checklist, session anti-goals); §22.2 + §22.3 + §26 updated (naming resolved; spec artifacts #2/#3/#8 marked pre-session-1 blockers; MVP web stack decided SSR+htmx) |
+| 2026-07-06 | **Build-graph adapters promoted** from Tier-3 template to first-class contract (§14.5.4): runner-side only (daemon never runs customer tooling), Bazel first / Buck2-shaped, declared-not-inferred trust class (gate-eligible by org opt-in, refining §13.3's floor without reopening it), fail-closed to `run_everything`; new `build` capability (§7.2); Bazel → Tier 2 with Tier-1 pull trigger (§14.7); DAG stage 9b + budget row (§28); adapter contract spec added to §26 |
+| 2026-07-06 | **Build-system opinionation codified** (§14.5.4, NG4 refined, §13.5, §22.2): engine admission by criterion (declared + hermetic-at-SHA + rdeps) — Bazel/Buck2 in, task runners permanently out; greenfield golden path `build_discipline: hermetic` (templates generate all BUILD files); org opt-in `require_build_binding` merge gate; hard platform-wide mandate **rejected** — brownfield adoption is never gated on a build-system migration |
+| 2026-07-06 | **DAG revised after stages 0–9 shipped** (§28.3, §28.4): completed stages collapsed to a history note; new stage 9a (hardening: live-Postgres tests, stage-8 check-set fixes, CLI resolve-or-explain error UX, git ≥ 2.40 gate), 9c (opinionation mechanics), and explicit stage 10 `runkod` daemon assembly (smart-HTTP + pre-receive wiring + gitleaks scanner — previously implicit); MCP/Zoekt/web/compose renumbered 11–14; dogfood is stage 15 with a recorded Bazel-migration decision point; pre-stage checklist reduced to one blocker (adapter contract spec, §26 #13) |
 
 ---
 
@@ -1830,6 +1878,7 @@ Agent never authors a multi-section platform manifest from memory.
 10. **Migration & mirror-first onboarding RFC**: `import plan` report format, bidirectional mirror semantics, CI shadow parity dashboard, SoR-flip checklist (§18)  
 11. ~~**Naming decision**~~ — **done: Runko** (§1, §22.2)  
 12. **jj / Josh adopt-vs-build evaluation** for the workspace read path (§12.3, §21.2)  
+13. **Build-graph adapter contract spec** (engine interface, refinement post-back schema, Bazel query recipes, Buck2 mapping notes) — blocks DAG stage 9b (§14.5.4, §28.3)  
 
 ---
 
@@ -1866,6 +1915,7 @@ Agent never authors a multi-section platform manifest from memory.
 | Checks + merge requirements (check-sets, TTL, re-runs) | §14.4.2 | transcription | 2–3 | ~1.5M |
 | Webhook outbox (HMAC, retry, DLQ, replay) | §14.4.1 | transcription | 1–2 | ~0.7M |
 | `runko` CLI + doctor; `runko-ci` | §17.1, §14.6 | transcription | 2–3 | ~1M |
+| Build-graph adapter: contract + Bazel engine | §14.5.4 | transcription + fixture discovery | 2–3 | ~1.5M |
 | MCP server (generated from tool catalog) | §8.3 | transcription | 1–2 | ~0.7M |
 | Zoekt integration + AGENTS.md generator | §8.2, §8.8 | transcription | 1 | ~0.4M |
 | Minimal web (SSR wizard, change page, requirements) | §17.2, §22.2 | scoped | 2–4 | ~1.7M |
@@ -1883,33 +1933,28 @@ Agent never authors a multi-section platform manifest from memory.
 6. **Context locality.** One Go module; one package per design section (`receive/`, `land/`, `affected/`, `checks/`, `project/`, `mcp/`), interfaces in a tiny `core/`; each package header cites its §; **this design doc lives in the repo** (`docs/design.md`) so sessions grep it instead of being pasted it; repo AGENTS.md ≤ 150 lines (commands, layout map, "read the cited § before editing", the §6.5 error struct). This is §8.2's context-budget rule applied to building the product.
 7. **One PR per session, along the DAG (28.3).** A session must not open files from a package two hops away. Rework across sessions is the hidden 2–3×.
 
-### 28.3 Session DAG (each stage = 1 PR-sized session unless noted)
+### 28.3 Session DAG (revised 2026-07-06 — stages 0–9 complete)
+
+> **Completed** (repo history `cb09d6d` → `590b3bd`, incl. review-driven fail-open fix `0ab8037`): spec artifacts, bootstrap + harness, persistence, project model, tree indexer + owners, affected, receive funnel (scoped), land engine, checks + merge requirements + webhook outbox, `runko` CLI + `runko-ci`. This table carries **remaining work only**. Review debt is a first-class stage (9a), not a footnote — it blocks the daemon.
 
 | # | Stage | Depends on | Done when |
 |---|-------|-----------|-----------|
-| 0 | Spec artifacts (3–4 sessions) | — | Schemas committed under `docs/spec/`; types generate cleanly |
-| 1 | Repo bootstrap + git-fixture harness | 0 | `make check` green in < 30s; fixture repo builder + golden diffs work |
-| 2 | Persistence (DDL + sqlc) | 1 | Migrations apply; generated queries compile |
-| 3 | Project model + templates + preview | 2 | `create_project` intent → files → commit round-trips in harness |
-| 4 | Tree indexer + owners | 3 | Index rebuild from trunk is one command; owners resolution table-tested |
-| 5 | Affected | 4 | Property tests incl. `run_everything` root rules |
-| 6 | Receive funnel (3–5 sessions) | 4 | §6.9 bar: first Change from raw clone guided only by pre-receive messages |
-| 7 | Change model + land engine (3–5 sessions) | 5, 6 | Race suite green: clean land, intersecting delta revalidation, `revalidation: always` |
-| 8 | Checks + merge requirements + webhook outbox | 7 | Contract tests against `docs/spec/` schemas; check-set aggregation table-tested |
-| 9 | `runko` CLI + doctor; `runko-ci` | 6, 8 | `runko-ci checkout/affected/report-check` round-trips against local compose |
-| 10 | MCP server | 8 | Tools generated from catalog; structured errors per §6.5 |
-| 11 | Zoekt + AGENTS.md generator | 4 | `search_code` returns project-tagged hits |
-| 12 | Minimal web | 8 | Wizard + change page + requirements over SSR |
-| 13 | Compose + measured 15-min loop in CI | 9–12 | §16.4 smoke: `compose up → create → change → land` timed, green per release |
-| 14 | Dogfood hardening (3–5 sessions) | 13 | Platform hosts its own repo; real GHA checks gate its own Changes |
+| 9a | **Hardening pass — review debt** (1–2 sessions; ready now) | — | ① Live-Postgres integration tests (`make check-db`, compose/testcontainer) cover stage-2/4/6/8 SQL incl. outbox + reruns; ② stage-8 fixes: pending check-set blocker count/label corrected; missing runs appear in `required` + `pending` arrays; ③ CLI **resolve-or-explain** helper (§6.5): unborn-HEAD `project create` (empty repo, §6.7) and unknown-revision errors return structured guidance — no raw `exit status 128` passthrough; ④ git ≥ 2.40 startup check (merge-tree `--merge-base`) or env-contract bump |
+| 9b | Build-graph adapter: engine contract + Bazel impl (`--engine bazel`, §14.5.4) | artifact #13 (§26) | Fake-engine fixture tests green (scripted `bazel` binary, hermetic); real-Bazel integration test behind a tag; **any engine failure ⇒ `run_everything`** table-tested |
+| 9c | Opinionation mechanics (§14.5.4): `build_discipline: hermetic` golden path + `require_build_binding` gate | 9b | Greenfield template org: `project create` emits generated BUILD wiring + default `bazel test` check-sets with **zero hand-authored BUILD lines**; with the org gate on, an unbound project's Change reports the §13.5 blocker |
+| 10 | **`runkod` daemon assembly** (was implicit in the old DAG; now explicit — 2–3 sessions) | 9a | Smart-HTTP hosting (bare repo + `git http-backend` + pre-receive wiring `receive.Decide()`); REST endpoints: changes / checks / affected / merge-requirements; outbox delivery worker; **gitleaks-backed `SecretScanner`** (closing the stage-6 seam); deploy-token auth. Bar, over the wire: push to `refs/for/main` creates a Change; direct trunk push gets the §6.9 script; `runko-ci report-check` round-trips against it |
+| 11 | MCP server (generated from catalog) | 10 | Tools generated from `docs/spec/mcp-tools/`; structured errors per §6.5 |
+| 12 | Zoekt + AGENTS.md generator | 10 | `search_code` returns project-tagged hits through the daemon |
+| 13 | Minimal web (SSR + htmx) | 10 | Wizard + change page + merge requirements |
+| 14 | Compose + measured 15-min loop in CI | 10–13 | §16.4 smoke: `compose up → create → change → land` timed, green per release |
+| 15 | Dogfood hardening (3–5 sessions) | 14 | Platform hosts its own repo; real GHA checks gate its own Changes. **Decision point recorded:** migrate Runko's repo to Bazel — fires the §14.7 Tier-1 pull trigger and dogfoods the §14.5.4 golden path |
 
-### 28.4 Pre-session-1 checklist
+### 28.4 Pre-stage checklist (updated 2026-07-06)
 
-1. ~~Product name~~ — **Runko** (§1, §22.2) ✅  
-2. **PROJECT.yaml v1 schema** (§26 #2) — blocks stages 3–5  
-3. **MCP tool catalog schemas** (§26 #3) — blocks stage 10  
-4. **Webhook/CheckRun JSON Schemas** (§26 #8) — blocks stages 8–9  
-5. Go module path (`github.com/<org>/runko`), license headers, ~~web stack~~ — SSR+htmx ✅ (§22.2)
+Original pre-session-1 items: **all complete** — name (Runko), PROJECT.yaml v1 schema, MCP catalog, webhook/CheckRun schemas, module path (`github.com/saxocellphone/runko`), SSR+htmx decision. Current blockers:
+
+1. **Build-graph adapter contract spec** (§26 #13) — blocks stages 9b and 9c: engine interface, refinement post-back schema, Bazel query recipes, Buck2 mapping notes  
+2. Nothing blocks 9a or 10 — both startable today; **9a first** (it's review debt the daemon builds on)
 
 ### 28.5 Anti-goals for implementation sessions
 
