@@ -32,6 +32,32 @@ func TestExtraEnvIsForwardedToGit(t *testing.T) {
 	}
 }
 
+// TestExtraEnvReachesGetBlobContentRead guards a second, subtler instance of
+// the same quarantine bug (found via TestEndToEndDaemonRequiredCheckBlocksLand-
+// WithZeroRunsPosted's log output, §28.3 stage 11c): GetBlob's rev-parse step
+// went through run() and honored ExtraEnv, but its cat-file content read was a
+// raw exec.Command with no env at all - so on a repo's very first push, the
+// daemon's same-request affected scan could resolve a quarantined PROJECT.yaml's
+// blob SHA yet fail to read its content (exit 128). The GIT_DIR trick above
+// exposes exactly that split: rev-parse succeeds, and pre-fix cat-file ran in a
+// non-repo directory and died.
+func TestExtraEnvReachesGetBlobContentRead(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hello\n")
+	repo.Commit("initial")
+
+	notARepo := t.TempDir()
+	s := &Store{Dir: notARepo, ExtraEnv: []string{"GIT_DIR=" + repo.Dir + "/.git"}}
+
+	blob, err := s.GetBlob("HEAD", "README.md")
+	if err != nil {
+		t.Fatalf("GetBlob with ExtraEnv-forwarded GIT_DIR: %v", err)
+	}
+	if string(blob.Content) != "hello\n" {
+		t.Fatalf("GetBlob content: want %q, got %q", "hello\n", blob.Content)
+	}
+}
+
 func TestWithoutExtraEnvNonRepoDirFails(t *testing.T) {
 	s := New(t.TempDir())
 	if _, err := s.ResolveRef("HEAD"); err == nil {

@@ -44,7 +44,13 @@ func New(dir string) *Store {
 	return &Store{Dir: dir, Ref: "HEAD"}
 }
 
-func (s *Store) run(env []string, args ...string) (string, error) {
+// command builds a git invocation with the Store's env fallback applied: an
+// explicit per-call env wins outright, otherwise ExtraEnv is appended to the
+// ambient environment. Every subprocess in this package must be built here -
+// a raw exec.Command silently drops ExtraEnv's quarantine forwarding
+// (GIT_OBJECT_DIRECTORY et al.), which is invisible until the object being
+// read exists only in a push's quarantine directory.
+func (s *Store) command(env []string, args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = s.Dir
 	switch {
@@ -53,6 +59,11 @@ func (s *Store) run(env []string, args ...string) (string, error) {
 	case s.ExtraEnv != nil:
 		cmd.Env = append(os.Environ(), s.ExtraEnv...)
 	}
+	return cmd
+}
+
+func (s *Store) run(env []string, args ...string) (string, error) {
+	cmd := s.command(env, args...)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
@@ -113,12 +124,14 @@ func (s *Store) GetBlob(rev core.Revision, path string) (core.Blob, error) {
 	if err != nil {
 		return core.Blob{}, err
 	}
-	cmd := exec.Command("git", "cat-file", "-p", sha)
-	cmd.Dir = s.Dir
-	content, err := cmd.Output()
-	if err != nil {
-		return core.Blob{}, fmt.Errorf("git cat-file -p %s: %w", sha, err)
+	cmd := s.command(nil, "cat-file", "-p", sha)
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return core.Blob{}, fmt.Errorf("git cat-file -p %s: %w: %s", sha, err, strings.TrimSpace(errBuf.String()))
 	}
+	content := out.Bytes()
 	return core.Blob{SHA: sha, Size: int64(len(content)), Content: content}, nil
 }
 
@@ -186,9 +199,7 @@ func (s *Store) CommitOverlay(base core.Revision, overlay core.Overlay, meta cor
 }
 
 func (s *Store) hashObjectWrite(env []string, content []byte) (string, error) {
-	cmd := exec.Command("git", "hash-object", "-w", "--stdin")
-	cmd.Dir = s.Dir
-	cmd.Env = env
+	cmd := s.command(env, "hash-object", "-w", "--stdin")
 	cmd.Stdin = bytes.NewReader(content)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
