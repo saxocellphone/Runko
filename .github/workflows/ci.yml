@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # Real Postgres service container (docs/design.md §28.3 stage 9d) - the
+    # live-Postgres tests added in stage 9a (internal/dbtest, index/receive/
+    # checks' *_pg_test.go) could not be executed in the sandbox this repo
+    # was originally built in (no Docker/Postgres there - see CLAUDE.md).
+    # This is the first environment that actually runs them.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: runko
+          POSTGRES_PASSWORD: runko
+          POSTGRES_DB: runko_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: make check (fmt + vet + test, no live Postgres needed)
+        run: make check
+
+      - name: Ensure psql client is installed
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: make check-db (live-Postgres integration tests, §28.3 stage 9a)
+        env:
+          RUNKO_TEST_DATABASE_URL: postgres://runko:runko@localhost:5432/runko_test?sslmode=disable
+        run: make check-db
