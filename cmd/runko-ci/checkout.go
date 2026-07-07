@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/saxocellphone/runko/internal/clierr"
+)
 
 // Checkout implements `runko-ci checkout` (§14.4.4, §14.6): partial-clone
 // remote (never fetching blob content outside what's needed) into destDir,
@@ -21,7 +25,7 @@ func Checkout(remote, destDir, rev string, projectPaths []string) error {
 		}
 	}
 	if _, err := runGit(destDir, "checkout", "--quiet", rev); err != nil {
-		return fmt.Errorf("checkout %s: %w", rev, err)
+		return clierr.WrapRevisionError(fmt.Errorf("checkout %s: %w", rev, err), "--rev", rev)
 	}
 	return nil
 }

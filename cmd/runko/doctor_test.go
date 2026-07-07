@@ -78,6 +78,32 @@ func TestInstalledHookActuallyAddsChangeID(t *testing.T) {
 	}
 }
 
+func TestRunDoctorDetectsGitVersion(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("init")
+
+	report, err := RunDoctor(repo.Dir, "main")
+	if err != nil {
+		t.Fatalf("RunDoctor: %v", err)
+	}
+	if report.GitVersion == "" {
+		t.Fatalf("expected a detected git version, got %+v", report)
+	}
+	if report.GitVersionError != "" {
+		t.Fatalf("did not expect a git version detection error in this environment: %+v", report)
+	}
+}
+
+func TestPrintCheatSheetWarnsOnOldGit(t *testing.T) {
+	var buf strings.Builder
+	PrintCheatSheet(&buf, DoctorReport{TrunkRef: "main", GitVersion: "2.30.0", GitVersionOK: false})
+	out := buf.String()
+	if !strings.Contains(out, "too old") {
+		t.Fatalf("expected cheat sheet to warn about an old git version, got:\n%s", out)
+	}
+}
+
 func TestPrintCheatSheetMentionsTrunkRef(t *testing.T) {
 	var buf strings.Builder
 	PrintCheatSheet(&buf, DoctorReport{TrunkRef: "main", HasRemote: true, RemoteName: "origin", RemoteURL: "https://x"})

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/saxocellphone/runko/internal/gitversion"
 )
 
 // RebaseResult is the outcome of attempting to rebase a Change onto a new
@@ -34,6 +36,10 @@ var conflictPathPattern = regexp.MustCompile(`^CONFLICT \([^)]+\): .* in (.+)$`)
 // base (built via gitstore.CommitOverlay), so a 3-way merge here is
 // equivalent to what `git rebase --onto` would produce for that one commit.
 func Rebase(repoDir, oldBase, newBase, changeHead string) (RebaseResult, error) {
+	if err := gitversion.Check(); err != nil {
+		return RebaseResult{}, fmt.Errorf("land: %w", err)
+	}
+
 	cmd := exec.Command("git", "merge-tree", "--write-tree", "--merge-base="+oldBase, newBase, changeHead)
 	cmd.Dir = repoDir
 	var out bytes.Buffer

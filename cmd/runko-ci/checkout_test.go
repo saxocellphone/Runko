@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
 )
 
@@ -63,5 +65,24 @@ func TestCheckoutRequiresProjectsForSparseCone(t *testing.T) {
 	// documents that behavior rather than asserting a specific file set.
 	if err := Checkout(repo.Dir, dest, head, nil); err != nil {
 		t.Fatalf("Checkout with no project paths should still succeed: %v", err)
+	}
+}
+
+func TestCheckoutBadRevReturnsStructuredError(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/main.go", "package main\n")
+	repo.Commit("one project")
+
+	dest := filepath.Join(t.TempDir(), "checkout")
+	err := Checkout(repo.Dir, dest, "not-a-real-revision", nil)
+	if err == nil {
+		t.Fatalf("expected an error for an unresolvable --rev")
+	}
+	var ce *clierr.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected a *clierr.Error, got %T: %v", err, err)
+	}
+	if ce.Field != "--rev" {
+		t.Fatalf("expected the error to identify --rev as the culprit, got %+v", ce)
 	}
 }

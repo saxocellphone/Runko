@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/saxocellphone/runko/internal/gitversion"
 )
 
 // changeIDHookScript is a minimal commit-msg hook mirroring what the real
@@ -31,6 +33,9 @@ type DoctorReport struct {
 	RemoteURL       string
 	HasChangeIDHook bool
 	HooksDir        string
+	GitVersion      string
+	GitVersionOK    bool
+	GitVersionError string // set when git --version itself couldn't be parsed
 }
 
 // RunDoctor inspects repoDir and returns a DoctorReport. It never fails hard
@@ -44,6 +49,13 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 	}
 	report.HooksDir = hooksDir
 	report.HasChangeIDHook = hookInstalledAt(filepath.Join(hooksDir, "commit-msg"))
+
+	if v, err := gitversion.Detect(); err != nil {
+		report.GitVersionError = err.Error()
+	} else {
+		report.GitVersion = v.String()
+		report.GitVersionOK = !v.Less(gitversion.Minimum)
+	}
 
 	if remotes, err := runGit(repoDir, "remote"); err == nil {
 		if names := strings.Fields(remotes); len(names) > 0 {
@@ -103,6 +115,14 @@ func InstallChangeIDHook(repoDir string) error {
 // for: the three commands that matter, plus what needs fixing.
 func PrintCheatSheet(w io.Writer, report DoctorReport) {
 	fmt.Fprintln(w, "runko doctor")
+	switch {
+	case report.GitVersionError != "":
+		fmt.Fprintf(w, "  git version:     could not detect (%s)\n", report.GitVersionError)
+	case !report.GitVersionOK:
+		fmt.Fprintf(w, "  git version:     %s - too old, need >= %s (`git merge-tree --merge-base`)\n", report.GitVersion, gitversion.Minimum)
+	default:
+		fmt.Fprintf(w, "  git version:     %s (OK)\n", report.GitVersion)
+	}
 	if report.HasRemote {
 		fmt.Fprintf(w, "  remote:          %s -> %s\n", report.RemoteName, report.RemoteURL)
 	} else {

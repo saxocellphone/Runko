@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
 )
 
@@ -65,5 +67,27 @@ func TestAffectedDefaultHeadIsHEAD(t *testing.T) {
 	}
 	if len(result.Projects) != 1 || result.Projects[0].Name != "checkout-api" {
 		t.Fatalf("expected checkout-api affected via HEAD, got %+v", result.Projects)
+	}
+}
+
+// TestAffectedBadBaseReturnsStructuredError exercises the resolve-or-explain
+// requirement (§6.5, §28.3 stage 9a item 3): a typo'd --base must surface as
+// a clierr.Error with guidance, not git's raw "ambiguous argument ...
+// unknown revision" exit-128 text.
+func TestAffectedBadBaseReturnsStructuredError(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", manifest("checkout-api", "service"))
+	repo.Commit("initial")
+
+	_, err := Affected(repo.Dir, "not-a-real-revision", "HEAD", nil)
+	if err == nil {
+		t.Fatalf("expected an error for an unresolvable --base")
+	}
+	var ce *clierr.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected a *clierr.Error, got %T: %v", err, err)
+	}
+	if ce.Field != "--base" {
+		t.Fatalf("expected the error to identify --base as the culprit, got %+v", ce)
 	}
 }

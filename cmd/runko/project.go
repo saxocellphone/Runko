@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/saxocellphone/runko/core"
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/project"
 )
@@ -22,9 +23,9 @@ func CreateProject(repoDir string, intent project.Intent) (rev string, err error
 		return "", fmt.Errorf("invalid intent: %v", errs)
 	}
 
-	base, err := store.ResolveRef("HEAD")
+	base, err := resolveBaseOrEmpty(repoDir, store)
 	if err != nil {
-		return "", fmt.Errorf("resolve HEAD: %w", err)
+		return "", err
 	}
 
 	newRev, err := project.Apply(store, base, plan, core.CommitMeta{
@@ -50,4 +51,44 @@ func CreateProject(repoDir string, intent project.Intent) (rev string, err error
 	}
 
 	return string(newRev), nil
+}
+
+// resolveBaseOrEmpty resolves repoDir's HEAD to build the new project commit
+// on. An unborn HEAD (a freshly `git init`'d repo with no commits yet) is
+// the expected first-run state, not an error - §6.7 makes "create your first
+// project" the single CTA for an empty monorepo, so project create must be
+// able to create the repo's very first commit. core.MonorepoStore.CommitOverlay
+// already treats an empty base as "no parent" (see internal/gitstore), so
+// the only change needed here is not rejecting that case before reaching it.
+//
+// Any other resolution failure gets a structured, resolve-or-explain error
+// (§6.5) instead of git's raw "ambiguous argument ... unknown revision"
+// exit-128 text.
+func resolveBaseOrEmpty(repoDir string, store *gitstore.Store) (core.Revision, error) {
+	if _, err := runGit(repoDir, "rev-parse", "--git-dir"); err != nil {
+		return "", &clierr.Error{
+			Code:       "not_a_repo",
+			Field:      "repo",
+			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
+			Suggestion: "run `git init` first, then retry `runko project create`",
+			DocURL:     "docs/design.md#67-empty-states-and-education",
+		}
+	}
+	if _, err := runGit(repoDir, "symbolic-ref", "-q", "HEAD"); err != nil {
+		return "", &clierr.Error{
+			Code:       "detached_head",
+			Field:      "repo",
+			Message:    "HEAD is not on a branch (detached HEAD)",
+			Suggestion: "check out a branch first, e.g. `git checkout -b my-branch`",
+			DocURL:     "docs/design.md#69-the-closed-trunk-moment-human-git-ux",
+		}
+	}
+	base, err := store.ResolveRef("HEAD")
+	if err != nil {
+		// On a branch (checked above) but HEAD doesn't resolve to a commit:
+		// an unborn branch, i.e. this repo has no commits yet. Proceed with
+		// an empty base rather than erroring.
+		return "", nil
+	}
+	return base, nil
 }

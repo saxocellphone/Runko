@@ -6,6 +6,7 @@ import (
 	"github.com/saxocellphone/runko/affected"
 	"github.com/saxocellphone/runko/core"
 	"github.com/saxocellphone/runko/index"
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
 )
 
@@ -19,7 +20,7 @@ func Affected(repoDir, base, head string, rootInvalidationPatterns []string) (af
 
 	indexed, err := index.Scan(store, core.Revision(head), nil)
 	if err != nil {
-		return affected.Result{}, fmt.Errorf("scan projects at %s: %w", head, err)
+		return affected.Result{}, clierr.WrapRevisionError(fmt.Errorf("scan projects at %s: %w", head, err), "--head", head)
 	}
 	projects := make([]affected.ProjectInfo, len(indexed))
 	for i, p := range indexed {
@@ -30,7 +31,8 @@ func Affected(repoDir, base, head string, rootInvalidationPatterns []string) (af
 
 	changedPaths, err := diffPaths(repoDir, base, head)
 	if err != nil {
-		return affected.Result{}, fmt.Errorf("diff %s..%s: %w", base, head, err)
+		wrapped := fmt.Errorf("diff %s..%s: %w", base, head, err)
+		return affected.Result{}, clierr.WrapRevisionErrorAmong(wrapped, map[string]string{"--base": base, "--head": head})
 	}
 
 	return affected.Compute(projects, changedPaths, affected.Options{
