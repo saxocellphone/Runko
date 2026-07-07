@@ -85,6 +85,8 @@ func cmdServe(args []string) error {
 	allowUnpoliced := fs.Bool("insecure-allow-unpoliced-land", false, "DEV/EVAL ONLY: let changes that resolve NO merge policy (no required checks, no owners) land anyway - the in-memory eval profile implies this; a durable deployment should declare policy instead (§28.3 stage 11c)")
 	var botLanes botLaneFlag
 	fs.Var(&botLanes, "bot-lane", "path-scoped auto-land grant (§14.10.2), repeatable: 'name=<n>;token=<t>;paths=<glob,glob>;checks=<check,check>'")
+	var principals principalFlag
+	fs.Var(&principals, "principal", "named-token identity (§15.1 interim), repeatable: 'name=<n>;token=<t>[;agent]' - agent principals get the default §8.7 agent policy enforced at receive")
 	searchURL := fs.String("search-url", "", "zoekt-webserver base URL for search_code (§8.3); absent -> search_code returns a structured 'not configured' error, never a git-grep fallback (§8.2)")
 	zoektIndexDir := fs.String("zoekt-index-dir", "", "directory zoekt-git-index writes shards into (required to enable indexing on trunk advance)")
 	zoektIndexBin := fs.String("zoekt-index-bin", "zoekt-git-index", "zoekt-git-index binary (path or PATH-resolved name)")
@@ -172,12 +174,14 @@ func cmdServe(args []string) error {
 		RepoDir: *repoDir, TrunkRef: *trunk, Scanner: scanner, Store: store,
 		RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
 		ZoektIndexWorker:         indexWorker,
+		Principals:               principals,
 	}
 	server := &runkod.Server{
 		RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher,
 		GlobalRequiredChecks: splitNonEmpty(*globalChecks),
 		AllowUnpolicedLand:   *allowUnpoliced,
 		BotLanes:             botLanes,
+		Principals:           principals,
 	}
 	handler, err := server.Handler()
 	if err != nil {
@@ -243,6 +247,13 @@ func cmdHook(args []string) {
 	if v := os.Getenv("GIT_ALTERNATE_OBJECT_DIRECTORIES"); v != "" {
 		req.Header.Set("X-Git-Alternate-Object-Directories", v)
 	}
+	// Forward the authenticated pusher's identity the same way (§15.1
+	// interim principals, stage 12c): requireGitAuth injected REMOTE_USER
+	// into the CGI env, http-backend and receive-pack passed it down to
+	// this hook as ordinary process environment.
+	if v := os.Getenv("REMOTE_USER"); v != "" {
+		req.Header.Set("X-Runko-Remote-User", v)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -274,6 +285,47 @@ func cmdHook(args []string) {
 	if !allAccepted {
 		os.Exit(1)
 	}
+}
+
+// principalFlag parses repeatable --principal flags into runkod.Principal
+// values (§15.1's interim named-token registry, stage 12c).
+type principalFlag []runkod.Principal
+
+func (p *principalFlag) String() string { return fmt.Sprintf("%d principal(s)", len(*p)) }
+
+func (p *principalFlag) Set(v string) error {
+	principal, err := parsePrincipal(v)
+	if err != nil {
+		return err
+	}
+	*p = append(*p, principal)
+	return nil
+}
+
+// parsePrincipal parses one --principal value, e.g. "name=alice;token=t1"
+// or "name=bumpbot;token=t2;agent". Agent principals get the default §8.7
+// policy - per-principal policy overrides are a tree concern (§9.4's "the
+// tree owns policy"), not more daemon flags.
+func parsePrincipal(v string) (runkod.Principal, error) {
+	var principal runkod.Principal
+	for _, kv := range strings.Split(v, ";") {
+		key, val, hasVal := strings.Cut(kv, "=")
+		switch {
+		case key == "name" && hasVal:
+			principal.Name = val
+		case key == "token" && hasVal:
+			principal.Token = val
+		case key == "agent" && (!hasVal || val == "true"):
+			principal.IsAgent = true
+			principal.Policy = receive.DefaultAgentPolicy()
+		default:
+			return principal, fmt.Errorf("principal: unknown key %q (want name=, token=, agent)", kv)
+		}
+	}
+	if principal.Name == "" || principal.Token == "" {
+		return principal, fmt.Errorf("principal: name= and token= are both required")
+	}
+	return principal, nil
 }
 
 // botLaneFlag parses repeatable --bot-lane flags into runkod.BotLane values.

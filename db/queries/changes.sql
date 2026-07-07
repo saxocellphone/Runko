@@ -13,13 +13,16 @@ SELECT * FROM changes WHERE id = $1;
 SELECT * FROM changes WHERE monorepo_id = $1 AND change_key = $2;
 
 -- name: UpdateChangeHead :one
-UPDATE changes SET head_sha = $2, git_ref = $3, updated_at = now() WHERE id = $1 RETURNING *;
+-- authored_by_actor_id moves with the head: the last pusher owns the
+-- current content, which is also who self-approval is checked against
+-- (§8.7, stage 12c).
+UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, updated_at = now() WHERE id = $1 RETURNING *;
 
 -- name: UpdateChangeDescription :one
 UPDATE changes SET description = $2, test_plan = $3, updated_at = now() WHERE id = $1 RETURNING *;
 
 -- name: LandChange :one
-UPDATE changes SET state = 'landed', landed_at = now(), landed_sha = $2, updated_at = now() WHERE id = $1 RETURNING *;
+UPDATE changes SET state = 'landed', landed_at = now(), landed_sha = $2, landed_by_actor_id = $3, updated_at = now() WHERE id = $1 RETURNING *;
 
 -- name: ListOpenChanges :many
 SELECT * FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number DESC LIMIT $2 OFFSET $3;

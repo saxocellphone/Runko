@@ -363,6 +363,7 @@ type Change struct {
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	LandedAt          pgtype.Timestamptz `json:"landed_at"`
 	LandedSha         *string            `json:"landed_sha"`
+	LandedByActorID   pgtype.UUID        `json:"landed_by_actor_id"`
 }
 
 type ChangeAffected struct {

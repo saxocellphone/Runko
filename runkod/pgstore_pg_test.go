@@ -57,7 +57,7 @@ func TestPostgresStoreCreateOrUpdateChangeAndGetChange(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()
 
-	created, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title")
+	created, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (create): %v", err)
 	}
@@ -65,7 +65,7 @@ func TestPostgresStoreCreateOrUpdateChangeAndGetChange(t *testing.T) {
 		t.Fatalf("expected a new Change to start open, got %+v", created)
 	}
 
-	updated, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title")
+	updated, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (update): %v", err)
 	}
@@ -89,7 +89,7 @@ func TestPostgresStoreCreateOrUpdateChangeAndGetChange(t *testing.T) {
 func TestPostgresStoreCheckRunUpsertReflectsLatestStatus(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()
-	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title"); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", ""); err != nil {
 		t.Fatalf("CreateOrUpdateChange: %v", err)
 	}
 
@@ -120,7 +120,7 @@ func TestPostgresStoreCheckRunUpsertReflectsLatestStatus(t *testing.T) {
 func TestPostgresStoreApprovalRoundTrip(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()
-	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title"); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", ""); err != nil {
 		t.Fatalf("CreateOrUpdateChange: %v", err)
 	}
 
@@ -156,7 +156,7 @@ func TestPostgresStoreApprovalRoundTrip(t *testing.T) {
 
 	// Re-approving after an amend re-binds the row to the new head (the
 	// PK is (change_id, owner_ref) - one row per owner, latest head wins).
-	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title"); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title", ""); err != nil {
 		t.Fatalf("CreateOrUpdateChange (amend): %v", err)
 	}
 	if err := store.RecordApproval(ctx, "Iabc", "group:commerce-eng", "alice", "head2"); err != nil {
@@ -271,5 +271,59 @@ func TestPostgresStoreWebhookOutboxLifecycle(t *testing.T) {
 	}
 	if len(due) != 0 {
 		t.Fatalf("expected a delivered delivery to never be due again, got %+v", due)
+	}
+}
+
+// TestPostgresStoreAttributionRoundTrip pins stage 12c-②'s authored_by/
+// landed_by attribution through real actors rows: named principals become
+// upserted actors, the anonymous deploy token ("") maps to the bootstrap
+// placeholder and reads back as "", and an amend moves authored_by to the
+// last pusher (who self-approval is checked against).
+func TestPostgresStoreAttributionRoundTrip(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+
+	created, err := store.CreateOrUpdateChange(ctx, "Iattr", "base1", "head1", "refs/changes/2/head", "title", "alice")
+	if err != nil {
+		t.Fatalf("CreateOrUpdateChange: %v", err)
+	}
+	if created.AuthoredBy != "alice" {
+		t.Fatalf("expected AuthoredBy=alice, got %q", created.AuthoredBy)
+	}
+
+	// Amend by a different principal: last pusher owns the head.
+	updated, err := store.CreateOrUpdateChange(ctx, "Iattr", "base1", "head2", "refs/changes/2/head", "title", "bob")
+	if err != nil {
+		t.Fatalf("CreateOrUpdateChange (amend): %v", err)
+	}
+	if updated.AuthoredBy != "bob" {
+		t.Fatalf("expected AuthoredBy to move to bob on amend, got %q", updated.AuthoredBy)
+	}
+
+	landed, err := store.MarkChangeLanded(ctx, "Iattr", "head2", "carol")
+	if err != nil {
+		t.Fatalf("MarkChangeLanded: %v", err)
+	}
+	if landed.LandedBy != "carol" || landed.State != "landed" {
+		t.Fatalf("expected landed by carol, got %+v", landed)
+	}
+
+	// Anonymous stays anonymous, both fields.
+	anon, err := store.CreateOrUpdateChange(ctx, "Ianon", "base1", "head1", "refs/changes/3/head", "title", "")
+	if err != nil {
+		t.Fatalf("CreateOrUpdateChange (anon): %v", err)
+	}
+	if anon.AuthoredBy != "" {
+		t.Fatalf("expected anonymous AuthoredBy to read back empty, got %q", anon.AuthoredBy)
+	}
+	if _, err := store.MarkChangeLanded(ctx, "Ianon", "head1", ""); err != nil {
+		t.Fatalf("MarkChangeLanded (anon): %v", err)
+	}
+	got, ok, err := store.GetChange(ctx, "Ianon")
+	if err != nil || !ok {
+		t.Fatalf("GetChange: ok=%v err=%v", ok, err)
+	}
+	if got.LandedBy != "" {
+		t.Fatalf("expected anonymous LandedBy to read back empty, got %q", got.LandedBy)
 	}
 }

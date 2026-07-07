@@ -1,0 +1,14 @@
+# TypeScript codegen for the web frontend, run from web/:
+#
+#   npm run gen
+#
+# Generates protobuf-es v2 schemas (incl. GenService descriptors, which is
+# all connect-es v2 needs - the separate connectrpc/es plugin drafted in
+# proto/buf.gen.yaml is the deprecated v1 pair and is NOT used here).
+# Generated output is committed (the internal/dbgen convention): consumers
+# and CI never need buf, only regeneration after a .proto edit does.
+version: v2
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    opt: target=ts

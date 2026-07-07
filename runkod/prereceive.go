@@ -75,6 +75,7 @@ type verdict struct {
 	decision     receive.Decision
 	changedPaths []string
 	extraEnv     []string
+	author       string // pushing principal's name (REMOTE_USER); "" for the anonymous deploy token
 	evalErr      string // set on an I/O failure evaluating this ref (git diff/log failed)
 }
 
@@ -105,6 +106,13 @@ type Processor struct {
 	// snapshot commits when .gitignore hygiene fails. 0 means
 	// DefaultMaxSnapshotBytes; negative disables the cap.
 	MaxSnapshotDiffBytes int64
+	// Principals is the same registry Server.Principals carries (§15.1
+	// interim, stage 12c). The funnel resolves the pushing principal from
+	// the forwarded REMOTE_USER env: agent principals get their
+	// AgentPolicy enforced at receive (§8.7 - the enforcement stage 6
+	// built and nothing fed until now), workspace snapshots become
+	// owner-only, and accepted Changes record authored_by.
+	Principals []Principal
 }
 
 // DefaultMaxSnapshotBytes is the default snapshot size cap (§12.2): generous
@@ -193,23 +201,62 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		Files: files, ChangedPaths: changedPaths,
 		ChangeIDSeed: u.NewSHA,
 	}
+	author := remoteUser(extraEnv)
+	if pr := p.principalByName(author); pr != nil && pr.IsAgent {
+		// Stage 12c: the first wire-level feed for the AgentPolicy
+		// enforcement stage 6 built (§8.7). DiffBytes is the sum of changed
+		// files' full content - an over-count of the true diff, i.e. the
+		// conservative direction for a cap. A refs/for push carries no
+		// workspace affinity, so a policy with RequireWorkspaceAffinity
+		// correctly refuses it (§8.7: agent WRITES go through workspaces;
+		// snapshot pushes carry their workspace's affinity, see
+		// evaluateSnapshot).
+		req.Principal = receive.Principal{IsAgent: true, Policy: pr.Policy}
+		req.DiffBytes = totalContentBytes(files)
+		req.ModifiesOwners = modifiesOwners(changedPaths)
+	}
 	return verdict{
-		update: u, changedPaths: changedPaths, extraEnv: extraEnv,
+		update: u, changedPaths: changedPaths, extraEnv: extraEnv, author: author,
 		decision: receive.Decide(req, p.Scanner),
 	}
 }
 
+func totalContentBytes(files []receive.FileContent) int64 {
+	var total int64
+	for _, f := range files {
+		total += int64(len(f.Content))
+	}
+	return total
+}
+
+// modifiesOwners reports whether any changed path can alter ownership
+// resolution (§7.3's two sources: an OWNERS file or a PROJECT.yaml's
+// owners field - conservatively, ANY manifest edit counts, since parsing
+// the before/after owners here would duplicate the indexer).
+func modifiesOwners(changedPaths []string) bool {
+	for _, path := range changedPaths {
+		base := path
+		if i := strings.LastIndexByte(path, '/'); i >= 0 {
+			base = path[i+1:]
+		}
+		if base == "OWNERS" || base == "PROJECT.yaml" {
+			return true
+		}
+	}
+	return false
+}
+
 // evaluateSnapshot polices a workspace snapshot push (§12.2's "policy and
 // secret scan apply BEFORE durability", closing the unconditional-accept gap
-// the 12b DAG row names): the workspace must be registered, the snapshot's
-// content must pass the same secret scanner Changes go through, and total
-// introduced bytes must fit the §12.2 size-cap backstop. Owner-only push -
-// the third enforcement the DAG row lists - needs a principal identity at
-// receive time, which the shared deploy token cannot provide; it lands with
-// real AuthN (§15.1), and until then "who may push this ref" is the same
-// trust boundary as every other authenticated write.
+// the 12b DAG row names): the workspace must be registered, the pushing
+// principal (when named, §15.1's interim registry) must be its owner, an
+// agent principal's policy applies with the workspace's own affinity, the
+// snapshot's content must pass the same secret scanner Changes go through,
+// and total introduced bytes must fit the §12.2 size-cap backstop. An
+// anonymous deploy-token push still bypasses the owner check - that token
+// IS the "everyone" credential until it's retired (eval profile).
 func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID string, extraEnv []string) verdict {
-	_, registered, err := p.Store.GetWorkspace(ctx, wsID)
+	ws, registered, err := p.Store.GetWorkspace(ctx, wsID)
 	if err != nil {
 		return verdict{update: u, evalErr: fmt.Sprintf("remote: workspace lookup failed: %v\n", err)}
 	}
@@ -221,9 +268,34 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 		}}
 	}
 
+	author := remoteUser(extraEnv)
+	if author != "" && ws.Owner != "" && author != ws.Owner {
+		return verdict{update: u, isSnapshot: true, author: author, decision: receive.Decision{
+			Accepted: false,
+			RejectionMessage: fmt.Sprintf("remote: workspace %q belongs to %s - snapshots may only be pushed by their owner (§12.2)\nremote:   -> runko workspace create --name <yours> ... to get your own\n",
+				wsID, ws.Owner),
+		}}
+	}
+
 	changedPaths, files, err := p.diff(u.OldSHA, u.NewSHA, extraEnv)
 	if err != nil {
 		return verdict{update: u, evalErr: fmt.Sprintf("remote: could not inspect snapshot: %v\n", err)}
+	}
+
+	if pr := p.principalByName(author); pr != nil && pr.IsAgent {
+		// A snapshot push is exactly the workspace-affine write §8.7's
+		// policy wants agents making - so it carries the workspace's own
+		// write allowlist as affinity, and the denylist/caps still apply.
+		violations := receive.EvaluatePolicy(pr.Policy, receive.PushSummary{
+			ChangedFiles:      changedPaths,
+			DiffBytes:         totalContentBytes(files),
+			WorkspaceAffinity: ws.WriteAllowlist,
+			ModifiesOwners:    modifiesOwners(changedPaths),
+		})
+		if len(violations) > 0 {
+			return verdict{update: u, isSnapshot: true, author: author,
+				decision: receive.Decision{Accepted: false, PolicyViolations: violations}}
+		}
 	}
 
 	cap := p.MaxSnapshotDiffBytes
@@ -252,7 +324,7 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 		return verdict{update: u, isSnapshot: true, decision: receive.Decision{Accepted: false, SecretFindings: findings}}
 	}
 
-	return verdict{update: u, isSnapshot: true, changedPaths: changedPaths, extraEnv: extraEnv,
+	return verdict{update: u, isSnapshot: true, changedPaths: changedPaths, extraEnv: extraEnv, author: author,
 		decision: receive.Decision{Accepted: true}}
 }
 
@@ -289,7 +361,7 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 	}
 
 	base := p.computeBaseSHA(v.update, v.extraEnv)
-	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, changeRef, firstLine(d.CommitMessage))
+	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, changeRef, firstLine(d.CommitMessage), v.author)
 	if err != nil {
 		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
 	}

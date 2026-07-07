@@ -13,7 +13,7 @@ func TestMemStoreCreateOrUpdateChange(t *testing.T) {
 	s := NewMemStore()
 	ctx := context.Background()
 
-	created, err := s.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title")
+	created, err := s.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (create): %v", err)
 	}
@@ -21,7 +21,7 @@ func TestMemStoreCreateOrUpdateChange(t *testing.T) {
 		t.Fatalf("expected a new Change to start open, got %q", created.State)
 	}
 
-	updated, err := s.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title")
+	updated, err := s.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (update): %v", err)
 	}

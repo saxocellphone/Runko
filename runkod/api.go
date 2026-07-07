@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/cgi"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -58,6 +59,11 @@ type Server struct {
 	AllowUnpolicedLand bool
 	// BotLanes are §14.10.2's path-scoped auto-land grants; see BotLane.
 	BotLanes []BotLane
+	// Principals is §15.1's interim named-token identity registry (stage
+	// 12c); see Principal. Keep Processor.Principals pointed at the same
+	// slice so API-side attribution and receive-side enforcement agree on
+	// who exists.
+	Principals []Principal
 }
 
 // Handler assembles the full mux: smart-HTTP git hosting at
@@ -132,25 +138,52 @@ func (s *Server) tokenMatches(authHeader string) bool {
 			return true
 		}
 	}
+	// Named principals (§15.1 interim registry) are full API clients;
+	// principalFor resolves WHO they are where attribution matters.
+	for i := range s.Principals {
+		want := "Bearer " + s.Principals[i].Token
+		if subtle.ConstantTimeCompare([]byte(authHeader), []byte(want)) == 1 {
+			return true
+		}
+	}
 	return false
 }
 
-// requireGitAuth gates the smart-HTTP git transport itself with the same
-// deploy token (§14.11, doc.go's scope boundary) - without this, anyone with
-// network access could clone/push regardless of what the pre-receive hook
-// enforces, since hooks only govern policy, not who may connect at all. Git
-// clients authenticate via plain HTTP Basic (`git clone
+// requireGitAuth gates the smart-HTTP git transport itself (§14.11,
+// doc.go's scope boundary) - without this, anyone with network access
+// could clone/push regardless of what the pre-receive hook enforces, since
+// hooks only govern policy, not who may connect at all. Git clients
+// authenticate via plain HTTP Basic (`git clone
 // http://<any-user>:<token>@host/<repo>.git`), which every git client
 // supports natively - no custom credential helper needed.
-func (s *Server) requireGitAuth(next http.Handler) http.Handler {
+//
+// When the token belongs to a named principal (§15.1's interim registry),
+// the request is served by a per-request copy of the CGI handler with
+// REMOTE_USER=<name> in its environment - git's own convention for
+// authenticated receive. http-backend, git-receive-pack, and the
+// pre-receive hook inherit it as ordinary process environment, and the
+// hook forwards it back to the daemon alongside the quarantine vars, so
+// the funnel knows WHO pushed without any signature change on the wire.
+func (s *Server) requireGitAuth(git *cgi.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, pass, ok := r.BasicAuth()
-		if !ok || subtle.ConstantTimeCompare([]byte(pass), []byte(s.Token)) != 1 {
+		if !ok {
 			w.Header().Set("WWW-Authenticate", `Basic realm="runko"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r)
+		if principal := s.principalForBasicAuth(pass); principal != nil {
+			authed := *git // shallow copy; Env must not mutate the shared handler
+			authed.Env = append(append([]string{}, git.Env...), "REMOTE_USER="+principal.Name)
+			authed.ServeHTTP(w, r)
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(pass), []byte(s.Token)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Basic realm="runko"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		git.ServeHTTP(w, r)
 	})
 }
 
@@ -163,6 +196,10 @@ func (s *Server) requireGitAuth(next http.Handler) http.Handler {
 const (
 	headerGitObjectDirectory            = "X-Git-Object-Directory"
 	headerGitAlternateObjectDirectories = "X-Git-Alternate-Object-Directories"
+	// headerRemoteUser carries the authenticated pusher's principal name
+	// (§15.1 interim registry): requireGitAuth set REMOTE_USER on the CGI
+	// env, the hook inherited it and forwards it here.
+	headerRemoteUser = "X-Runko-Remote-User"
 )
 
 // handlePreReceive is the internal callback the installed pre-receive hook
@@ -186,6 +223,9 @@ func (s *Server) handlePreReceive(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := r.Header.Get(headerGitAlternateObjectDirectories); v != "" {
 		extraEnv = append(extraEnv, "GIT_ALTERNATE_OBJECT_DIRECTORIES="+v)
+	}
+	if v := r.Header.Get(headerRemoteUser); v != "" {
+		extraEnv = append(extraEnv, "REMOTE_USER="+v)
 	}
 
 	results := s.Processor.ProcessBatch(r.Context(), updates, extraEnv)
@@ -518,11 +558,54 @@ func (s *Server) handleApproveChange(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// Attribution (§15.1 interim principals, stage 12c): a named principal
+	// approves as itself - the client-asserted approved_by is only trusted
+	// from the anonymous deploy token (the documented v1 eval boundary).
+	principal := s.principalFor(r)
+	if principal != nil {
+		if principal.IsAgent {
+			// §13.5's gate table: "Agent-only approval: No" - a hard rule,
+			// not policy. An agent's review can inform; it cannot satisfy
+			// the human-owner gate.
+			writeJSON(w, http.StatusForbidden, clierr.Error{
+				Code:       "agent_approval_denied",
+				Field:      "approved_by",
+				Message:    fmt.Sprintf("%q is an agent principal - agents cannot approve changes (§13.5)", principal.Name),
+				Suggestion: "a human owner must approve; agents may run checks and request review",
+			})
+			return
+		}
+		if req.ApprovedBy != "" && req.ApprovedBy != principal.Name {
+			writeJSON(w, http.StatusBadRequest, clierr.Error{
+				Code: "approved_by_mismatch", Field: "approved_by",
+				Message:    fmt.Sprintf("authenticated as %q but approved_by says %q", principal.Name, req.ApprovedBy),
+				Suggestion: "drop approved_by - your token already says who you are",
+			})
+			return
+		}
+		req.ApprovedBy = principal.Name
+	}
 	if req.OwnerRef == "" || req.ApprovedBy == "" {
 		writeJSON(w, http.StatusBadRequest, clierr.Error{
 			Code: "missing_field", Field: "owner_ref",
 			Message:    "both owner_ref and approved_by are required",
 			Suggestion: `POST {"owner_ref": "group:...", "approved_by": "<you>"}`,
+		})
+		return
+	}
+
+	// §8.7's "no self-approval", enforceable now that Changes record who
+	// pushed their current head. This also catches an honest deploy-token
+	// caller naming the author in approved_by; a DISHONEST anonymous
+	// caller can still lie, which is exactly the boundary the named-token
+	// registry exists to retire.
+	if change.AuthoredBy != "" && req.ApprovedBy == change.AuthoredBy {
+		writeJSON(w, http.StatusForbidden, clierr.Error{
+			Code:       "self_approval_denied",
+			Field:      "approved_by",
+			Message:    fmt.Sprintf("%q pushed this change's current head and cannot approve it (§8.7)", req.ApprovedBy),
+			Suggestion: "another required owner must approve",
 		})
 		return
 	}
@@ -754,14 +837,20 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case outcome.Landed:
-		if _, err := s.Store.MarkChangeLanded(r.Context(), key, outcome.LandedSHA); err != nil {
+		// §7.5 attribution via §15.1's interim principals (stage 12c): a
+		// named principal or bot lane lands under its own name; the
+		// anonymous deploy token stays anonymous ("").
+		landedBy := ""
+		if principal := s.principalFor(r); principal != nil {
+			landedBy = principal.Name
+		} else if lane != nil {
+			landedBy = lane.Name
+		}
+		if _, err := s.Store.MarkChangeLanded(r.Context(), key, outcome.LandedSHA, landedBy); err != nil {
 			http.Error(w, fmt.Sprintf("land: record landed state: %v", err), http.StatusInternalServerError)
 			return
 		}
 		if lane != nil {
-			// §14.10.2 "attributed, audited": the audit trail today is this
-			// log line; a landed_by column/webhook field is stage-12b+ work
-			// alongside real principal identity (§15.1).
 			log.Printf("runkod: change %s landed via bot lane %q", key, lane.Name)
 		}
 		s.enqueueLandedWebhook(r.Context(), change, outcome.LandedSHA)

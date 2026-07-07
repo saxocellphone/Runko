@@ -45,9 +45,10 @@ func CreateOrUpdateChange(
 	switch {
 	case err == nil:
 		return q.UpdateChangeHead(ctx, db, dbgen.UpdateChangeHeadParams{
-			ID:      existing.ID,
-			HeadSha: headSHA,
-			GitRef:  gitRef,
+			ID:                existing.ID,
+			HeadSha:           headSHA,
+			GitRef:            gitRef,
+			AuthoredByActorID: authorActorID,
 		})
 	case errors.Is(err, pgx.ErrNoRows):
 		// Expected: no existing Change with this Change-Id yet - fall through to create.

@@ -14,6 +14,18 @@ import "runko/v1/common.proto";
 service ChangeService {
   rpc GetChange(GetChangeRequest) returns (GetChangeResponse);
   rpc ListChanges(ListChangesRequest) returns (ListChangesResponse);
+  // GetChangeStack returns the stack a Change belongs to (§17.2's stacked
+  // diff view, added for stage 13). The v1 stack relation is derived, not
+  // declared: Change B is stacked on Change A iff B.base_sha == A.head_sha
+  // and neither is abandoned (the Gerrit "related changes" analog - commit
+  // ancestry, not client-asserted metadata). A Change based directly on
+  // trunk with no dependents is a stack of one.
+  rpc GetChangeStack(GetChangeStackRequest) returns (GetChangeStackResponse);
+  // GetChangeDiff returns the Change's own delta, base_sha..head_sha. For
+  // a stacked Change base_sha is the parent Change's head, so this is
+  // already the per-Change "scoped diff" §17.2 asks for - no extra
+  // scoping parameter needed.
+  rpc GetChangeDiff(GetChangeDiffRequest) returns (GetChangeDiffResponse);
   rpc GetAffected(GetAffectedRequest) returns (GetAffectedResponse);
   rpc GetMergeRequirements(GetMergeRequirementsRequest) returns (GetMergeRequirementsResponse);
   rpc ApproveChange(ApproveChangeRequest) returns (ApproveChangeResponse);
@@ -53,6 +65,76 @@ message GetAffectedRequest {
     ChangePaths paths = 1;
     string change_id = 2;
   }
+}
+
+message GetChangeStackRequest {
+  string change_id = 1;
+}
+
+message GetChangeStackResponse {
+  // Trunk-most first: changes[0] is the Change whose base is on trunk,
+  // each subsequent entry is stacked on the previous one's head. Always
+  // contains at least the requested Change itself.
+  repeated ChangeSummary changes = 1;
+  // Index of the requested Change within `changes`.
+  int32 position = 2;
+}
+
+message GetChangeDiffRequest {
+  string change_id = 1;
+}
+
+message GetChangeDiffResponse {
+  string change_id = 1;
+  string base_sha = 2;
+  string head_sha = 3;
+  repeated FileDiff files = 4;
+}
+
+enum FileDiffStatus {
+  FILE_DIFF_STATUS_UNSPECIFIED = 0;
+  FILE_DIFF_STATUS_ADDED = 1;
+  FILE_DIFF_STATUS_MODIFIED = 2;
+  FILE_DIFF_STATUS_DELETED = 3;
+  FILE_DIFF_STATUS_RENAMED = 4;
+}
+
+message FileDiff {
+  string path = 1;      // repo-root-relative, the new path for renames
+  string old_path = 2;  // set only when status == RENAMED
+  FileDiffStatus status = 3;
+  repeated DiffHunk hunks = 4;  // empty when binary
+  bool binary = 5;
+  int32 additions = 6;
+  int32 deletions = 7;
+  // Owning project by longest-prefix path match (§13.3) - lets the UI
+  // group a Change's diff by project. Empty for unowned paths.
+  string project = 8;
+}
+
+message DiffHunk {
+  int32 old_start = 1;
+  int32 old_lines = 2;
+  int32 new_start = 3;
+  int32 new_lines = 4;
+  // Git's section heading for the hunk (the text after the second @@),
+  // e.g. the enclosing function signature. Optional.
+  string header = 5;
+  repeated DiffLine lines = 6;
+}
+
+enum DiffLineType {
+  DIFF_LINE_TYPE_UNSPECIFIED = 0;
+  DIFF_LINE_TYPE_CONTEXT = 1;
+  DIFF_LINE_TYPE_ADDED = 2;
+  DIFF_LINE_TYPE_REMOVED = 3;
+}
+
+message DiffLine {
+  DiffLineType type = 1;
+  string content = 2;  // without the leading +/-/space marker
+  int32 old_line = 3;  // 0 when the line has no old-side number (added)
+  int32 new_line = 4;  // 0 when the line has no new-side number (removed)
 }
 
 message GetMergeRequirementsRequest {

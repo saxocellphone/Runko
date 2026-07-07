@@ -919,3 +919,113 @@ func TestEndToEndDaemonPersistsAcrossRestartWithPostgres(t *testing.T) {
 		t.Fatalf("expected the Change to survive the restart via Postgres, got status %d", resp.StatusCode)
 	}
 }
+
+// TestEndToEndDaemonPrincipalIdentityFlowsToFunnel is stage 12c-②'s bar,
+// driven for real: a compiled daemon started with --principal registrations,
+// a real `git push` authenticated AS a named principal (HTTP Basic, the
+// token as password), and the identity surviving the full chain -
+// requireGitAuth's per-request REMOTE_USER injection -> net/http/cgi ->
+// git-http-backend -> git-receive-pack -> the installed pre-receive hook ->
+// the hook's HTTP callback into the daemon. No unit test can prove that
+// propagation; each hop is a separate real process.
+func TestEndToEndDaemonPrincipalIdentityFlowsToFunnel(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	token := "sekret-token"
+	baseURL := startDaemon(t, bin, repoDir, token,
+		"--principal", "name=alice;token=alice-tok",
+		"--principal", "name=bob;token=bob-tok")
+
+	// Clone/push AS ALICE: her token is the basic-auth password.
+	remoteURL := strings.Replace(baseURL, "http://", "http://alice:alice-tok@", 1) + "/" + filepath.Base(repoDir) + "/"
+
+	work := t.TempDir()
+	if _, err := runGit(t, work, "init", "-q", "-b", "main"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(work, "commerce", "checkout"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	manifest := "schema: project/v1\nname: checkout-api\ntype: service\nowners:\n  - group:commerce-eng\n"
+	if err := os.WriteFile(filepath.Join(work, "commerce", "checkout", "PROJECT.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write PROJECT.yaml: %v", err)
+	}
+	if _, err := runGit(t, work, "add", "-A"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := runGit(t, work, "commit", "-q", "-m", "add checkout-api"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if _, err := runGit(t, work, "remote", "add", "origin", remoteURL); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+	out, err := runGit(t, work, "push", "origin", "+HEAD:refs/for/main")
+	if err != nil {
+		t.Fatalf("push to refs/for/main: %v\n%s", err, out)
+	}
+	m := regexp.MustCompile(`(I[0-9a-f]{40}) -> refs/for/main`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("expected a Change-Id in the push output, got:\n%s", out)
+	}
+	changeID := m[1]
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	getChange := func() map[string]any {
+		req, _ := http.NewRequest(http.MethodGet, baseURL+"/api/changes/"+changeID, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET change: %v", err)
+		}
+		defer resp.Body.Close()
+		var change map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&change); err != nil {
+			t.Fatalf("decode change: %v", err)
+		}
+		return change
+	}
+
+	// The Change is attributed to alice - REMOTE_USER survived every hop.
+	if got := getChange()["AuthoredBy"]; got != "alice" {
+		t.Fatalf("expected AuthoredBy=alice via the real push chain, got %v", got)
+	}
+
+	approve := func(bearer, body string) (int, string) {
+		req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+changeID+"/approve", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("POST approve: %v", err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+
+	// Alice pushed the head; alice cannot approve it (§8.7).
+	if code, body := approve("alice-tok", `{"owner_ref":"group:commerce-eng"}`); code != http.StatusForbidden || !strings.Contains(body, "self_approval_denied") {
+		t.Fatalf("expected 403 self_approval_denied for alice, got %d: %s", code, body)
+	}
+	// Bob can.
+	if code, body := approve("bob-tok", `{"owner_ref":"group:commerce-eng"}`); code != http.StatusOK {
+		t.Fatalf("expected bob's approval to succeed, got %d: %s", code, body)
+	}
+
+	// Bob lands; the Change records who landed it.
+	landReq, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+changeID+"/land", nil)
+	landReq.Header.Set("Authorization", "Bearer bob-tok")
+	landResp, err := client.Do(landReq)
+	if err != nil {
+		t.Fatalf("POST land: %v", err)
+	}
+	defer landResp.Body.Close()
+	if landResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(landResp.Body)
+		t.Fatalf("expected land to succeed, got %d: %s", landResp.StatusCode, body)
+	}
+	change := getChange()
+	if change["State"] != "landed" || change["LandedBy"] != "bob" {
+		t.Fatalf("expected landed by bob, got State=%v LandedBy=%v", change["State"], change["LandedBy"])
+	}
+}

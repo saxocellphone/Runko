@@ -71,13 +71,17 @@ func BootstrapPostgresStore(ctx context.Context, dsn, orgName, trunkRef string) 
 	}, nil
 }
 
-func (s *PostgresStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title string) (Change, error) {
-	decision := receive.Decision{Accepted: true, ChangeID: changeKey}
-	c, err := receive.CreateOrUpdateChange(ctx, s.Pool, s.Queries, s.MonorepoID, s.AuthorActorID, decision, baseSHA, headSHA, gitRef, title)
+func (s *PostgresStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy string) (Change, error) {
+	authorID, err := s.actorIDFor(ctx, authoredBy)
 	if err != nil {
 		return Change{}, err
 	}
-	return dbChangeToChange(c), nil
+	decision := receive.Decision{Accepted: true, ChangeID: changeKey}
+	c, err := receive.CreateOrUpdateChange(ctx, s.Pool, s.Queries, s.MonorepoID, authorID, decision, baseSHA, headSHA, gitRef, title)
+	if err != nil {
+		return Change{}, err
+	}
+	return s.hydrateChange(ctx, c)
 }
 
 func (s *PostgresStore) GetChange(ctx context.Context, changeKey string) (Change, bool, error) {
@@ -88,10 +92,43 @@ func (s *PostgresStore) GetChange(ctx context.Context, changeKey string) (Change
 	if err != nil {
 		return Change{}, false, err
 	}
-	return dbChangeToChange(c), true, nil
+	ch, err := s.hydrateChange(ctx, c)
+	if err != nil {
+		return Change{}, false, err
+	}
+	return ch, true, nil
 }
 
-func dbChangeToChange(c *dbgen.Change) Change {
+// actorIDFor maps a principal name to an actors row (§15.1 interim
+// registry, same upsert-by-external_ref approvals already use). "" - the
+// anonymous deploy token - maps to the bootstrap placeholder actor.
+func (s *PostgresStore) actorIDFor(ctx context.Context, name string) (uuid.UUID, error) {
+	if name == "" {
+		return s.AuthorActorID, nil
+	}
+	actor, err := s.Queries.UpsertActor(ctx, s.Pool, dbgen.UpsertActorParams{
+		OrgID: s.OrgID, Type: dbgen.ActorTypeUser, ExternalRef: name, Metadata: []byte("{}"),
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("runkod: upsert actor %q: %w", name, err)
+	}
+	return actor.ID, nil
+}
+
+// actorName is actorIDFor's inverse for reads; the bootstrap placeholder
+// reads back as "" (anonymous), matching MemStore.
+func (s *PostgresStore) actorName(ctx context.Context, id uuid.UUID) (string, error) {
+	if id == s.AuthorActorID {
+		return "", nil
+	}
+	actor, err := s.Queries.GetActor(ctx, s.Pool, id)
+	if err != nil {
+		return "", fmt.Errorf("runkod: resolve actor %s: %w", id, err)
+	}
+	return actor.ExternalRef, nil
+}
+
+func (s *PostgresStore) hydrateChange(ctx context.Context, c *dbgen.Change) (Change, error) {
 	ch := Change{
 		ChangeKey: c.ChangeKey, State: string(c.State),
 		BaseSHA: c.BaseSha, HeadSHA: c.HeadSha, GitRef: c.GitRef, Title: c.Title,
@@ -99,23 +136,40 @@ func dbChangeToChange(c *dbgen.Change) Change {
 	if c.LandedSha != nil {
 		ch.LandedSHA = *c.LandedSha
 	}
-	return ch
+	var err error
+	if ch.AuthoredBy, err = s.actorName(ctx, c.AuthoredByActorID); err != nil {
+		return Change{}, err
+	}
+	if c.LandedByActorID.Valid {
+		if ch.LandedBy, err = s.actorName(ctx, uuid.UUID(c.LandedByActorID.Bytes)); err != nil {
+			return Change{}, err
+		}
+	}
+	return ch, nil
 }
 
 // MarkChangeLanded uses dbgen's LandChange query, generated straight from
 // db/queries/changes.sql back in stage 2 - this stage is the first caller,
 // but the query was already there waiting, since the schema always modeled
 // landing as a first-class Change state transition.
-func (s *PostgresStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA string) (Change, error) {
+func (s *PostgresStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string) (Change, error) {
 	id, err := s.resolveChangeID(ctx, changeKey)
 	if err != nil {
 		return Change{}, err
 	}
-	c, err := s.Queries.LandChange(ctx, s.Pool, dbgen.LandChangeParams{ID: id, LandedSha: &landedSHA})
+	landedByID := pgtype.UUID{}
+	if landedBy != "" {
+		actorID, err := s.actorIDFor(ctx, landedBy)
+		if err != nil {
+			return Change{}, err
+		}
+		landedByID = pgtype.UUID{Bytes: actorID, Valid: true}
+	}
+	c, err := s.Queries.LandChange(ctx, s.Pool, dbgen.LandChangeParams{ID: id, LandedSha: &landedSHA, LandedByActorID: landedByID})
 	if err != nil {
 		return Change{}, err
 	}
-	return dbChangeToChange(c), nil
+	return s.hydrateChange(ctx, c)
 }
 
 // resolveChangeID maps a Change-Id (this Store interface's currency) to the

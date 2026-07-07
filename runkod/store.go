@@ -24,6 +24,13 @@ type Change struct {
 	// HeadSHA on a fast-forward, but a NEW commit SHA when land.Land had to
 	// rebase (§13.5). Empty until MarkChangeLanded is called.
 	LandedSHA string
+	// AuthoredBy / LandedBy are §7.5 attribution via §15.1's interim
+	// named-token principals (stage 12c): the principal name that pushed /
+	// landed, "" when the anonymous deploy token did. An amend by a
+	// different principal overwrites AuthoredBy - last pusher owns the
+	// head, which is also who self-approval must be checked against.
+	AuthoredBy string
+	LandedBy   string
 }
 
 // Approval is one recorded owner approval on a Change - the satisfied half
@@ -64,13 +71,14 @@ type Store interface {
 	// CreateOrUpdateChange mirrors receive.CreateOrUpdateChange's
 	// create-vs-update-by-change_key semantics (§7.4: "commits are
 	// versions of a Change, not the Change itself").
-	CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title string) (Change, error)
+	CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy string) (Change, error)
 	GetChange(ctx context.Context, changeKey string) (Change, bool, error)
 
 	// MarkChangeLanded records a successful land.Land outcome (§13.5, §28.3
 	// stage 11b): state -> "landed", landedSHA recorded as-is (may differ
-	// from HeadSHA - see Change.LandedSHA's doc comment).
-	MarkChangeLanded(ctx context.Context, changeKey, landedSHA string) (Change, error)
+	// from HeadSHA - see Change.LandedSHA's doc comment). landedBy is the
+	// landing principal's name, "" for the anonymous deploy token.
+	MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string) (Change, error)
 
 	// RecordApproval records that ownerRef's approval requirement on
 	// changeKey is satisfied for headSHA specifically (§13.5, decided
@@ -138,19 +146,21 @@ func NewMemStore() *MemStore {
 	}
 }
 
-func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title string) (Change, error) {
+func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy string) (Change, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if existing, ok := s.changes[changeKey]; ok {
 		existing.HeadSHA = headSHA
 		existing.GitRef = gitRef
+		existing.AuthoredBy = authoredBy
 		s.changes[changeKey] = existing
 		return existing, nil
 	}
 	change := Change{
 		ChangeKey: changeKey, State: "open",
 		BaseSHA: baseSHA, HeadSHA: headSHA, GitRef: gitRef, Title: title,
+		AuthoredBy: authoredBy,
 	}
 	s.changes[changeKey] = change
 	return change, nil
@@ -163,7 +173,7 @@ func (s *MemStore) GetChange(ctx context.Context, changeKey string) (Change, boo
 	return c, ok, nil
 }
 
-func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA string) (Change, error) {
+func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string) (Change, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.changes[changeKey]
@@ -172,6 +182,7 @@ func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA st
 	}
 	c.State = "landed"
 	c.LandedSHA = landedSHA
+	c.LandedBy = landedBy
 	s.changes[changeKey] = c
 	return c, nil
 }
