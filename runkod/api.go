@@ -2,14 +2,17 @@ package runkod
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/saxocellphone/runko/affected"
 	"github.com/saxocellphone/runko/checks"
@@ -57,6 +60,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/changes/{key}/affected", s.requireAuth(s.handleGetAffected))
 	mux.HandleFunc("GET /api/changes/{key}/merge-requirements", s.requireAuth(s.handleGetMergeRequirements))
 	mux.HandleFunc("POST /api/changes/{key}/checks", s.requireAuth(s.handlePostCheck))
+	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
 	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
 
 	return mux, nil
@@ -221,18 +225,28 @@ func (s *Server) handleGetMergeRequirements(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "change not found", http.StatusNotFound)
 		return
 	}
-	runs, err := s.Store.ListCheckRuns(r.Context(), key, change.HeadSHA)
+	req, err := s.mergeRequirements(r.Context(), key, change)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	writeJSON(w, http.StatusOK, req)
+}
 
+// mergeRequirements is handleGetMergeRequirements' computation, factored out
+// so handleLandChange can gate on the exact same Mergeable bool a client
+// would have seen from GET .../merge-requirements - one source of truth for
+// "is this Change allowed to land", not two computations that could drift.
+func (s *Server) mergeRequirements(ctx context.Context, key string, change Change) (checks.MergeRequirements, error) {
+	runs, err := s.Store.ListCheckRuns(ctx, key, change.HeadSHA)
+	if err != nil {
+		return checks.MergeRequirements{}, err
+	}
 	requiredNames := make([]string, len(runs))
 	for i, run := range runs {
 		requiredNames[i] = run.Name
 	}
-	req := checks.ComputeMergeRequirements(key, nil, requiredNames, runs, nil, nil, nil)
-	writeJSON(w, http.StatusOK, req)
+	return checks.ComputeMergeRequirements(key, nil, requiredNames, runs, nil, nil, nil), nil
 }
 
 // checkRunReport mirrors cmd/runko-ci's CheckRunReport exactly (the POST
@@ -279,6 +293,134 @@ func (s *Server) handlePostCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+}
+
+// handleLandChange implements POST .../land (§13.5, §28.3 stage 11b): the
+// write-path verb the daemon was missing entirely until this stage - land.
+// Land (stage 7) and the merge-requirements gate (stage 8) both existed and
+// were both fully tested, but nothing wired them together into the daemon,
+// so stage 14's create->change->land loop had no wire-level "land" to call.
+// Gated on the exact same Mergeable bool GET .../merge-requirements reports
+// (mergeRequirements above) - never a silent land of a Change with failing
+// or pending checks.
+func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	change, ok, err := s.Store.GetChange(r.Context(), key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "change not found", http.StatusNotFound)
+		return
+	}
+	if change.State == "landed" {
+		// Idempotent: a client retrying a land request after a dropped
+		// response (or simply asking again) should see the same success,
+		// not a confusing "not mergeable"/re-attempt error.
+		writeJSON(w, http.StatusOK, landResponse{Landed: true, LandedSHA: change.LandedSHA})
+		return
+	}
+
+	mr, err := s.mergeRequirements(r.Context(), key, change)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !mr.Mergeable {
+		writeJSON(w, http.StatusConflict, &clierr.Error{
+			Code:       "not_mergeable",
+			Field:      "change",
+			Message:    fmt.Sprintf("change %s is not mergeable yet", key),
+			Suggestion: strings.Join(mr.Blockers, "; "),
+			DocURL:     "docs/design.md#136-merge-gates-and-landing",
+		})
+		return
+	}
+
+	outcome, err := s.attemptLand(r.Context(), change)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("land: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	switch {
+	case outcome.Landed:
+		if _, err := s.Store.MarkChangeLanded(r.Context(), key, outcome.LandedSHA); err != nil {
+			http.Error(w, fmt.Sprintf("land: record landed state: %v", err), http.StatusInternalServerError)
+			return
+		}
+		s.enqueueLandedWebhook(r.Context(), change, outcome.LandedSHA)
+		if s.Processor != nil {
+			s.Processor.ZoektIndexWorker.Trigger()
+		}
+		writeJSON(w, http.StatusOK, landResponse{Landed: true, LandedSHA: outcome.LandedSHA})
+	case outcome.RequiresRevalidation:
+		writeJSON(w, http.StatusConflict, &clierr.Error{
+			Code:       "requires_revalidation",
+			Field:      "change",
+			Message:    "trunk has moved in a way that intersects this change's affected set",
+			Suggestion: "re-run required checks against current trunk, then retry land",
+			DocURL:     "docs/design.md#135-optimistic-revalidation",
+		})
+	case len(outcome.Conflicts) > 0:
+		writeJSON(w, http.StatusConflict, &clierr.Error{
+			Code:       "merge_conflict",
+			Field:      "change",
+			Message:    fmt.Sprintf("rebase produced conflicts in: %s", strings.Join(outcome.Conflicts, ", ")),
+			Suggestion: "rebase locally, resolve conflicts, and push an updated Change",
+			DocURL:     "docs/design.md#134-rebase-based-landing",
+		})
+	default: // exhausted maxLandRaceRetries
+		writeJSON(w, http.StatusConflict, &clierr.Error{
+			Code:       "race_retry_exhausted",
+			Field:      "change",
+			Message:    "trunk kept moving faster than this land attempt could keep up",
+			Suggestion: "retry the land request",
+			DocURL:     "docs/design.md#135-optimistic-revalidation",
+		})
+	}
+}
+
+// landResponse is the successful-land wire shape - deliberately smaller
+// than land.Outcome (which also carries RequiresRevalidation/Conflicts/
+// RaceRetry, all represented as this endpoint's non-200 clierr.Error
+// responses instead, per the rest of this API's convention of one
+// structured shape per outcome rather than one big oneOf-like struct).
+type landResponse struct {
+	Landed    bool
+	LandedSHA string
+}
+
+// enqueueLandedWebhook mirrors Processor.computeAffectedAndEnqueue's
+// change.updated envelope construction (prereceive.go) for change.landed -
+// already a valid docs/spec/webhooks/webhook-envelope.schema.json "type"
+// enum value with no extra required fields, so no schema change was needed
+// for this stage. Errors are logged, not fatal to the request: the Change
+// is already durably marked landed, so a failed webhook enqueue shouldn't
+// turn a successful land response into an error - same reasoning as
+// computeAffectedAndEnqueue's own doc comment.
+func (s *Server) enqueueLandedWebhook(ctx context.Context, change Change, landedSHA string) {
+	env := checks.WebhookEnvelope{
+		SpecVersion: "1",
+		DeliveryID:  change.ChangeKey + "@landed@" + landedSHA,
+		Type:        "change.landed",
+		OccurredAt:  time.Now(),
+		Change: checks.WebhookChange{
+			ID: change.ChangeKey, State: "landed",
+			BaseSHA: change.BaseSHA, HeadSHA: landedSHA, GitRef: change.GitRef,
+			Title: change.Title,
+			Actor: checks.WebhookActor{Type: "user", ID: "unknown"},
+		},
+	}
+	payload, err := checks.MarshalEnvelope(env)
+	if err != nil {
+		log.Printf("runkod: %s: marshal change.landed webhook: %v", change.ChangeKey, err)
+		return
+	}
+	if _, err := s.Store.EnqueueWebhook(ctx, env.Type, payload); err != nil {
+		log.Printf("runkod: %s: enqueue change.landed webhook: %v", change.ChangeKey, err)
+	}
 }
 
 // handleSearch implements search_code (§8.3): a project-tagged code search

@@ -21,6 +21,7 @@ var Commands = []Command{
 	{"runko", "doctor [--install-hook] [--json]", "check remotes/hooks, print a cheat-sheet (§6.9)", "DoctorReport"},
 	{"runko", "project create --name <n> --type <t> [--owners a,b] [--json]", "create a project from an intent (§10.1)", `{"name","path","rev"}`},
 	{"runko", "change push [--remote origin] [--trunk main] [--json]", "ensure a Change-Id trailer, push to refs/for/<trunk> (§11.5)", `{"change_id","ref"}`},
+	{"runko", "change land --change <id> --runkod-url <url> --token <t> [--json]", "land a mergeable change onto trunk (§13.5) - needs a live runkod", "land.Outcome"},
 	{"runko", "agents-md [--out AGENTS.md] [--json]", "regenerate this file from the CLI's own command inventory (§8.8)", `{"path"}`},
 	{"runko-ci", "affected --base <rev> [--head HEAD] [--engine bazel]", "compute the affected project set for a base..head range (§13.3)", "affected.Result (always JSON)"},
 	{"runko-ci", "checkout --remote <url> --dest <dir> --rev <rev> [--json]", "partial-clone + sparse-checkout a rev for CI (§14.4.4)", `{"rev","dest"}`},

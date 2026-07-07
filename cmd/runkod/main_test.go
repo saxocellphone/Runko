@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -207,6 +208,57 @@ func TestEndToEndDaemon(t *testing.T) {
 	}
 	if !mr.Mergeable {
 		t.Fatalf("expected the Change to be mergeable after a successful check report")
+	}
+
+	// 4. Land it (§13.5, §28.3 stage 11b) - the wire-level verb that was
+	// missing entirely before this stage: land.Land and the merge-
+	// requirements gate both existed and were both fully tested, but
+	// nothing called them from the write path. Confirm via a real
+	// `git ls-remote` (not just trusting the REST response) that trunk
+	// actually advanced on the served bare repo.
+	landReq, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+changeID+"/land", nil)
+	landReq.Header.Set("Authorization", "Bearer "+token)
+	landResp, err := client.Do(landReq)
+	if err != nil {
+		t.Fatalf("POST land: %v", err)
+	}
+	defer landResp.Body.Close()
+	if landResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(landResp.Body)
+		t.Fatalf("expected 200 from land, got %d: %s", landResp.StatusCode, body)
+	}
+	var landOutcome struct {
+		Landed    bool
+		LandedSHA string
+	}
+	if err := json.NewDecoder(landResp.Body).Decode(&landOutcome); err != nil {
+		t.Fatalf("decode land response: %v", err)
+	}
+	if !landOutcome.Landed || landOutcome.LandedSHA == "" {
+		t.Fatalf("expected a landed outcome, got %+v", landOutcome)
+	}
+
+	lsRemote, err := runGit(t, work, "ls-remote", remoteURL, "refs/heads/main")
+	if err != nil {
+		t.Fatalf("ls-remote: %v", err)
+	}
+	if !strings.Contains(lsRemote, landOutcome.LandedSHA) {
+		t.Fatalf("expected refs/heads/main to have advanced to %s, got:\n%s", landOutcome.LandedSHA, lsRemote)
+	}
+
+	changeReq, _ := http.NewRequest(http.MethodGet, baseURL+"/api/changes/"+changeID, nil)
+	changeReq.Header.Set("Authorization", "Bearer "+token)
+	changeResp, err := client.Do(changeReq)
+	if err != nil {
+		t.Fatalf("GET change after land: %v", err)
+	}
+	defer changeResp.Body.Close()
+	var landedChange struct{ State string }
+	if err := json.NewDecoder(changeResp.Body).Decode(&landedChange); err != nil {
+		t.Fatalf("decode change after land: %v", err)
+	}
+	if landedChange.State != "landed" {
+		t.Fatalf("expected the Change's state to be 'landed', got %q", landedChange.State)
 	}
 }
 

@@ -370,3 +370,59 @@ func TestLandConcurrentRaceExactlyOneWins(t *testing.T) {
 		t.Fatalf("expected the remaining %d attempts to report RaceRetry or RequiresRevalidation, got %d: %+v", attempts-1, lost, outcomes)
 	}
 }
+
+// TestLandOntoUnbornTrunkBootstraps is a regression test for a real gap
+// found while wiring Land into runkod (§28.3 stage 11b): trunk is closed to
+// direct push (§6.9), so a brand-new monorepo's very first Change can ONLY
+// ever reach trunk via this same land path - Land used to call
+// store.ResolveRef unconditionally and error out immediately when trunk had
+// no commits yet, meaning the daemon's first-ever land always failed. The
+// fix treats an unresolvable trunk ref as the empty state and asserts
+// "ref must not exist" (the zero-OID convention) as the CAS's expected
+// value, so this bootstrap case stays a real compare-and-swap - not an
+// unconditional force-write - even before trunk has a first commit.
+func TestLandOntoUnbornTrunkBootstraps(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\n")
+	changeHead := repo.Commit("first change ever")
+	// The commit object stays reachable by SHA; deleting the branch ref
+	// stands in for "this Change was pushed to refs/for/main before main
+	// ever had a first commit" - main was never actually established here.
+	repo.Run("update-ref -d refs/heads/main")
+
+	store := gitstore.New(repo.Dir)
+	outcome, err := Land(store, repo.Dir, "main", "", changeHead,
+		RevalidationAffectedIntersection, affected.Result{}, nil, affected.Options{},
+		core.CommitMeta{Message: "land"})
+	if err != nil {
+		t.Fatalf("Land: %v", err)
+	}
+	if !outcome.Landed || outcome.LandedSHA != changeHead {
+		t.Fatalf("expected the first-ever land to bootstrap trunk, got %+v", outcome)
+	}
+
+	tip, err := store.ResolveRef("refs/heads/main")
+	if err != nil || string(tip) != changeHead {
+		t.Fatalf("expected refs/heads/main == changeHead, got %s (err %v)", tip, err)
+	}
+}
+
+// TestLandOntoUnbornTrunkMismatchedBaseIsError covers the other branch the
+// same fix introduced: an unborn trunk combined with a NON-empty claimed
+// base is an inconsistent Change record (nothing for it to have branched
+// from), not a normal race/conflict/revalidation outcome - it should
+// surface as a real error, not silently misbehave.
+func TestLandOntoUnbornTrunkMismatchedBaseIsError(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("a.txt", "1\n")
+	changeHead := repo.Commit("change")
+	repo.Run("update-ref -d refs/heads/main")
+
+	store := gitstore.New(repo.Dir)
+	_, err := Land(store, repo.Dir, "main", "deadbeef", changeHead,
+		RevalidationAffectedIntersection, affected.Result{}, nil, affected.Options{},
+		core.CommitMeta{Message: "land"})
+	if err == nil {
+		t.Fatalf("expected an error for an unborn trunk with a non-empty, non-matching base")
+	}
+}

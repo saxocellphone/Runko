@@ -154,6 +154,53 @@ func TestProcessAmendedPushUpdatesSameChange(t *testing.T) {
 	}
 }
 
+// TestProcessBaseSHAIsMergeBaseNotMagicRefPriorValue is a regression test
+// for a real bug found while wiring land.Land into the daemon (§28.3 stage
+// 11b): Change.BaseSHA used to be set from the magic ref's own prior value
+// (refs/for/<trunk>'s old SHA) - zero on a Change's first push, and the
+// Change's own stale prior commit on an amend. Neither is "the trunk
+// commit this Change branched from". land.Land needs the real answer (git
+// merge-base) to compute the trunk delta correctly; a wrong BaseSHA made
+// every land look like it needed revalidation, even a trivial fast-forward.
+func TestProcessBaseSHAIsMergeBaseNotMagicRefPriorValue(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	trunkTip := repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	repo.WriteFile("feature.txt", "v1\n")
+	repo.Commit("add feature\n\nChange-Id: I0123456789abcdef0123456789abcdef01234567")
+	_, head1 := pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	p := newTestProcessor(bare, store)
+	first := p.Process(context.Background(), RefUpdate{OldSHA: zeroOID, NewSHA: head1, Ref: "refs/for/main"}, nil)
+	if !first.Accepted {
+		t.Fatalf("expected the first push to be accepted: %+v", first)
+	}
+	change, _, _ := store.GetChange(context.Background(), first.ChangeID)
+	if change.BaseSHA != trunkTip {
+		t.Fatalf("expected BaseSHA to be the real merge-base %s, got %q", trunkTip, change.BaseSHA)
+	}
+
+	// Amend and re-push: BaseSHA must stay pinned to the same trunk commit,
+	// not flip to head1 (the magic ref's prior value before this push).
+	repo.WriteFile("feature.txt", "v2\n")
+	repo.Run("add feature.txt")
+	repo.Run("commit --amend --no-edit")
+	_, head2 := pushCommit(t, repo, bare, "refs/for/main")
+
+	second := p.Process(context.Background(), RefUpdate{OldSHA: head1, NewSHA: head2, Ref: "refs/for/main"}, nil)
+	if !second.Accepted {
+		t.Fatalf("expected the amended push to be accepted: %+v", second)
+	}
+	change2, _, _ := store.GetChange(context.Background(), first.ChangeID)
+	if change2.BaseSHA != trunkTip {
+		t.Fatalf("expected BaseSHA to remain %s across an amend, got %q", trunkTip, change2.BaseSHA)
+	}
+}
+
 // TestProcessCreatesStablePerChangeRef guards a real gap found in review:
 // refs/for/<trunk> is a single literal ref every push (any Change, any
 // amend) overwrites in turn. Without a stable per-Change ref, a second,

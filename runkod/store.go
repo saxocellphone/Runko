@@ -19,6 +19,10 @@ type Change struct {
 	HeadSHA   string
 	GitRef    string
 	Title     string
+	// LandedSHA is the trunk-side commit the Change actually landed as -
+	// HeadSHA on a fast-forward, but a NEW commit SHA when land.Land had to
+	// rebase (§13.5). Empty until MarkChangeLanded is called.
+	LandedSHA string
 }
 
 // WebhookDelivery is one outbox row (§14.4.1).
@@ -43,6 +47,11 @@ type Store interface {
 	// versions of a Change, not the Change itself").
 	CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title string) (Change, error)
 	GetChange(ctx context.Context, changeKey string) (Change, bool, error)
+
+	// MarkChangeLanded records a successful land.Land outcome (§13.5, §28.3
+	// stage 11b): state -> "landed", landedSHA recorded as-is (may differ
+	// from HeadSHA - see Change.LandedSHA's doc comment).
+	MarkChangeLanded(ctx context.Context, changeKey, landedSHA string) (Change, error)
 
 	// UpsertCheckRun creates a check run for (changeKey, headSHA, name) if
 	// none exists yet, or updates status/conclusion in place otherwise -
@@ -108,6 +117,19 @@ func (s *MemStore) GetChange(ctx context.Context, changeKey string) (Change, boo
 	defer s.mu.Unlock()
 	c, ok := s.changes[changeKey]
 	return c, ok, nil
+}
+
+func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA string) (Change, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.changes[changeKey]
+	if !ok {
+		return Change{}, fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	c.State = "landed"
+	c.LandedSHA = landedSHA
+	s.changes[changeKey] = c
+	return c, nil
 }
 
 func checkRunKey(changeKey, headSHA string) string { return changeKey + "|" + headSHA }

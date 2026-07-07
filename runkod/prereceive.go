@@ -208,10 +208,7 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change ref: %v\n", err)}
 	}
 
-	base := v.update.OldSHA
-	if base == zeroOID {
-		base = ""
-	}
+	base := p.computeBaseSHA(v.update, v.extraEnv)
 	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, changeRef, firstLine(d.CommitMessage))
 	if err != nil {
 		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
@@ -227,6 +224,40 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 		Ref: v.update.Ref, Accepted: true, ChangeID: change.ChangeKey,
 		Message: fmt.Sprintf("remote: %s -> %s\n", change.ChangeKey, v.update.Ref),
 	}
+}
+
+// computeBaseSHA resolves Change.BaseSHA: for a direct trunk-ref push, the
+// ref's own prior value is exactly right (a genuine parent commit on
+// trunk). For a magic-ref push (refs/for/<trunk>), the ref's own prior
+// value is NOT the trunk commit the Change is based on - it's zero on the
+// Change's first push, and the Change's own PRIOR commit on an amend/
+// re-push (PushChange force-pushes the same rotating ref, see
+// cmd/runko/change.go) - neither is "where this Change branched from
+// trunk". The real answer is `git merge-base(newSHA, trunk tip)`.
+//
+// Found via §28.3 stage 11b (land wiring): land.Land computes the trunk
+// delta as diffPaths(BaseSHA, trunkTip) to decide whether checks must be
+// re-run (§13.5) - a wrong-but-non-empty BaseSHA (the Change's own stale
+// prior commit, or "" collapsing to the empty tree) makes that diff include
+// files the Change never actually touched, so NeedsRevalidation sees a
+// false intersection and every land looks like it needs revalidation, even
+// a trivial fast-forward. This was invisible in every earlier stage's tests
+// because they only ever exercised BaseSHA/HeadSHA at receive time, never
+// fed it back into a trunk-delta diff the way land.Land does.
+func (p *Processor) computeBaseSHA(u RefUpdate, extraEnv []string) string {
+	if u.Ref == "refs/heads/"+p.TrunkRef {
+		if u.OldSHA == zeroOID {
+			return ""
+		}
+		return u.OldSHA
+	}
+	base, err := p.runGit(extraEnv, "merge-base", u.NewSHA, "refs/heads/"+p.TrunkRef)
+	if err != nil {
+		// No common history yet (e.g. trunk itself is still unborn) - ""
+		// matches the emptyTreeOID fallback every BaseSHA reader already uses.
+		return ""
+	}
+	return base
 }
 
 // computeAffectedAndEnqueue runs the platform-floor affected computation

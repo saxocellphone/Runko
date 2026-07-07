@@ -1,11 +1,12 @@
 // Command runko is the human/agent-facing CLI (docs/design.md §17.1).
 //
-// Implemented this session (§28.3 stage 9), operating purely on the local
-// repo - no control plane required: doctor, project create, change push.
-// Stubbed because they require a live control plane not built in this
-// environment (no compose/Postgres/network to round-trip against, see
-// CLAUDE.md): auth login, workspace create/attach, change create/
-// requirements, mcp serve.
+// Implemented stage 9 (§28.3), operating purely on the local repo - no
+// control plane required: doctor, project create, change push, agents-md.
+// `change land` (stage 11b) is the one command in this file that DOES need
+// a live control plane - and, unlike auth/workspace/mcp below, has one to
+// talk to as of this session: runkod. Still stubbed because no live
+// control plane is reachable in this sandbox to round-trip against: auth
+// login, workspace create/attach, change create/requirements, mcp serve.
 //
 // Exit codes (docs/cli-contract.md, added in the §8.3 CLI-first audit):
 // 0 success, 1 a recognized command failed (structured error printed to
@@ -16,10 +17,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,6 +84,9 @@ commands (operate on the local repo only):
   project create --name <n> ...   create a project from an intent, on top of HEAD (§10.1) [--json]
   change push                     push HEAD to refs/for/<trunk> for review (§11.5) [--json]
   agents-md                       (re)generate AGENTS.md teaching this CLI to agents (§8.8) [--json]
+
+commands (need a live runkod instance, §28.3 stage 11b):
+  change land --change <id> --runkod-url <url> --token <t>   land a mergeable Change (§13.5) [--json]
 
 not yet implemented (need a live control plane, §19.2):
   auth login, workspace create/attach, change create/requirements, mcp serve
@@ -163,9 +169,13 @@ func cmdProject(args []string) error {
 }
 
 func cmdChange(args []string) error {
-	if len(args) < 1 || args[0] != "push" {
-		return usageError("usage: runko change push [--remote origin] [--trunk main]")
+	if len(args) < 1 || (args[0] != "push" && args[0] != "land") {
+		return usageError("usage: runko change push [--remote origin] [--trunk main] | runko change land --change <id> --runkod-url <url> --token <t>")
 	}
+	if args[0] == "land" {
+		return cmdChangeLand(args[1:])
+	}
+
 	fs := flag.NewFlagSet("change push", flag.ExitOnError)
 	repoDir := fs.String("repo", ".", "path to the local repo")
 	remote := fs.String("remote", "origin", "git remote to push to")
@@ -185,6 +195,37 @@ func cmdChange(args []string) error {
 		})
 	}
 	fmt.Printf("pushed to refs/for/%s (Change-Id: %s)\n", *trunk, changeID)
+	return nil
+}
+
+// cmdChangeLand implements `runko change land` (§13.5, §28.3 stage 11b) -
+// unlike push/project create/agents-md, this genuinely needs a live runkod
+// instance to talk to (see LandChange's doc comment in land.go).
+func cmdChangeLand(args []string) error {
+	fs := flag.NewFlagSet("change land", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL, e.g. http://localhost:8080")
+	token := fs.String("token", "", "deploy token")
+	changeID := fs.String("change", "", "Change-Id to land")
+	jsonOut := fs.Bool("json", false, "emit the land.Outcome as JSON instead of a human summary")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *runkodURL == "" || *token == "" || *changeID == "" {
+		return fmt.Errorf("change land: --runkod-url, --token, and --change are required")
+	}
+
+	outcome, err := LandChange(context.Background(), http.DefaultClient, *runkodURL, *token, *changeID)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(outcome)
+	}
+	if outcome.Landed {
+		fmt.Printf("landed %s at %s\n", *changeID, outcome.LandedSHA)
+	} else {
+		fmt.Printf("not landed: %+v\n", outcome)
+	}
 	return nil
 }
 

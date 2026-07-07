@@ -90,10 +90,30 @@ func (s *PostgresStore) GetChange(ctx context.Context, changeKey string) (Change
 }
 
 func dbChangeToChange(c *dbgen.Change) Change {
-	return Change{
+	ch := Change{
 		ChangeKey: c.ChangeKey, State: string(c.State),
 		BaseSHA: c.BaseSha, HeadSHA: c.HeadSha, GitRef: c.GitRef, Title: c.Title,
 	}
+	if c.LandedSha != nil {
+		ch.LandedSHA = *c.LandedSha
+	}
+	return ch
+}
+
+// MarkChangeLanded uses dbgen's LandChange query, generated straight from
+// db/queries/changes.sql back in stage 2 - this stage is the first caller,
+// but the query was already there waiting, since the schema always modeled
+// landing as a first-class Change state transition.
+func (s *PostgresStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA string) (Change, error) {
+	id, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return Change{}, err
+	}
+	c, err := s.Queries.LandChange(ctx, s.Pool, dbgen.LandChangeParams{ID: id, LandedSha: &landedSHA})
+	if err != nil {
+		return Change{}, err
+	}
+	return dbChangeToChange(c), nil
 }
 
 // resolveChangeID maps a Change-Id (this Store interface's currency) to the

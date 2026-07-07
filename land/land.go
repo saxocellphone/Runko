@@ -7,6 +7,17 @@ import (
 	"github.com/saxocellphone/runko/core"
 )
 
+// zeroOID asserts "this ref must not currently exist" as UpdateRef's
+// expected value (`git update-ref <ref> <new> <all-zeros>` - the same
+// convention real git pre-receive hooks use for a brand-new ref). Landing
+// the very first Change onto a monorepo that has never had a commit needs
+// this: trunk is closed to direct push (§6.9), so the org's first commit
+// can ONLY arrive via this same land path - Land must support that
+// bootstrap case as a real compare-and-swap, not an unconditional
+// force-write that could silently let two concurrent "first ever" lands
+// clobber each other.
+const zeroOID = "0000000000000000000000000000000000000000"
+
 // Outcome is the result of one attempt to land a Change. Exactly one of
 // Landed, RequiresRevalidation, len(Conflicts)>0, or RaceRetry describes what
 // happened.
@@ -62,17 +73,29 @@ func Land(
 	meta core.CommitMeta,
 ) (Outcome, error) {
 	trunkRefName := "refs/heads/" + trunkRef
-	trunkTip, err := store.ResolveRef(trunkRefName)
-	if err != nil {
-		return Outcome{}, fmt.Errorf("land: resolve trunk %s: %w", trunkRefName, err)
+	trunkTip, resolveErr := store.ResolveRef(trunkRefName)
+	trunkIsUnborn := resolveErr != nil
+	if trunkIsUnborn {
+		trunkTip = ""
 	}
 
 	if string(trunkTip) == oldBase {
 		expected := trunkTip
+		if trunkIsUnborn {
+			expected = zeroOID
+		}
 		if err := store.UpdateRef(trunkRefName, core.Revision(changeHead), &expected); err != nil {
 			return Outcome{RaceRetry: true}, nil
 		}
 		return Outcome{Landed: true, LandedSHA: changeHead}, nil
+	}
+
+	if trunkIsUnborn {
+		// oldBase didn't match "" (the only value that could agree with an
+		// unborn trunk above), and there is no real trunk tip to diff
+		// against - a genuinely inconsistent Change record, not a normal
+		// race/conflict outcome.
+		return Outcome{}, fmt.Errorf("land: trunk %s has no commits yet, but the change's base %q is neither empty nor resolvable", trunkRefName, oldBase)
 	}
 
 	trunkDeltaPaths, err := diffPaths(repoDir, oldBase, string(trunkTip))
