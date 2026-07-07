@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,14 +33,26 @@ type PostgresStore struct {
 	AuthorActorID uuid.UUID // placeholder "unknown" actor until real AuthN exists (doc.go)
 }
 
-// BootstrapPostgresStore connects to dsn and creates-or-fetches the single
-// org/monorepo/actor row this daemon instance uses, keyed by orgName. It
-// does not run migrations itself - operators apply db/migrations via the
-// steps in db/README.md before pointing a daemon at a database.
+// BootstrapPostgresStore connects to dsn, brings the schema current
+// (ApplyMigrations - embedded db/migrations, so `docker compose up`
+// against a fresh database just works, §16.4), and creates-or-fetches the
+// single org/monorepo/actor row this daemon instance uses, keyed by
+// orgName.
 func BootstrapPostgresStore(ctx context.Context, dsn, orgName, trunkRef string) (*PostgresStore, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("runkod: connect to postgres: %w", err)
+	}
+	// Schema first (§16.4 "schema upgrades"): a fresh database gets the
+	// full embedded migration set, an existing one gets only what's new,
+	// a current one is a no-op. Stage 14's compose smoke found this
+	// missing - nothing outside the test harnesses had ever applied DDL.
+	ran, err := ApplyMigrations(ctx, pool)
+	if err != nil {
+		return nil, err
+	}
+	if len(ran) > 0 {
+		log.Printf("runkod: applied schema migrations: %s", strings.Join(ran, ", "))
 	}
 	q := dbgen.New()
 

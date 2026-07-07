@@ -20,9 +20,11 @@ RUN CGO_ENABLED=0 GOBIN=/out go install github.com/zricethezav/gitleaks/v8@v8.21
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/sourcegraph/zoekt/cmd/zoekt-git-index@v0.0.0-20260622122048-f80c7e09ab9d
 
 FROM alpine:3.21
-# git: the only substrate (§11); wget (busybox) backs the compose
-# healthcheck against /readyz.
-RUN apk add --no-cache git ca-certificates
+# git: the only substrate (§11). git-daemon is NOT optional: alpine
+# packages git-http-backend there, not in the base git package, and
+# Server.Handler() refuses to start without it (smart-HTTP is the only
+# write path). wget (busybox) backs the compose healthcheck.
+RUN apk add --no-cache git git-daemon ca-certificates
 COPY --from=build /out/runkod /out/runko /out/runko-ci /out/gitleaks /out/zoekt-git-index /usr/local/bin/
 # The daemon makes commits during land (rebase) - give the process a git
 # identity so machine-generated commits never fail on a bare container.
