@@ -85,8 +85,9 @@ commands (operate on the local repo only):
   change push                     push HEAD to refs/for/<trunk> for review (§11.5) [--json]
   agents-md                       (re)generate AGENTS.md teaching this CLI to agents (§8.8) [--json]
 
-commands (need a live runkod instance, §28.3 stage 11b):
+commands (need a live runkod instance, §28.3 stages 11b/11c):
   change land --change <id> --runkod-url <url> --token <t>   land a mergeable Change (§13.5) [--json]
+  change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t>   record an owner approval (§13.5) [--json]
 
 not yet implemented (need a live control plane, §19.2):
   auth login, workspace create/attach, change create/requirements, mcp serve
@@ -169,11 +170,14 @@ func cmdProject(args []string) error {
 }
 
 func cmdChange(args []string) error {
-	if len(args) < 1 || (args[0] != "push" && args[0] != "land") {
-		return usageError("usage: runko change push [--remote origin] [--trunk main] | runko change land --change <id> --runkod-url <url> --token <t>")
+	if len(args) < 1 || (args[0] != "push" && args[0] != "land" && args[0] != "approve") {
+		return usageError("usage: runko change push [--remote origin] [--trunk main] | runko change land --change <id> --runkod-url <url> --token <t> | runko change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t>")
 	}
 	if args[0] == "land" {
 		return cmdChangeLand(args[1:])
+	}
+	if args[0] == "approve" {
+		return cmdChangeApprove(args[1:])
 	}
 
 	fs := flag.NewFlagSet("change push", flag.ExitOnError)
@@ -225,6 +229,44 @@ func cmdChangeLand(args []string) error {
 		fmt.Printf("landed %s at %s\n", *changeID, outcome.LandedSHA)
 	} else {
 		fmt.Printf("not landed: %+v\n", outcome)
+	}
+	return nil
+}
+
+// cmdChangeApprove implements `runko change approve` (§13.5, §28.3 stage
+// 11c): record that a required owner approves this Change, and print the
+// refreshed merge requirements - what the approval covered, what still
+// blocks.
+func cmdChangeApprove(args []string) error {
+	fs := flag.NewFlagSet("change approve", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL, e.g. http://localhost:8080")
+	token := fs.String("token", "", "deploy token")
+	changeID := fs.String("change", "", "Change-Id to approve")
+	ownerRef := fs.String("owner", "", "owner requirement being satisfied, e.g. group:commerce-eng")
+	by := fs.String("by", "", "who is approving")
+	jsonOut := fs.Bool("json", false, "emit the merge requirements as JSON instead of a human summary")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *runkodURL == "" || *token == "" || *changeID == "" || *ownerRef == "" || *by == "" {
+		return fmt.Errorf("change approve: --runkod-url, --token, --change, --owner, and --by are required")
+	}
+
+	reqs, err := ApproveChange(context.Background(), http.DefaultClient, *runkodURL, *token, *changeID, *ownerRef, *by)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(reqs)
+	}
+	fmt.Printf("approved %s on %s\n", *ownerRef, *changeID)
+	if reqs.Mergeable {
+		fmt.Println("mergeable: yes")
+	} else {
+		fmt.Println("mergeable: no")
+		for _, b := range reqs.Blockers {
+			fmt.Printf("  - %s\n", b)
+		}
 	}
 	return nil
 }

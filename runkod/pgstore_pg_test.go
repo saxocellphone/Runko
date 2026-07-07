@@ -112,6 +112,43 @@ func TestPostgresStoreCheckRunUpsertReflectsLatestStatus(t *testing.T) {
 	}
 }
 
+// TestPostgresStoreApprovalRoundTrip exercises stage 2's
+// change_owner_requirements table through its first real caller (§28.3
+// stage 11c): recording an approval creates the requirement row, satisfies
+// it, and attributes it to a real actors row (external_ref = approved_by),
+// which ListApprovals resolves back to the name.
+func TestPostgresStoreApprovalRoundTrip(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title"); err != nil {
+		t.Fatalf("CreateOrUpdateChange: %v", err)
+	}
+
+	approvals, err := store.ListApprovals(ctx, "Iabc")
+	if err != nil {
+		t.Fatalf("ListApprovals (empty): %v", err)
+	}
+	if len(approvals) != 0 {
+		t.Fatalf("expected no approvals yet, got %+v", approvals)
+	}
+
+	if err := store.RecordApproval(ctx, "Iabc", "group:commerce-eng", "alice"); err != nil {
+		t.Fatalf("RecordApproval: %v", err)
+	}
+	// Idempotent: approving the same ref again is not an error.
+	if err := store.RecordApproval(ctx, "Iabc", "group:commerce-eng", "alice"); err != nil {
+		t.Fatalf("RecordApproval (repeat): %v", err)
+	}
+
+	approvals, err = store.ListApprovals(ctx, "Iabc")
+	if err != nil {
+		t.Fatalf("ListApprovals: %v", err)
+	}
+	if len(approvals) != 1 || approvals[0].OwnerRef != "group:commerce-eng" || approvals[0].ApprovedBy != "alice" {
+		t.Fatalf("expected one approval by alice for group:commerce-eng, got %+v", approvals)
+	}
+}
+
 func TestPostgresStoreWebhookOutboxLifecycle(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()

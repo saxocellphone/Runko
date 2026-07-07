@@ -364,6 +364,129 @@ func TestEndToEndDaemonRequiredCheckBlocksLandWithZeroRunsPosted(t *testing.T) {
 	}
 }
 
+// TestEndToEndDaemonOwnerApprovalAndRequiredCheckGateLand is §28.3 stage
+// 11c's owners bar, end to end: real compiled daemon, real git push of a
+// project declaring BOTH a required check (ci.checks) and an owner. Land
+// must be refused pre-check AND pre-approval, stay refused when only the
+// check is green, and succeed only after the owner approval too - §13.5's
+// first two gate rows working at the wire level, not decoratively.
+func TestEndToEndDaemonOwnerApprovalAndRequiredCheckGateLand(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	token := "sekret-token"
+	baseURL := startDaemon(t, bin, repoDir, token)
+
+	remoteURL := strings.Replace(baseURL, "http://", "http://runko:"+token+"@", 1) + "/" + filepath.Base(repoDir) + "/"
+
+	work := t.TempDir()
+	if _, err := runGit(t, work, "init", "-q", "-b", "main"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(work, "commerce", "checkout"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	manifest := "schema: project/v1\nname: checkout-api\ntype: service\nowners:\n  - group:commerce-eng\nci:\n  checks:\n    - name: unit\n      command: go test ./...\n"
+	if err := os.WriteFile(filepath.Join(work, "commerce", "checkout", "PROJECT.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write PROJECT.yaml: %v", err)
+	}
+	if _, err := runGit(t, work, "add", "-A"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := runGit(t, work, "commit", "-q", "-m", "add checkout-api"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if _, err := runGit(t, work, "remote", "add", "origin", remoteURL); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+	out, err := runGit(t, work, "push", "origin", "+HEAD:refs/for/main")
+	if err != nil {
+		t.Fatalf("push to refs/for/main: %v\n%s", err, out)
+	}
+	m := regexp.MustCompile(`(I[0-9a-f]{40}) -> refs/for/main`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("expected a Change-Id in the push output, got:\n%s", out)
+	}
+	changeID := m[1]
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	postLand := func() (int, string) {
+		req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+changeID+"/land", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("POST land: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(body)
+	}
+
+	// Pre-check AND pre-approval: refused.
+	if code, body := postLand(); code != http.StatusConflict {
+		t.Fatalf("expected 409 with check pending and approval outstanding, got %d: %s", code, body)
+	}
+
+	// Green check alone must NOT be enough - the owner is still outstanding.
+	checkBody, _ := json.Marshal(map[string]string{
+		"name": "unit", "external_id": "job-1", "status": "completed", "conclusion": "success", "reporter": "github-actions",
+	})
+	checkReq, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+changeID+"/checks", bytes.NewReader(checkBody))
+	checkReq.Header.Set("Authorization", "Bearer "+token)
+	checkReq.Header.Set("Content-Type", "application/json")
+	checkResp, err := client.Do(checkReq)
+	if err != nil {
+		t.Fatalf("POST checks: %v", err)
+	}
+	checkResp.Body.Close()
+	if code, body := postLand(); code != http.StatusConflict {
+		t.Fatalf("expected 409 with the check green but the approval still outstanding, got %d: %s", code, body)
+	}
+
+	// Approve, then land succeeds.
+	approveBody, _ := json.Marshal(map[string]string{"owner_ref": "group:commerce-eng", "approved_by": "alice"})
+	approveReq, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+changeID+"/approve", bytes.NewReader(approveBody))
+	approveReq.Header.Set("Authorization", "Bearer "+token)
+	approveReq.Header.Set("Content-Type", "application/json")
+	approveResp, err := client.Do(approveReq)
+	if err != nil {
+		t.Fatalf("POST approve: %v", err)
+	}
+	defer approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(approveResp.Body)
+		t.Fatalf("expected 200 from approve, got %d: %s", approveResp.StatusCode, body)
+	}
+	var mr struct {
+		Owners    struct{ Satisfied []string }
+		Mergeable bool
+	}
+	if err := json.NewDecoder(approveResp.Body).Decode(&mr); err != nil {
+		t.Fatalf("decode approve response: %v", err)
+	}
+	if !mr.Mergeable || len(mr.Owners.Satisfied) != 1 {
+		t.Fatalf("expected mergeable with the owner satisfied after approve, got %+v", mr)
+	}
+
+	code, body := postLand()
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 land after check + approval, got %d: %s", code, body)
+	}
+	var landOutcome struct {
+		Landed    bool
+		LandedSHA string
+	}
+	if err := json.Unmarshal([]byte(body), &landOutcome); err != nil {
+		t.Fatalf("decode land response: %v", err)
+	}
+	lsRemote, err := runGit(t, work, "ls-remote", remoteURL, "refs/heads/main")
+	if err != nil {
+		t.Fatalf("ls-remote: %v", err)
+	}
+	if !strings.Contains(lsRemote, landOutcome.LandedSHA) {
+		t.Fatalf("expected refs/heads/main at %s, got:\n%s", landOutcome.LandedSHA, lsRemote)
+	}
+}
+
 // TestEndToEndDaemonSearchNotConfigured proves the real compiled daemon,
 // started with no --search-url (the default in every other test in this
 // file), answers GET /api/search with the structured §6.5 "not configured"

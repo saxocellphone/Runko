@@ -3,6 +3,7 @@ package runkod
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -23,6 +24,20 @@ type Change struct {
 	// HeadSHA on a fast-forward, but a NEW commit SHA when land.Land had to
 	// rebase (§13.5). Empty until MarkChangeLanded is called.
 	LandedSHA string
+}
+
+// Approval is one recorded owner approval on a Change - the satisfied half
+// of §13.5's "required human owners approved" gate. OwnerRef names the owner
+// requirement being satisfied (e.g. "group:commerce-eng"); ApprovedBy is who
+// granted it. Until real AuthN (§15.1) exists, ApprovedBy is client-supplied
+// text trusted because the deploy token gates the API - the same v1 trust
+// boundary report-check's Reporter field already lives with. The REQUIRED
+// side is never stored: it's recomputed from the tree at read time
+// (tree-as-truth, §10.3), so approvals recorded here only ever satisfy
+// requirements the tree still asserts.
+type Approval struct {
+	OwnerRef   string
+	ApprovedBy string
 }
 
 // WebhookDelivery is one outbox row (§14.4.1).
@@ -53,6 +68,14 @@ type Store interface {
 	// from HeadSHA - see Change.LandedSHA's doc comment).
 	MarkChangeLanded(ctx context.Context, changeKey, landedSHA string) (Change, error)
 
+	// RecordApproval records that ownerRef's approval requirement is
+	// satisfied on changeKey (§13.5, §28.3 stage 11c). Idempotent: approving
+	// the same ownerRef twice is not an error, the latest ApprovedBy wins.
+	RecordApproval(ctx context.Context, changeKey, ownerRef, approvedBy string) error
+	// ListApprovals returns every recorded approval for changeKey, sorted by
+	// OwnerRef for deterministic output.
+	ListApprovals(ctx context.Context, changeKey string) ([]Approval, error)
+
 	// UpsertCheckRun creates a check run for (changeKey, headSHA, name) if
 	// none exists yet, or updates status/conclusion in place otherwise -
 	// report-check posts a status transition for the SAME logical run
@@ -76,6 +99,7 @@ type MemStore struct {
 	mu         sync.Mutex
 	changes    map[string]Change
 	checkRuns  map[string]map[string]checks.CheckRunView // changeKey|headSHA -> name -> run
+	approvals  map[string]map[string]Approval            // changeKey -> ownerRef -> approval
 	deliveries map[string]*memDelivery
 	nextID     int
 }
@@ -90,6 +114,7 @@ func NewMemStore() *MemStore {
 	return &MemStore{
 		changes:    make(map[string]Change),
 		checkRuns:  make(map[string]map[string]checks.CheckRunView),
+		approvals:  make(map[string]map[string]Approval),
 		deliveries: make(map[string]*memDelivery),
 	}
 }
@@ -130,6 +155,31 @@ func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA st
 	c.LandedSHA = landedSHA
 	s.changes[changeKey] = c
 	return c, nil
+}
+
+func (s *MemStore) RecordApproval(ctx context.Context, changeKey, ownerRef, approvedBy string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.changes[changeKey]; !ok {
+		return fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	if s.approvals[changeKey] == nil {
+		s.approvals[changeKey] = make(map[string]Approval)
+	}
+	s.approvals[changeKey][ownerRef] = Approval{OwnerRef: ownerRef, ApprovedBy: approvedBy}
+	return nil
+}
+
+func (s *MemStore) ListApprovals(ctx context.Context, changeKey string) ([]Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	byRef := s.approvals[changeKey]
+	out := make([]Approval, 0, len(byRef))
+	for _, a := range byRef {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].OwnerRef < out[j].OwnerRef })
+	return out, nil
 }
 
 func checkRunKey(changeKey, headSHA string) string { return changeKey + "|" + headSHA }

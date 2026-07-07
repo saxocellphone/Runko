@@ -57,6 +57,7 @@ schemas are.
 | `runko project create` | `{"name", "path", "rev"}` |
 | `runko change push` | `{"change_id", "ref"}` |
 | `runko change land` | `land.Outcome` (`Landed`, `LandedSHA`, `RequiresRevalidation`, `Conflicts`, `RaceRetry`) - needs a live runkod (`--runkod-url`/`--token`), unlike every other command in this table, see §13.5/§28.3 stage 11b |
+| `runko change approve` | `MergeRequirements` (the same nested `{change_id, owners, checks, mergeable, blockers}` shape `GET .../merge-requirements` reports, per `docs/spec/mcp-tools/common.schema.json`) - needs a live runkod, see §13.5/§28.3 stage 11c |
 | `runko agents-md` | `{"path"}` - also writes `AGENTS.md` (default; `--out` overrides) at the repo root, see §8.8/§28.3 stage 11 |
 | `runko-ci affected` | `affected.Result` (always JSON - no human mode exists for this command; it is CI-facing by design) |
 | `runko-ci checkout` | `{"rev", "dest"}` |

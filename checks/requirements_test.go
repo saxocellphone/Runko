@@ -1,7 +1,9 @@
 package checks
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"testing"
 )
@@ -30,6 +32,36 @@ func TestComputeMergeRequirementsOutstandingOwner(t *testing.T) {
 	}
 	if len(req.Blockers) == 0 {
 		t.Fatalf("expected a plain-language blocker")
+	}
+}
+
+// TestMergeRequirementsJSONRoundTrip pins MarshalJSON/UnmarshalJSON as
+// inverses - clients (runko change approve, the stage-12 MCP adapter)
+// decode exactly what the daemon encodes, one wire contract (§8.3).
+func TestMergeRequirementsJSONRoundTrip(t *testing.T) {
+	in := MergeRequirements{
+		ChangeID:          "chg_1",
+		RequiredOwners:    []string{"group:commerce-eng"},
+		OutstandingOwners: []string{"group:commerce-eng"},
+		RequiredChecks:    []string{"unit"},
+		PendingChecks:     []string{"unit"},
+		Blockers:          []string{"unit has not reported yet", "waiting on approval from group:commerce-eng"},
+	}
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var out MergeRequirements
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	// Marshal normalizes nil slices to empty ones (nonNilStrings), so
+	// normalize the input the same way before comparing.
+	in.SatisfiedOwners = []string{}
+	in.PassingChecks = []string{}
+	in.FailingChecks = []string{}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("round trip mismatch:\n in: %+v\nout: %+v", in, out)
 	}
 }
 

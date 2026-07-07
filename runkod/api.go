@@ -61,6 +61,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/changes/{key}/affected", s.requireAuth(s.handleGetAffected))
 	mux.HandleFunc("GET /api/changes/{key}/merge-requirements", s.requireAuth(s.handleGetMergeRequirements))
 	mux.HandleFunc("POST /api/changes/{key}/checks", s.requireAuth(s.handlePostCheck))
+	mux.HandleFunc("POST /api/changes/{key}/approve", s.requireAuth(s.handleApproveChange))
 	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
 	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
 
@@ -261,11 +262,85 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	if err != nil {
 		return checks.MergeRequirements{}, err
 	}
-	requiredNames, err := s.requiredCheckNames(change)
+	result, indexed, err := s.computeAffected(change)
 	if err != nil {
 		return checks.MergeRequirements{}, err
 	}
-	return checks.ComputeMergeRequirements(key, nil, requiredNames, runs, nil, nil, nil), nil
+	requiredNames := requiredCheckNames(result, indexed)
+	owners, err := s.ownerRequirements(ctx, key, result, indexed)
+	if err != nil {
+		return checks.MergeRequirements{}, err
+	}
+	return checks.ComputeMergeRequirements(key, owners, requiredNames, runs, nil, nil, nil), nil
+}
+
+// ownerRequirements derives §13.5's "required human owners approved" gate
+// inputs (§28.3 stage 11c - owners were previously nil unconditionally, so
+// the gate row was decorative at the wire level). The REQUIRED side comes
+// from the tree, per §7.3's "touched paths in a Change compute required
+// owners": each changed path maps to its owning project by longest prefix,
+// and that project's resolved owners (manifest > OWNERS > org default, the
+// stage-4 index) are required. Deliberately NOT the transitive affected
+// closure - a dependent project's tests must run (requiredCheckNames scopes
+// to the closure), but its owners didn't have code touched and get no
+// approval veto. Projects with no owners anywhere contribute no requirement
+// (§7.3 "gaps visible; optionally blocking" - the optional block is future
+// 11c work, not a default). The SATISFIED side joins stored approvals; an
+// approval for an owner the tree no longer requires is simply ignored,
+// never resurrected as a requirement (tree-as-truth, §10.3).
+func (s *Server) ownerRequirements(ctx context.Context, key string, result affected.Result, indexed []index.IndexedProject) ([]checks.OwnerRequirement, error) {
+	required := map[string]bool{}
+	for _, path := range result.Paths {
+		project, ok := owningProject(indexed, path)
+		if !ok {
+			continue
+		}
+		for _, o := range project.Owners {
+			required[o.Ref] = true
+		}
+	}
+	if len(required) == 0 {
+		return nil, nil
+	}
+
+	approvals, err := s.Store.ListApprovals(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	approved := map[string]bool{}
+	for _, a := range approvals {
+		approved[a.OwnerRef] = true
+	}
+
+	refs := make([]string, 0, len(required))
+	for ref := range required {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	out := make([]checks.OwnerRequirement, len(refs))
+	for i, ref := range refs {
+		out[i] = checks.OwnerRequirement{OwnerRef: ref, Satisfied: approved[ref]}
+	}
+	return out, nil
+}
+
+// owningProject returns the project owning path by longest-path-prefix match,
+// the same rule affected.Compute and tagProjects apply (§13.3). A repo-root
+// project (Path == "") matches everything at the lowest priority.
+func owningProject(indexed []index.IndexedProject, path string) (index.IndexedProject, bool) {
+	var best index.IndexedProject
+	found := false
+	for _, p := range indexed {
+		matches := p.Path == "" || path == p.Path || strings.HasPrefix(path, p.Path+"/")
+		if !matches {
+			continue
+		}
+		if !found || len(p.Path) > len(best.Path) {
+			best = p
+			found = true
+		}
+	}
+	return best, found
 }
 
 // requiredCheckNames derives what's ACTUALLY required for change to land:
@@ -285,12 +360,7 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 // is a real, if partial, fix: a project with no ci block still requires
 // nothing (anti-Boq, §6.2), but a project that DOES declare checks now
 // actually gates on them, reported or not.
-func (s *Server) requiredCheckNames(change Change) ([]string, error) {
-	result, indexed, err := s.computeAffected(change)
-	if err != nil {
-		return nil, err
-	}
-
+func requiredCheckNames(result affected.Result, indexed []index.IndexedProject) []string {
 	scoped := indexed
 	if !result.RunEverything {
 		byName := make(map[string]index.IndexedProject, len(indexed))
@@ -316,7 +386,92 @@ func (s *Server) requiredCheckNames(change Change) ([]string, error) {
 		}
 	}
 	sort.Strings(names)
-	return names, nil
+	return names
+}
+
+// approveRequest is POST /api/changes/{key}/approve's body. ApprovedBy is
+// client-supplied identity - see the Approval type's trust-boundary note.
+type approveRequest struct {
+	OwnerRef   string `json:"owner_ref"`
+	ApprovedBy string `json:"approved_by"`
+}
+
+// handleApproveChange records an owner approval (§13.5's "required human
+// owners approved" gate, §28.3 stage 11c). The owner_ref must be one the
+// tree currently requires for this Change's touched paths - approving a
+// ref nothing requires is a client mistake surfaced as a structured 400,
+// not silently recorded. Responds with the refreshed merge requirements so
+// the approver immediately sees what their approval covered and what still
+// blocks (§7.3's aggregation UX, minimally).
+func (s *Server) handleApproveChange(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	change, ok, err := s.Store.GetChange(r.Context(), key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "change not found", http.StatusNotFound)
+		return
+	}
+
+	var req approveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, clierr.Error{
+			Code: "invalid_body", Message: "request body must be JSON with owner_ref and approved_by",
+		})
+		return
+	}
+	if req.OwnerRef == "" || req.ApprovedBy == "" {
+		writeJSON(w, http.StatusBadRequest, clierr.Error{
+			Code: "missing_field", Field: "owner_ref",
+			Message:    "both owner_ref and approved_by are required",
+			Suggestion: `POST {"owner_ref": "group:...", "approved_by": "<you>"}`,
+		})
+		return
+	}
+
+	result, indexed, err := s.computeAffected(change)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	owners, err := s.ownerRequirements(r.Context(), key, result, indexed)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	isRequired := false
+	var requiredRefs []string
+	for _, o := range owners {
+		requiredRefs = append(requiredRefs, o.OwnerRef)
+		if o.OwnerRef == req.OwnerRef {
+			isRequired = true
+		}
+	}
+	if !isRequired {
+		suggestion := "this change has no owner requirements at all - nothing to approve"
+		if len(requiredRefs) > 0 {
+			suggestion = "required owners for this change: " + strings.Join(requiredRefs, ", ")
+		}
+		writeJSON(w, http.StatusBadRequest, clierr.Error{
+			Code: "not_a_required_owner", Field: "owner_ref",
+			Message:    fmt.Sprintf("%q is not a required owner for change %s", req.OwnerRef, key),
+			Suggestion: suggestion,
+		})
+		return
+	}
+
+	if err := s.Store.RecordApproval(r.Context(), key, req.OwnerRef, req.ApprovedBy); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	reqs, err := s.mergeRequirements(r.Context(), key, change)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, reqs)
 }
 
 // checkRunReport mirrors cmd/runko-ci's CheckRunReport exactly (the POST

@@ -178,6 +178,29 @@ func (m MergeRequirements) MarshalJSON() ([]byte, error) {
 	return json.Marshal(w)
 }
 
+// UnmarshalJSON is MarshalJSON's inverse - clients (runko change approve,
+// stage 12's MCP adapter) decode the daemon's wire shape back into the flat
+// Go fields.
+func (m *MergeRequirements) UnmarshalJSON(data []byte) error {
+	var w mergeRequirementsWire
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	*m = MergeRequirements{
+		ChangeID:          w.ChangeID,
+		RequiredOwners:    w.Owners.Required,
+		SatisfiedOwners:   w.Owners.Satisfied,
+		OutstandingOwners: w.Owners.Outstanding,
+		RequiredChecks:    w.Checks.Required,
+		PassingChecks:     w.Checks.Passing,
+		FailingChecks:     w.Checks.Failing,
+		PendingChecks:     w.Checks.Pending,
+		Mergeable:         w.Mergeable,
+		Blockers:          w.Blockers,
+	}
+	return nil
+}
+
 // nonNilStrings replaces a nil slice with an empty one, so JSON Schema's
 // "array" type (which rejects null) is always satisfied.
 func nonNilStrings(s []string) []string {

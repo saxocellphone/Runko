@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/saxocellphone/runko/checks"
@@ -124,6 +126,61 @@ func (s *PostgresStore) resolveChangeID(ctx context.Context, changeKey string) (
 		return uuid.Nil, fmt.Errorf("runkod: resolve change %q: %w", changeKey, err)
 	}
 	return c.ID, nil
+}
+
+// RecordApproval persists an approval via stage 2's change_owner_requirements
+// table (its first caller, like LandChange was at 11b). The approver becomes a
+// real actors row (UpsertActor by external_ref) rather than dropping the name
+// on the floor - break-glass and approvals must stay audited (§7.3), and the
+// schema already modeled that with satisfied_by_actor_id.
+func (s *PostgresStore) RecordApproval(ctx context.Context, changeKey, ownerRef, approvedBy string) error {
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return err
+	}
+	actor, err := s.Queries.UpsertActor(ctx, s.Pool, dbgen.UpsertActorParams{
+		OrgID: s.OrgID, Type: dbgen.ActorTypeUser, ExternalRef: approvedBy, Metadata: []byte("{}"),
+	})
+	if err != nil {
+		return fmt.Errorf("runkod: upsert approver actor %q: %w", approvedBy, err)
+	}
+	if err := s.Queries.SetChangeOwnerRequirement(ctx, s.Pool, dbgen.SetChangeOwnerRequirementParams{
+		ChangeID: changeID, OwnerRef: ownerRef,
+	}); err != nil {
+		return err
+	}
+	return s.Queries.SatisfyChangeOwnerRequirement(ctx, s.Pool, dbgen.SatisfyChangeOwnerRequirementParams{
+		ChangeID: changeID, OwnerRef: ownerRef,
+		SatisfiedByActorID: pgtype.UUID{Bytes: actor.ID, Valid: true},
+	})
+}
+
+func (s *PostgresStore) ListApprovals(ctx context.Context, changeKey string) ([]Approval, error) {
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.Queries.ListChangeOwnerRequirements(ctx, s.Pool, changeID)
+	if err != nil {
+		return nil, err
+	}
+	var out []Approval
+	for _, r := range rows {
+		if !r.Satisfied {
+			continue
+		}
+		a := Approval{OwnerRef: r.OwnerRef}
+		if r.SatisfiedByActorID.Valid {
+			actor, err := s.Queries.GetActor(ctx, s.Pool, uuid.UUID(r.SatisfiedByActorID.Bytes))
+			if err != nil {
+				return nil, fmt.Errorf("runkod: resolve approver actor for %s: %w", r.OwnerRef, err)
+			}
+			a.ApprovedBy = actor.ExternalRef
+		}
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].OwnerRef < out[j].OwnerRef })
+	return out, nil
 }
 
 func (s *PostgresStore) UpsertCheckRun(ctx context.Context, changeKey, headSHA string, run checks.CheckRunView) error {
