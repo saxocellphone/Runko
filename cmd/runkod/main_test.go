@@ -1102,3 +1102,70 @@ func TestDaemonGracefulShutdownOnSIGTERM(t *testing.T) {
 		t.Fatalf("expected the graceful-shutdown message on stdout")
 	}
 }
+
+// TestServeEnvFallbacks pins §9.4's stage-14 convention at the process
+// level: a daemon configured ENTIRELY through RUNKO_* env vars (no argv
+// beyond "serve") comes up, registers the env-supplied principal, and
+// answers /readyz - exactly how the compose stack runs it.
+func TestServeEnvFallbacks(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	fakeGitleaks := scriptedCleanGitleaks(t)
+
+	cmd := exec.Command(bin, "serve")
+	cmd.Env = append(os.Environ(),
+		"RUNKO_REPO_DIR="+repoDir,
+		"RUNKO_ADDR=127.0.0.1:0",
+		"RUNKO_TRUNK=main",
+		"RUNKO_TOKEN=env-token",
+		"RUNKO_GITLEAKS_BIN="+fakeGitleaks,
+		"RUNKO_PRINCIPALS=name=alice;token=alice-tok|name=bob;token=bob-tok",
+	)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start runkod: %v", err)
+	}
+	defer func() {
+		cmd.Process.Kill()
+		cmd.Wait()
+	}()
+
+	addrCh := make(chan string, 1)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			if m := servingAddrPattern.FindStringSubmatch(scanner.Text()); m != nil {
+				addrCh <- m[1]
+				return
+			}
+		}
+	}()
+	var addr string
+	select {
+	case addr = <-addrCh:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for the listen address")
+	}
+
+	resp, err := http.Get(addr + "/readyz")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /readyz: %v (%+v)", err, resp)
+	}
+	resp.Body.Close()
+
+	// The env-registered principal token is a live API client; the env
+	// deploy token works too.
+	for _, token := range []string{"alice-tok", "env-token"} {
+		req, _ := http.NewRequest(http.MethodGet, addr+"/api/changes", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		listResp, err := http.DefaultClient.Do(req)
+		if err != nil || listResp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /api/changes as %q: %v (%+v)", token, err, listResp)
+		}
+		listResp.Body.Close()
+	}
+}

@@ -1,0 +1,64 @@
+# The §9.3 "Eval / dev" profile (§16.4, §28.3 stage 14): the whole
+# evaluator experience is `docker compose up` at the repo root, then the
+# create -> change -> land loop against http://localhost:8080.
+# scripts/compose-smoke.sh runs exactly that loop, timed, in CI on every
+# push, so §3.3's "< 15 minutes" claim cannot rot.
+#
+# Deltas from §16.4's full profile list, deliberate and temporary:
+#   - web: joins when stage 13's server half exists (web/ is frontend-only
+#     so far); the control-plane loop needs no UI.
+#   - MinIO: nothing stores objects yet - shipping it would be decoration.
+#   - Zoekt: optional; set RUNKO_SEARCH_URL/RUNKO_ZOEKT_* and add a zoekt
+#     service when search matters to your eval (§8.2).
+#   - MCP: `runko mcp serve` is a stdio bridge each client runs locally
+#     (§17.4), not a hostable service - `docker compose exec runkod runko
+#     mcp serve ...` works if you want it containerized.
+#
+# Config is RUNKO_* environment (§9.4's stage-14 convention). The defaults
+# below are EVAL credentials - override every token before exposing this
+# stack to anything you don't fully trust.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: runko
+      POSTGRES_PASSWORD: runko
+      POSTGRES_DB: runko
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U runko -d runko"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  runkod:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      RUNKO_REPO_DIR: /var/lib/runko/monorepo.git
+      RUNKO_ADDR: 0.0.0.0:8080
+      RUNKO_TRUNK: ${RUNKO_TRUNK:-main}
+      RUNKO_TOKEN: ${RUNKO_TOKEN:-runko-dev-token}
+      RUNKO_DATABASE_URL: postgres://runko:runko@postgres:5432/runko?sslmode=disable
+      # Two named principals (§15.1 interim) so the eval loop exercises
+      # real review: alice pushes, bob approves - self-approval is denied.
+      RUNKO_PRINCIPALS: ${RUNKO_PRINCIPALS:-name=alice;token=alice-dev-token|name=bob;token=bob-dev-token}
+      # Org-level required checks (§14.9). The smoke sets one so landing
+      # is gated by a real check, not vacuous mergeability.
+      RUNKO_GLOBAL_REQUIRED_CHECKS: ${RUNKO_GLOBAL_REQUIRED_CHECKS:-}
+    ports:
+      - "${RUNKO_PORT:-8080}:8080"
+    volumes:
+      - gitdata:/var/lib/runko
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+volumes:
+  pgdata:
+  gitdata:

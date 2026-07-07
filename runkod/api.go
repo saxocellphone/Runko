@@ -89,10 +89,13 @@ func (s *Server) Handler() (http.Handler, error) {
 	}
 	mux.Handle("/"+RepoMountName(s.RepoDir)+"/", s.requireGitAuth(gitHandler))
 
-	// Unauthenticated by design: liveness probes (compose healthcheck,
-	// k8s, a load balancer) cannot carry the deploy token, and the
-	// response leaks nothing but "the daemon is up and can see its repo".
+	// Unauthenticated by design: liveness/readiness probes and metrics
+	// scrapers (compose healthcheck, k8s, Prometheus) cannot carry the
+	// deploy token, and none of these leak repository content (§9.4's
+	// stage-14 conventions: /healthz + /readyz + /metrics).
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
+	mux.HandleFunc("GET /metrics", s.handleMetrics)
 
 	mux.HandleFunc("POST /internal/pre-receive", s.handlePreReceive)
 
@@ -142,6 +145,49 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+// handleReadyz is /healthz plus the dependency probe (§9.4): ready means
+// "this replica can serve real traffic NOW" - repo present AND the Store's
+// backing service reachable (a real Postgres round-trip in the durable
+// profile). Liveness and readiness stay separate endpoints so an
+// orchestrator can restart a dead process without draining a replica
+// that's merely waiting on its database.
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if _, err := os.Stat(s.RepoDir); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "unavailable", "reason": fmt.Sprintf("repo dir: %v", err),
+		})
+		return
+	}
+	if err := s.Store.Ping(r.Context()); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "unavailable", "reason": fmt.Sprintf("store: %v", err),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleMetrics is a minimal Prometheus text-format exposition (§9.4's
+// stage-14 convention) - hand-rolled because the exposition format for
+// gauges is trivially a few text lines, and importing client_golang for
+// that would violate the lean-dependency posture (§28.2; the Zoekt
+// precedent). Grows real counters when something needs them; until then
+// it answers the two questions an operator actually asks a fresh eval
+// stack: is it up (uptime), and is work flowing (open changes).
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	open, err := s.Store.ListChanges(r.Context(), "open")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	fmt.Fprintf(w, "# HELP runkod_up Whether the daemon is serving.\n# TYPE runkod_up gauge\nrunkod_up 1\n")
+	fmt.Fprintf(w, "# HELP runkod_uptime_seconds Seconds since this process started serving.\n# TYPE runkod_uptime_seconds gauge\nrunkod_uptime_seconds %d\n", int64(time.Since(processStart).Seconds()))
+	fmt.Fprintf(w, "# HELP runkod_open_changes Open Changes in the store.\n# TYPE runkod_open_changes gauge\nrunkod_open_changes %d\n", len(open))
+}
+
+var processStart = time.Now()
 
 // requireAuth wraps a handler with deploy-token bearer auth. The
 // /internal/pre-receive callback checks the SAME token itself (it isn't

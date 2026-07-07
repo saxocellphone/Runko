@@ -68,3 +68,23 @@ jobs:
       - run: npm ci
 
       - run: npm run check
+
+  # The §16.4 measured eval loop (§28.3 stage 14): compose up -> create
+  # project -> change -> land (twice - the second pass is the "edit" leg),
+  # timed end to end against §3.3's < 15 min budget, gated by real policy
+  # (owner approval with self-approval denied + a required check). Runs on
+  # every push so the claim cannot rot. This job is the loop's FIRST real
+  # execution environment - the sandbox this repo is developed in has no
+  # Docker (see CLAUDE.md), the same gap CI already closes for Postgres.
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: compose eval loop, timed (§16.4)
+        run: make check-compose

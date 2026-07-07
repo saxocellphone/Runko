@@ -73,27 +73,48 @@ commands:
 
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	repoDir := fs.String("repo-dir", "", "path to the bare monorepo (created if it doesn't exist)")
-	addr := fs.String("addr", "127.0.0.1:8080", "listen address")
-	trunk := fs.String("trunk", "main", "trunk ref name")
-	token := fs.String("token", "", "deploy token: REST API bearer auth + pre-receive shared secret")
-	webhookURL := fs.String("webhook-url", "", "webhook delivery target (optional - outbox worker is idle without one)")
-	webhookSecret := fs.String("webhook-secret", "", "webhook HMAC secret")
-	gitleaksBin := fs.String("gitleaks-bin", "gitleaks", "gitleaks binary (path or PATH-resolved name)")
-	skipScan := fs.Bool("insecure-skip-secret-scan", false, "DEV/EVAL ONLY: disable secret scanning entirely (never use in production, docs/design.md §11.4)")
-	databaseURL := fs.String("database-url", "", "Postgres DSN for durable storage (default: in-memory Store, the §9.3 Eval/dev profile - lost on restart)")
-	rootInvalidation := fs.String("root-invalidation", "", "comma-separated root-invalidation glob patterns (org policy, §14.5.2)")
-	globalChecks := fs.String("global-required-checks", "", "comma-separated org-level check names required on EVERY change (§14.9, e.g. secrets-scan)")
-	allowUnpoliced := fs.Bool("insecure-allow-unpoliced-land", false, "DEV/EVAL ONLY: let changes that resolve NO merge policy (no required checks, no owners) land anyway - the in-memory eval profile implies this; a durable deployment should declare policy instead (§28.3 stage 11c)")
+	// Every serve flag falls back to a RUNKO_<UPPER_SNAKE> env var (§9.4's
+	// stage-14 convention): compose/k8s manifests configure the daemon
+	// through environment, not argv templating. Precedence: flag > env >
+	// default.
+	repoDir := fs.String("repo-dir", envString("REPO_DIR", ""), "path to the bare monorepo (created if it doesn't exist) [RUNKO_REPO_DIR]")
+	addr := fs.String("addr", envString("ADDR", "127.0.0.1:8080"), "listen address [RUNKO_ADDR]")
+	trunk := fs.String("trunk", envString("TRUNK", "main"), "trunk ref name [RUNKO_TRUNK]")
+	token := fs.String("token", envString("TOKEN", ""), "deploy token: REST API bearer auth + pre-receive shared secret [RUNKO_TOKEN]")
+	webhookURL := fs.String("webhook-url", envString("WEBHOOK_URL", ""), "webhook delivery target (optional - outbox worker is idle without one) [RUNKO_WEBHOOK_URL]")
+	webhookSecret := fs.String("webhook-secret", envString("WEBHOOK_SECRET", ""), "webhook HMAC secret [RUNKO_WEBHOOK_SECRET]")
+	gitleaksBin := fs.String("gitleaks-bin", envString("GITLEAKS_BIN", "gitleaks"), "gitleaks binary (path or PATH-resolved name) [RUNKO_GITLEAKS_BIN]")
+	skipScan := fs.Bool("insecure-skip-secret-scan", envBool("INSECURE_SKIP_SECRET_SCAN"), "DEV/EVAL ONLY: disable secret scanning entirely (never use in production, docs/design.md §11.4) [RUNKO_INSECURE_SKIP_SECRET_SCAN]")
+	databaseURL := fs.String("database-url", envString("DATABASE_URL", ""), "Postgres DSN for durable storage (default: in-memory Store, the §9.3 Eval/dev profile - lost on restart) [RUNKO_DATABASE_URL]")
+	rootInvalidation := fs.String("root-invalidation", envString("ROOT_INVALIDATION", ""), "comma-separated root-invalidation glob patterns (org policy, §14.5.2) [RUNKO_ROOT_INVALIDATION]")
+	globalChecks := fs.String("global-required-checks", envString("GLOBAL_REQUIRED_CHECKS", ""), "comma-separated org-level check names required on EVERY change (§14.9, e.g. secrets-scan) [RUNKO_GLOBAL_REQUIRED_CHECKS]")
+	allowUnpoliced := fs.Bool("insecure-allow-unpoliced-land", envBool("INSECURE_ALLOW_UNPOLICED_LAND"), "DEV/EVAL ONLY: let changes that resolve NO merge policy (no required checks, no owners) land anyway - the in-memory eval profile implies this; a durable deployment should declare policy instead (§28.3 stage 11c) [RUNKO_INSECURE_ALLOW_UNPOLICED_LAND]")
 	var botLanes botLaneFlag
-	fs.Var(&botLanes, "bot-lane", "path-scoped auto-land grant (§14.10.2), repeatable: 'name=<n>;token=<t>;paths=<glob,glob>;checks=<check,check>'")
+	fs.Var(&botLanes, "bot-lane", "path-scoped auto-land grant (§14.10.2), repeatable: 'name=<n>;token=<t>;paths=<glob,glob>;checks=<check,check>' [RUNKO_BOT_LANES, '|'-separated]")
 	var principals principalFlag
-	fs.Var(&principals, "principal", "named-token identity (§15.1 interim), repeatable: 'name=<n>;token=<t>[;agent]' - agent principals get the default §8.7 agent policy enforced at receive")
-	searchURL := fs.String("search-url", "", "zoekt-webserver base URL for search_code (§8.3); absent -> search_code returns a structured 'not configured' error, never a git-grep fallback (§8.2)")
-	zoektIndexDir := fs.String("zoekt-index-dir", "", "directory zoekt-git-index writes shards into (required to enable indexing on trunk advance)")
-	zoektIndexBin := fs.String("zoekt-index-bin", "zoekt-git-index", "zoekt-git-index binary (path or PATH-resolved name)")
+	fs.Var(&principals, "principal", "named-token identity (§15.1 interim), repeatable: 'name=<n>;token=<t>[;agent]' - agent principals get the default §8.7 agent policy enforced at receive [RUNKO_PRINCIPALS, '|'-separated]")
+	searchURL := fs.String("search-url", envString("SEARCH_URL", ""), "zoekt-webserver base URL for search_code (§8.3); absent -> search_code returns a structured 'not configured' error, never a git-grep fallback (§8.2) [RUNKO_SEARCH_URL]")
+	zoektIndexDir := fs.String("zoekt-index-dir", envString("ZOEKT_INDEX_DIR", ""), "directory zoekt-git-index writes shards into (required to enable indexing on trunk advance) [RUNKO_ZOEKT_INDEX_DIR]")
+	zoektIndexBin := fs.String("zoekt-index-bin", envString("ZOEKT_INDEX_BIN", "zoekt-git-index"), "zoekt-git-index binary (path or PATH-resolved name) [RUNKO_ZOEKT_INDEX_BIN]")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	// Repeatable flags can't carry a value-bearing default, so their env
+	// fallback applies only when the flag was never passed. '|' separates
+	// entries because ';' and ',' are already meaningful inside one.
+	if len(principals) == 0 {
+		for _, v := range splitPipe(os.Getenv("RUNKO_PRINCIPALS")) {
+			if err := principals.Set(v); err != nil {
+				return fmt.Errorf("serve: RUNKO_PRINCIPALS: %w", err)
+			}
+		}
+	}
+	if len(botLanes) == 0 {
+		for _, v := range splitPipe(os.Getenv("RUNKO_BOT_LANES")) {
+			if err := botLanes.Set(v); err != nil {
+				return fmt.Errorf("serve: RUNKO_BOT_LANES: %w", err)
+			}
+		}
 	}
 	if *repoDir == "" {
 		return fmt.Errorf("serve: --repo-dir is required")
@@ -312,6 +333,34 @@ func cmdHook(args []string) {
 	if !allAccepted {
 		os.Exit(1)
 	}
+}
+
+// envString / envBool implement the RUNKO_<NAME> env fallback for serve
+// flags (§9.4). envBool treats "1"/"true" (any case) as true.
+func envString(name, def string) string {
+	if v := os.Getenv("RUNKO_" + name); v != "" {
+		return v
+	}
+	return def
+}
+
+func envBool(name string) bool {
+	v := strings.ToLower(os.Getenv("RUNKO_" + name))
+	return v == "1" || v == "true"
+}
+
+// splitPipe splits a '|'-separated env value, dropping empty entries.
+func splitPipe(v string) []string {
+	if v == "" {
+		return nil
+	}
+	var out []string
+	for _, s := range strings.Split(v, "|") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // principalFlag parses repeatable --principal flags into runkod.Principal

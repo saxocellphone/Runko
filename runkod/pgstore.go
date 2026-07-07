@@ -99,6 +99,10 @@ func (s *PostgresStore) GetChange(ctx context.Context, changeKey string) (Change
 	return ch, true, nil
 }
 
+// Ping delegates to pgx's own pool ping - a real round-trip to Postgres,
+// which is exactly what /readyz wants to know about (§9.4).
+func (s *PostgresStore) Ping(ctx context.Context) error { return s.Pool.Ping(ctx) }
+
 func (s *PostgresStore) ListChanges(ctx context.Context, state string) ([]Change, error) {
 	var rows []*dbgen.Change
 	var err error

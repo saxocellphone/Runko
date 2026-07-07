@@ -128,6 +128,11 @@ type Store interface {
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	UpdateWorkspaceBase(ctx context.Context, id, baseRevision string) (Workspace, error)
 
+	// Ping reports whether the Store's backing service is reachable -
+	// /readyz's dependency probe (§9.4's stage-14 conventions). Cheap
+	// enough to call on every readiness scrape.
+	Ping(ctx context.Context) error
+
 	// EnqueueWebhook enqueues one outbox row. eventType mirrors the
 	// envelope's own "type" field (e.g. "change.updated") - a durable Store
 	// needs it as a first-class column (internal/dbgen's webhook_deliveries.
@@ -200,6 +205,9 @@ func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA,
 	s.changes[changeKey] = change
 	return change, nil
 }
+
+// Ping is trivially healthy for the in-memory profile.
+func (s *MemStore) Ping(ctx context.Context) error { return nil }
 
 func (s *MemStore) GetChange(ctx context.Context, changeKey string) (Change, bool, error) {
 	s.mu.Lock()

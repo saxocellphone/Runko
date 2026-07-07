@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -412,5 +413,31 @@ func TestHealthzIsUnauthenticated(t *testing.T) {
 	var status map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil || status["status"] != "ok" {
 		t.Fatalf("expected {status: ok}, got %v (%v)", status, err)
+	}
+}
+
+// TestReadyzAndMetrics pins §9.4's stage-14 conventions: /readyz probes
+// the Store (MemStore: trivially ready), /metrics speaks the Prometheus
+// text format, both unauthenticated.
+func TestReadyzAndMetrics(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL + "/readyz")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /readyz: %v (%+v)", err, resp)
+	}
+	resp.Body.Close()
+
+	mResp, err := srv.Client().Get(srv.URL + "/metrics")
+	if err != nil || mResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /metrics: %v (%+v)", err, mResp)
+	}
+	defer mResp.Body.Close()
+	body, _ := io.ReadAll(mResp.Body)
+	for _, want := range []string{"runkod_up 1", "runkod_uptime_seconds", "runkod_open_changes 1"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("expected %q in /metrics output, got:\n%s", want, body)
+		}
 	}
 }

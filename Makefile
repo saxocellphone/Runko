@@ -53,3 +53,10 @@ check-db:
 # loop (§28.2 rule 3); CI runs this as its own job.
 check-web:
 	cd web && npm install --no-audit --no-fund && npm run check
+
+# The §16.4 measured eval loop (docker compose v2 + go required): compose
+# up -> create -> change -> land, twice, timed against §3.3's budget. CI
+# runs this on every push; this target is for anywhere Docker exists
+# (NOT this repo's original sandbox - see CLAUDE.md).
+check-compose:
+	./scripts/compose-smoke.sh
