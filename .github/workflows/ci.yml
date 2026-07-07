@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Merge-queue entries (gh-readonly-queue/* test merges) must produce the
+  # same check runs the ruleset requires, or every queued PR times out.
+  merge_group:
 
 jobs:
   check:
