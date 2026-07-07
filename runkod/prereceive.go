@@ -70,14 +70,15 @@ type RefResult struct {
 // apply half of a push).
 type verdict struct {
 	update       RefUpdate
-	skip         bool // ref outside the funnel's two sanctioned shapes - accepted unconditionally, never persisted
+	skip         bool // ref outside every sanctioned shape - accepted unconditionally, never persisted
+	isSnapshot   bool // refs/workspaces/<id>/* - policed (scan + caps + registry), but no Change row
 	decision     receive.Decision
 	changedPaths []string
 	extraEnv     []string
 	evalErr      string // set on an I/O failure evaluating this ref (git diff/log failed)
 }
 
-func (v verdict) accepted() bool { return v.skip || v.decision.Accepted }
+func (v verdict) accepted() bool { return v.evalErr == "" && (v.skip || v.decision.Accepted) }
 
 // Processor wires receive.Decide to a real bare repo + Store - the
 // "pre-receive wiring" this stage's DAG entry names explicitly.
@@ -98,7 +99,18 @@ type Processor struct {
 	// through this daemon yet) but is the semantically correct hook point.
 	// Nil-safe: ZoektIndexWorker.Trigger no-ops on a nil receiver.
 	ZoektIndexWorker *ZoektIndexWorker
+	// MaxSnapshotDiffBytes caps the total content bytes one workspace
+	// snapshot push may introduce - §12.2's backstop against build
+	// artifacts/dependency trees (node_modules, target/, .venv) entering
+	// snapshot commits when .gitignore hygiene fails. 0 means
+	// DefaultMaxSnapshotBytes; negative disables the cap.
+	MaxSnapshotDiffBytes int64
 }
+
+// DefaultMaxSnapshotBytes is the default snapshot size cap (§12.2): generous
+// enough for any real source-code WIP, small enough that a node_modules or a
+// bazel output tree slams into it immediately.
+const DefaultMaxSnapshotBytes = 32 << 20 // 32 MiB
 
 // ProcessBatch evaluates every ref update in one push, then - only if ALL
 // are accepted - persists Changes and enqueues webhooks for the ones the
@@ -117,7 +129,7 @@ func (p *Processor) ProcessBatch(ctx context.Context, updates []RefUpdate, extra
 	verdicts := make([]verdict, len(updates))
 	allAccepted := true
 	for i, u := range updates {
-		v := p.evaluate(u, extraEnv)
+		v := p.evaluate(ctx, u, extraEnv)
 		verdicts[i] = v
 		if !v.accepted() {
 			allAccepted = false
@@ -131,6 +143,12 @@ func (p *Processor) ProcessBatch(ctx context.Context, updates []RefUpdate, extra
 			results[i] = RefResult{Ref: v.update.Ref, Accepted: true}
 		case !allAccepted:
 			results[i] = RefResult{Ref: v.update.Ref, Accepted: false, Message: rejectionMessage(v)}
+		case v.isSnapshot:
+			// An accepted snapshot IS the durability (§12.2: the commit chain
+			// on refs/workspaces/<id>/head is the content store) - no Change
+			// row, no webhook; the registry row already exists.
+			results[i] = RefResult{Ref: v.update.Ref, Accepted: true,
+				Message: fmt.Sprintf("remote: workspace snapshot -> %s\n", v.update.Ref)}
 		default:
 			results[i] = p.commit(ctx, v)
 		}
@@ -144,12 +162,17 @@ func (p *Processor) Process(ctx context.Context, u RefUpdate, extraEnv []string)
 	return p.ProcessBatch(ctx, []RefUpdate{u}, extraEnv)[0]
 }
 
-// evaluate runs receive.Decide for one ref update without writing to Store -
-// refs outside the funnel's two sanctioned shapes (refs/heads/<trunk>,
-// refs/for/<trunk>) are marked skip: workspace snapshot refs
-// (refs/workspaces/*, §12) and anything else are out of scope for this
-// stage; stage 12 wires those through the same funnel later.
-func (p *Processor) evaluate(u RefUpdate, extraEnv []string) verdict {
+// evaluate runs receive.Decide for one ref update without writing to Store.
+// Three sanctioned ref shapes: refs/heads/<trunk> (rejected, §6.9),
+// refs/for/<trunk> (the Change funnel), and refs/workspaces/<id>/* (snapshot
+// refs, §12.2 - policed since stage 12b, previously accepted
+// unconditionally). Everything else (refs/tags/* etc.) is still marked skip
+// - accepted unconditionally, the documented v1 permissiveness §14.10.3
+// tracks for tag-namespace governance.
+func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string) verdict {
+	if wsID, isSnapshot := SnapshotRefWorkspaceID(u.Ref); isSnapshot {
+		return p.evaluateSnapshot(ctx, u, wsID, extraEnv)
+	}
 	isTrunkPush := u.Ref == "refs/heads/"+p.TrunkRef
 	_, isMagicRef := receive.ParseMagicRef(u.Ref)
 	if !isTrunkPush && !isMagicRef {
@@ -174,6 +197,63 @@ func (p *Processor) evaluate(u RefUpdate, extraEnv []string) verdict {
 		update: u, changedPaths: changedPaths, extraEnv: extraEnv,
 		decision: receive.Decide(req, p.Scanner),
 	}
+}
+
+// evaluateSnapshot polices a workspace snapshot push (§12.2's "policy and
+// secret scan apply BEFORE durability", closing the unconditional-accept gap
+// the 12b DAG row names): the workspace must be registered, the snapshot's
+// content must pass the same secret scanner Changes go through, and total
+// introduced bytes must fit the §12.2 size-cap backstop. Owner-only push -
+// the third enforcement the DAG row lists - needs a principal identity at
+// receive time, which the shared deploy token cannot provide; it lands with
+// real AuthN (§15.1), and until then "who may push this ref" is the same
+// trust boundary as every other authenticated write.
+func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID string, extraEnv []string) verdict {
+	_, registered, err := p.Store.GetWorkspace(ctx, wsID)
+	if err != nil {
+		return verdict{update: u, evalErr: fmt.Sprintf("remote: workspace lookup failed: %v\n", err)}
+	}
+	if !registered {
+		return verdict{update: u, isSnapshot: true, decision: receive.Decision{
+			Accepted: false,
+			RejectionMessage: fmt.Sprintf("remote: no workspace %q is registered - snapshot refs need a registry row first\nremote:   -> runko workspace create --name %s --project <name> ...\n",
+				wsID, wsID),
+		}}
+	}
+
+	changedPaths, files, err := p.diff(u.OldSHA, u.NewSHA, extraEnv)
+	if err != nil {
+		return verdict{update: u, evalErr: fmt.Sprintf("remote: could not inspect snapshot: %v\n", err)}
+	}
+
+	cap := p.MaxSnapshotDiffBytes
+	if cap == 0 {
+		cap = DefaultMaxSnapshotBytes
+	}
+	if cap > 0 {
+		var total int64
+		for _, f := range files {
+			total += int64(len(f.Content))
+		}
+		if total > cap {
+			return verdict{update: u, isSnapshot: true, decision: receive.Decision{
+				Accepted: false,
+				RejectionMessage: fmt.Sprintf("remote: snapshot introduces %d bytes, over the %d-byte cap - build artifacts and dependency trees (node_modules, target/, .venv) must never enter snapshots (§12.2)\nremote:   -> add them to .gitignore and snapshot again\n",
+					total, cap),
+			}}
+		}
+	}
+
+	findings, err := p.Scanner.Scan(files)
+	if err != nil {
+		return verdict{update: u, evalErr: fmt.Sprintf("remote: secret scan failed: %v\n", err)}
+	}
+	if len(findings) > 0 {
+		return verdict{update: u, isSnapshot: true, decision: receive.Decision{Accepted: false, SecretFindings: findings}}
+	}
+
+	return verdict{update: u, isSnapshot: true, changedPaths: changedPaths, extraEnv: extraEnv,
+		decision: receive.Decision{Accepted: true}}
 }
 
 func rejectionMessage(v verdict) string {

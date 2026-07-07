@@ -54,7 +54,9 @@ func main() {
 		err = cmdChange(os.Args[2:])
 	case "agents-md":
 		err = cmdAgentsMD(os.Args[2:])
-	case "auth", "workspace", "mcp":
+	case "workspace":
+		err = cmdWorkspace(os.Args[2:])
+	case "auth", "mcp":
 		fmt.Fprintf(os.Stderr, "runko %s: requires a live control plane - not implemented yet (docs/design.md §17.1, §19.2)\n", os.Args[1])
 		os.Exit(1)
 	case "-h", "--help", "help":
@@ -85,12 +87,17 @@ commands (operate on the local repo only):
   change push                     push HEAD to refs/for/<trunk> for review (§11.5) [--json]
   agents-md                       (re)generate AGENTS.md teaching this CLI to agents (§8.8) [--json]
 
-commands (need a live runkod instance, §28.3 stages 11b/11c):
+commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   change land --change <id> --runkod-url <url> --token <t>   land a mergeable Change (§13.5) [--json]
   change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t>   record an owner approval (§13.5) [--json]
+  workspace create --name <n> --project <p>... --by <who> --runkod-url <url> --token <t>   worktree + sparse cone + registry row (§12.3) [--json]
+  workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
+  workspace attach <id> --runkod-url <url> --token <t>       restore a workspace from its snapshot ref [--json]
+  workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/head [--json]
+  workspace update-base --runkod-url <url> --token <t> [--dir .]   fetch + rebase onto trunk tip [--json]
 
 not yet implemented (need a live control plane, §19.2):
-  auth login, workspace create/attach, change create/requirements, mcp serve
+  auth login, change create/requirements, mcp serve
 
 exit codes: 0 success, 1 command failed, 2 usage error (docs/cli-contract.md)`)
 }
@@ -269,6 +276,156 @@ func cmdChangeApprove(args []string) error {
 		}
 	}
 	return nil
+}
+
+// stringSliceFlag collects a repeatable string flag (--project a --project b).
+type stringSliceFlag []string
+
+func (s *stringSliceFlag) String() string { return strings.Join(*s, ",") }
+func (s *stringSliceFlag) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
+// cmdWorkspace implements `runko workspace` (§12.3 Phase A, §28.3 stage
+// 12b): create/list/attach/snapshot/update-base. See workspace.go for the
+// mechanics; this is flag parsing and output shaping only.
+func cmdWorkspace(args []string) error {
+	if len(args) < 1 {
+		return usageError("usage: runko workspace create|list|attach|snapshot|update-base ...")
+	}
+	sub, rest := args[0], args[1:]
+	ctx := context.Background()
+	switch sub {
+	case "create":
+		fs := flag.NewFlagSet("workspace create", flag.ExitOnError)
+		runkodURL := fs.String("runkod-url", "", "runkod base URL")
+		token := fs.String("token", "", "deploy token")
+		name := fs.String("name", "", "workspace name (also the snapshot-ref segment)")
+		by := fs.String("by", "", "who owns this workspace")
+		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory (created on first use)")
+		dir := fs.String("dir", "", "worktree directory for this workspace")
+		var projects stringSliceFlag
+		fs.Var(&projects, "project", "project affinity (repeatable)")
+		jsonOut := fs.Bool("json", false, "emit the workspace as JSON")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		if *runkodURL == "" || *token == "" || *name == "" || *by == "" || len(projects) == 0 {
+			return fmt.Errorf("workspace create: --runkod-url, --token, --name, --by, and at least one --project are required")
+		}
+		if *cloneDir == "" {
+			*cloneDir = "mono"
+		}
+		if *dir == "" {
+			*dir = *name
+		}
+		info, err := WorkspaceCreate(ctx, http.DefaultClient, *runkodURL, *token, *name, *by, projects, *cloneDir, *dir)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(info)
+		}
+		fmt.Printf("workspace %s ready at %s (base %s, cone: %s)\n", info.ID, *dir, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
+		return nil
+
+	case "list":
+		fs := flag.NewFlagSet("workspace list", flag.ExitOnError)
+		runkodURL := fs.String("runkod-url", "", "runkod base URL")
+		token := fs.String("token", "", "deploy token")
+		jsonOut := fs.Bool("json", false, "emit the list as JSON")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		if *runkodURL == "" || *token == "" {
+			return fmt.Errorf("workspace list: --runkod-url and --token are required")
+		}
+		list, err := WorkspaceList(ctx, http.DefaultClient, *runkodURL, *token)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(list)
+		}
+		for _, ws := range list {
+			fmt.Printf("%s\t%s\tbase %s\t%s\n", ws.ID, ws.Status, short(ws.BaseRevision), strings.Join(ws.ProjectAffinity, ","))
+		}
+		return nil
+
+	case "attach":
+		fs := flag.NewFlagSet("workspace attach", flag.ExitOnError)
+		runkodURL := fs.String("runkod-url", "", "runkod base URL")
+		token := fs.String("token", "", "deploy token")
+		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory")
+		dir := fs.String("dir", "", "worktree directory for this workspace")
+		jsonOut := fs.Bool("json", false, "emit the workspace as JSON")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		id := fs.Arg(0)
+		if *runkodURL == "" || *token == "" || id == "" {
+			return fmt.Errorf("workspace attach: --runkod-url, --token, and a workspace id are required")
+		}
+		if *cloneDir == "" {
+			*cloneDir = "mono"
+		}
+		if *dir == "" {
+			*dir = id
+		}
+		info, err := WorkspaceAttach(ctx, http.DefaultClient, *runkodURL, *token, id, *cloneDir, *dir)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(info)
+		}
+		fmt.Printf("workspace %s restored at %s\n", info.ID, *dir)
+		return nil
+
+	case "snapshot":
+		fs := flag.NewFlagSet("workspace snapshot", flag.ExitOnError)
+		dir := fs.String("dir", ".", "workspace worktree directory")
+		msg := fs.String("m", "", "snapshot message")
+		jsonOut := fs.Bool("json", false, "emit {ref} as JSON")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		ref, err := WorkspaceSnapshot(*dir, *msg)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"ref": ref})
+		}
+		fmt.Printf("snapshot pushed to %s\n", ref)
+		return nil
+
+	case "update-base":
+		fs := flag.NewFlagSet("workspace update-base", flag.ExitOnError)
+		runkodURL := fs.String("runkod-url", "", "runkod base URL")
+		token := fs.String("token", "", "deploy token")
+		dir := fs.String("dir", ".", "workspace worktree directory")
+		jsonOut := fs.Bool("json", false, "emit {base_revision} as JSON")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		if *runkodURL == "" || *token == "" {
+			return fmt.Errorf("workspace update-base: --runkod-url and --token are required")
+		}
+		newBase, err := WorkspaceUpdateBase(ctx, http.DefaultClient, *runkodURL, *token, *dir)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"base_revision": newBase})
+		}
+		fmt.Printf("rebased onto trunk tip %s\n", short(newBase))
+		return nil
+
+	default:
+		return usageError("usage: runko workspace create|list|attach|snapshot|update-base ...")
+	}
 }
 
 // cmdAgentsMD implements `runko agents-md`: (re)write AGENTS.md at the repo

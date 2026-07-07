@@ -17,3 +17,9 @@ UPDATE workspaces SET base_revision = $2, updated_at = now() WHERE id = $1 RETUR
 
 -- name: ListWorkspacesByPrincipal :many
 SELECT * FROM workspaces WHERE principal_actor_id = $1 AND status = 'active' ORDER BY created_at DESC;
+
+-- name: GetWorkspaceBySnapshotRef :one
+SELECT * FROM workspaces WHERE monorepo_id = $1 AND snapshot_ref = $2;
+
+-- name: ListWorkspacesByMonorepo :many
+SELECT * FROM workspaces WHERE monorepo_id = $1 ORDER BY created_at;

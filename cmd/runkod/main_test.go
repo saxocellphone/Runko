@@ -35,6 +35,19 @@ func buildRunkod(t *testing.T) string {
 	return bin
 }
 
+// buildRunko compiles the real runko CLI - the workspace e2e test drives it
+// as a subprocess, exactly the way a user would.
+func buildRunko(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "runko")
+	cmd := exec.Command("go", "build", "-o", bin, "../runko")
+	cmd.Dir = "."
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build runko: %v\n%s", err, out)
+	}
+	return bin
+}
+
 // scriptedCleanGitleaks is a fake gitleaks binary that always reports no
 // findings - real gitleaks itself is unit-tested in runkod/gitleaks_test.go;
 // this end-to-end test only needs the daemon to accept a clean push.
@@ -617,6 +630,156 @@ func TestEndToEndDaemonBotLaneAutoLands(t *testing.T) {
 	}
 	if !strings.Contains(lsRemote, landOutcome.LandedSHA) {
 		t.Fatalf("expected refs/heads/main at %s, got:\n%s", landOutcome.LandedSHA, lsRemote)
+	}
+}
+
+// TestEndToEndDaemonWorkspaces is the §28.3 stage 12b bar, verbatim: "two
+// concurrent workspaces, one user, different projects; delete the local
+// directory → attach restores from the snapshot ref, nothing lost; §3.3's
+// 'editable workspace < 60s' measured." Real compiled daemon (pre-receive
+// hook installed, so snapshot pushes traverse the real funnel) driven by
+// the real compiled runko binary - the CLI a user actually runs.
+func TestEndToEndDaemonWorkspaces(t *testing.T) {
+	runkodBin := buildRunkod(t)
+	runkoBin := buildRunko(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	token := "sekret-token"
+	baseURL := startDaemon(t, runkodBin, repoDir, token)
+	remoteURL := strings.Replace(baseURL, "http://", "http://runko:"+token+"@", 1) + "/" + filepath.Base(repoDir) + "/"
+
+	runko := func(dir string, args ...string) (string, error) {
+		cmd := exec.Command(runkoBin, args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	mustRunko := func(dir string, args ...string) string {
+		t.Helper()
+		out, err := runko(dir, args...)
+		if err != nil {
+			t.Fatalf("runko %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return out
+	}
+
+	// Seed trunk through the only write path a fresh daemon has: push a
+	// Change carrying two projects, land it (eval profile).
+	work := t.TempDir()
+	if _, err := runGit(t, work, "init", "-q", "-b", "main"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	for _, p := range [][2]string{
+		{"commerce/checkout", "checkout-api"},
+		{"libs/money", "money-lib"},
+	} {
+		if err := os.MkdirAll(filepath.Join(work, p[0]), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		manifest := "schema: project/v1\nname: " + p[1] + "\ntype: service\n"
+		if err := os.WriteFile(filepath.Join(work, p[0], "PROJECT.yaml"), []byte(manifest), 0o644); err != nil {
+			t.Fatalf("write PROJECT.yaml: %v", err)
+		}
+	}
+	if _, err := runGit(t, work, "add", "-A"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := runGit(t, work, "commit", "-q", "-m", "two projects"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if _, err := runGit(t, work, "remote", "add", "origin", remoteURL); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+	out, err := runGit(t, work, "push", "origin", "+HEAD:refs/for/main")
+	if err != nil {
+		t.Fatalf("push: %v\n%s", err, out)
+	}
+	m := regexp.MustCompile(`(I[0-9a-f]{40}) -> refs/for/main`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no Change-Id in push output:\n%s", out)
+	}
+	landReq, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+m[1]+"/land", nil)
+	landReq.Header.Set("Authorization", "Bearer "+token)
+	landResp, err := (&http.Client{Timeout: 5 * time.Second}).Do(landReq)
+	if err != nil || landResp.StatusCode != http.StatusOK {
+		body := ""
+		if landResp != nil {
+			b, _ := io.ReadAll(landResp.Body)
+			body = string(b)
+		}
+		t.Fatalf("seed land failed: %v %s", err, body)
+	}
+	landResp.Body.Close()
+
+	// The measured §3.3 bar starts here: registry row -> blobless clone ->
+	// worktree -> sparse cone -> editable file on disk.
+	root := t.TempDir()
+	cloneDir := filepath.Join(root, "mono")
+	ws1 := filepath.Join(root, "payments-fix")
+	editableStart := time.Now()
+	mustRunko(root, "workspace", "create", "--runkod-url", baseURL, "--token", token,
+		"--name", "payments-fix", "--by", "alice", "--project", "checkout-api",
+		"--clone-dir", cloneDir, "--dir", ws1)
+	if _, err := os.Stat(filepath.Join(ws1, "commerce/checkout/PROJECT.yaml")); err != nil {
+		t.Fatalf("expected the cone materialized and editable: %v", err)
+	}
+	editable := time.Since(editableStart)
+	t.Logf("editable workspace in %s (§3.3 bar: < 60s)", editable)
+	if editable >= 60*time.Second {
+		t.Fatalf("§3.3 bar missed: editable workspace took %s", editable)
+	}
+
+	// Second concurrent workspace, same user, different project, same
+	// shared object store.
+	ws2 := filepath.Join(root, "risk-refactor")
+	mustRunko(root, "workspace", "create", "--runkod-url", baseURL, "--token", token,
+		"--name", "risk-refactor", "--by", "alice", "--project", "money-lib",
+		"--clone-dir", cloneDir, "--dir", ws2)
+	if _, err := os.Stat(filepath.Join(ws2, "libs/money/PROJECT.yaml")); err != nil {
+		t.Fatalf("ws2 cone: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws1, "libs/money")); !os.IsNotExist(err) {
+		t.Fatalf("ws1 must not materialize ws2's cone")
+	}
+	listOut := mustRunko(root, "workspace", "list", "--runkod-url", baseURL, "--token", token)
+	if !strings.Contains(listOut, "payments-fix") || !strings.Contains(listOut, "risk-refactor") {
+		t.Fatalf("workspace list should show both workstreams, got:\n%s", listOut)
+	}
+
+	// WIP in ws1 -> snapshot -> through the REAL pre-receive hook to a
+	// durable ref on the served repo.
+	if err := os.WriteFile(filepath.Join(ws1, "commerce/checkout/wip.go"), []byte("package main // precious WIP\n"), 0o644); err != nil {
+		t.Fatalf("write wip: %v", err)
+	}
+	mustRunko(ws1, "workspace", "snapshot", "--dir", ws1)
+	lsRemote, err := runGit(t, work, "ls-remote", remoteURL, "refs/workspaces/payments-fix/head")
+	if err != nil || !strings.Contains(lsRemote, "refs/workspaces/payments-fix/head") {
+		t.Fatalf("expected the snapshot ref on the served repo, got %q (err %v)", lsRemote, err)
+	}
+
+	// The funnel's registry check, over the wire: a snapshot ref for a
+	// workspace nobody registered is rejected by the real hook.
+	out, err = runGit(t, work, "push", "origin", "+HEAD:refs/workspaces/ghost/head")
+	if err == nil {
+		t.Fatalf("expected an unregistered workspace snapshot push to be rejected, got:\n%s", out)
+	}
+	if !strings.Contains(out, "ghost") || !strings.Contains(out, "workspace create") {
+		t.Fatalf("expected the rejection to name the workspace and the fix, got:\n%s", out)
+	}
+
+	// Laptop loss: delete the whole worktree, attach restores the WIP from
+	// the snapshot ref. Nothing durable lived in the deleted directory.
+	if err := os.RemoveAll(ws1); err != nil {
+		t.Fatalf("remove ws1: %v", err)
+	}
+	restored := filepath.Join(root, "payments-fix-restored")
+	mustRunko(root, "workspace", "attach", "--runkod-url", baseURL, "--token", token,
+		"--clone-dir", cloneDir, "--dir", restored, "payments-fix")
+	content, err := os.ReadFile(filepath.Join(restored, "commerce/checkout/wip.go"))
+	if err != nil {
+		t.Fatalf("expected the WIP restored from the snapshot ref: %v", err)
+	}
+	if !strings.Contains(string(content), "precious WIP") {
+		t.Fatalf("restored WIP content mismatch: %q", content)
 	}
 }
 

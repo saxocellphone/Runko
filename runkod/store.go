@@ -84,6 +84,16 @@ type Store interface {
 	UpsertCheckRun(ctx context.Context, changeKey, headSHA string, run checks.CheckRunView) error
 	ListCheckRuns(ctx context.Context, changeKey, headSHA string) ([]checks.CheckRunView, error)
 
+	// CreateWorkspace registers one workspace (§12.2, §28.3 stage 12b);
+	// errors if the ID is already taken. GetWorkspace/ListWorkspaces/
+	// UpdateWorkspaceBase are the registry reads and the update-base write.
+	// Registry rows are metadata only - snapshot CONTENT lives in Git as
+	// refs/workspaces/<id>/head commits, never in the Store.
+	CreateWorkspace(ctx context.Context, ws Workspace) (Workspace, error)
+	GetWorkspace(ctx context.Context, id string) (Workspace, bool, error)
+	ListWorkspaces(ctx context.Context) ([]Workspace, error)
+	UpdateWorkspaceBase(ctx context.Context, id, baseRevision string) (Workspace, error)
+
 	// EnqueueWebhook enqueues one outbox row. eventType mirrors the
 	// envelope's own "type" field (e.g. "change.updated") - a durable Store
 	// needs it as a first-class column (internal/dbgen's webhook_deliveries.
@@ -100,6 +110,7 @@ type MemStore struct {
 	changes    map[string]Change
 	checkRuns  map[string]map[string]checks.CheckRunView // changeKey|headSHA -> name -> run
 	approvals  map[string]map[string]Approval            // changeKey -> ownerRef -> approval
+	workspaces map[string]Workspace
 	deliveries map[string]*memDelivery
 	nextID     int
 }
@@ -115,6 +126,7 @@ func NewMemStore() *MemStore {
 		changes:    make(map[string]Change),
 		checkRuns:  make(map[string]map[string]checks.CheckRunView),
 		approvals:  make(map[string]map[string]Approval),
+		workspaces: make(map[string]Workspace),
 		deliveries: make(map[string]*memDelivery),
 	}
 }
@@ -204,6 +216,46 @@ func (s *MemStore) ListCheckRuns(ctx context.Context, changeKey, headSHA string)
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+func (s *MemStore) CreateWorkspace(ctx context.Context, ws Workspace) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, taken := s.workspaces[ws.ID]; taken {
+		return Workspace{}, fmt.Errorf("runkod: workspace %q already exists", ws.ID)
+	}
+	s.workspaces[ws.ID] = ws
+	return ws, nil
+}
+
+func (s *MemStore) GetWorkspace(ctx context.Context, id string) (Workspace, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ws, ok := s.workspaces[id]
+	return ws, ok, nil
+}
+
+func (s *MemStore) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Workspace, 0, len(s.workspaces))
+	for _, ws := range s.workspaces {
+		out = append(out, ws)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func (s *MemStore) UpdateWorkspaceBase(ctx context.Context, id, baseRevision string) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ws, ok := s.workspaces[id]
+	if !ok {
+		return Workspace{}, fmt.Errorf("runkod: no such workspace %q", id)
+	}
+	ws.BaseRevision = baseRevision
+	s.workspaces[id] = ws
+	return ws, nil
 }
 
 func (s *MemStore) EnqueueWebhook(ctx context.Context, eventType string, payload []byte) (string, error) {

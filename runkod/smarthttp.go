@@ -62,8 +62,22 @@ func gitHTTPBackendPath() (string, error) {
 // git's own default for safety, but required for smart-HTTP push (git push
 // over http/https) to work at all; write-path *policy* is still entirely
 // the pre-receive hook's job (hook.go), this only permits the transport.
+//
+// It also enables uploadpack.allowFilter: without it, a client's
+// `clone --filter=blob:none` (the §12.3 blobless-clone workspace substrate,
+// and runko-ci checkout's partial clone, §14.4.4) is SILENTLY downgraded to
+// a full clone - git warns and proceeds, so nothing fails, the workspace
+// just quietly pays for every blob in history.
 func EnableHTTPReceivePack(repoDir string) error {
-	cmd := exec.Command("git", "config", "http.receivepack", "true")
-	cmd.Dir = repoDir
-	return cmd.Run()
+	for _, kv := range [][2]string{
+		{"http.receivepack", "true"},
+		{"uploadpack.allowFilter", "true"},
+	} {
+		cmd := exec.Command("git", "config", kv[0], kv[1])
+		cmd.Dir = repoDir
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("runkod: git config %s: %w", kv[0], err)
+		}
+	}
+	return nil
 }

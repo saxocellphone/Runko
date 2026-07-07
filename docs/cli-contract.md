@@ -59,13 +59,17 @@ schemas are.
 | `runko change land` | `land.Outcome` (`Landed`, `LandedSHA`, `RequiresRevalidation`, `Conflicts`, `RaceRetry`) - needs a live runkod (`--runkod-url`/`--token`), unlike every other command in this table, see §13.5/§28.3 stage 11b |
 | `runko change approve` | `MergeRequirements` (the same nested `{change_id, owners, checks, mergeable, blockers}` shape `GET .../merge-requirements` reports, per `docs/spec/mcp-tools/common.schema.json`) - needs a live runkod, see §13.5/§28.3 stage 11c |
 | `runko agents-md` | `{"path"}` - also writes `AGENTS.md` (default; `--out` overrides) at the repo root, see §8.8/§28.3 stage 11 |
+| `runko workspace create` | `WorkspaceInfo` (`ID`, `Owner`, `BaseRevision`, `ProjectAffinity`, `WriteAllowlist`, `SnapshotRef`, `Status`, `SparsePatterns`, `RepoPath`, `TrunkRef`) - needs a live runkod, see §12.3/§28.3 stage 12b |
+| `runko workspace list` | `[]WorkspaceInfo` - needs a live runkod |
+| `runko workspace attach` | `WorkspaceInfo` - needs a live runkod |
+| `runko workspace snapshot` | `{"ref"}` - local git only (pushes to the workspace's snapshot ref via the existing remote) |
+| `runko workspace update-base` | `{"base_revision"}` - needs a live runkod (records the new base in the registry) |
 | `runko-ci affected` | `affected.Result` (always JSON - no human mode exists for this command; it is CI-facing by design) |
 | `runko-ci checkout` | `{"rev", "dest"}` |
 | `runko-ci report-check` | `{"name", "status", "external_id"}` |
 
-Commands not listed here (`runko auth`, `workspace`, `mcp` - stubbed, need a
-live control plane not built in this environment) have no output contract
-yet.
+Commands not listed here (`runko auth`, `mcp` - stubbed, need a live
+control plane not built in this environment) have no output contract yet.
 
 ## Single-contract rule with MCP (§8.3)
 

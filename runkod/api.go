@@ -82,6 +82,12 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
 	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
 
+	mux.HandleFunc("POST /api/workspaces", s.requireAuth(s.handleCreateWorkspace))
+	mux.HandleFunc("GET /api/workspaces", s.requireAuth(s.handleListWorkspaces))
+	mux.HandleFunc("GET /api/workspaces/{id}", s.requireAuth(s.handleGetWorkspace))
+	mux.HandleFunc("POST /api/workspaces/{id}/base", s.requireAuth(s.handleUpdateWorkspaceBase))
+	mux.HandleFunc("GET /api/sparse-patterns", s.requireAuth(s.handleSparsePatterns))
+
 	return mux, nil
 }
 

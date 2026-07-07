@@ -49,7 +49,7 @@ func TestGenerateIsDeterministic(t *testing.T) {
 // since a command name itself can contain a hyphen (e.g. "report-check").
 func baseCommand(usage string) string {
 	cut := len(usage)
-	for _, marker := range []string{" --", " ["} {
+	for _, marker := range []string{" --", " [", " <"} {
 		if i := strings.Index(usage, marker); i >= 0 && i < cut {
 			cut = i
 		}

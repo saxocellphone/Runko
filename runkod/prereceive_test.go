@@ -302,19 +302,25 @@ func (fakeScannerFindingSecret) Scan(files []receive.FileContent) ([]receive.Sec
 	return nil, nil
 }
 
+// TestProcessNonFunnelRefIsAcceptedUnconditionally originally used a
+// refs/workspaces/* ref to pin the "everything else passes" behavior -
+// stage 12b closed exactly that gap (snapshot refs are now policed, see
+// snapshot_test.go), so the remaining unconditional-accept surface is tags
+// and other unrecognized namespaces: §14.10.3's documented v1
+// permissiveness, tracked for tag-namespace governance.
 func TestProcessNonFunnelRefIsAcceptedUnconditionally(t *testing.T) {
 	bare := newBareRepo(t)
 	repo := gitfixture.New(t)
 	repo.WriteFile("README.md", "hi\n")
 	repo.Commit("initial")
-	oldSHA, headSHA := pushCommit(t, repo, bare, "refs/workspaces/ws-1/head")
+	oldSHA, headSHA := pushCommit(t, repo, bare, "refs/tags/v1.2.3")
 
 	store := NewMemStore()
 	p := newTestProcessor(bare, store)
-	result := p.Process(context.Background(), RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/workspaces/ws-1/head"}, nil)
+	result := p.Process(context.Background(), RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/tags/v1.2.3"}, nil)
 
 	if !result.Accepted {
-		t.Fatalf("expected a non-funnel ref (workspace snapshot) to be accepted unconditionally, got %+v", result)
+		t.Fatalf("expected a non-funnel ref (tag) to be accepted unconditionally, got %+v", result)
 	}
 	if result.ChangeID != "" {
 		t.Fatalf("expected no Change to be created for a non-funnel ref, got %+v", result)

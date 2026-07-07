@@ -149,6 +149,68 @@ func TestPostgresStoreApprovalRoundTrip(t *testing.T) {
 	}
 }
 
+// TestPostgresStoreWorkspaceRoundTrip exercises stage 2's workspaces table
+// through its first real caller (§28.3 stage 12b). The human workspace ID
+// lives inside snapshot_ref (no dedicated column), so this also pins the
+// derive-both-ways mapping dbWorkspaceToWorkspace does.
+func TestPostgresStoreWorkspaceRoundTrip(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+
+	ws := Workspace{
+		ID: "payments-fix", Owner: "alice",
+		BaseRevision:    "abc123",
+		ProjectAffinity: []string{"checkout-api"},
+		WriteAllowlist:  []string{"commerce/checkout"},
+		SnapshotRef:     "refs/workspaces/payments-fix/head",
+		Status:          "active",
+	}
+	created, err := store.CreateWorkspace(ctx, ws)
+	if err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	if created.ID != "payments-fix" || created.Owner != "alice" || created.Status != "active" {
+		t.Fatalf("unexpected created workspace: %+v", created)
+	}
+
+	if _, err := store.CreateWorkspace(ctx, ws); err == nil {
+		t.Fatalf("expected a duplicate workspace ID to error")
+	}
+
+	got, ok, err := store.GetWorkspace(ctx, "payments-fix")
+	if err != nil || !ok {
+		t.Fatalf("GetWorkspace: ok=%v err=%v", ok, err)
+	}
+	if got.BaseRevision != "abc123" || len(got.WriteAllowlist) != 1 || got.WriteAllowlist[0] != "commerce/checkout" {
+		t.Fatalf("unexpected workspace: %+v", got)
+	}
+	if _, ok, err := store.GetWorkspace(ctx, "no-such"); err != nil || ok {
+		t.Fatalf("expected ok=false for an unknown workspace, got ok=%v err=%v", ok, err)
+	}
+
+	// A second workspace with EMPTY affinity/allowlist pins the nil->[]
+	// normalization (the stage-9a index.Sync NOT NULL lesson).
+	if _, err := store.CreateWorkspace(ctx, Workspace{
+		ID: "bare-ws", Owner: "alice", BaseRevision: "abc123",
+		SnapshotRef: "refs/workspaces/bare-ws/head", Status: "active",
+	}); err != nil {
+		t.Fatalf("CreateWorkspace with nil slices: %v", err)
+	}
+
+	list, err := store.ListWorkspaces(ctx)
+	if err != nil {
+		t.Fatalf("ListWorkspaces: %v", err)
+	}
+	if len(list) != 2 || list[0].ID != "bare-ws" || list[1].ID != "payments-fix" {
+		t.Fatalf("unexpected list: %+v", list)
+	}
+
+	updated, err := store.UpdateWorkspaceBase(ctx, "payments-fix", "def456")
+	if err != nil || updated.BaseRevision != "def456" {
+		t.Fatalf("UpdateWorkspaceBase: %+v err=%v", updated, err)
+	}
+}
+
 func TestPostgresStoreWebhookOutboxLifecycle(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()

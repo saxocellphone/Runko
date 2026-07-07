@@ -221,6 +221,113 @@ func (s *PostgresStore) ListCheckRuns(ctx context.Context, changeKey, headSHA st
 	return out, nil
 }
 
+// CreateWorkspace persists a registry row via stage 2's workspaces table
+// (§12.2). The human workspace ID isn't a separate column - it lives inside
+// snapshot_ref (refs/workspaces/<id>/head), the one place it's load-bearing,
+// and lookups go through GetWorkspaceBySnapshotRef. The owner becomes a real
+// actors row (principal_actor_id), same attribution pattern as approvals.
+func (s *PostgresStore) CreateWorkspace(ctx context.Context, ws Workspace) (Workspace, error) {
+	if _, taken, err := s.GetWorkspace(ctx, ws.ID); err != nil {
+		return Workspace{}, err
+	} else if taken {
+		return Workspace{}, fmt.Errorf("runkod: workspace %q already exists", ws.ID)
+	}
+	actor, err := s.Queries.UpsertActor(ctx, s.Pool, dbgen.UpsertActorParams{
+		OrgID: s.OrgID, Type: dbgen.ActorTypeUser, ExternalRef: ws.Owner, Metadata: []byte("{}"),
+	})
+	if err != nil {
+		return Workspace{}, fmt.Errorf("runkod: upsert workspace owner %q: %w", ws.Owner, err)
+	}
+	row, err := s.Queries.CreateWorkspace(ctx, s.Pool, dbgen.CreateWorkspaceParams{
+		OrgID: s.OrgID, MonorepoID: s.MonorepoID, PrincipalActorID: actor.ID,
+		BaseRevision: ws.BaseRevision,
+		// nil slices become SQL NULL under pgx, violating NOT NULL - the
+		// exact stage-9a index.Sync bug; normalize at the boundary.
+		ProjectAffinity: nonNilStrings(ws.ProjectAffinity),
+		WriteAllowlist:  nonNilStrings(ws.WriteAllowlist),
+		SnapshotRef:     ws.SnapshotRef,
+		Mode:            dbgen.WorkspaceModeSparseLocal,
+		Status:          dbgen.WorkspaceStatusActive,
+	})
+	if err != nil {
+		return Workspace{}, err
+	}
+	return s.dbWorkspaceToWorkspace(ctx, row)
+}
+
+func (s *PostgresStore) GetWorkspace(ctx context.Context, id string) (Workspace, bool, error) {
+	row, err := s.Queries.GetWorkspaceBySnapshotRef(ctx, s.Pool, dbgen.GetWorkspaceBySnapshotRefParams{
+		MonorepoID: s.MonorepoID, SnapshotRef: "refs/workspaces/" + id + "/head",
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Workspace{}, false, nil
+	}
+	if err != nil {
+		return Workspace{}, false, err
+	}
+	ws, err := s.dbWorkspaceToWorkspace(ctx, row)
+	return ws, err == nil, err
+}
+
+func (s *PostgresStore) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
+	rows, err := s.Queries.ListWorkspacesByMonorepo(ctx, s.Pool, s.MonorepoID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Workspace, 0, len(rows))
+	for _, row := range rows {
+		ws, err := s.dbWorkspaceToWorkspace(ctx, row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ws)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func (s *PostgresStore) UpdateWorkspaceBase(ctx context.Context, id, baseRevision string) (Workspace, error) {
+	row, err := s.Queries.GetWorkspaceBySnapshotRef(ctx, s.Pool, dbgen.GetWorkspaceBySnapshotRefParams{
+		MonorepoID: s.MonorepoID, SnapshotRef: "refs/workspaces/" + id + "/head",
+	})
+	if err != nil {
+		return Workspace{}, fmt.Errorf("runkod: no such workspace %q: %w", id, err)
+	}
+	updated, err := s.Queries.UpdateWorkspaceBase(ctx, s.Pool, dbgen.UpdateWorkspaceBaseParams{
+		ID: row.ID, BaseRevision: baseRevision,
+	})
+	if err != nil {
+		return Workspace{}, err
+	}
+	return s.dbWorkspaceToWorkspace(ctx, updated)
+}
+
+func (s *PostgresStore) dbWorkspaceToWorkspace(ctx context.Context, row *dbgen.Workspace) (Workspace, error) {
+	id, ok := SnapshotRefWorkspaceID(row.SnapshotRef)
+	if !ok {
+		return Workspace{}, fmt.Errorf("runkod: workspace row %s has malformed snapshot_ref %q", row.ID, row.SnapshotRef)
+	}
+	actor, err := s.Queries.GetActor(ctx, s.Pool, row.PrincipalActorID)
+	if err != nil {
+		return Workspace{}, fmt.Errorf("runkod: resolve workspace owner: %w", err)
+	}
+	return Workspace{
+		ID: id, Owner: actor.ExternalRef,
+		BaseRevision:    row.BaseRevision,
+		ProjectAffinity: row.ProjectAffinity,
+		WriteAllowlist:  row.WriteAllowlist,
+		SnapshotRef:     row.SnapshotRef,
+		Status:          string(row.Status),
+	}, nil
+}
+
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
 func (s *PostgresStore) EnqueueWebhook(ctx context.Context, eventType string, payload []byte) (string, error) {
 	d, err := s.Queries.EnqueueWebhookDelivery(ctx, s.Pool, dbgen.EnqueueWebhookDeliveryParams{
 		OrgID: s.OrgID, EventType: eventType, Payload: payload,

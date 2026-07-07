@@ -91,6 +91,74 @@ func (q *Queries) GetWorkspace(ctx context.Context, db DBTX, id uuid.UUID) (*Wor
 	return &i, err
 }
 
+const getWorkspaceBySnapshotRef = `-- name: GetWorkspaceBySnapshotRef :one
+SELECT id, org_id, monorepo_id, principal_actor_id, coding_session_id, base_revision, project_affinity, write_allowlist, snapshot_ref, mode, status, created_at, updated_at FROM workspaces WHERE monorepo_id = $1 AND snapshot_ref = $2
+`
+
+type GetWorkspaceBySnapshotRefParams struct {
+	MonorepoID  uuid.UUID `json:"monorepo_id"`
+	SnapshotRef string    `json:"snapshot_ref"`
+}
+
+func (q *Queries) GetWorkspaceBySnapshotRef(ctx context.Context, db DBTX, arg GetWorkspaceBySnapshotRefParams) (*Workspace, error) {
+	row := db.QueryRow(ctx, getWorkspaceBySnapshotRef, arg.MonorepoID, arg.SnapshotRef)
+	var i Workspace
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.MonorepoID,
+		&i.PrincipalActorID,
+		&i.CodingSessionID,
+		&i.BaseRevision,
+		&i.ProjectAffinity,
+		&i.WriteAllowlist,
+		&i.SnapshotRef,
+		&i.Mode,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
+const listWorkspacesByMonorepo = `-- name: ListWorkspacesByMonorepo :many
+SELECT id, org_id, monorepo_id, principal_actor_id, coding_session_id, base_revision, project_affinity, write_allowlist, snapshot_ref, mode, status, created_at, updated_at FROM workspaces WHERE monorepo_id = $1 ORDER BY created_at
+`
+
+func (q *Queries) ListWorkspacesByMonorepo(ctx context.Context, db DBTX, monorepoID uuid.UUID) ([]*Workspace, error) {
+	rows, err := db.Query(ctx, listWorkspacesByMonorepo, monorepoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Workspace
+	for rows.Next() {
+		var i Workspace
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.MonorepoID,
+			&i.PrincipalActorID,
+			&i.CodingSessionID,
+			&i.BaseRevision,
+			&i.ProjectAffinity,
+			&i.WriteAllowlist,
+			&i.SnapshotRef,
+			&i.Mode,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkspacesByPrincipal = `-- name: ListWorkspacesByPrincipal :many
 SELECT id, org_id, monorepo_id, principal_actor_id, coding_session_id, base_revision, project_affinity, write_allowlist, snapshot_ref, mode, status, created_at, updated_at FROM workspaces WHERE principal_actor_id = $1 AND status = 'active' ORDER BY created_at DESC
 `
