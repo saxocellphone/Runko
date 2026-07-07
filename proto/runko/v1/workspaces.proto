@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package runko.v1;
+
+option go_package = "github.com/saxocellphone/runko/gen/runko/v1;runkov1";
+
+import "runko/v1/common.proto";
+
+// WorkspaceService mirrors runkod's workspace registry API (§12.2/§12.3,
+// §28.3 stage 12b): CreateWorkspace/ListWorkspaces/GetWorkspace/
+// UpdateWorkspaceBase. Snapshotting itself (`runko workspace snapshot`) is
+// local git + a push to the snapshot ref through the ordinary receive
+// funnel, not a control-plane RPC - see proto/README.md for why that
+// action deliberately has no RPC here.
+service WorkspaceService {
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (CreateWorkspaceResponse);
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
+  rpc GetWorkspace(GetWorkspaceRequest) returns (GetWorkspaceResponse);
+  rpc UpdateWorkspaceBase(UpdateWorkspaceBaseRequest) returns (UpdateWorkspaceBaseResponse);
+}
+
+message CreateWorkspaceRequest {
+  string name = 1;
+  string owner = 2;
+  repeated string projects = 3; // project affinity, at least one required
+}
+
+message ListWorkspacesRequest {}
+
+message ListWorkspacesResponse {
+  repeated WorkspaceSummary workspaces = 1;
+}
+
+message GetWorkspaceRequest {
+  string id = 1;
+}
+
+message UpdateWorkspaceBaseRequest {
+  string id = 1;
+  string base_revision = 2;
+}
+
+message CreateWorkspaceResponse {
+  WorkspaceSummary workspace = 1;
+}
+
+message GetWorkspaceResponse {
+  WorkspaceSummary workspace = 1;
+}
+
+message UpdateWorkspaceBaseResponse {
+  WorkspaceSummary workspace = 1;
+}

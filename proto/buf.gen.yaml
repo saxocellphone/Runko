@@ -1,0 +1,19 @@
+# Draft codegen config - UNTESTED in this sandbox (no buf/protoc installed
+# here, see proto/README.md). Two targets: connect-go for runkod's own
+# server implementation, connect-es for the TypeScript web frontend -
+# both from this one proto set, no separate grpc-web proxy process
+# (matches this repo's no-extra-infra posture).
+version: v2
+inputs:
+  - directory: .
+plugins:
+  - remote: buf.build/connectrpc/go
+    out: ../gen/go
+    opt: paths=source_relative
+  - remote: buf.build/protocolbuffers/go
+    out: ../gen/go
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/es
+    out: ../web/src/gen
+  - remote: buf.build/bufbuild/es
+    out: ../web/src/gen

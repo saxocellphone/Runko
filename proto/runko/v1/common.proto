@@ -1,0 +1,203 @@
+syntax = "proto3";
+
+// Shared messages for the Runko control-plane RPC surface (docs/design.md
+// §9.1 "REST/gRPC - same capabilities as MCP"; §17.4's draft note,
+// 2026-07-07). These shapes mirror docs/spec/mcp-tools/
+// common.schema.json's $defs field-for-field wherever a concept has a
+// schema there - one shape per concept across CLI, MCP, and web (the
+// single-contract rule, docs/cli-contract.md), not three
+// independently-drifting ones. If this file and the JSON Schema disagree,
+// that drift is the bug; fix whichever side diverged from the design.
+//
+// Field numbers are wire-frozen the moment a frontend consumes them:
+// renumbering is a breaking change even when renaming is not.
+package runko.v1;
+
+option go_package = "github.com/saxocellphone/runko/gen/runko/v1;runkov1";
+
+// ErrorDetail mirrors common.schema.json#/$defs/Error and internal/clierr
+// (§6.5): the structured error every Runko surface returns. It rides as an
+// error detail attached to the google.rpc.Status (see proto/README.md item
+// 4); `code` values are IDENTICAL to the REST/CLI/MCP codes ("not_found",
+// "not_a_required_owner", "bot_lane_path_denied", "trunk_unborn", ...) -
+// clients branch on code, never parse message (§8.3).
+message ErrorDetail {
+  string code = 1;
+  string field = 2;       // dotted path of the offending input field, optional
+  string message = 3;
+  string suggestion = 4;  // actionable next step, optional
+  string doc_url = 5;     // deep link to docs, optional
+  bool retryable = 6;     // whether the same call, unmodified, could succeed
+}
+
+// Actor is a principal reference (§7.5). Until real AuthN (§15.1, OIDC),
+// `id` is the interim named-token principal name (§28.3 stage 12c) and
+// display_name is usually empty.
+message Actor {
+  ActorType type = 1;
+  string id = 2;
+  string display_name = 3;
+}
+
+enum ActorType {
+  ACTOR_TYPE_UNSPECIFIED = 0;
+  ACTOR_TYPE_USER = 1;
+  ACTOR_TYPE_AGENT = 2;
+  ACTOR_TYPE_GROUP = 3;
+}
+
+// §7.2 project types.
+enum ProjectType {
+  PROJECT_TYPE_UNSPECIFIED = 0;
+  PROJECT_TYPE_LIBRARY = 1;
+  PROJECT_TYPE_SERVICE = 2;
+  PROJECT_TYPE_APP = 3;
+  PROJECT_TYPE_JOB = 4;
+  PROJECT_TYPE_OTHER = 5;
+}
+
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;  // treat as DEFAULT
+  VISIBILITY_DEFAULT = 1;
+  VISIBILITY_RESTRICTED = 2;
+}
+
+// Compact orientation shape (§8.2 context-budget rule: summaries + stable
+// IDs by default). `id` == project name in v1 - the control plane mints no
+// separate project IDs yet (§10.2); when it does, `id` changes meaning and
+// `name` stays what humans type.
+message ProjectSummary {
+  string id = 1;
+  string name = 2;
+  ProjectType type = 3;
+  string path = 4;                     // repo-root-relative
+  repeated string owners_summary = 5;  // OwnerRef strings, "user:x"/"group:y"
+}
+
+message Dependencies {
+  repeated string declared = 1;  // gates affected computation (§13.3)
+  repeated string inferred = 2;  // advisory-only, never gates merges (§13.3); always empty in v1
+}
+
+// Full effective view (GetProject; see proto/README.md item 3 on why this
+// is the single response shape rather than MCP's oneOf(summary, detail)).
+message ProjectDetail {
+  string id = 1;
+  string name = 2;
+  ProjectType type = 3;
+  string path = 4;
+  string template_id = 5;  // not yet served (the index doesn't retain it)
+  Visibility visibility = 6;
+  repeated string effective_owners = 7;
+  repeated string capabilities = 8;  // §7.2 L2 capabilities: "rpc","http","deploy","data_store"
+  Dependencies dependencies = 9;
+}
+
+// §7.3: where effective owners resolution came from.
+enum OwnersSource {
+  OWNERS_SOURCE_UNSPECIFIED = 0;
+  OWNERS_SOURCE_PROJECT_MANIFEST = 1;
+  OWNERS_SOURCE_PATH_OWNERS = 2;
+  OWNERS_SOURCE_ORG_DEFAULT = 3;
+}
+
+message OwnersResult {
+  repeated string owners = 1;
+  OwnersSource source = 2;
+}
+
+enum ReasonCode {
+  REASON_CODE_UNSPECIFIED = 0;
+  REASON_CODE_DIRECT_PATH = 1;
+  REASON_CODE_DEPENDS_ON = 2;
+  REASON_CODE_ROOT_INVALIDATION = 3;
+}
+
+// §14.4.1 affected block, reused wherever affected computation is exposed.
+message AffectedComputation {
+  string computation_id = 1;
+  repeated ProjectSummary projects = 2;
+  repeated string paths = 3;
+  repeated ReasonCode reason_codes = 4;
+  // Callers MUST honor this flag - fail closed to a broader run, never
+  // fail open to "run nothing" (§13.3, §14.5.3). projects/paths stay
+  // informational even when true; they may be an incomplete view, which
+  // is precisely why it's true.
+  bool run_everything = 5;
+}
+
+enum ChangeState {
+  CHANGE_STATE_UNSPECIFIED = 0;
+  CHANGE_STATE_OPEN = 1;
+  CHANGE_STATE_LANDED = 2;
+  CHANGE_STATE_ABANDONED = 3;
+}
+
+// ChangeSummary mirrors common.schema.json#/$defs/ChangeSummary, with the
+// fields the daemon cannot serve yet explicitly marked - the frontend
+// should treat those as absent until the noted stage lands, not as bugs.
+message ChangeSummary {
+  string id = 1;  // stable Change-Id; survives rebases and amends (§7.4)
+  ChangeState state = 2;
+  string base_sha = 3;
+  string head_sha = 4;
+  string git_ref = 5;  // stable fetchable ref: refs/changes/<id>/head (§14.4.4)
+  string title = 6;
+  string landed_sha = 7;  // set once state == LANDED; may differ from head_sha (rebase-land, §13.5)
+  string description = 8;  // not yet served (exists in Postgres, not in the REST/MemStore view)
+  // Interim attribution (§15.1 named-token principals, §28.3 stage 12c
+  // slice 2, in progress): Actor.id is the principal name; unset when
+  // pushed anonymously with the deploy token (eval profile).
+  Actor authored_by = 9;
+  int64 number = 10;  // not yet served: monotonic change number (Postgres-only today)
+  string url = 11;    // not yet served: canonical web URL, needs stage 13's URL scheme
+}
+
+// The same structure surfaced to humans (Change page) and agents
+// (get_merge_requirements) - §8.3, §13.4, §13.5. NOTE: this view is
+// per-principal - a bot-lane token sees the gate IT will be held to
+// (owners waived, lane checks added), §14.10.2.
+message MergeRequirements {
+  string change_id = 1;
+  OwnerGate owners = 2;
+  CheckGate checks = 3;
+  bool mergeable = 4;
+  repeated string blockers = 5;  // plain language, §6.6
+}
+
+message OwnerGate {
+  repeated string required = 1;
+  repeated string satisfied = 2;
+  repeated string outstanding = 3;
+}
+
+message CheckGate {
+  // Check-set policies (e.g. "unit:* over affected") are pre-expanded
+  // into concrete names here (§14.4.2).
+  repeated string required = 1;
+  repeated string passing = 2;
+  repeated string failing = 3;
+  repeated string pending = 4;
+}
+
+enum WorkspaceStatus {
+  WORKSPACE_STATUS_UNSPECIFIED = 0;
+  WORKSPACE_STATUS_ACTIVE = 1;
+  WORKSPACE_STATUS_DETACHED = 2;
+  WORKSPACE_STATUS_CLOSED = 3;
+}
+
+// WorkspaceSummary is the §12.2 registry row - metadata ONLY, content
+// lives in Git at snapshot_ref. Extends common.schema.json's
+// WorkspaceSummary with the registry fields the daemon actually serves
+// (owner, write_allowlist, snapshot_ref); `mode` is omitted until a
+// second workspace mode exists (sparse_local is the only real one, §12.3).
+message WorkspaceSummary {
+  string id = 1;  // human-chosen; doubles as the snapshot-ref segment
+  string owner = 2;
+  string base_revision = 3;
+  repeated string project_affinity = 4;
+  repeated string write_allowlist = 5;  // §8.7 agent scoping; path prefixes
+  string snapshot_ref = 6;              // refs/workspaces/<id>/head
+  WorkspaceStatus status = 7;
+}

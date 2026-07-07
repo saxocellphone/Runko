@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package runko.v1;
+
+option go_package = "github.com/saxocellphone/runko/gen/runko/v1;runkov1";
+
+import "runko/v1/common.proto";
+
+// ChangeService covers the Change page (§17.2) and its lifecycle actions.
+// ListChanges/AbandonChange/RerunCheck correspond to REST endpoints being
+// added alongside this draft (§28.3 stage 12c, slice 3) - included here so
+// the frontend can be built against the full intended surface rather than
+// today's partial REST subset. See proto/README.md.
+service ChangeService {
+  rpc GetChange(GetChangeRequest) returns (GetChangeResponse);
+  rpc ListChanges(ListChangesRequest) returns (ListChangesResponse);
+  rpc GetAffected(GetAffectedRequest) returns (GetAffectedResponse);
+  rpc GetMergeRequirements(GetMergeRequirementsRequest) returns (GetMergeRequirementsResponse);
+  rpc ApproveChange(ApproveChangeRequest) returns (ApproveChangeResponse);
+  rpc LandChange(LandChangeRequest) returns (LandChangeResponse);
+  rpc AbandonChange(AbandonChangeRequest) returns (AbandonChangeResponse);
+  rpc RerunCheck(RerunCheckRequest) returns (RerunCheckResponse);
+}
+
+message GetChangeRequest {
+  string change_id = 1;
+}
+
+// ListChangesRequest's state filter defaults to CHANGE_STATE_OPEN when
+// unspecified - the Change list's overwhelmingly common view (§17.2's
+// "recent changes" / "owner attention inbox"). Pass an explicit state to
+// see landed or abandoned Changes instead.
+message ListChangesRequest {
+  ChangeState state = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListChangesResponse {
+  repeated ChangeSummary changes = 1;
+  string next_page_token = 2;
+}
+
+message ChangePaths {
+  repeated string paths = 1;
+}
+
+// GetAffectedRequest computes affected projects for an arbitrary path set,
+// OR re-fetches the computation already attached to a Change - exactly
+// one, matching the MCP get_affected tool's oneOf (§13.3, §14.4.3).
+message GetAffectedRequest {
+  oneof target {
+    ChangePaths paths = 1;
+    string change_id = 2;
+  }
+}
+
+message GetMergeRequirementsRequest {
+  string change_id = 1;
+}
+
+message ApproveChangeRequest {
+  string change_id = 1;
+  string owner_ref = 2;
+  // approved_by is client-asserted text, matching the current CLI/REST v1
+  // trust boundary (the deploy token gates the API - see §15.1 in
+  // proto/README.md). Once the named-token principal registry (§28.3
+  // stage 12c slice 2) lands, this field is expected to move to request
+  // metadata (the authenticated caller) and stop being client-supplied.
+  string approved_by = 3;
+}
+
+message LandChangeRequest {
+  string change_id = 1;
+}
+
+message LandChangeResponse {
+  bool landed = 1;
+  string landed_sha = 2;
+  bool requires_revalidation = 3;
+  repeated string conflicts = 4;
+  bool race_retry = 5;
+}
+
+message AbandonChangeRequest {
+  string change_id = 1;
+  string reason = 2;
+}
+
+message RerunCheckRequest {
+  string change_id = 1;
+  string check_name = 2;
+}
+
+// Per-RPC response wrappers (buf STANDARD lint: unique response types per
+// RPC, so any one response can grow fields later without entangling the
+// others).
+message GetChangeResponse {
+  ChangeSummary change = 1;
+}
+
+message GetAffectedResponse {
+  AffectedComputation affected = 1;
+}
+
+message GetMergeRequirementsResponse {
+  MergeRequirements requirements = 1;
+}
+
+message ApproveChangeResponse {
+  // The refreshed requirements, so the approver immediately sees what
+  // their approval covered and what still blocks (§7.3).
+  MergeRequirements requirements = 1;
+}
+
+message AbandonChangeResponse {
+  ChangeSummary change = 1;
+}
+
+message RerunCheckResponse {
+  MergeRequirements requirements = 1;
+}
