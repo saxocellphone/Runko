@@ -3,7 +3,7 @@
   "$id": "https://runko.dev/schema/mcp/catalog.json",
   "title": "Runko MCP tool catalog v1",
   "spec_version": "1",
-  "description": "Pre-session-1 blocker (design.md §26 #3, §28.4). One source of truth for the MCP server (mcp/ package, §8.3), and equivalent REST/gRPC surface (§9.1). Generate types/handlers/docs from this file rather than hand-writing them per package (§28.2 item 2). Every tool call error uses common.schema.json#/$defs/Error. Categories mirror §8.3's grouping: navigation, project_lifecycle, workspace, change, validation.",
+  "description": "Pre-session-1 blocker (design.md §26 #3, §28.4). One source of truth for the MCP server (mcp/ package, §8.3), and equivalent REST/gRPC surface (§9.1). Generate types/handlers/docs from this file rather than hand-writing them per package (§28.2 item 2). Every tool call error uses common.schema.json#/$defs/Error. Categories mirror §8.3's grouping: navigation, project_lifecycle, workspace, change, validation. Per the §8.3/§22.2 CLI-first decision (2026-07-07): each tool carries a 'status' of 'v1' (implemented by the MCP thin remote adapter, DAG stage 12) or 'deferred-v1.x' (schema kept as the future contract; served by the CLI today, not by MCP). Do not delete deferred-v1.x entries - they are v1.x's contract, not dead schema.",
   "tools": [
     {
       "name": "list_projects",
@@ -12,6 +12,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "v1",
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -38,6 +39,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "v1",
       "input_schema": {
         "type": "object",
         "required": ["project"],
@@ -62,6 +64,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "v1",
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -84,6 +87,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "v1",
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -106,6 +110,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "v1",
       "input_schema": {
         "type": "object",
         "required": ["query"],
@@ -147,6 +152,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["query"],
@@ -189,6 +195,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": { "type": "object", "additionalProperties": false, "properties": {} },
       "output_schema": {
         "type": "object",
@@ -207,6 +214,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": { "type": "object", "additionalProperties": false, "properties": {} },
       "output_schema": {
         "type": "object",
@@ -238,6 +246,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["intent"],
@@ -261,6 +270,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["intent"],
@@ -285,6 +295,7 @@
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["intent"],
@@ -314,6 +325,7 @@
       "read_only": false,
       "idempotent": true,
       "agent_policy_gated": true,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["project", "capability"],
@@ -342,6 +354,7 @@
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["path"],
@@ -379,6 +392,7 @@
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["project_ids"],
@@ -398,6 +412,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["workspace_id"],
@@ -429,6 +444,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["workspace_id"],
@@ -457,6 +473,7 @@
       "read_only": false,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["workspace_id"],
@@ -488,6 +505,7 @@
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["workspace_id"],
@@ -521,6 +539,7 @@
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["workspace_id", "description"],
@@ -542,6 +561,7 @@
       "read_only": false,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["change_id"],
@@ -562,6 +582,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["change_id"],
@@ -587,6 +608,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["change_id"],
@@ -615,6 +637,7 @@
       "read_only": false,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["change_id"],
@@ -642,6 +665,7 @@
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
+      "status": "deferred-v1.x",
       "input_schema": {
         "type": "object",
         "required": ["change_id"],
@@ -666,6 +690,7 @@
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
+      "status": "v1",
       "input_schema": {
         "type": "object",
         "required": ["change_id"],

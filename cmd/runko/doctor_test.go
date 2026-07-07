@@ -1,11 +1,34 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
 )
+
+// TestRunDoctorOnNonRepoDirReturnsStructuredError closes a raw-passthrough
+// gap found in the CLI robustness audit (§6.5): `doctor` against a
+// directory that isn't a git repo at all used to surface git's raw
+// `rev-parse --git-dir` exit-128 text, the same class of bug stage 9a
+// already fixed for `project create` (cmd/runko/project.go).
+func TestRunDoctorOnNonRepoDirReturnsStructuredError(t *testing.T) {
+	dir := t.TempDir() // not a git repo at all
+
+	_, err := RunDoctor(dir, "main")
+	if err == nil {
+		t.Fatalf("expected an error for a non-repo directory")
+	}
+	var ce *clierr.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected a *clierr.Error with resolve-or-explain guidance, got %T: %v", err, err)
+	}
+	if ce.Code != "not_a_repo" {
+		t.Fatalf("expected code not_a_repo, got %+v", ce)
+	}
+}
 
 func TestRunDoctorNoRemoteNoHook(t *testing.T) {
 	repo := gitfixture.New(t)

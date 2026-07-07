@@ -4,6 +4,11 @@
 // (§28.3 stage 9) against the local repo and a bearer-token Checks API call;
 // full CI OIDC federation and the sparse-checkout API (§14.4.4, served by a
 // not-yet-built control plane) are out of scope here.
+//
+// Exit codes (docs/cli-contract.md, added in the §8.3 CLI-first audit):
+// 0 success, 1 a recognized command failed (structured error printed to
+// stderr), 2 usage error (unknown/missing command) - flag-parsing errors
+// already exit 2 via stdlib flag.ExitOnError.
 package main
 
 import (
@@ -20,7 +25,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
-		os.Exit(1)
+		os.Exit(2)
 	}
 
 	var err error
@@ -37,7 +42,7 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "runko-ci: unknown command %q\n\n", os.Args[1])
 		printUsage()
-		os.Exit(1)
+		os.Exit(2)
 	}
 
 	if err != nil {
@@ -50,9 +55,11 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `usage: runko-ci <command> [flags]
 
 commands:
-  affected       compute the affected project set for a base..head range
-  checkout       partial-clone + sparse-checkout a rev for CI
-  report-check   POST a CheckRun result to the platform's Checks API`)
+  affected       compute the affected project set for a base..head range (JSON always)
+  checkout       partial-clone + sparse-checkout a rev for CI [--json]
+  report-check   POST a CheckRun result to the platform's Checks API [--json]
+
+exit codes: 0 success, 1 command failed, 2 usage error (docs/cli-contract.md)`)
 }
 
 func cmdAffected(args []string) error {
@@ -86,6 +93,7 @@ func cmdCheckout(args []string) error {
 	dest := fs.String("dest", "", "destination directory")
 	rev := fs.String("rev", "", "revision to check out")
 	projects := fs.String("projects", "", "comma-separated project paths for the sparse cone")
+	jsonOut := fs.Bool("json", false, "emit {rev, dest} as JSON instead of a human summary")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -95,6 +103,9 @@ func cmdCheckout(args []string) error {
 
 	if err := Checkout(*remote, *dest, *rev, splitNonEmpty(*projects)); err != nil {
 		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"rev": *rev, "dest": *dest})
 	}
 	fmt.Printf("checked out %s into %s\n", *rev, *dest)
 	return nil
@@ -110,6 +121,7 @@ func cmdReportCheck(args []string) error {
 	conclusion := fs.String("conclusion", "", "success|failure|cancelled|skipped|timed_out|action_required|neutral")
 	detailsURL := fs.String("details-url", "", "deep link to the CI job")
 	reporter := fs.String("reporter", "", "reporter id, e.g. github-actions")
+	jsonOut := fs.Bool("json", false, "emit {name, status, external_id} as JSON instead of a human summary")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -126,6 +138,11 @@ func cmdReportCheck(args []string) error {
 	}
 	if err := ReportCheck(ctx, http.DefaultClient, *checksURL, *token, report); err != nil {
 		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{
+			"name": *name, "status": *status, "external_id": *externalID,
+		})
 	}
 	fmt.Printf("reported %s (%s) for %s\n", *name, *status, *externalID)
 	return nil

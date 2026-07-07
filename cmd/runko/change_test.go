@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
 )
 
@@ -155,6 +157,43 @@ func TestPushChangeAmendAndRepushSucceeds(t *testing.T) {
 	}
 	if head != remoteTip {
 		t.Fatalf("expected refs/for/main to reflect the amended commit %s, got %s", head, remoteTip)
+	}
+}
+
+// TestPushChangeOnNonRepoDirReturnsStructuredError and
+// TestPushChangeOnEmptyRepoReturnsStructuredError close raw-passthrough gaps
+// found in the CLI robustness audit (§6.5): PushChange used to surface git's
+// raw exit-128 text for "not a repo" and "no commits yet", the same class of
+// bug stage 9a already fixed for `project create` and `doctor`.
+func TestPushChangeOnNonRepoDirReturnsStructuredError(t *testing.T) {
+	dir := t.TempDir() // not a git repo at all
+
+	_, err := PushChange(dir, "origin", "main")
+	if err == nil {
+		t.Fatalf("expected an error for a non-repo directory")
+	}
+	var ce *clierr.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected a *clierr.Error, got %T: %v", err, err)
+	}
+	if ce.Code != "not_a_repo" {
+		t.Fatalf("expected code not_a_repo, got %+v", ce)
+	}
+}
+
+func TestPushChangeOnEmptyRepoReturnsStructuredError(t *testing.T) {
+	repo := gitfixture.New(t) // git init'd, zero commits
+
+	_, err := PushChange(repo.Dir, "origin", "main")
+	if err == nil {
+		t.Fatalf("expected an error when HEAD has no commits yet")
+	}
+	var ce *clierr.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected a *clierr.Error, got %T: %v", err, err)
+	}
+	if ce.Code != "no_commits" {
+		t.Fatalf("expected code no_commits, got %+v", ce)
 	}
 }
 

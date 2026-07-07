@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitversion"
 )
 
@@ -40,7 +41,22 @@ type DoctorReport struct {
 
 // RunDoctor inspects repoDir and returns a DoctorReport. It never fails hard
 // on a missing remote or hook - those are exactly what the report surfaces.
+// Not being a git repository at all IS a hard failure, and gets a structured
+// clierr.Error (§6.5) rather than raw `git rev-parse` exit-128 text - the
+// same resolve-or-explain treatment stage 9a already gave `project create`
+// (cmd/runko/project.go's resolveBaseOrEmpty), extended here since `doctor`
+// had the identical raw-passthrough gap.
 func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
+	if _, err := runGit(repoDir, "rev-parse", "--git-dir"); err != nil {
+		return DoctorReport{}, &clierr.Error{
+			Code:       "not_a_repo",
+			Field:      "repo",
+			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
+			Suggestion: "run `git init` first, then retry `runko doctor`",
+			DocURL:     "docs/design.md#67-empty-states-and-education",
+		}
+	}
+
 	report := DoctorReport{RepoDir: repoDir, TrunkRef: trunkRef}
 
 	hooksDir, err := hooksDirectory(repoDir)

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/receive"
 )
 
@@ -21,14 +22,39 @@ import (
 // here since the ref is meant to always reflect the Change's latest commit,
 // never a history to preserve.
 func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
-	msg, err := runGit(repoDir, "log", "-1", "--format=%B")
-	if err != nil {
-		return "", fmt.Errorf("read HEAD commit message: %w", err)
+	if _, err := runGit(repoDir, "rev-parse", "--git-dir"); err != nil {
+		return "", &clierr.Error{
+			Code:       "not_a_repo",
+			Field:      "repo",
+			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
+			Suggestion: "run `git init` first, then retry `runko change push`",
+			DocURL:     "docs/design.md#67-empty-states-and-education",
+		}
+	}
+	if _, err := runGit(repoDir, "symbolic-ref", "-q", "HEAD"); err != nil {
+		return "", &clierr.Error{
+			Code:       "detached_head",
+			Field:      "repo",
+			Message:    "HEAD is not on a branch (detached HEAD)",
+			Suggestion: "check out a branch first, e.g. `git checkout -b my-branch`",
+			DocURL:     "docs/design.md#69-the-closed-trunk-moment-human-git-ux",
+		}
 	}
 
 	headSHA, err := runGit(repoDir, "rev-parse", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("resolve HEAD: %w", err)
+		return "", &clierr.Error{
+			Code:       "no_commits",
+			Field:      "repo",
+			Message:    "HEAD has no commits yet - nothing to push",
+			Suggestion: "run `runko project create` or make a commit first",
+			DocURL:     "docs/design.md#67-empty-states-and-education",
+		}
+	}
+
+	msg, err := runGit(repoDir, "log", "-1", "--format=%B")
+	if err != nil {
+		return "", fmt.Errorf("read HEAD commit message: %w", err)
 	}
 
 	id, newMsg := receive.EnsureChangeID(msg, headSHA)

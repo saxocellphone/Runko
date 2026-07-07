@@ -461,14 +461,30 @@ Before any agent writes code, it should call orientation tools (also useful for 
 
 ### 8.3 MCP and tool surface
 
-Expose an official **MCP server** (and equivalent REST/gRPC) covering:
+**Decided (this revision): the CLI is the primary agent interface, not MCP.** Four reasons, in order of weight:
+
+1. **Context economics.** MCP tool schemas load into every client session for the session's lifetime, whether or not a single tool is ever called. A CLI costs zero tokens until actually invoked. This is §8.2's own context-budget rule, applied to ourselves — it would be incoherent to preach "summaries + stable IDs, don't load the whole monorepo into context" while shipping 25 tool schemas as the default agent onboarding cost.
+2. **Composability.** An agent that can shell out pipes `runko-ci affected --json | jq '.projects[].name'` in a subshell for ~0 tokens of model context. The MCP equivalent round-trips every intermediate value through the model as a tool-call/tool-result pair — strictly worse for anything beyond a single opaque lookup.
+3. **Empirical.** Runko itself — the codebase this spec describes — was built across 13+ implementation sessions by a coding agent using only `make`/`git`/the CLI. Zero MCP calls. If the tool that built this platform didn't need MCP to be productive against it, that's a strong prior about what real agent workflows actually need.
+4. **The moat is server-side, not protocol-side.** §8.9's differentiation claim is receive-time enforcement (policy, secret scanning, affinity, affected computation) — none of that cares whether the client spoke MCP, REST, or plain git. Betting the agent story on a specific protocol surface would be optimizing the wrong layer.
+
+**MCP is not deleted — it is rescoped to a thin remote adapter**, for exactly the clients that can't shell out: editor-embedded agents, hosted/sandboxed agents without a git-capable shell, and MCP-registry discoverability. It exposes **six read-only tools**, each a thin wrapper over the same REST handlers the CLI and web UI use:
 
 ```text
-# Navigation
-list_projects, get_project, who_owns, get_affected(paths|change_id)
+# v1 — MCP remote adapter (read-only, six tools)
+list_projects, get_project, who_owns, get_affected(paths|change_id),
+search_code, get_merge_requirements(change_id)
+```
+
+No write tools ship in v1. A remote agent that needs to write pushes via git smart-HTTP like any other client (§11.5's parity rule already requires this path to work from a raw clone) — MCP does not get a privileged write path plain git lacks. This is also the standing answer to §22.1's "MCP surface sprawl" risk: the six-tool adapter is deliberately small, not a growing catalog.
+
+Everything else originally scoped for MCP is **deferred to v1.x, served by the CLI today**:
+
+```text
+# v1.x — deferred (CLI-served now; catalog.json keeps these schemas for later)
 
 # Project lifecycle (low ceremony)
-create_project(intent)      # L0 only — name, type, owners?, template?, path?
+create_project(intent)      # `runko project create` today
 add_capability(project, cap)
 adopt_path_as_project(...)
 
@@ -479,17 +495,18 @@ prefetch(project_id|paths)
 update_workspace_base()
 
 # Change lifecycle
-create_change / update_change_description
+create_change / update_change_description   # `runko change push` today
 get_change / list_change_comments
 request_review / land_change (if permitted)
-get_merge_requirements(change_id)  # owners + checks outstanding
 
 # Validation
 validate_project_intent(intent) → structured errors
 preview_create_project(intent) → files that would be written
 ```
 
-**All tools return structured errors** (`code`, `retryable`, `suggestion`). Agents should not parse human HTML.
+**Single-contract rule:** the CLI's `--json` output and the MCP adapter's tool responses conform to the *same* schemas (`docs/spec/mcp-tools/`, `docs/spec/webhooks/`) — one wire contract, two transports. A tool moving from "deferred" to "v1" later is a transport change, not a schema redesign.
+
+**All tools/commands return structured errors** (`code`, `retryable`, `suggestion` — §6.5's shape). Agents should not parse human HTML, and (per the above) should generally prefer the CLI's structured `--json` errors over a round-trip through MCP at all.
 
 ### 8.4 Agent-safe workspaces
 
@@ -556,18 +573,18 @@ Per-agent overrides for trusted internal bots (e.g. renamer bot) vs general codi
 
 | Pattern | How it works |
 |---------|----------------|
-| **Editor agents** (Cursor, Copilot, etc.) | MCP config points at platform; extension also shows human UI chrome |
-| **CLI agents** (Claude Code, etc.) | `runko mcp serve` or remote MCP URL with user/agent token |
+| **CLI agents** (Claude Code, etc.) | **Primary path (§8.3 decision)**: the robust `runko`/`runko-ci` CLI, `--json` output, git smart-HTTP for writes. `runko mcp serve` is optional, not required, for a CLI-capable agent |
+| **Editor agents** (Cursor, Copilot, etc.) | Remote MCP adapter (§8.3's six read-only tools) for orientation inside the editor's chrome; writes still go through git smart-HTTP, same as any other client |
 | **Autonomous runners** | Agent identity + CI OIDC; always headless workspace on workspace pool |
-| **Internal bots** | Same API; tighter path allowlists |
+| **Internal bots** | Same CLI/API surface; tighter path allowlists |
 
-We provide **reference prompts / skill files** (e.g. `AGENTS.md` snippet) generated per monorepo:
+We provide **reference prompts / skill files** (e.g. `AGENTS.md` snippet) generated per monorepo — this doubles as stage 11's (§28.3) done-when bar, teaching the CLI as the primary agent interface:
 
 ```markdown
 # Monorepo agent instructions (generated)
-- Use MCP tools; do not full-clone.
-- Prefer create_project tool over inventing PROJECT.yaml.
-- Stay within workspace affinity; call prefetch for deps.
+- Use the `runko`/`runko-ci` CLI (--json output); do not full-clone.
+- Prefer `runko project create` over inventing PROJECT.yaml.
+- Stay within workspace affinity; use `runko-ci checkout` for deps/prefetch.
 - Open a Change before large refactors; respect who_owns.
 ```
 
@@ -1529,9 +1546,11 @@ runko mcp serve             # local MCP for coding agents
 
 ### 17.4 MCP
 
-- Documented tool catalog with examples  
-- Idempotent creates where possible  
-- Pagination and compact list defaults for token efficiency  
+**Rescoped (§8.3): a thin remote adapter, not the primary agent surface.** v1 ships exactly six read-only tools (`list_projects`, `get_project`, `search_code`, `who_owns`, `get_affected`, `get_merge_requirements`) over the same REST handlers the CLI uses. The full write-capable catalog (`create_project`, `create_change`, workspace tools, etc.) stays documented in `docs/spec/mcp-tools/catalog.json` as the **deferred v1.x contract** - schemas kept, not implemented, until there's a client that actually needs MCP for writes rather than a shell.
+
+- Documented tool catalog with examples - six v1 tools; the rest annotated `deferred-v1.x`, not removed
+- Idempotent creates where possible (moot for v1's read-only set; applies once write tools graduate from deferred)
+- Pagination and compact list defaults for token efficiency
 
 ---
 
@@ -1759,6 +1778,7 @@ Not any single vendor — the combination a platform team can assemble on GitHub
 | MVP web stack | **Server-rendered + htmx for Phases 0–1** (wizard, change page, merge requirements); SPA investment deferred to Phase 2 review UX (§28.2) |
 | Build-graph integration | **Runner-side adapter contract; Bazel first, Buck2-shaped** (§14.5.4). Platform floor stays paths + declared deps (NG4 intact); engine output refines CI scope by default, gates only by org opt-in; every engine failure ⇒ `run_everything` |
 | Build-system opinionation | **Opinionated by criterion, not mandate** (§14.5.4): engine status requires declared + hermetic-at-SHA + rdeps-queryable (Bazel ✓, Buck2 ✓; task runners never); greenfield golden path `build_discipline: hermetic` with generated BUILD files; org opt-in `require_build_binding` merge gate; brownfield adoption never gated on a build migration (§18 cliff rule) |
+| Agent interface | **CLI-first (primary); MCP = thin remote adapter, 6 read-only tools over REST** — write tools deferred to v1.x; single schema contract for CLI JSON and MCP (§8.3) |
 
 ### 22.3 Open questions
 
@@ -1861,6 +1881,7 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-06 | **Build-graph adapters promoted** from Tier-3 template to first-class contract (§14.5.4): runner-side only (daemon never runs customer tooling), Bazel first / Buck2-shaped, declared-not-inferred trust class (gate-eligible by org opt-in, refining §13.3's floor without reopening it), fail-closed to `run_everything`; new `build` capability (§7.2); Bazel → Tier 2 with Tier-1 pull trigger (§14.7); DAG stage 9b + budget row (§28); adapter contract spec added to §26 |
 | 2026-07-06 | **Build-system opinionation codified** (§14.5.4, NG4 refined, §13.5, §22.2): engine admission by criterion (declared + hermetic-at-SHA + rdeps) — Bazel/Buck2 in, task runners permanently out; greenfield golden path `build_discipline: hermetic` (templates generate all BUILD files); org opt-in `require_build_binding` merge gate; hard platform-wide mandate **rejected** — brownfield adoption is never gated on a build-system migration |
 | 2026-07-06 | **DAG revised after stages 0–9 shipped** (§28.3, §28.4): completed stages collapsed to a history note; new stage 9a (hardening: live-Postgres tests, stage-8 check-set fixes, CLI resolve-or-explain error UX, git ≥ 2.40 gate), 9c (opinionation mechanics), and explicit stage 10 `runkod` daemon assembly (smart-HTTP + pre-receive wiring + gitleaks scanner — previously implicit); MCP/Zoekt/web/compose renumbered 11–14; dogfood is stage 15 with a recorded Bazel-migration decision point; pre-stage checklist reduced to one blocker (adapter contract spec, §26 #13) |
+| 2026-07-07 | **Agent interface decided: CLI-first, MCP rescoped to a thin remote adapter** (§8.3, §8.8, §17.4, §22.2): four reasons recorded (context economics, composability, empirical - Runko itself was built via CLI with zero MCP calls, and the moat is server-side receive-time enforcement, not protocol-side); MCP v1 shrinks to six read-only tools (`list_projects`, `get_project`, `search_code`, `who_owns`, `get_affected`, `get_merge_requirements`) over the same REST handlers, no write tools until a real remote-write client need materializes; full catalog kept as the deferred v1.x contract, not deleted; single-contract rule ties CLI `--json` output to the same `docs/spec/mcp-tools/`/`docs/spec/webhooks/` schemas; §28.3 DAG stages 11/12 swapped and rescoped (Zoekt + AGENTS.md generator first, now teaching the CLI as the agent interface; MCP thin adapter second) |
 
 ---
 
@@ -1916,8 +1937,8 @@ Agent never authors a multi-section platform manifest from memory.
 | Webhook outbox (HMAC, retry, DLQ, replay) | §14.4.1 | transcription | 1–2 | ~0.7M |
 | `runko` CLI + doctor; `runko-ci` | §17.1, §14.6 | transcription | 2–3 | ~1M |
 | Build-graph adapter: contract + Bazel engine | §14.5.4 | transcription + fixture discovery | 2–3 | ~1.5M |
-| MCP server (generated from tool catalog) | §8.3 | transcription | 1–2 | ~0.7M |
-| Zoekt integration + AGENTS.md generator | §8.2, §8.8 | transcription | 1 | ~0.4M |
+| Zoekt integration + AGENTS.md generator (now stage 11, ahead of MCP - §8.3 CLI-first decision) | §8.2, §8.8 | transcription | 1 | ~0.4M |
+| MCP thin remote adapter (rescoped: six read-only tools, not the full catalog - §8.3) | §8.3 | transcription | 1–2 | ~0.5M |
 | Minimal web (SSR wizard, change page, requirements) | §17.2, §22.2 | scoped | 2–4 | ~1.7M |
 | Dogfood hardening buffer | §19.2 | discovery | 3–5 | ~2.5M |
 
@@ -1944,8 +1965,8 @@ Agent never authors a multi-section platform manifest from memory.
 | 9c | Opinionation mechanics (§14.5.4): `build_discipline: hermetic` golden path + `require_build_binding` gate | 9b | Greenfield template org: `project create` emits generated BUILD wiring + default `bazel test` check-sets with **zero hand-authored BUILD lines**; with the org gate on, an unbound project's Change reports the §13.5 blocker |
 | 9d | **CI wiring** (`.github/workflows/ci.yml`) - inserted per review, blocks stage 10 | 9a | `make check` on every push/PR + a real `postgres` service container running `make check-db`, so 9a's live-Postgres tests execute for real somewhere, not just as unexecuted code no sandbox in this project's history could run |
 | 10 | **`runkod` daemon assembly** (was implicit in the old DAG; now explicit — 2–3 sessions) | 9a, 9d | Smart-HTTP hosting (bare repo + `git http-backend` + pre-receive wiring `receive.Decide()`); REST endpoints: changes / checks / affected / merge-requirements; outbox delivery worker; **gitleaks-backed `SecretScanner`** (closing the stage-6 seam); deploy-token auth. Bar, over the wire: push to `refs/for/main` creates a Change; direct trunk push gets the §6.9 script; `runko-ci report-check` round-trips against it |
-| 11 | MCP server (generated from catalog) | 10 | Tools generated from `docs/spec/mcp-tools/`; structured errors per §6.5 |
-| 12 | Zoekt + AGENTS.md generator | 10 | `search_code` returns project-tagged hits through the daemon |
+| 11 | **Zoekt + AGENTS.md generator** (reordered ahead of MCP, §8.3 CLI-first decision) | 10 | `search_code` returns project-tagged hits through the daemon; generated `AGENTS.md` teaches the CLI as the primary agent interface - command inventory, `--json` output contracts, exit-code convention (`docs/cli-contract.md`), the §6.5 structured-error shape |
+| 12 | **MCP thin remote adapter** (rescoped, §8.3: six read-only tools, not the full catalog) | 11 | Exactly six tools registered (`list_projects`, `get_project`, `search_code`, `who_owns`, `get_affected`, `get_merge_requirements`), each a thin wrapper over the existing REST handlers stage 10 already built; responses are schema-conformant against `docs/spec/mcp-tools/` (contract-tested, same technique as `checks/contract_test.go`); `runko mcp serve` (stdio) and the daemon's HTTP transport both work; catalog.json's other 19 tools remain present but annotated `deferred-v1.x`, not implemented |
 | 13 | Minimal web (SSR + htmx) | 10 | Wizard + change page + merge requirements |
 | 14 | Compose + measured 15-min loop in CI | 10–13 | §16.4 smoke: `compose up → create → change → land` timed, green per release |
 | 15 | Dogfood hardening (3–5 sessions) | 14 | Platform hosts its own repo; real GHA checks gate its own Changes. **Decision point recorded:** migrate Runko's repo to Bazel — fires the §14.7 Tier-1 pull trigger and dogfoods the §14.5.4 golden path |
