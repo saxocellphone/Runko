@@ -25,7 +25,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/saxocellphone/runko/receive"
@@ -199,7 +201,32 @@ func cmdServe(args []string) error {
 	}
 
 	fmt.Printf("runkod: serving %s at %s (clone: %s/%s)\n", *repoDir, selfURL, selfURL, runkod.RepoMountName(*repoDir))
-	return http.Serve(ln, handler)
+
+	// Ops floor (§28.3 stage 12c-④): SIGINT/SIGTERM drain in-flight
+	// requests (bounded - a hung push must not block shutdown forever)
+	// instead of dropping them mid-land, and slow-loris connections can't
+	// hold header slots open indefinitely. No global Read/WriteTimeout:
+	// git smart-HTTP transfers are legitimately long-running.
+	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
+	sigCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- httpServer.Serve(ln) }()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-sigCtx.Done():
+		fmt.Println("runkod: shutting down (draining in-flight requests)")
+		cancel() // stop the outbox worker's polling
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelShutdown()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("serve: shutdown: %w", err)
+		}
+		return nil
+	}
 }
 
 // cmdHook implements the hidden `runkod hook pre-receive` subcommand the

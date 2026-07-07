@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1027,5 +1028,77 @@ func TestEndToEndDaemonPrincipalIdentityFlowsToFunnel(t *testing.T) {
 	change := getChange()
 	if change["State"] != "landed" || change["LandedBy"] != "bob" {
 		t.Fatalf("expected landed by bob, got State=%v LandedBy=%v", change["State"], change["LandedBy"])
+	}
+}
+
+// TestDaemonGracefulShutdownOnSIGTERM pins stage 12c-④'s ops floor with a
+// real process: /healthz answers unauthenticated while up, SIGTERM drains
+// and exits 0 (a supervisor's stop must not read as a crash), and the
+// shutdown message appears - not a killed-mid-request silent death.
+func TestDaemonGracefulShutdownOnSIGTERM(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	fakeGitleaks := scriptedCleanGitleaks(t)
+	cmd := exec.Command(bin, "serve",
+		"--repo-dir", repoDir, "--addr", "127.0.0.1:0", "--trunk", "main",
+		"--token", "tok", "--gitleaks-bin", fakeGitleaks)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start runkod: %v", err)
+	}
+	defer cmd.Process.Kill()
+
+	addrCh := make(chan string, 1)
+	sawShutdown := make(chan bool, 1)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if m := servingAddrPattern.FindStringSubmatch(line); m != nil {
+				addrCh <- m[1]
+			}
+			if strings.Contains(line, "shutting down") {
+				sawShutdown <- true
+			}
+		}
+	}()
+
+	var addr string
+	select {
+	case addr = <-addrCh:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for the listen address")
+	}
+
+	resp, err := http.Get(addr + "/healthz")
+	if err != nil {
+		t.Fatalf("GET /healthz: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /healthz, got %d", resp.StatusCode)
+	}
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("SIGTERM: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("expected a clean exit 0 on SIGTERM, got %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatalf("daemon did not exit within 15s of SIGTERM")
+	}
+	select {
+	case <-sawShutdown:
+	case <-time.After(time.Second):
+		t.Fatalf("expected the graceful-shutdown message on stdout")
 	}
 }

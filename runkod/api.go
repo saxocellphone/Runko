@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/cgi"
+	"os"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -88,6 +89,11 @@ func (s *Server) Handler() (http.Handler, error) {
 	}
 	mux.Handle("/"+RepoMountName(s.RepoDir)+"/", s.requireGitAuth(gitHandler))
 
+	// Unauthenticated by design: liveness probes (compose healthcheck,
+	// k8s, a load balancer) cannot carry the deploy token, and the
+	// response leaks nothing but "the daemon is up and can see its repo".
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
+
 	mux.HandleFunc("POST /internal/pre-receive", s.handlePreReceive)
 
 	mux.HandleFunc("GET /api/changes", s.requireAuth(s.handleListChanges))
@@ -123,6 +129,20 @@ func (s *Server) searcher() search.CodeSearcher {
 	return s.Searcher
 }
 
+// handleHealthz is the ops floor (§28.3 stage 12c-④): 200 when the daemon
+// is up and its bare repo is where it expects, 503 otherwise. Liveness
+// only - it deliberately does NOT round-trip Postgres or git subprocesses,
+// so a probe can run every few seconds without load.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if _, err := os.Stat(s.RepoDir); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "unavailable", "reason": fmt.Sprintf("repo dir: %v", err),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // requireAuth wraps a handler with deploy-token bearer auth. The
 // /internal/pre-receive callback checks the SAME token itself (it isn't
 // wrapped here, since it uses the shared secret as authentication between
@@ -132,6 +152,14 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		if !s.tokenMatches(r.Header.Get("Authorization")) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
+		}
+		// No REST body is legitimately large (approve/check/workspace
+		// JSON); cap it so a stuck client can't buffer unbounded memory.
+		// The git smart-HTTP transport is deliberately NOT capped -
+		// packfiles are legitimately huge; their limits live in the
+		// receive funnel (snapshot size cap, §12.2).
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		}
 		next(w, r)
 	}

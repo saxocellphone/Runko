@@ -394,3 +394,23 @@ func TestAPIAffectedByPaths(t *testing.T) {
 		t.Fatalf("expected missing_field/paths, got %+v", ce)
 	}
 }
+
+// TestHealthzIsUnauthenticated pins the ops floor (§28.3 stage 12c-④):
+// liveness probes carry no token and must get a real answer.
+func TestHealthzIsUnauthenticated(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("GET /healthz: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /healthz with no auth, got %d", resp.StatusCode)
+	}
+	var status map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil || status["status"] != "ok" {
+		t.Fatalf("expected {status: ok}, got %v (%v)", status, err)
+	}
+}
