@@ -42,12 +42,18 @@ func PlanCreate(intent Intent, templates TemplateSet) (Plan, []ValidationError) 
 		capabilities = tmpl.DefaultCapabilities
 	}
 
+	var capabilityConfig map[string]interface{}
+	if hasCapability(capabilities, "build") {
+		capabilityConfig = map[string]interface{}{"build": buildCapabilityConfig(path)}
+	}
+
 	manifest := Manifest{
-		Schema:       "project/v1",
-		Name:         intent.Name,
-		Type:         intent.Type,
-		Owners:       intent.Owners,
-		Capabilities: capabilities,
+		Schema:           "project/v1",
+		Name:             intent.Name,
+		Type:             intent.Type,
+		Owners:           intent.Owners,
+		Capabilities:     capabilities,
+		CapabilityConfig: capabilityConfig,
 	}
 
 	manifestYAML, err := yaml.Marshal(manifest)
@@ -55,9 +61,12 @@ func PlanCreate(intent Intent, templates TemplateSet) (Plan, []ValidationError) 
 		return Plan{}, []ValidationError{{Code: "internal", Message: err.Error()}}
 	}
 
-	files := make([]FileWrite, 0, 1+len(tmpl.Files(intent)))
+	files := make([]FileWrite, 0, 2+len(tmpl.Files(intent)))
 	files = append(files, FileWrite{Path: "PROJECT.yaml", Action: "create", Content: string(manifestYAML)})
 	files = append(files, tmpl.Files(intent)...)
+	if hasCapability(capabilities, "build") {
+		files = append(files, buildCapabilityFiles(path)...)
+	}
 
 	return Plan{Path: path, EffectiveManifest: manifest, Files: files}, nil
 }

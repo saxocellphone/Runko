@@ -10,7 +10,7 @@ func TestComputeMergeRequirementsAllSatisfied(t *testing.T) {
 	owners := []OwnerRequirement{{OwnerRef: "group:commerce-eng", Satisfied: true}}
 	runs := []CheckRunView{{Name: "lint", Status: CheckStatusCompleted, Conclusion: ConclusionSuccess}}
 
-	req := ComputeMergeRequirements("chg_1", owners, []string{"lint"}, runs, nil, nil)
+	req := ComputeMergeRequirements("chg_1", owners, []string{"lint"}, runs, nil, nil, nil)
 	if !req.Mergeable {
 		t.Fatalf("expected mergeable, got blockers: %v", req.Blockers)
 	}
@@ -21,7 +21,7 @@ func TestComputeMergeRequirementsAllSatisfied(t *testing.T) {
 
 func TestComputeMergeRequirementsOutstandingOwner(t *testing.T) {
 	owners := []OwnerRequirement{{OwnerRef: "group:commerce-eng", Satisfied: false}}
-	req := ComputeMergeRequirements("chg_1", owners, nil, nil, nil, nil)
+	req := ComputeMergeRequirements("chg_1", owners, nil, nil, nil, nil, nil)
 	if req.Mergeable {
 		t.Fatalf("expected not mergeable with an outstanding owner")
 	}
@@ -35,7 +35,7 @@ func TestComputeMergeRequirementsOutstandingOwner(t *testing.T) {
 
 func TestComputeMergeRequirementsFailingIndividualCheck(t *testing.T) {
 	runs := []CheckRunView{{Name: "unit", Status: CheckStatusCompleted, Conclusion: ConclusionFailure}}
-	req := ComputeMergeRequirements("chg_1", nil, []string{"unit"}, runs, nil, nil)
+	req := ComputeMergeRequirements("chg_1", nil, []string{"unit"}, runs, nil, nil, nil)
 	if req.Mergeable {
 		t.Fatalf("expected not mergeable with a failing required check")
 	}
@@ -48,7 +48,7 @@ func TestComputeMergeRequirementsCheckSetMissingBlocksMerge(t *testing.T) {
 	checkSets := []CheckSet{{Policy: CheckSetPolicy{Pattern: "unit:*", Scope: "affected"}, Projects: []string{"checkout-api", "billing-lib"}}}
 	runs := []CheckRunView{{Name: "unit:checkout-api", Status: CheckStatusCompleted, Conclusion: ConclusionSuccess}}
 
-	req := ComputeMergeRequirements("chg_1", nil, nil, runs, checkSets, nil)
+	req := ComputeMergeRequirements("chg_1", nil, nil, runs, checkSets, nil, nil)
 	if req.Mergeable {
 		t.Fatalf("expected not mergeable with a missing check-set member, got %+v", req)
 	}
@@ -85,7 +85,7 @@ func TestComputeMergeRequirementsCheckSetPendingCountMatchesLabel(t *testing.T) 
 		{Name: "unit:c", Status: CheckStatusQueued},
 	}
 
-	req := ComputeMergeRequirements("chg_1", nil, nil, runs, checkSets, nil)
+	req := ComputeMergeRequirements("chg_1", nil, nil, runs, checkSets, nil, nil)
 	want := fmt.Sprintf("%s — %d/%d still running", "unit:*", 2, 3)
 	if !containsString(req.Blockers, want) {
 		t.Fatalf("expected blocker %q, got %v", want, req.Blockers)
@@ -122,7 +122,7 @@ func TestComputeMergeRequirementsCheckSetAllPassingIsMergeable(t *testing.T) {
 	checkSets := []CheckSet{{Policy: CheckSetPolicy{Pattern: "unit:*", Scope: "affected"}, Projects: []string{"checkout-api"}}}
 	runs := []CheckRunView{{Name: "unit:checkout-api", Status: CheckStatusCompleted, Conclusion: ConclusionSuccess}}
 
-	req := ComputeMergeRequirements("chg_1", nil, nil, runs, checkSets, nil)
+	req := ComputeMergeRequirements("chg_1", nil, nil, runs, checkSets, nil, nil)
 	if !req.Mergeable {
 		t.Fatalf("expected mergeable, got blockers: %v", req.Blockers)
 	}
@@ -132,15 +132,41 @@ func TestComputeMergeRequirementsCheckSetAllPassingIsMergeable(t *testing.T) {
 }
 
 func TestComputeMergeRequirementsStaleCheckBlocksMerge(t *testing.T) {
-	req := ComputeMergeRequirements("chg_1", nil, nil, nil, nil, []string{"flaky-e2e"})
+	req := ComputeMergeRequirements("chg_1", nil, nil, nil, nil, []string{"flaky-e2e"}, nil)
 	if req.Mergeable {
 		t.Fatalf("expected not mergeable with a stale check reporter")
 	}
 }
 
 func TestComputeMergeRequirementsEmptyIsMergeable(t *testing.T) {
-	req := ComputeMergeRequirements("chg_1", nil, nil, nil, nil, nil)
+	req := ComputeMergeRequirements("chg_1", nil, nil, nil, nil, nil, nil)
 	if !req.Mergeable || len(req.Blockers) != 0 {
 		t.Fatalf("expected a Change with no requirements to be trivially mergeable, got %+v", req)
+	}
+}
+
+// TestComputeMergeRequirementsRequireBuildBindingBlocksMerge is the DAG
+// stage 9c bar (docs/design.md §13.5, §14.5.4): with an org's
+// require_build_binding gate on, a Change touching a project that lacks a
+// build-graph binding must report a blocker - the caller (whoever resolves
+// which affected projects have the "build" capability) is what decides
+// unboundProjects is non-empty; ComputeMergeRequirements itself doesn't
+// know or care whether the org opted in, matching how staleCheckNames works.
+func TestComputeMergeRequirementsRequireBuildBindingBlocksMerge(t *testing.T) {
+	req := ComputeMergeRequirements("chg_1", nil, nil, nil, nil, nil, []string{"legacy-lib"})
+	if req.Mergeable {
+		t.Fatalf("expected not mergeable when a project lacks a required build binding")
+	}
+	if !containsString(req.Blockers, "legacy-lib has no build-graph binding (org requires one: require_build_binding)") {
+		t.Fatalf("expected a plain-language build-binding blocker, got %v", req.Blockers)
+	}
+}
+
+func TestComputeMergeRequirementsWithoutRequireBuildBindingIsUnaffected(t *testing.T) {
+	// Passing nil (the org hasn't opted in) must be indistinguishable from
+	// the pre-9c behavior - no blocker, no change to Mergeable.
+	req := ComputeMergeRequirements("chg_1", nil, nil, nil, nil, nil, nil)
+	if !req.Mergeable || len(req.Blockers) != 0 {
+		t.Fatalf("expected no build-binding blockers when unboundProjects is nil, got %+v", req)
 	}
 }

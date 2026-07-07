@@ -61,6 +61,9 @@ func cmdAffected(args []string) error {
 	base := fs.String("base", "", "base revision")
 	head := fs.String("head", "HEAD", "head revision")
 	rootPatterns := fs.String("root-invalidation", "", "comma-separated root-invalidation glob patterns")
+	engine := fs.String("engine", "", "optional build-graph adapter engine to refine with, e.g. bazel (docs/spec/build-adapter/README.md)")
+	universe := fs.String("universe", "", "build-graph universe pattern, e.g. //... (default when --engine is set)")
+	engineTimeout := fs.Duration("engine-timeout", 60*time.Second, "timeout for the build-graph engine query")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -68,7 +71,7 @@ func cmdAffected(args []string) error {
 		return fmt.Errorf("affected: --base is required")
 	}
 
-	result, err := Affected(*repoDir, *base, *head, splitNonEmpty(*rootPatterns))
+	result, err := Affected(*repoDir, *base, *head, splitNonEmpty(*rootPatterns), *engine, *universe, *engineTimeout)
 	if err != nil {
 		return err
 	}

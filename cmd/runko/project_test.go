@@ -133,6 +133,35 @@ func TestCreateProjectOnDetachedHeadReturnsStructuredError(t *testing.T) {
 	}
 }
 
+// TestCreateProjectWithBuildCapabilityWritesBuildFile is the real,
+// end-to-end version of project's own PlanCreate unit test: a genuine `git`
+// repo, a real commit, a real BUILD.bazel materialized on disk - the
+// greenfield golden path bar from docs/design.md §14.5.4 (DAG stage 9c),
+// "zero hand-authored BUILD lines".
+func TestCreateProjectWithBuildCapabilityWritesBuildFile(t *testing.T) {
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "# monorepo\n")
+	repo.Commit("initial")
+
+	_, err := CreateProject(repo.Dir, project.Intent{
+		Name: "checkout-api", Type: "service", Path: "commerce/checkout",
+		Capabilities: []string{"build"},
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	buildPath := filepath.Join(repo.Dir, "commerce", "checkout", "BUILD.bazel")
+	content, err := os.ReadFile(buildPath)
+	if err != nil {
+		t.Fatalf("expected a generated BUILD.bazel on disk: %v", err)
+	}
+	if !strings.Contains(string(content), "//commerce/checkout/...") {
+		t.Fatalf("expected the generated BUILD.bazel to reference its target pattern, got:\n%s", content)
+	}
+}
+
 func TestCreateProjectRejectsInvalidIntent(t *testing.T) {
 	repo := gitfixture.New(t)
 	configureIdentity(t, repo.Dir)

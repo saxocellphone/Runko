@@ -161,7 +161,7 @@ func TestMergeRequirementsMatchesCommonSchema(t *testing.T) {
 		[]OwnerRequirement{{OwnerRef: "group:commerce-eng", Satisfied: true}},
 		[]string{"lint"},
 		[]CheckRunView{{Name: "lint", Status: CheckStatusCompleted, Conclusion: ConclusionSuccess}},
-		nil, nil,
+		nil, nil, nil,
 	)
 	payload, err := json.Marshal(req)
 	if err != nil {
@@ -173,7 +173,7 @@ func TestMergeRequirementsMatchesCommonSchema(t *testing.T) {
 
 	// An empty (trivially mergeable) Change must also validate - the wire
 	// marshaler must emit [] rather than null for empty slices.
-	empty := ComputeMergeRequirements("chg_2", nil, nil, nil, nil, nil)
+	empty := ComputeMergeRequirements("chg_2", nil, nil, nil, nil, nil, nil)
 	emptyPayload, err := json.Marshal(empty)
 	if err != nil {
 		t.Fatalf("marshal empty MergeRequirements: %v", err)

@@ -52,6 +52,7 @@ func ComputeMergeRequirements(
 	runs []CheckRunView,
 	checkSets []CheckSet,
 	staleCheckNames []string,
+	unboundProjects []string,
 ) MergeRequirements {
 	var reqOwners, satOwners, outOwners []string
 	for _, o := range owners {
@@ -123,6 +124,7 @@ func ComputeMergeRequirements(
 	for _, name := range staleCheckNames {
 		blockers = append(blockers, fmt.Sprintf("%s has a stale reporter - no update received within its TTL", name))
 	}
+	blockers = append(blockers, RequireBuildBindingBlockers(unboundProjects)...)
 
 	return MergeRequirements{
 		ChangeID:          changeID,

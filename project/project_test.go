@@ -140,6 +140,62 @@ func TestPlanCreateExplicitPathAndTemplate(t *testing.T) {
 	}
 }
 
+// TestPlanCreateBuildCapabilityGeneratesBuildFileWithZeroHandAuthoredLines
+// exercises the greenfield golden path (docs/design.md §14.5.4, DAG stage
+// 9c): enabling the "build" capability must produce a BUILD.bazel file and
+// a capability_config["build"] block purely from PlanCreate - the caller
+// (a human or agent calling create_project) supplies nothing beyond the
+// capability name itself.
+func TestPlanCreateBuildCapabilityGeneratesBuildFileWithZeroHandAuthoredLines(t *testing.T) {
+	plan, errs := PlanCreate(Intent{
+		Name: "checkout-api", Type: "service", Path: "commerce/checkout",
+		Capabilities: []string{"build"},
+	}, DefaultTemplates())
+	if len(errs) != 0 {
+		t.Fatalf("PlanCreate: unexpected errors: %v", errs)
+	}
+
+	var buildFile *FileWrite
+	for i := range plan.Files {
+		if plan.Files[i].Path == "BUILD.bazel" {
+			buildFile = &plan.Files[i]
+		}
+	}
+	if buildFile == nil {
+		t.Fatalf("expected a generated BUILD.bazel file, got files: %+v", plan.Files)
+	}
+	if !strings.Contains(buildFile.Content, "//commerce/checkout/...") {
+		t.Fatalf("expected the generated BUILD.bazel to reference its own target pattern, got:\n%s", buildFile.Content)
+	}
+
+	buildCfg, ok := plan.EffectiveManifest.CapabilityConfig["build"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected capability_config.build to be set, got %+v", plan.EffectiveManifest.CapabilityConfig)
+	}
+	if buildCfg["engine"] != "bazel" {
+		t.Fatalf("expected engine=bazel by default, got %+v", buildCfg)
+	}
+	patterns, ok := buildCfg["target_patterns"].([]string)
+	if !ok || len(patterns) != 1 || patterns[0] != "//commerce/checkout/..." {
+		t.Fatalf("expected target_patterns=[//commerce/checkout/...], got %+v", buildCfg["target_patterns"])
+	}
+}
+
+func TestPlanCreateWithoutBuildCapabilityHasNoBuildFile(t *testing.T) {
+	plan, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service"}, DefaultTemplates())
+	if len(errs) != 0 {
+		t.Fatalf("PlanCreate: unexpected errors: %v", errs)
+	}
+	for _, f := range plan.Files {
+		if f.Path == "BUILD.bazel" {
+			t.Fatalf("did not expect a BUILD.bazel file without the build capability, got files: %+v", plan.Files)
+		}
+	}
+	if plan.EffectiveManifest.CapabilityConfig != nil {
+		t.Fatalf("expected no capability_config without the build capability, got %+v", plan.EffectiveManifest.CapabilityConfig)
+	}
+}
+
 func TestPlanCreateValidationFailure(t *testing.T) {
 	_, errs := PlanCreate(Intent{Name: "Bad Name!", Type: "service"}, DefaultTemplates())
 	if len(errs) == 0 {
