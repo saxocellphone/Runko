@@ -30,6 +30,7 @@ import (
 
 	"github.com/saxocellphone/runko/agentsmd"
 	"github.com/saxocellphone/runko/index"
+	"github.com/saxocellphone/runko/mcp"
 	"github.com/saxocellphone/runko/project"
 )
 
@@ -58,7 +59,9 @@ func main() {
 		err = cmdAgentsMD(os.Args[2:])
 	case "workspace":
 		err = cmdWorkspace(os.Args[2:])
-	case "auth", "mcp":
+	case "mcp":
+		err = cmdMCP(os.Args[2:])
+	case "auth":
 		fmt.Fprintf(os.Stderr, "runko %s: requires a live control plane - not implemented yet (docs/design.md §17.1, §19.2)\n", os.Args[1])
 		os.Exit(1)
 	case "-h", "--help", "help":
@@ -98,9 +101,10 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace attach <id> --runkod-url <url> --token <t>       restore a workspace from its snapshot ref [--json]
   workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/head [--json]
   workspace update-base --runkod-url <url> --token <t> [--dir .]   fetch + rebase onto trunk tip [--json]
+  mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: six read-only tools (§8.3, §17.4)
 
 not yet implemented (need a live control plane, §19.2):
-  auth login, change create/requirements, mcp serve
+  auth login, change create/requirements
 
 exit codes: 0 success, 1 command failed, 2 usage error (docs/cli-contract.md)`)
 }
@@ -507,6 +511,28 @@ func cmdAgentsMD(args []string) error {
 	}
 	fmt.Printf("generated %s\n", path)
 	return nil
+}
+
+// cmdMCP implements `runko mcp serve` (§8.3, §17.4, §28.3 stage 12): the
+// MCP stdio adapter for clients that can't shell out to this CLI. It
+// serves newline-delimited JSON-RPC on stdin/stdout until EOF - run it
+// from an MCP client's server config, not interactively. Log output (none
+// today) would go to stderr; stdout is exclusively protocol.
+func cmdMCP(args []string) error {
+	if len(args) < 1 || args[0] != "serve" {
+		return usageError("usage: runko mcp serve --runkod-url <url> --token <t>")
+	}
+	fs := flag.NewFlagSet("mcp serve", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL")
+	token := fs.String("token", "", "deploy token")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *runkodURL == "" || *token == "" {
+		return fmt.Errorf("mcp serve: --runkod-url and --token are required")
+	}
+	srv := &mcp.Server{Client: &mcp.Client{BaseURL: *runkodURL, Token: *token}}
+	return srv.Serve(context.Background(), os.Stdin, os.Stdout)
 }
 
 func splitNonEmpty(csv string) []string {

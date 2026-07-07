@@ -69,12 +69,22 @@ schemas are.
 | `runko-ci checkout` | `{"rev", "dest"}` |
 | `runko-ci report-check` | `{"name", "status", "external_id"}` |
 
-Commands not listed here (`runko auth`, `mcp` - stubbed, need a live
-control plane not built in this environment) have no output contract yet.
+`runko mcp serve --runkod-url <url> --token <t>` is not in this table
+because its stdout is not a `--json` data shape: it speaks newline-delimited
+JSON-RPC 2.0 (the MCP stdio transport) until EOF, serving the six read-only
+`"status": "v1"` tools from `docs/spec/mcp-tools/catalog.json` as thin
+wrappers over the same runkod REST API the commands above use (§8.3, §17.4,
+§28.3 stage 12). Its tool outputs conform to `docs/spec/mcp-tools/`
+schemas - the schema-of-record convergence the section below describes,
+already real for this surface.
+
+Commands not listed here (`runko auth` - stubbed, needs a live control
+plane not built in this environment) have no output contract yet.
 
 ## Single-contract rule with MCP (§8.3)
 
-Where the (deferred, v1.x) MCP tool catalog and a CLI command cover the same
+Where the MCP tool catalog (six read-only tools served by `runko mcp serve`
+as of stage 12; the rest deferred to v1.x) and a CLI command cover the same
 operation, they are meant to converge on the same wire shape -
 `docs/spec/mcp-tools/` and `docs/spec/webhooks/` are the schema source both
 should conform to. The CLI's hand-written JSON output above predates that
