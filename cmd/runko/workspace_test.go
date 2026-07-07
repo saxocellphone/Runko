@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -251,5 +252,103 @@ func TestWorkspaceAttachUnknownIsStructuredError(t *testing.T) {
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "not_found" {
 		t.Fatalf("expected not_found, got %T: %v", err, err)
+	}
+}
+
+// TestWorkspaceAttachDocumentedArgumentOrderWorks pins the exact form the
+// help text prints - `workspace attach <id> --runkod-url ...`, id FIRST.
+// stdlib flag stops parsing at the first positional, so before the
+// pop-the-id fix in cmdWorkspace this documented invocation failed with a
+// required-flag error every single time - only the undocumented flags-first
+// order worked, violating §6.9's rule that a printed command must be
+// copy-pasteable. Caught by the user in a live test, not by CI: every
+// earlier test called WorkspaceAttach directly, skipping the flag-parsing
+// layer the bug lived in - which is exactly why this test goes through
+// cmdWorkspace instead.
+func TestWorkspaceAttachDocumentedArgumentOrderWorks(t *testing.T) {
+	srv, _ := startWorkspaceServer(t)
+	root := t.TempDir()
+	cloneDir := filepath.Join(root, "mono")
+	wsDir := filepath.Join(root, "payments-fix")
+
+	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "alice", []string{"checkout-api"}, cloneDir, wsDir); err != nil {
+		t.Fatalf("WorkspaceCreate: %v", err)
+	}
+	if err := os.RemoveAll(wsDir); err != nil {
+		t.Fatalf("remove worktree: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := cmdWorkspace([]string{"attach", "payments-fix",
+			"--runkod-url", srv.URL, "--token", "sekret",
+			"--clone-dir", cloneDir, "--dir", filepath.Join(root, "restored")}); err != nil {
+			t.Errorf("documented id-first attach form failed: %v", err)
+		}
+	})
+	if t.Failed() {
+		t.FailNow()
+	}
+	if !strings.Contains(out, "payments-fix") {
+		t.Fatalf("unexpected attach output: %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(root, "restored", "commerce/checkout/main.go")); err != nil {
+		t.Fatalf("expected the restored cone: %v", err)
+	}
+
+	// The flags-first order with a trailing id keeps working too. (Detach
+	// the first worktree before re-attaching - two live worktrees of one
+	// workspace is deferred --shared scope, not what this test is about.)
+	if err := os.RemoveAll(filepath.Join(root, "restored")); err != nil {
+		t.Fatalf("remove worktree: %v", err)
+	}
+	captureStdout(t, func() {
+		if err := cmdWorkspace([]string{"attach",
+			"--runkod-url", srv.URL, "--token", "sekret",
+			"--clone-dir", cloneDir, "--dir", filepath.Join(root, "restored2"),
+			"payments-fix"}); err != nil {
+			t.Errorf("flags-first attach form failed: %v", err)
+		}
+	})
+}
+
+// TestWorkspaceListColumnsAreAligned pins the tabwriter fix: the human
+// `workspace list` output used raw \t, which renders as terminal tab stops
+// and visually runs columns together for IDs near a stop's width.
+func TestWorkspaceListColumnsAreAligned(t *testing.T) {
+	srv, _ := startWorkspaceServer(t)
+	root := t.TempDir()
+	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"money-fix", "alice", []string{"money-lib"}, filepath.Join(root, "mono"), filepath.Join(root, "money-fix")); err != nil {
+		t.Fatalf("WorkspaceCreate: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := cmdWorkspace([]string{"list", "--runkod-url", srv.URL, "--token", "sekret"}); err != nil {
+			t.Errorf("workspace list: %v", err)
+		}
+	})
+	if strings.Contains(out, "\t") {
+		t.Fatalf("expected tabwriter-padded output, got raw tabs: %q", out)
+	}
+	if !regexp.MustCompile(`money-fix\s{2,}active`).MatchString(out) {
+		t.Fatalf("expected space-padded columns, got: %q", out)
+	}
+}
+
+// TestProjectListShowsTrunkIndexedProjects covers `runko project list`
+// (GET /api/projects) - the CLI verb runkod's unknown_project suggestion
+// now names, so it has to actually exist and list what's indexed at trunk.
+func TestProjectListShowsTrunkIndexedProjects(t *testing.T) {
+	srv, _ := startWorkspaceServer(t)
+	out := captureStdout(t, func() {
+		if err := cmdProjectList([]string{"--runkod-url", srv.URL, "--token", "sekret"}); err != nil {
+			t.Errorf("project list: %v", err)
+		}
+	})
+	for _, want := range []string{"checkout-api", "money-lib", "commerce/checkout", "libs/money"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected project list to mention %q, got: %q", want, out)
+		}
 	}
 }

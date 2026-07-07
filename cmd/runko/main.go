@@ -26,8 +26,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/saxocellphone/runko/agentsmd"
+	"github.com/saxocellphone/runko/index"
 	"github.com/saxocellphone/runko/project"
 )
 
@@ -88,6 +90,7 @@ commands (operate on the local repo only):
   agents-md                       (re)generate AGENTS.md teaching this CLI to agents (§8.8) [--json]
 
 commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
+  project list --runkod-url <url> --token <t>                 list projects indexed at trunk (§10.3) [--json]
   change land --change <id> --runkod-url <url> --token <t>   land a mergeable Change (§13.5) [--json]
   change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t>   record an owner approval (§13.5) [--json]
   workspace create --name <n> --project <p>... --by <who> --runkod-url <url> --token <t>   worktree + sparse cone + registry row (§12.3) [--json]
@@ -130,8 +133,11 @@ func cmdDoctor(args []string) error {
 }
 
 func cmdProject(args []string) error {
-	if len(args) < 1 || args[0] != "create" {
-		return usageError("usage: runko project create --name <name> --type <type> [--owners a,b] [--path p] [--template t] [--capabilities c,d]")
+	if len(args) < 1 || (args[0] != "create" && args[0] != "list") {
+		return usageError("usage: runko project create --name <name> --type <type> [--owners a,b] [--path p] [--template t] [--capabilities c,d] | runko project list --runkod-url <url> --token <t>")
+	}
+	if args[0] == "list" {
+		return cmdProjectList(args[1:])
 	}
 	fs := flag.NewFlagSet("project create", flag.ExitOnError)
 	repoDir := fs.String("repo", ".", "path to the local repo")
@@ -174,6 +180,42 @@ func cmdProject(args []string) error {
 	}
 	fmt.Printf("created project %s at %s\n", intent.Name, rev)
 	return nil
+}
+
+// cmdProjectList implements `runko project list` against runkod's
+// GET /api/projects (the trunk-tip project index, §10.3). Added in the
+// stage-12 session so that server-side errors like unknown_project can
+// suggest a CLI command instead of a raw API URL (§8.3's CLI-first
+// decision: the CLI is the primary agent interface, so every suggested
+// next step should be typeable, not curl-able).
+func cmdProjectList(args []string) error {
+	fs := flag.NewFlagSet("project list", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL")
+	token := fs.String("token", "", "deploy token")
+	jsonOut := fs.Bool("json", false, "emit the project list as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *runkodURL == "" || *token == "" {
+		return fmt.Errorf("project list: --runkod-url and --token are required")
+	}
+	var projects []index.IndexedProject
+	if err := apiJSON(context.Background(), http.DefaultClient, http.MethodGet,
+		strings.TrimRight(*runkodURL, "/")+"/api/projects", *token, nil, &projects); err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(projects)
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	for _, p := range projects {
+		owners := make([]string, len(p.Owners))
+		for i, o := range p.Owners {
+			owners[i] = o.Ref
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.Name, p.Type, p.Path, strings.Join(owners, ","))
+	}
+	return tw.Flush()
 }
 
 func cmdChange(args []string) error {
@@ -348,10 +390,11 @@ func cmdWorkspace(args []string) error {
 		if *jsonOut {
 			return json.NewEncoder(os.Stdout).Encode(list)
 		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		for _, ws := range list {
-			fmt.Printf("%s\t%s\tbase %s\t%s\n", ws.ID, ws.Status, short(ws.BaseRevision), strings.Join(ws.ProjectAffinity, ","))
+			fmt.Fprintf(tw, "%s\t%s\tbase %s\t%s\n", ws.ID, ws.Status, short(ws.BaseRevision), strings.Join(ws.ProjectAffinity, ","))
 		}
-		return nil
+		return tw.Flush()
 
 	case "attach":
 		fs := flag.NewFlagSet("workspace attach", flag.ExitOnError)
@@ -360,10 +403,20 @@ func cmdWorkspace(args []string) error {
 		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory")
 		dir := fs.String("dir", "", "worktree directory for this workspace")
 		jsonOut := fs.Bool("json", false, "emit the workspace as JSON")
+		// The documented form is id-first (`workspace attach <id> --runkod-url
+		// ...`), but stdlib flag stops parsing at the first positional - pop
+		// the id off the front before parsing so the printed help is actually
+		// copy-pasteable (§6.9); flags-first with a trailing id still works.
+		var id string
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			id, rest = rest[0], rest[1:]
+		}
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		id := fs.Arg(0)
+		if id == "" {
+			id = fs.Arg(0)
+		}
 		if *runkodURL == "" || *token == "" || id == "" {
 			return fmt.Errorf("workspace attach: --runkod-url, --token, and a workspace id are required")
 		}

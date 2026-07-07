@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/saxocellphone/runko/affected"
+	"github.com/saxocellphone/runko/index"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
 	"github.com/saxocellphone/runko/receive"
@@ -308,5 +310,87 @@ func TestAPISearchProjectTagsHits(t *testing.T) {
 	}
 	if len(result.Hits) != 1 || result.Hits[0].Project != "checkout-api" {
 		t.Fatalf("expected the hit tagged with project checkout-api, got %+v", result.Hits)
+	}
+}
+
+// TestAPIListProjectsServesTrunkIndex covers GET /api/projects (§28.3 stage
+// 12's REST substrate for the MCP adapter's list_projects/get_project/
+// who_owns): the trunk-tip project index, scanned live per §10.3's
+// rebuildable-index stance.
+func TestAPIListProjectsServesTrunkIndex(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	resp := authedGet(t, srv, "/api/projects", "sekret")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var projects []index.IndexedProject
+	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(projects) != 1 || projects[0].Name != "checkout-api" || projects[0].Path != "commerce/checkout" {
+		t.Fatalf("expected the seeded trunk project, got %+v", projects)
+	}
+	if len(projects[0].RequiredChecks) != 1 || projects[0].RequiredChecks[0] != "unit" {
+		t.Fatalf("expected ci.checks surfaced in the index, got %+v", projects[0].RequiredChecks)
+	}
+}
+
+// TestAPIListProjectsUnbornTrunkIsEmptyList: orientation over an empty
+// monorepo is an empty list, not an error.
+func TestAPIListProjectsUnbornTrunkIsEmptyList(t *testing.T) {
+	bare := newBareRepo(t)
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: NewMemStore(), Token: "sekret"}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp := authedGet(t, srv, "/api/projects", "sekret")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var projects []index.IndexedProject
+	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if projects == nil || len(projects) != 0 {
+		t.Fatalf("expected an empty (non-null) list, got %+v", projects)
+	}
+}
+
+// TestAPIAffectedByPaths covers GET /api/affected?paths=... - get_affected's
+// paths mode (§13.3) against the trunk tip, as opposed to
+// /api/changes/{key}/affected's change mode.
+func TestAPIAffectedByPaths(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	resp := authedGet(t, srv, "/api/affected?paths=commerce/checkout/main.go", "sekret")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var result affected.Result
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result.Projects) != 1 || result.Projects[0].Name != "checkout-api" {
+		t.Fatalf("expected checkout-api affected, got %+v", result.Projects)
+	}
+
+	// Missing ?paths= is a structured 400, naming the parameter.
+	resp = authedGet(t, srv, "/api/affected", "sekret")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 without paths, got %d", resp.StatusCode)
+	}
+	var ce clierr.Error
+	if err := json.NewDecoder(resp.Body).Decode(&ce); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if ce.Code != "missing_field" || ce.Field != "paths" {
+		t.Fatalf("expected missing_field/paths, got %+v", ce)
 	}
 }

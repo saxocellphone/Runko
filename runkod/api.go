@@ -82,6 +82,9 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
 	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
 
+	mux.HandleFunc("GET /api/projects", s.requireAuth(s.handleListProjects))
+	mux.HandleFunc("GET /api/affected", s.requireAuth(s.handleAffectedByPaths))
+
 	mux.HandleFunc("POST /api/workspaces", s.requireAuth(s.handleCreateWorkspace))
 	mux.HandleFunc("GET /api/workspaces", s.requireAuth(s.handleListWorkspaces))
 	mux.HandleFunc("GET /api/workspaces/{id}", s.requireAuth(s.handleGetWorkspace))
@@ -558,6 +561,70 @@ func (s *Server) handleApproveChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, reqs)
+}
+
+// handleListProjects serves the tree's project index at the current trunk
+// tip (§10.3: the control plane is a rebuildable index; this endpoint scans
+// live rather than caching, same stance as handleGetAffected). Added at
+// §28.3 stage 12 as the REST substrate for the MCP adapter's list_projects/
+// get_project/who_owns tools (§8.3: MCP tools are thin wrappers over the
+// same REST handlers every other client uses). An unborn trunk is an empty
+// list, not an error - orientation over an empty monorepo is empty.
+func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
+	gstore := gitstore.New(s.RepoDir)
+	trunkTip, err := gstore.ResolveRef("refs/heads/" + s.TrunkRef)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []index.IndexedProject{})
+		return
+	}
+	indexed, err := index.Scan(gstore, trunkTip, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if indexed == nil {
+		indexed = []index.IndexedProject{}
+	}
+	writeJSON(w, http.StatusOK, indexed)
+}
+
+// handleAffectedByPaths computes affected projects for an arbitrary path
+// set at the current trunk tip - get_affected's paths mode (§13.3), as
+// opposed to handleGetAffected's change mode (which diffs a Change's own
+// base..head). Same pure computation, same org root-invalidation config.
+func (s *Server) handleAffectedByPaths(w http.ResponseWriter, r *http.Request) {
+	paths := splitCommaList(r.URL.Query().Get("paths"))
+	if len(paths) == 0 {
+		writeJSON(w, http.StatusBadRequest, clierr.Error{
+			Code: "missing_field", Field: "paths",
+			Message: "pass ?paths=<path>[,<path>...]",
+		})
+		return
+	}
+	gstore := gitstore.New(s.RepoDir)
+	trunkTip, err := gstore.ResolveRef("refs/heads/" + s.TrunkRef)
+	if err != nil {
+		writeJSON(w, http.StatusConflict, clierr.Error{
+			Code: "trunk_unborn", Field: "monorepo",
+			Message: fmt.Sprintf("trunk %s has no commits yet", s.TrunkRef),
+		})
+		return
+	}
+	indexed, err := index.Scan(gstore, trunkTip, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	projects := make([]affected.ProjectInfo, len(indexed))
+	for i, p := range indexed {
+		projects[i] = affected.ProjectInfo{Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies}
+	}
+	var rootInvalidation []string
+	if s.Processor != nil {
+		rootInvalidation = s.Processor.RootInvalidationPatterns
+	}
+	result := affected.Compute(projects, paths, affected.Options{RootInvalidationPatterns: rootInvalidation})
+	writeJSON(w, http.StatusOK, result)
 }
 
 // checkRunReport mirrors cmd/runko-ci's CheckRunReport exactly (the POST

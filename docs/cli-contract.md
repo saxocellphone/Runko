@@ -55,6 +55,7 @@ schemas are.
 |---|---|
 | `runko doctor` | `DoctorReport` (`RepoDir`, `TrunkRef`, `HasRemote`, `RemoteName`, `RemoteURL`, `HasChangeIDHook`, `HooksDir`, `GitVersion`, `GitVersionOK`, `GitVersionError`) |
 | `runko project create` | `{"name", "path", "rev"}` |
+| `runko project list` | `[]index.IndexedProject` (`Name`, `Path`, `Type`, `Capabilities`, `DeclaredDependencies`, `Visibility`, `Owners` `[{Ref, Source}]`, `RequiredChecks`) - needs a live runkod (`GET /api/projects`, the trunk-tip project index per §10.3), see §28.3 stage 12 |
 | `runko change push` | `{"change_id", "ref"}` |
 | `runko change land` | `land.Outcome` (`Landed`, `LandedSHA`, `RequiresRevalidation`, `Conflicts`, `RaceRetry`) - needs a live runkod (`--runkod-url`/`--token`), unlike every other command in this table, see §13.5/§28.3 stage 11b |
 | `runko change approve` | `MergeRequirements` (the same nested `{change_id, owners, checks, mergeable, blockers}` shape `GET .../merge-requirements` reports, per `docs/spec/mcp-tools/common.schema.json`) - needs a live runkod, see §13.5/§28.3 stage 11c |

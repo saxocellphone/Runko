@@ -126,7 +126,7 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, clierr.Error{
 			Code: "missing_field", Field: "projects",
 			Message:    "owner and at least one project are required",
-			Suggestion: `POST {"name": "...", "owner": "<you>", "projects": ["checkout-api"]}`,
+			Suggestion: "runko workspace create --name <n> --by <you> --project <p> --runkod-url <url> --token <t>",
 		})
 		return
 	}
@@ -151,7 +151,7 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, clierr.Error{
 			Code: "unknown_project", Field: "projects",
 			Message:    fmt.Sprintf("no such project(s): %s", strings.Join(unknown, ", ")),
-			Suggestion: "list projects with GET /api/... or check PROJECT.yaml names at trunk",
+			Suggestion: "runko project list --runkod-url <url> --token <t>  # see the names indexed at trunk",
 		})
 		return
 	}
@@ -258,7 +258,8 @@ func (s *Server) handleSparsePatterns(w http.ResponseWriter, r *http.Request) {
 	if len(unknown) > 0 {
 		writeJSON(w, http.StatusBadRequest, clierr.Error{
 			Code: "unknown_project", Field: "projects",
-			Message: fmt.Sprintf("no such project(s): %s", strings.Join(unknown, ", ")),
+			Message:    fmt.Sprintf("no such project(s): %s", strings.Join(unknown, ", ")),
+			Suggestion: "runko project list --runkod-url <url> --token <t>  # see the names indexed at trunk",
 		})
 		return
 	}
