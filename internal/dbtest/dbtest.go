@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -75,16 +76,31 @@ func resetSchema(t *testing.T, dsn string) {
 	sort.Sort(sort.Reverse(sort.StringSlice(downs)))
 
 	// Best-effort teardown first (ignore errors: first run against a fresh
-	// database has nothing to tear down yet).
+	// database has nothing to tear down yet). The migration-tracking table
+	// isn't any down file's concern (runkod.ApplyMigrations owns it), so
+	// drop it here too.
 	for _, down := range downs {
 		exec.Command("psql", dsn, "-q", "-f", down).Run()
 	}
+	exec.Command("psql", dsn, "-q", "-c", "DROP TABLE IF EXISTS runko_schema_migrations").Run()
 
+	versions := make([]string, 0, len(ups))
 	for _, up := range ups {
 		cmd := exec.Command("psql", dsn, "-v", "ON_ERROR_STOP=1", "-q", "-f", up)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("dbtest: apply migration %s: %v: %s", up, err, out)
 		}
+		versions = append(versions, fmt.Sprintf("('%s')", strings.TrimSuffix(filepath.Base(up), ".up.sql")))
+	}
+
+	// Record what was applied in the same table runkod.ApplyMigrations
+	// uses, so a daemon booting against a dbtest-prepared database (the
+	// compiled-binary e2e tests) sees the schema as current instead of
+	// re-running migration 0001 into existing tables.
+	record := "CREATE TABLE IF NOT EXISTS runko_schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now()); " +
+		"INSERT INTO runko_schema_migrations (version) VALUES " + strings.Join(versions, ", ")
+	if out, err := exec.Command("psql", dsn, "-v", "ON_ERROR_STOP=1", "-q", "-c", record).CombinedOutput(); err != nil {
+		t.Fatalf("dbtest: record applied migrations: %v: %s", err, out)
 	}
 }
 
