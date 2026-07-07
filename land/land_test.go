@@ -301,8 +301,21 @@ func TestLandAggressiveModeWithoutRootPatternSkipsRevalidation(t *testing.T) {
 // (§28.3 stage 7, §13.5: "land races are the norm, not the edge case").
 // Several concurrent Land() calls target the same trunk tip via the
 // fast-forward path; git's own compare-and-swap ref update must let exactly
-// one through and report RaceRetry for the rest - never a silent overwrite,
-// never two winners.
+// one through - never a silent overwrite, never two winners.
+//
+// A loser can legitimately report EITHER RaceRetry or RequiresRevalidation,
+// not just RaceRetry, depending on exactly when its goroutine got scheduled
+// (land.go: a goroutine that reads the trunk tip before anyone has landed
+// takes the fast-forward branch and loses its CAS -> RaceRetry; one that
+// reads the tip AFTER the winner already moved it goes straight to the
+// trunk-delta/NeedsRevalidation check instead, which this fixture's
+// unowned-path fail-closed default always answers "true" -> RequiresRevalidation
+// - never even attempting a CAS). Both are correct per Land()'s own
+// contract; asserting only RaceRetry was the test's bug, not Land()'s: with
+// GOMAXPROCS constrained (this repo's 12-core sandbox rarely staggers
+// goroutine starts enough to see it, but a 2-core CI runner reliably does -
+// caught by GitHub Actions' first real run of this suite), goroutines start
+// staggered enough that RequiresRevalidation shows up often.
 func TestLandConcurrentRaceExactlyOneWins(t *testing.T) {
 	repo := gitfixture.New(t)
 	repo.WriteFile("a.txt", "orig\n")
@@ -339,21 +352,21 @@ func TestLandConcurrentRaceExactlyOneWins(t *testing.T) {
 	}
 	wg.Wait()
 
-	landed, raced := 0, 0
+	landed, lost := 0, 0
 	for _, o := range outcomes {
 		switch {
 		case o.Landed:
 			landed++
-		case o.RaceRetry:
-			raced++
+		case o.RaceRetry, o.RequiresRevalidation:
+			lost++
 		default:
-			t.Fatalf("unexpected outcome in race: %+v", o)
+			t.Fatalf("unexpected outcome in race (a real conflict or error shape, not a legitimate loss): %+v", o)
 		}
 	}
 	if landed != 1 {
-		t.Fatalf("expected exactly 1 winner, got %d landed and %d race-retries: %+v", landed, raced, outcomes)
+		t.Fatalf("expected exactly 1 winner, got %d landed and %d non-winners: %+v", landed, lost, outcomes)
 	}
-	if raced != attempts-1 {
-		t.Fatalf("expected the remaining %d attempts to report RaceRetry, got %d", attempts-1, raced)
+	if lost != attempts-1 {
+		t.Fatalf("expected the remaining %d attempts to report RaceRetry or RequiresRevalidation, got %d: %+v", attempts-1, lost, outcomes)
 	}
 }
