@@ -39,6 +39,9 @@ jobs:
       - name: make check (fmt + vet + test, no live Postgres needed)
         run: make check
 
+      - name: make check-race (race detector over the whole suite)
+        run: make check-race
+
       - name: Ensure psql client is installed
         run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
 

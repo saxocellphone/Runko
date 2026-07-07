@@ -1,4 +1,4 @@
-.PHONY: check fmt vet test build check-db
+.PHONY: check fmt vet test build check-db check-race
 
 check: fmt vet test
 
@@ -13,6 +13,16 @@ test:
 
 build:
 	go build ./...
+
+# Race-detector pass over the whole suite. The land engine's central
+# guarantee (exactly one concurrent land wins, §13.5) and MemStore's
+# concurrent-safety claim are only meaningful under -race - every
+# implementation session runs this by hand, and CI runs it on every push so
+# a regression can't slip through a session that forgot. Slower than `test`
+# (the detector instruments every memory access), hence a separate target
+# rather than part of `check`'s <30s budget (§28.2 rule 3).
+check-race:
+	go test -race ./...
 
 # Runs the live-Postgres integration tests (internal/dbtest, docs/design.md
 # §28.3 stage 9a item 1) that `test`/`check` skip when no database is
