@@ -46,6 +46,7 @@ go test ./...    # tests only
 go build ./...   # compile-check only
 sqlc generate    # regenerate internal/dbgen after editing db/migrations or db/queries (see db/README.md)
 make check-db    # live-Postgres integration tests; needs RUNKO_TEST_DATABASE_URL + psql (db/README.md) — not runnable in this environment
+make check-web   # web frontend: tsc + oxlint + vitest + vite build; needs Node >= 22 — hand-installed at ~/.local/node/bin here, export PATH="$HOME/.local/node/bin:$PATH"
 ```
 
 There is no compose stack, CI wiring, or web UI yet. Extend `Makefile` rather than introducing a second build entrypoint.
@@ -104,6 +105,7 @@ runkod/             # write-path daemon: Store, pre-receive Processor, smart-HTT
 cmd/runko/          # human/agent CLI
 cmd/runko-ci/       # CI-facing CLI/image
 cmd/runkod/         # runkod daemon entrypoint (serve + hidden hook pre-receive subcommand)
+web/                # stage-13 web UI: React+TS+Vite+Connect-ES over proto/runko/v1 (see web/README.md); src/gen is committed, `npm run gen` regenerates
 ```
 
 Each package header cites the spec section(s) it implements. Shell out to system `git`; do not use a Git-in-Go library (the spec mandates matching real upstream Git behavior).

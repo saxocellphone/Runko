@@ -9,9 +9,19 @@ decided - see "Open questions" before treating any of this as final.
 
 ## Status
 
-- **Schema only.** No server implementation, no generated code. `protoc`
-  and `buf` are not installed in this sandbox, so nothing here has been
-  compiled or lint-checked - read it carefully before depending on it.
+- **Consumed by the web frontend since 2026-07-07** (`web/`, stage 13's
+  frontend half): TypeScript types are generated into `web/src/gen`
+  (committed; `cd web && npm run gen` regenerates via `@bufbuild/buf` +
+  local `protoc-gen-es`), and `buf lint` runs clean against this
+  directory. Field numbers are therefore wire-frozen now, as
+  `common.proto`'s header warns. **Still no server implementation** - the
+  web UI runs on an in-memory fake transport until runkod mounts
+  connect-go handlers (see web/README.md).
+- `GetChangeStack` + `GetChangeDiff` (and the FileDiff/DiffHunk/DiffLine
+  shapes) were added to `changes.proto` for the stacked-diff view - the
+  original draft had no way to render a diff at all. Their REST
+  equivalents don't exist yet either; the fake transport documents the
+  intended semantics.
 - **Not yet recorded in `docs/design.md`** as a committed architecture
   decision. `docs/design.md` §9.1/§17.4 currently say "REST/gRPC (same
   capabilities as MCP)" - this draft is one concrete proposal for that,
@@ -92,7 +102,7 @@ decided - see "Open questions" before treating any of this as final.
 |---|---|
 | `common.proto` | Shared messages/enums, mirroring `common.schema.json` $defs |
 | `projects.proto` | `ProjectService`: list/get/who-owns |
-| `changes.proto` | `ChangeService`: get/list/affected/merge-requirements/approve/land/abandon/rerun |
+| `changes.proto` | `ChangeService`: get/list/stack/diff/affected/merge-requirements/approve/land/abandon/rerun |
 | `workspaces.proto` | `WorkspaceService`: create/list/get/update-base |
 | `search.proto` | `SearchService`: code search |
 
@@ -103,10 +113,17 @@ surface rather than today's partial one.
 
 ## Next steps (for whoever picks this up)
 
-1. Confirm or reject the Connect recommendation (item 2) - this is the one
-   choice with real infrastructure consequences.
-2. Install `buf`, run `buf lint` and `buf generate` against this directory
-   to catch anything that doesn't actually compile (nothing here has been
-   validated by a real protobuf compiler yet).
+1. ~~Confirm or reject the Connect recommendation~~ **Confirmed on the
+   client side** (2026-07-07): `web/` is built on Connect-ES
+   (`@connectrpc/connect-web`) against these protos. The server half is
+   now committed-by-consumption: runkod should mount connect-go handlers
+   (stage 13's remaining half); a different server stack would strand a
+   working frontend.
+2. ~~Install buf, run buf lint / buf generate~~ Done - `buf lint` clean,
+   TS generation real and committed (`web/src/gen`). Go generation
+   (`buf.gen.yaml` here) still unexercised.
 3. Record the confirmed decision in `docs/design.md` (§9.1/§17.4) before
    wiring a real server - this directory is the proposal, not the record.
+4. Implement `GetChangeStack`/`GetChangeDiff` server-side (added for the
+   stacked diff view; semantics documented on the RPCs and exercised by
+   `web/src/api/fake/transport.ts` + its vitest suite).

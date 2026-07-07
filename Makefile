@@ -1,4 +1,4 @@
-.PHONY: check fmt vet test build check-db check-race
+.PHONY: check fmt vet test build check-db check-race check-web
 
 check: fmt vet test
 
@@ -46,3 +46,10 @@ check-db:
 		exit 1; \
 	fi
 	go test ./... -run Postgres -v -p 1
+
+# Frontend checks (web/): typecheck + lint + vitest + production build.
+# Needs Node >= 22 (this sandbox: ~/.local/node/bin). Separate from
+# `check` for the same reason as check-db: `check` stays the Go-only <30s
+# loop (§28.2 rule 3); CI runs this as its own job.
+check-web:
+	cd web && npm install --no-audit --no-fund && npm run check

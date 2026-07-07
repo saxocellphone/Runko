@@ -10,6 +10,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "check": "tsc -b --force && oxlint && vitest run && vite build",
+    "screenshot": "node scripts/screenshot.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -28,6 +29,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "oxlint": "^1.71.0",
+    "playwright-core": "^1.61.1",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
     "vitest": "^4.1.10"
