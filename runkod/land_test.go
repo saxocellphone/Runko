@@ -249,14 +249,42 @@ func TestHandleLandChangeBootstrapsUnbornTrunk(t *testing.T) {
 // TestHandleLandChangeNotMergeableIsRejected proves the merge-requirements
 // gate: a pending required check must block landing entirely - trunk must
 // not move, and the Change must not be marked landed.
+// TestHandleLandChangeNotMergeableIsRejected uses its own fixture (a
+// PROJECT.yaml declaring a required "unit" check via ci.checks, §14.9)
+// rather than newLandTestServer's - required check names now come from
+// what's DECLARED, not from whatever happens to be posted (see
+// requiredCheckNames' doc comment in api.go), so a shared fixture with no
+// ci.checks at all would make posting "unit" as queued a no-op here.
 func TestHandleLandChangeNotMergeableIsRejected(t *testing.T) {
-	srv, bare, changeID, store := newLandTestServer(t)
-	defer srv.Close()
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\nci:\n  checks:\n    - name: unit\n      command: go test ./...\n")
+	repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
 
-	change, _, _ := store.GetChange(context.Background(), changeID)
-	if err := store.UpsertCheckRun(context.Background(), changeID, change.HeadSHA, checks.CheckRunView{Name: "unit", Status: checks.CheckStatus("queued")}); err != nil {
+	repo.WriteFile("commerce/checkout/main.go", "package main\n")
+	repo.Commit("add main.go\n\nChange-Id: I0123456789abcdef0123456789abcdef01234567")
+	_, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store}
+	result := processor.Process(context.Background(), RefUpdate{OldSHA: zeroOID, NewSHA: headSHA, Ref: "refs/for/main"}, nil)
+	if !result.Accepted {
+		t.Fatalf("seed push was rejected: %+v", result)
+	}
+	changeID := result.ChangeID
+
+	if err := store.UpsertCheckRun(context.Background(), changeID, headSHA, checks.CheckRunView{Name: "unit", Status: checks.CheckStatus("queued")}); err != nil {
 		t.Fatalf("UpsertCheckRun: %v", err)
 	}
+
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
 
 	beforeTip, err := gitfixtureRunGit(bare, "rev-parse", "refs/heads/main")
 	if err != nil {
@@ -281,6 +309,24 @@ func TestHandleLandChangeNotMergeableIsRejected(t *testing.T) {
 	}
 	if beforeTip != afterTip {
 		t.Fatalf("expected trunk NOT to move on a blocked land, got %s -> %s", beforeTip, afterTip)
+	}
+}
+
+// TestHandleLandChangeWithNoRequiredChecksIsMergeable is the counterpart -
+// a project with NO ci.checks declared (the common case, anti-Boq §6.2)
+// must stay mergeable with zero posted checks. This is the exact scenario
+// the review finding described: previously this was "mergeable" for the
+// wrong reason (required := whatever was posted, and nothing was posted);
+// now it is "mergeable" for the right reason (nothing is actually
+// required).
+func TestHandleLandChangeWithNoRequiredChecksIsMergeable(t *testing.T) {
+	srv, _, changeID, _ := newLandTestServer(t)
+	defer srv.Close()
+
+	resp := postLand(t, srv, changeID, "sekret")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200 (nothing required), got %d: %s", resp.StatusCode, body)
 	}
 }
 

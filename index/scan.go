@@ -27,6 +27,12 @@ type IndexedProject struct {
 	DeclaredDependencies []string
 	Visibility           string
 	Owners               []OwnerEntry
+	// RequiredChecks are the check names PROJECT.yaml's L2/opt-in `ci.checks`
+	// declares for this project (§14.9). Empty/nil when the manifest has no
+	// `ci` block at all - an unset ci.checks means "no checks required",
+	// not "all checks required" (anti-Boq, §6.2: L2 fields never gate a
+	// default project).
+	RequiredChecks []string
 }
 
 // Scan walks the tree at rev, finds every PROJECT.yaml, and resolves its
@@ -115,6 +121,13 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		visibility = "default"
 	}
 
+	var requiredChecks []string
+	if manifest.CI != nil {
+		for _, c := range manifest.CI.Checks {
+			requiredChecks = append(requiredChecks, c.Name)
+		}
+	}
+
 	return IndexedProject{
 		Name:                 manifest.Name,
 		Path:                 dir,
@@ -123,6 +136,7 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		DeclaredDependencies: manifest.Dependencies,
 		Visibility:           visibility,
 		Owners:               owners,
+		RequiredChecks:       requiredChecks,
 	}, nil
 }
 

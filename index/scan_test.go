@@ -156,6 +156,50 @@ func TestScanCapabilitiesAndDependenciesPassThrough(t *testing.T) {
 	}
 }
 
+// TestScanExposesRequiredChecks guards a real gap found in review
+// (§28.3 stage 11b's follow-up): PROJECT.yaml's ci.checks (§14.9) was
+// parsed by project.Manifest but silently dropped by Scan, so nothing
+// downstream (the merge-requirements gate) could ever see a project's
+// declared required checks.
+func TestScanExposesRequiredChecks(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("svc/PROJECT.yaml", manifest("svc", "service",
+		"ci:\n  checks:\n    - name: unit\n      command: go test ./...\n    - name: lint\n      command: golangci-lint run\n"))
+	head := repo.Commit("with ci checks")
+
+	store := gitstore.New(repo.Dir)
+	projects, err := Scan(store, core.Revision(head), nil)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("want 1 project, got %d", len(projects))
+	}
+	got := projects[0].RequiredChecks
+	if len(got) != 2 || got[0] != "unit" || got[1] != "lint" {
+		t.Fatalf("RequiredChecks: want [unit lint], got %v", got)
+	}
+}
+
+// TestScanNoCIBlockIsNoRequiredChecks confirms the anti-Boq default: a
+// project with no ci block at all (the common case - most projects never
+// set this L2/opt-in field) has zero required checks, not "everything
+// required" or an error.
+func TestScanNoCIBlockIsNoRequiredChecks(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("svc/PROJECT.yaml", manifest("svc", "service", ""))
+	head := repo.Commit("no ci block")
+
+	store := gitstore.New(repo.Dir)
+	projects, err := Scan(store, core.Revision(head), nil)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(projects[0].RequiredChecks) != 0 {
+		t.Fatalf("expected no required checks, got %v", projects[0].RequiredChecks)
+	}
+}
+
 func TestScanDefaultVisibility(t *testing.T) {
 	repo := gitfixture.New(t)
 	repo.WriteFile("svc/PROJECT.yaml", manifest("svc", "service", ""))

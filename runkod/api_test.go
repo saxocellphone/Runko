@@ -23,7 +23,12 @@ func newTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
 	bare := newBareRepo(t)
 	repo := gitfixture.New(t)
-	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\n")
+	// ci.checks declares "unit" as required (§14.9) - needed so
+	// TestAPIPostCheckAndMergeRequirementsRoundTrip's posted "unit" check
+	// actually gates anything; required check names come from what's
+	// DECLARED, not from whatever happens to get posted (api.go's
+	// requiredCheckNames).
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\nci:\n  checks:\n    - name: unit\n      command: go test ./...\n")
 	repo.Commit("initial")
 	oldSHA, _ := pushCommit(t, repo, bare, "refs/heads/main")
 

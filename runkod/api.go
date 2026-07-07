@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -181,11 +182,26 @@ func (s *Server) handleGetAffected(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	result, _, err := s.computeAffected(change)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// computeAffected is GET .../affected's computation, factored out so
+// mergeRequirements can derive required check names from the SAME affected
+// project set a client would see from that endpoint - one computation, not
+// two that could quietly drift. Scans at change.HeadSHA (the Change's own
+// tree), matching what `runko-ci affected` itself would have computed
+// against this Change's base/head when CI posted its checks - not trunk's
+// current tip, which is attemptLand's (land.go) concern, not this one.
+func (s *Server) computeAffected(change Change) (affected.Result, []index.IndexedProject, error) {
 	store := gitstore.New(s.RepoDir)
 	indexed, err := index.Scan(store, core.Revision(change.HeadSHA), nil)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("scan projects: %v", err), http.StatusInternalServerError)
-		return
+		return affected.Result{}, nil, fmt.Errorf("scan projects: %w", err)
 	}
 	projects := make([]affected.ProjectInfo, len(indexed))
 	for i, p := range indexed {
@@ -198,12 +214,15 @@ func (s *Server) handleGetAffected(w http.ResponseWriter, r *http.Request) {
 	}
 	changedPaths, err := gitDiffNamesOnly(s.RepoDir, base, change.HeadSHA)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("diff: %v", err), http.StatusInternalServerError)
-		return
+		return affected.Result{}, nil, fmt.Errorf("diff: %w", err)
 	}
 
-	result := affected.Compute(projects, changedPaths, affected.Options{})
-	writeJSON(w, http.StatusOK, result)
+	var rootInvalidation []string
+	if s.Processor != nil {
+		rootInvalidation = s.Processor.RootInvalidationPatterns
+	}
+	result := affected.Compute(projects, changedPaths, affected.Options{RootInvalidationPatterns: rootInvalidation})
+	return result, indexed, nil
 }
 
 // handleGetMergeRequirements assembles MergeRequirements from whatever
@@ -242,11 +261,62 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	if err != nil {
 		return checks.MergeRequirements{}, err
 	}
-	requiredNames := make([]string, len(runs))
-	for i, run := range runs {
-		requiredNames[i] = run.Name
+	requiredNames, err := s.requiredCheckNames(change)
+	if err != nil {
+		return checks.MergeRequirements{}, err
 	}
 	return checks.ComputeMergeRequirements(key, nil, requiredNames, runs, nil, nil, nil), nil
+}
+
+// requiredCheckNames derives what's ACTUALLY required for change to land:
+// the union of each affected project's PROJECT.yaml ci.checks (§14.9),
+// scoped by the same affected computation GET .../affected reports (or
+// every indexed project when RunEverything is set - affected.Result's
+// Projects list is an incomplete view by construction whenever that flag
+// is true, §13.3, so scoping to it here would silently under-require).
+//
+// Found in review (§28.3 stage 11b's follow-up): this used to derive
+// "required" from whatever check runs had already been POSTED
+// (requiredNames := every run.Name) - self-referential policy where zero
+// reported runs meant zero requirements, so a Change with no checks and no
+// owners landed successfully. Declared ci.checks is the only required-check
+// source actually modeled anywhere in this codebase today (no org-level
+// global-checks table exists in db/migrations either) - wiring it through
+// is a real, if partial, fix: a project with no ci block still requires
+// nothing (anti-Boq, §6.2), but a project that DOES declare checks now
+// actually gates on them, reported or not.
+func (s *Server) requiredCheckNames(change Change) ([]string, error) {
+	result, indexed, err := s.computeAffected(change)
+	if err != nil {
+		return nil, err
+	}
+
+	scoped := indexed
+	if !result.RunEverything {
+		byName := make(map[string]index.IndexedProject, len(indexed))
+		for _, p := range indexed {
+			byName[p.Name] = p
+		}
+		scoped = make([]index.IndexedProject, 0, len(result.Projects))
+		for _, ref := range result.Projects {
+			if p, ok := byName[ref.Name]; ok {
+				scoped = append(scoped, p)
+			}
+		}
+	}
+
+	seen := map[string]bool{}
+	var names []string
+	for _, p := range scoped {
+		for _, c := range p.RequiredChecks {
+			if !seen[c] {
+				seen[c] = true
+				names = append(names, c)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // checkRunReport mirrors cmd/runko-ci's CheckRunReport exactly (the POST

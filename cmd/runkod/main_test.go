@@ -262,6 +262,108 @@ func TestEndToEndDaemon(t *testing.T) {
 	}
 }
 
+// TestEndToEndDaemonRequiredCheckBlocksLandWithZeroRunsPosted is a real,
+// compiled-binary-over-real-HTTP regression test for a review finding: "a
+// Change with zero checks and zero approvals lands successfully" (§28.3
+// stage 11b's follow-up). Required check names used to be derived from
+// whatever had already been POSTED, so a project that never got a single
+// check report was trivially mergeable regardless of policy. Here the
+// project's PROJECT.yaml declares a required "unit" check via ci.checks
+// (§14.9) and NOTHING is ever posted for it - land must be rejected with
+// not_mergeable, not silently succeed.
+func TestEndToEndDaemonRequiredCheckBlocksLandWithZeroRunsPosted(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	token := "sekret-token"
+	baseURL := startDaemon(t, bin, repoDir, token)
+
+	remoteURL := strings.Replace(baseURL, "http://", "http://runko:"+token+"@", 1) + "/" + filepath.Base(repoDir) + "/"
+
+	work := t.TempDir()
+	if _, err := runGit(t, work, "init", "-q", "-b", "main"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(work, "commerce", "checkout"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	manifest := "schema: project/v1\nname: checkout-api\ntype: service\nci:\n  checks:\n    - name: unit\n      command: go test ./...\n"
+	if err := os.WriteFile(filepath.Join(work, "commerce", "checkout", "PROJECT.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write PROJECT.yaml: %v", err)
+	}
+	if _, err := runGit(t, work, "add", "-A"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := runGit(t, work, "commit", "-q", "-m", "add checkout-api"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if _, err := runGit(t, work, "remote", "add", "origin", remoteURL); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+
+	out, err := runGit(t, work, "push", "origin", "+HEAD:refs/for/main")
+	if err != nil {
+		t.Fatalf("push to refs/for/main: %v\n%s", err, out)
+	}
+	m := regexp.MustCompile(`(I[0-9a-f]{40}) -> refs/for/main`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("expected a Change-Id in the push output, got:\n%s", out)
+	}
+	changeID := m[1]
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	mrReq, _ := http.NewRequest(http.MethodGet, baseURL+"/api/changes/"+changeID+"/merge-requirements", nil)
+	mrReq.Header.Set("Authorization", "Bearer "+token)
+	mrResp, err := client.Do(mrReq)
+	if err != nil {
+		t.Fatalf("GET merge-requirements: %v", err)
+	}
+	defer mrResp.Body.Close()
+	var mr struct {
+		Checks    struct{ Required, Pending []string }
+		Mergeable bool
+	}
+	if err := json.NewDecoder(mrResp.Body).Decode(&mr); err != nil {
+		t.Fatalf("decode merge-requirements: %v", err)
+	}
+	if mr.Mergeable {
+		t.Fatalf("expected NOT mergeable with a declared-required check never posted, got %+v", mr)
+	}
+	if len(mr.Checks.Required) != 1 || mr.Checks.Required[0] != "unit" {
+		t.Fatalf("expected 'unit' to be reported required (declared via ci.checks), got %+v", mr.Checks)
+	}
+	if len(mr.Checks.Pending) != 1 || mr.Checks.Pending[0] != "unit" {
+		t.Fatalf("expected 'unit' pending (never reported), got %+v", mr.Checks)
+	}
+
+	landReq, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+changeID+"/land", nil)
+	landReq.Header.Set("Authorization", "Bearer "+token)
+	landResp, err := client.Do(landReq)
+	if err != nil {
+		t.Fatalf("POST land: %v", err)
+	}
+	defer landResp.Body.Close()
+	if landResp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(landResp.Body)
+		t.Fatalf("expected 409 (not mergeable), got %d: %s", landResp.StatusCode, body)
+	}
+	var ce struct{ Code string }
+	if err := json.NewDecoder(landResp.Body).Decode(&ce); err != nil {
+		t.Fatalf("decode land error response: %v", err)
+	}
+	if ce.Code != "not_mergeable" {
+		t.Fatalf("expected code not_mergeable, got %+v", ce)
+	}
+
+	lsRemote, err := runGit(t, work, "ls-remote", remoteURL, "refs/heads/main")
+	if err != nil {
+		t.Fatalf("ls-remote: %v", err)
+	}
+	if strings.TrimSpace(lsRemote) != "" {
+		t.Fatalf("expected refs/heads/main to still be unborn (land must not have happened), got:\n%s", lsRemote)
+	}
+}
+
 // TestEndToEndDaemonSearchNotConfigured proves the real compiled daemon,
 // started with no --search-url (the default in every other test in this
 // file), answers GET /api/search with the structured §6.5 "not configured"
