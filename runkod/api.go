@@ -41,6 +41,23 @@ type Server struct {
 	// started without --search-url still answers with a structured "not
 	// configured" error rather than panicking.
 	Searcher search.CodeSearcher
+	// GlobalRequiredChecks are org-level check names required on EVERY
+	// Change regardless of which projects it touches (§14.9 "org can define
+	// global required checks, e.g. secrets-scan always"). Like the
+	// Processor's RootInvalidationPatterns, this is org policy carried as
+	// daemon config for now; §9.4's guard ("the tree owns policy") marks
+	// both for eventual relocation into the tree.
+	GlobalRequiredChecks []string
+	// AllowUnpolicedLand disables the §28.3 stage 11c default-deny posture:
+	// a Change for which NO merge policy resolves (zero required checks
+	// after ci.checks + GlobalRequiredChecks, and zero owner requirements
+	// for its touched paths) is NOT mergeable unless this is set. The zero
+	// value is the safe production default; cmd/runkod sets it true for the
+	// §9.3 Eval/dev profile (in-memory store) and behind the loud
+	// --insecure-allow-unpoliced-land opt-out otherwise.
+	AllowUnpolicedLand bool
+	// BotLanes are §14.10.2's path-scoped auto-land grants; see BotLane.
+	BotLanes []BotLane
 }
 
 // Handler assembles the full mux: smart-HTTP git hosting at
@@ -94,7 +111,19 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) tokenMatches(authHeader string) bool {
 	want := "Bearer " + s.Token
-	return subtle.ConstantTimeCompare([]byte(authHeader), []byte(want)) == 1
+	if subtle.ConstantTimeCompare([]byte(authHeader), []byte(want)) == 1 {
+		return true
+	}
+	// Bot-lane tokens are full API clients too (§8.8 "internal bots: same
+	// CLI/API surface") - lane semantics apply only at the land gate and
+	// the merge-requirements view, via laneFor.
+	for i := range s.BotLanes {
+		laneWant := "Bearer " + s.BotLanes[i].Token
+		if subtle.ConstantTimeCompare([]byte(authHeader), []byte(laneWant)) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // requireGitAuth gates the smart-HTTP git transport itself with the same
@@ -245,7 +274,7 @@ func (s *Server) handleGetMergeRequirements(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "change not found", http.StatusNotFound)
 		return
 	}
-	req, err := s.mergeRequirements(r.Context(), key, change)
+	req, err := s.mergeRequirements(r.Context(), key, change, s.laneFor(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -257,7 +286,22 @@ func (s *Server) handleGetMergeRequirements(w http.ResponseWriter, r *http.Reque
 // so handleLandChange can gate on the exact same Mergeable bool a client
 // would have seen from GET .../merge-requirements - one source of truth for
 // "is this Change allowed to land", not two computations that could drift.
-func (s *Server) mergeRequirements(ctx context.Context, key string, change Change) (checks.MergeRequirements, error) {
+// The invariant is per-principal: lane is the bot lane the CALLER
+// authenticated as (nil for the deploy token), and both handlers resolve it
+// from the same request auth, so any given client always sees the gate it
+// will actually be held to.
+//
+// For a bot lane (§14.10.2), the human owner-approval requirement is waived
+// - the lane's entire purpose - and the lane's own RequiredChecks are added
+// on top of what the tree requires. The lane's path-allowlist constraint is
+// enforced separately by handleLandChange (it refuses before gating).
+//
+// Default-deny (§28.3 stage 11c): if NO policy resolves for a non-lane
+// caller - zero required checks (ci.checks + org globals) and zero owner
+// requirements - the Change is not mergeable unless AllowUnpolicedLand is
+// set. A lane caller is exempt: the lane grant itself is resolvable policy
+// (explicit org config with its own mandatory check set).
+func (s *Server) mergeRequirements(ctx context.Context, key string, change Change, lane *BotLane) (checks.MergeRequirements, error) {
 	runs, err := s.Store.ListCheckRuns(ctx, key, change.HeadSHA)
 	if err != nil {
 		return checks.MergeRequirements{}, err
@@ -267,11 +311,47 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 		return checks.MergeRequirements{}, err
 	}
 	requiredNames := requiredCheckNames(result, indexed)
-	owners, err := s.ownerRequirements(ctx, key, result, indexed)
-	if err != nil {
-		return checks.MergeRequirements{}, err
+	requiredNames = mergeCheckNames(requiredNames, s.GlobalRequiredChecks)
+
+	var owners []checks.OwnerRequirement
+	if lane != nil {
+		requiredNames = mergeCheckNames(requiredNames, lane.RequiredChecks)
+	} else {
+		owners, err = s.ownerRequirements(ctx, key, result, indexed)
+		if err != nil {
+			return checks.MergeRequirements{}, err
+		}
 	}
-	return checks.ComputeMergeRequirements(key, owners, requiredNames, runs, nil, nil, nil), nil
+
+	req := checks.ComputeMergeRequirements(key, owners, requiredNames, runs, nil, nil, nil)
+
+	if lane == nil && !s.AllowUnpolicedLand && len(req.RequiredChecks) == 0 && len(req.RequiredOwners) == 0 {
+		req.Mergeable = false
+		req.Blockers = append(req.Blockers,
+			"no merge policy resolves for this change: its touched paths require no checks (no ci.checks, no org global checks) and no owner approvals - landing unpoliced changes is refused outside the eval profile (start runkod with --insecure-allow-unpoliced-land to override, or declare owners/ci.checks in PROJECT.yaml)")
+	}
+	return req, nil
+}
+
+// mergeCheckNames unions extra into names, preserving sorted order and
+// dropping duplicates.
+func mergeCheckNames(names, extra []string) []string {
+	if len(extra) == 0 {
+		return names
+	}
+	seen := make(map[string]bool, len(names))
+	for _, n := range names {
+		seen[n] = true
+	}
+	out := append([]string{}, names...)
+	for _, n := range extra {
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ownerRequirements derives §13.5's "required human owners approved" gate
@@ -466,7 +546,7 @@ func (s *Server) handleApproveChange(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	reqs, err := s.mergeRequirements(r.Context(), key, change)
+	reqs, err := s.mergeRequirements(r.Context(), key, change, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -547,7 +627,30 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mr, err := s.mergeRequirements(r.Context(), key, change)
+	lane := s.laneFor(r)
+	if lane != nil {
+		// §14.10.2: the lane may land ONLY Changes fully inside its path
+		// allowlist. Refused before gating - an out-of-scope Change is not
+		// "not mergeable yet", it is something this principal may never
+		// land, however green it is.
+		result, _, err := s.computeAffected(change)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if outside := lane.pathsOutsideAllowlist(result.Paths); len(outside) > 0 {
+			writeJSON(w, http.StatusForbidden, &clierr.Error{
+				Code:       "bot_lane_path_denied",
+				Field:      "change",
+				Message:    fmt.Sprintf("bot lane %q may not land changes touching: %s", lane.Name, strings.Join(outside, ", ")),
+				Suggestion: "this change needs the normal owner/check gate - request a human land",
+				DocURL:     "docs/design.md#14102-gitops-writers--the-bot-lane",
+			})
+			return
+		}
+	}
+
+	mr, err := s.mergeRequirements(r.Context(), key, change, lane)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -574,6 +677,12 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 		if _, err := s.Store.MarkChangeLanded(r.Context(), key, outcome.LandedSHA); err != nil {
 			http.Error(w, fmt.Sprintf("land: record landed state: %v", err), http.StatusInternalServerError)
 			return
+		}
+		if lane != nil {
+			// §14.10.2 "attributed, audited": the audit trail today is this
+			// log line; a landed_by column/webhook field is stage-12b+ work
+			// alongside real principal identity (§15.1).
+			log.Printf("runkod: change %s landed via bot lane %q", key, lane.Name)
 		}
 		s.enqueueLandedWebhook(r.Context(), change, outcome.LandedSHA)
 		if s.Processor != nil {

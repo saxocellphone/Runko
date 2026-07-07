@@ -81,6 +81,10 @@ func cmdServe(args []string) error {
 	skipScan := fs.Bool("insecure-skip-secret-scan", false, "DEV/EVAL ONLY: disable secret scanning entirely (never use in production, docs/design.md §11.4)")
 	databaseURL := fs.String("database-url", "", "Postgres DSN for durable storage (default: in-memory Store, the §9.3 Eval/dev profile - lost on restart)")
 	rootInvalidation := fs.String("root-invalidation", "", "comma-separated root-invalidation glob patterns (org policy, §14.5.2)")
+	globalChecks := fs.String("global-required-checks", "", "comma-separated org-level check names required on EVERY change (§14.9, e.g. secrets-scan)")
+	allowUnpoliced := fs.Bool("insecure-allow-unpoliced-land", false, "DEV/EVAL ONLY: let changes that resolve NO merge policy (no required checks, no owners) land anyway - the in-memory eval profile implies this; a durable deployment should declare policy instead (§28.3 stage 11c)")
+	var botLanes botLaneFlag
+	fs.Var(&botLanes, "bot-lane", "path-scoped auto-land grant (§14.10.2), repeatable: 'name=<n>;token=<t>;paths=<glob,glob>;checks=<check,check>'")
 	searchURL := fs.String("search-url", "", "zoekt-webserver base URL for search_code (§8.3); absent -> search_code returns a structured 'not configured' error, never a git-grep fallback (§8.2)")
 	zoektIndexDir := fs.String("zoekt-index-dir", "", "directory zoekt-git-index writes shards into (required to enable indexing on trunk advance)")
 	zoektIndexBin := fs.String("zoekt-index-bin", "zoekt-git-index", "zoekt-git-index binary (path or PATH-resolved name)")
@@ -132,9 +136,16 @@ func cmdServe(args []string) error {
 		}
 		store = pg
 		fmt.Println("runkod: using Postgres-backed storage (durable across restarts)")
+		if *allowUnpoliced {
+			fmt.Fprintln(os.Stderr, "runkod: WARNING --insecure-allow-unpoliced-land is set - changes resolving NO merge policy (no required checks, no owners) will land ungated. Declare owners/ci.checks or --global-required-checks instead in production (§28.3 stage 11c).")
+		}
 	} else {
-		fmt.Fprintln(os.Stderr, "runkod: WARNING no --database-url given - using in-memory storage (§9.3 Eval/dev profile): every Change, check run, and queued webhook is LOST on restart.")
+		fmt.Fprintln(os.Stderr, "runkod: WARNING no --database-url given - using in-memory storage (§9.3 Eval/dev profile): every Change, check run, and queued webhook is LOST on restart, and unpoliced changes (no required checks, no owners) may land ungated.")
 		store = runkod.NewMemStore()
+		// The eval profile is for kicking the tires (§16.4's compose loop
+		// must work before any policy exists) - default-deny there would
+		// make the first ever land impossible to demo.
+		*allowUnpoliced = true
 	}
 
 	var indexWorker *runkod.ZoektIndexWorker
@@ -162,7 +173,12 @@ func cmdServe(args []string) error {
 		RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
 		ZoektIndexWorker:         indexWorker,
 	}
-	server := &runkod.Server{RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher}
+	server := &runkod.Server{
+		RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher,
+		GlobalRequiredChecks: splitNonEmpty(*globalChecks),
+		AllowUnpolicedLand:   *allowUnpoliced,
+		BotLanes:             botLanes,
+	}
 	handler, err := server.Handler()
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -258,6 +274,52 @@ func cmdHook(args []string) {
 	if !allAccepted {
 		os.Exit(1)
 	}
+}
+
+// botLaneFlag parses repeatable --bot-lane flags into runkod.BotLane values.
+type botLaneFlag []runkod.BotLane
+
+func (b *botLaneFlag) String() string { return fmt.Sprintf("%d bot lane(s)", len(*b)) }
+
+func (b *botLaneFlag) Set(v string) error {
+	lane, err := parseBotLane(v)
+	if err != nil {
+		return err
+	}
+	*b = append(*b, lane)
+	return nil
+}
+
+// parseBotLane parses one --bot-lane value, e.g.
+// "name=image-bumper;token=<t>;paths=deploy/**,charts/**;checks=manifest-lint".
+// All four keys are mandatory: §14.10.2 defines a lane as constrained to a
+// path allowlist AND a required-check set - a lane without its own checks
+// would be an unchecked auto-land grant, which the design deliberately does
+// not model.
+func parseBotLane(v string) (runkod.BotLane, error) {
+	var lane runkod.BotLane
+	for _, kv := range strings.Split(v, ";") {
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok {
+			return lane, fmt.Errorf("bot-lane: %q is not key=value", kv)
+		}
+		switch key {
+		case "name":
+			lane.Name = val
+		case "token":
+			lane.Token = val
+		case "paths":
+			lane.PathAllowlist = splitNonEmpty(val)
+		case "checks":
+			lane.RequiredChecks = splitNonEmpty(val)
+		default:
+			return lane, fmt.Errorf("bot-lane: unknown key %q (want name, token, paths, checks)", key)
+		}
+	}
+	if lane.Name == "" || lane.Token == "" || len(lane.PathAllowlist) == 0 || len(lane.RequiredChecks) == 0 {
+		return lane, fmt.Errorf("bot-lane: name=, token=, paths=, and checks= are all required - a lane is constrained to a path allowlist AND a required-check set (docs/design.md §14.10.2)")
+	}
+	return lane, nil
 }
 
 func splitNonEmpty(csv string) []string {

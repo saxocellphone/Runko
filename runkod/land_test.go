@@ -21,7 +21,11 @@ import (
 // trivially mergeable (checks/requirements.go: an empty requiredCheckNames
 // list blocks on nothing) and every test below can focus on land.Land's own
 // wiring, not on merge-requirements gating mechanics already covered by
-// TestAPIPostCheckAndMergeRequirementsRoundTrip.
+// TestAPIPostCheckAndMergeRequirementsRoundTrip. Every Server in this file
+// sets AllowUnpolicedLand (the §9.3 eval profile): these fixtures declare
+// no owners and no ci.checks, which the stage-11c default-deny posture
+// would otherwise refuse - see policy_gate_test.go for the tests of that
+// posture itself.
 func newLandTestServer(t *testing.T) (srv *httptest.Server, bare string, changeID string, store Store) {
 	t.Helper()
 	bare = newBareRepo(t)
@@ -41,7 +45,7 @@ func newLandTestServer(t *testing.T) (srv *httptest.Server, bare string, changeI
 		t.Fatalf("seed push was rejected: %+v", result)
 	}
 
-	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
 	handler, err := server.Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
@@ -165,7 +169,7 @@ func TestHandleLandChangeEnqueuesWebhookAndTriggersReindex(t *testing.T) {
 	if !result.Accepted {
 		t.Fatalf("seed push was rejected: %+v", result)
 	}
-	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
 	handler, err := server.Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
@@ -221,7 +225,7 @@ func TestHandleLandChangeBootstrapsUnbornTrunk(t *testing.T) {
 		t.Fatalf("seed push was rejected: %+v", result)
 	}
 
-	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
 	handler, err := server.Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
@@ -278,7 +282,7 @@ func TestHandleLandChangeNotMergeableIsRejected(t *testing.T) {
 		t.Fatalf("UpsertCheckRun: %v", err)
 	}
 
-	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
 	handler, err := server.Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
@@ -313,12 +317,14 @@ func TestHandleLandChangeNotMergeableIsRejected(t *testing.T) {
 }
 
 // TestHandleLandChangeWithNoRequiredChecksIsMergeable is the counterpart -
-// a project with NO ci.checks declared (the common case, anti-Boq §6.2)
-// must stay mergeable with zero posted checks. This is the exact scenario
-// the review finding described: previously this was "mergeable" for the
-// wrong reason (required := whatever was posted, and nothing was posted);
-// now it is "mergeable" for the right reason (nothing is actually
-// required).
+// in the eval profile (AllowUnpolicedLand), a project with NO ci.checks
+// declared (the common case, anti-Boq §6.2) must stay mergeable with zero
+// posted checks. This is the exact scenario the review finding described:
+// previously this was "mergeable" for the wrong reason (required :=
+// whatever was posted, and nothing was posted); now it is "mergeable" for
+// the right reason (nothing is actually required, and the eval profile
+// explicitly permits unpoliced lands - outside it, the default-deny
+// posture in policy_gate_test.go applies).
 func TestHandleLandChangeWithNoRequiredChecksIsMergeable(t *testing.T) {
 	srv, _, changeID, _ := newLandTestServer(t)
 	defer srv.Close()
@@ -365,7 +371,7 @@ func TestHandleLandChangeRebasesAroundNonIntersectingTrunkAdvance(t *testing.T) 
 		t.Fatalf("advance trunk directly: %v", err)
 	}
 
-	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
 	handler, err := server.Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
@@ -420,7 +426,7 @@ func TestHandleLandChangeRequiresRevalidationWhenTrunkDeltaIntersects(t *testing
 		t.Fatalf("advance trunk directly: %v", err)
 	}
 
-	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
 	handler, err := server.Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)

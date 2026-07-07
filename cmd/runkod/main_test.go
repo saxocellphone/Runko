@@ -487,6 +487,139 @@ func TestEndToEndDaemonOwnerApprovalAndRequiredCheckGateLand(t *testing.T) {
 	}
 }
 
+func TestParseBotLane(t *testing.T) {
+	lane, err := parseBotLane("name=image-bumper;token=tok2;paths=deploy/**,charts/**;checks=manifest-lint")
+	if err != nil {
+		t.Fatalf("parseBotLane: %v", err)
+	}
+	if lane.Name != "image-bumper" || lane.Token != "tok2" {
+		t.Fatalf("unexpected lane identity: %+v", lane)
+	}
+	if len(lane.PathAllowlist) != 2 || lane.PathAllowlist[0] != "deploy/**" || lane.PathAllowlist[1] != "charts/**" {
+		t.Fatalf("unexpected allowlist: %+v", lane.PathAllowlist)
+	}
+	if len(lane.RequiredChecks) != 1 || lane.RequiredChecks[0] != "manifest-lint" {
+		t.Fatalf("unexpected checks: %+v", lane.RequiredChecks)
+	}
+
+	// §14.10.2: a lane without its own required-check set is an unchecked
+	// auto-land grant - refused at parse time, not silently permitted.
+	for _, bad := range []string{
+		"name=x;token=t;paths=deploy/**",           // no checks
+		"name=x;token=t;checks=lint",               // no paths
+		"token=t;paths=deploy/**;checks=lint",      // no name
+		"name=x;paths=deploy/**;checks=lint",       // no token
+		"name=x;token=t;paths=deploy/**;checks=",   // empty checks
+		"name=x;token=t;paths=deploy/**;lint",      // not key=value
+		"name=x;token=t;paths=deploy/**;what=ever", // unknown key
+	} {
+		if _, err := parseBotLane(bad); err == nil {
+			t.Fatalf("expected parseBotLane(%q) to fail", bad)
+		}
+	}
+}
+
+// TestEndToEndDaemonBotLaneAutoLands is §14.10.2 over the wire: a real
+// compiled daemon started with --bot-lane, a project with a human owner
+// requirement, and two principals gating the same Change - the deploy
+// token is refused (owner approval outstanding), the lane token lands it
+// once the lane's own required check is green, without any approval ever
+// posted. The GitOps writer flow: an image bump must not need a human
+// click, but only inside its allowlist and only with its check green.
+func TestEndToEndDaemonBotLaneAutoLands(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	token := "sekret-token"
+	laneToken := "lane-token"
+	baseURL := startDaemon(t, bin, repoDir, token,
+		"--bot-lane", "name=image-bumper;token="+laneToken+";paths=deploy/**;checks=manifest-lint")
+
+	remoteURL := strings.Replace(baseURL, "http://", "http://runko:"+token+"@", 1) + "/" + filepath.Base(repoDir) + "/"
+
+	work := t.TempDir()
+	if _, err := runGit(t, work, "init", "-q", "-b", "main"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(work, "deploy"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	manifest := "schema: project/v1\nname: deploy-config\ntype: library\nowners:\n  - group:platform-eng\n"
+	if err := os.WriteFile(filepath.Join(work, "deploy", "PROJECT.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write PROJECT.yaml: %v", err)
+	}
+	if _, err := runGit(t, work, "add", "-A"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := runGit(t, work, "commit", "-q", "-m", "bump image tag"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if _, err := runGit(t, work, "remote", "add", "origin", remoteURL); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+	out, err := runGit(t, work, "push", "origin", "+HEAD:refs/for/main")
+	if err != nil {
+		t.Fatalf("push to refs/for/main: %v\n%s", err, out)
+	}
+	m := regexp.MustCompile(`(I[0-9a-f]{40}) -> refs/for/main`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("expected a Change-Id in the push output, got:\n%s", out)
+	}
+	changeID := m[1]
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	postLandAs := func(bearer string) (int, string) {
+		req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+changeID+"/land", nil)
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("POST land: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(body)
+	}
+
+	// Deploy token: the human gate applies - owner approval outstanding.
+	if code, body := postLandAs(token); code != http.StatusConflict {
+		t.Fatalf("expected 409 for the deploy token (owner outstanding), got %d: %s", code, body)
+	}
+	// Lane token: blocked only on ITS check while unreported.
+	if code, body := postLandAs(laneToken); code != http.StatusConflict || !strings.Contains(body, "manifest-lint") {
+		t.Fatalf("expected 409 naming manifest-lint for the lane, got %d: %s", code, body)
+	}
+
+	checkBody, _ := json.Marshal(map[string]string{
+		"name": "manifest-lint", "external_id": "job-1", "status": "completed", "conclusion": "success", "reporter": "ci",
+	})
+	checkReq, _ := http.NewRequest(http.MethodPost, baseURL+"/api/changes/"+changeID+"/checks", bytes.NewReader(checkBody))
+	checkReq.Header.Set("Authorization", "Bearer "+token)
+	checkReq.Header.Set("Content-Type", "application/json")
+	checkResp, err := client.Do(checkReq)
+	if err != nil {
+		t.Fatalf("POST checks: %v", err)
+	}
+	checkResp.Body.Close()
+
+	code, body := postLandAs(laneToken)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 lane land with manifest-lint green and NO approval posted, got %d: %s", code, body)
+	}
+	var landOutcome struct {
+		Landed    bool
+		LandedSHA string
+	}
+	if err := json.Unmarshal([]byte(body), &landOutcome); err != nil {
+		t.Fatalf("decode land response: %v", err)
+	}
+	lsRemote, err := runGit(t, work, "ls-remote", remoteURL, "refs/heads/main")
+	if err != nil {
+		t.Fatalf("ls-remote: %v", err)
+	}
+	if !strings.Contains(lsRemote, landOutcome.LandedSHA) {
+		t.Fatalf("expected refs/heads/main at %s, got:\n%s", landOutcome.LandedSHA, lsRemote)
+	}
+}
+
 // TestEndToEndDaemonSearchNotConfigured proves the real compiled daemon,
 // started with no --search-url (the default in every other test in this
 // file), answers GET /api/search with the structured §6.5 "not configured"

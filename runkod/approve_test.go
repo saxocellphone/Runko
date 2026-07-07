@@ -226,7 +226,11 @@ func TestApproveNotFound(t *testing.T) {
 // owners, no OWNERS file, and no org default has NO owner requirements -
 // the gate never invents an unsatisfiable requirement. This is exactly why
 // wiring owners as "always outstanding" was rejected as a stopgap: it would
-// have made every ownerless project permanently unlandable.
+// have made every ownerless project permanently unlandable. (The fixture
+// runs in the eval profile; outside it, a change with no owners AND no
+// checks hits the separate default-deny posture - policy_gate_test.go -
+// which blocks with a loud, actionable blocker, still never an
+// unsatisfiable owner requirement.)
 func TestNoOwnersAnywhereMeansNoApprovalGate(t *testing.T) {
 	srv, _, changeID, _ := newLandTestServer(t) // its project declares no owners
 	defer srv.Close()
