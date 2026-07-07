@@ -688,6 +688,14 @@ Rules of the seam:
 
 **Invariant:** SaaS and self-host run the **same core software**, including MCP.
 
+### 9.4 Kubernetes and cloud alignment
+
+Two distinct audiences; keep them separate:
+
+**Running Runko on k8s** (self-host operators). The architecture maps cleanly by construction: one daemon binary + all durable state external (Postgres → CNPG-class operators, git PVC, S3) = Deployment + operator CRs + PVC; process-boundary adoptions (Zoekt, gitleaks) = sidecars/containers; tree-as-truth + rebuildable index (§10.3) = level-triggered reconciliation semantics — Runko is effectively an operator whose CRD is the git tree. Known constraint: git storage is RWO single-writer → one receive/land replica (`strategy: Recreate`); the "Company self-host HA" row eventually needs a leader-election or single-writer/read-replica story. Cheap conventions adopted for stage 14: env-var fallbacks for all serve flags (`RUNKO_*`), `/healthz` + `/readyz` + graceful shutdown, `/metrics` (Prometheus). **Guard for any future operator/CRDs: CRDs and Helm own infrastructure shape (replicas, storage, DB refs); the tree owns policy** (required checks, owners, AgentPolicy, root-invalidation). An operator that owns `required_checks` in a CR is the Gerrit-ReviewDb mistake wearing a k8s costume (§10.3, §22.2).
+
+**Runko as the customer's GitOps source of record** (their k8s/cloud deployments reading from us): see §14.10.1–14.10.3 — vanilla-git read side, affected-scoped CD, mirror-first CD continuity, bot lanes for GitOps writers, tag governance.
+
 ---
 
 ## 10. Streamlined project configuration (detailed design)
@@ -804,6 +812,7 @@ v1: Git, full stop — workspace snapshots are refs (§12.2); there is no side c
 - Generated artifacts gated  
 - Secret scanning on receive and on agent overlay push — **integrate gitleaks/trufflehog; do not build bespoke heuristics** (GitHub already exposes secret scanning to agents via MCP — parity is table stakes)  
 - Size quotas and alerts  
+- **Tag-namespace governance** (v1 gap, documented): non-funnel refs incl. `refs/tags/*` are currently accepted unconditionally; eventual policy = org-role gate on tag writes / release-bot lane (§14.10.3) — matters because customer CD keys deploys on tags  
 
 ### 11.5 Client write workflow: how commits become Changes
 
@@ -883,7 +892,18 @@ Workspace {
 | Agents | Same path; headless VM via environment contract (below) for autonomous agents |
 | Sync base | `workspace update-base` = fetch + rebase with conflict UX |
 
-Delivery mapping (§19): attach + snapshot refs are Phase-1 *stretch* / Phase-2 core; receive-time policy completes the plane in Phase 2. **Continuous streaming sync is deliberately deferred**: snapshot semantics are easier to reason about, cheaper to run, and already satisfy the durability/audit contract. Stream only if real usage shows snapshot loss windows hurt.
+Delivery mapping: **DAG stage 12b** (§28.3 — restored after review caught it silently dropped from the 2026-07-06 DAG revision; §19.2's "Phase-1 stretch" framing maps there). Receive-time policy for workspace refs completes with it. **Continuous streaming sync is deliberately deferred**: snapshot semantics are easier to reason about, cheaper to run, and already satisfy the durability/audit contract. Stream only if real usage shows snapshot loss windows hurt.
+
+**Multiple workstreams = multiple worktrees.** The `+ worktree` above is the answer to "how do I own N workspaces": **one blobless clone (object store paid once), N git worktrees — each worktree is one workspace is one workstream**, with its own sparse cone, base revision, snapshot ref, and registry row. Switching workstreams is `cd`, not a stash-and-branch dance in a dirty tree:
+
+```text
+~/src/mono/           # shared blobless object store
+~/ws/payments-fix/    # workspace 1: cone = checkout-api + money
+~/ws/risk-refactor/   # workspace 2: cone = risk-engine
+~/ws/big-rename/      # workspace 3: broad cone, mechanical-change flag (§7.3)
+```
+
+Interim reality (until 12b): plain clones + the magic ref already support N concurrent Changes (each commit chain carries its own `Change-Id`); what 12b adds is the CitC sugar — affinity cones, snapshot durability/attach-from-anywhere, the registry, and **receive-side enforcement of `refs/workspaces/<id>/*`** (owner-only push, caps, scan — currently these refs pass the funnel unconditionally, same v1 permissiveness class as tags, §14.10.3).
 
 **Remote / agent VMs: external by contract.** We do not build or operate a VM/workspace-pool product — that is Coder / devcontainers / Codespaces territory, and the reasoning is identical to CI runners (§14.1). We ship an **environment contract** (image must provide: git ≥ 2.38, `runko` CLI, credential helper, MCP endpoint config) plus reference **Coder template + `devcontainer.json`** under `integrations/templates/workspaces/`.
 
@@ -1366,7 +1386,7 @@ Templates map `checks[].name` → required Checks. **Default template** from pro
 
 Org can define **global required checks** (e.g. `secrets-scan` always).
 
-### 14.10 Deploy / CD hooks (thin)
+### 14.10 Deploy / CD hooks — Runko as the GitOps source of record
 
 We are not Spinnaker/Argo CD. We provide:
 
@@ -1378,6 +1398,27 @@ We are not Spinnaker/Argo CD. We provide:
 | Optional gitops commit (later) | Out of scope for v1 unless demand |
 
 CD templates (Argo CD ApplicationSet examples, etc.) live under `integrations/templates/cd/` as **examples**, Tier 2+.
+
+#### 14.10.1 GitOps consumers (ArgoCD / Flux) — the read side works on day one
+
+Because the read path is vanilla git (§11.2: clone/fetch always works, standard smart-HTTP), a GitOps controller points at Runko exactly as it would at GitHub: repo URL + deploy token as the repo credential. **No plugin is required for the read side, ever.** Two recipes ship as Tier-2 templates:
+
+- **Repo credential + refresh webhook**: trunk-advance webhook → ArgoCD hard-refresh API (skips the poll interval), the standard GitOps-forge wiring.
+- **Affected-scoped CD** — the monorepo→many-apps answer nobody else has: one monorepo feeding N Applications normally means every commit refreshes all N. Runko's `change.landed` payload carries **affected projects with their `deploy` capability flags**, so CD targets exactly the affected apps. The §13.3 floor doing CD work natively.
+
+**Mirror-first extends to CD untouched** (§18.1): during adoption stages 0–1, the customer's GitOps controller keeps pointing at the GitHub mirror — zero CD migration to trial Runko. The deploy pipeline, usually the scariest thing to re-point, never moves until the SoR flip, and the mirror remains a valid read target even after.
+
+#### 14.10.2 GitOps writers — the bot lane (decided; resolves former open question "agent land exceptions")
+
+GitOps is not read-only: image-tag bumpers (ArgoCD Image Updater, Flux image automation, Renovate) **push commits**. With trunk closed (§7.4), every bot write becomes a Change — correct, but it must not require a human click per image bump. The decision:
+
+> **Path-scoped bot lanes.** A trusted bot is an AgentIdentity (§7.5) whose policy grants `can_land_changes: true` **constrained to a path allowlist and a required-check set** — e.g. "the image-bump bot may auto-land, but only Changes touching `deploy/**` values files, and only with `manifest-lint` green." Auto-landed bot Changes are ordinary Changes: attributed, audited, revertible, visible in owners-coverage reports.
+
+This is strictly stronger than GitHub's all-or-nothing branch-protection bypass lists — path-scoped enforcement is the §8.9 moat applied to CD. Enforcement lands with the merge-policy wiring (DAG stage 11c, §28.3).
+
+#### 14.10.3 Tag and release refs
+
+CD flows key on tags (`v1.2.3` → image tag → deploy). **v1 honesty note:** the receive funnel currently accepts non-funnel refs (including `refs/tags/*`) unconditionally — a documented permissiveness, not a silent one. The eventual policy: tag-namespace governance (org-role gate on `refs/tags/*` writes, release tags via a landed Change or an authorized release bot lane). Tracked in §11.4; hardening-stage work, not v1-blocking.
 
 ### 14.11 AuthN for CI systems
 
@@ -1516,8 +1557,10 @@ No phone-home; compose eval; backup docs; schema upgrades; OIDC; MCP reachable i
 runko auth login
 runko project create checkout-api --type service --template go-service --owners group:commerce
 runko project add-capability checkout-api http
-runko workspace create --project //commerce/checkout-api
-runko workspace attach
+runko workspace create --project //commerce/checkout-api --name payments-fix   # worktree + sparse cone + registry row (§12.3, stage 12b)
+runko workspace list        # my workstreams, their cones and base revisions
+runko workspace snapshot    # WIP -> commit -> refs/workspaces/<id>/head (durable)
+runko workspace attach <id> # restore a workspace on any machine from its snapshot ref
 runko change create -m "Reject invalid SKUs"
 runko change push           # from any plain git checkout (wraps refs/for/main, §11.5)
 runko change requirements   # owners + checks outstanding
@@ -1642,7 +1685,7 @@ The bidirectional mirror is the highest-risk component in the adoption ladder. W
 
 **Stretch (first fast-follow — slips before anything above does):**
 
-- Workspace attach v0: Scalar-class (partial + sparse via platform config) + overlay snapshots; MCP workspace tools  
+- Workspace attach v0: Scalar-class (partial + sparse via platform config) + overlay snapshots — **carried as DAG stage 12b** (§28.3); MCP workspace tools stay deferred with the v1.x catalog (§8.3)  
 - **Connect CI** minimal wizard (core ships the docs-generated bootstrap only)  
 
 **Dogfood** platform on itself **with real required checks** from GHA—not mock-only gates. Use a coding agent via MCP in dogfood.
@@ -1779,19 +1822,21 @@ Not any single vendor — the combination a platform team can assemble on GitHub
 | Build-graph integration | **Runner-side adapter contract; Bazel first, Buck2-shaped** (§14.5.4). Platform floor stays paths + declared deps (NG4 intact); engine output refines CI scope by default, gates only by org opt-in; every engine failure ⇒ `run_everything` |
 | Build-system opinionation | **Opinionated by criterion, not mandate** (§14.5.4): engine status requires declared + hermetic-at-SHA + rdeps-queryable (Bazel ✓, Buck2 ✓; task runners never); greenfield golden path `build_discipline: hermetic` with generated BUILD files; org opt-in `require_build_binding` merge gate; brownfield adoption never gated on a build migration (§18 cliff rule) |
 | Agent interface | **CLI-first (primary); MCP = thin remote adapter, 6 read-only tools over REST** — write tools deferred to v1.x; single schema contract for CLI JSON and MCP (§8.3) |
+| Bot auto-land (was open question: agent land exceptions) | **Path-scoped bot lanes** (§14.10.2): AgentIdentity + `can_land_changes` constrained to a path allowlist + required-check set — built for GitOps writers (image bumpers, Renovate); enforced in stage 11c |
+| K8s operator boundary (future) | **CRDs/Helm own infrastructure shape; the tree owns policy** (§9.4) — org policy never moves into CRDs (tree-as-truth, §10.3) |
 
 ### 22.3 Open questions
 
 1. Exact **PROJECT.yaml** minimal schema and generated-file layout — **pre-session-1 blocker** (§28.4)  
 2. Codegen marker conventions and enforcement strength  
-3. Agent land exceptions: which trusted bots may auto-land, under what caps  
-4. IdP group sync vs local groups  
-5. Standard for agent metadata (model name, tool versions) on Changes  
-6. **GHA topology default for greenfield** (mirror-first is already the default for *migrating* orgs, §18)  
-7. Whether to ship an optional **webhook→provider bridge** service in-tree or docs-only  
-8. Post-submit vs presubmit policy defaults for `change.landed` pipelines  
-9. Global-approver granularity: org-wide role vs per-domain (e.g. `//infra` global approvers) (§7.3)  
-10. jj as a supported client in v1.x: how much workspace-agent scope does it absorb? (§21.2)  
+3. IdP group sync vs local groups  
+4. Standard for agent metadata (model name, tool versions) on Changes  
+5. **GHA topology default for greenfield** (mirror-first is already the default for *migrating* orgs, §18)  
+6. Whether to ship an optional **webhook→provider bridge** service in-tree or docs-only  
+7. Post-submit vs presubmit policy defaults for `change.landed` pipelines  
+8. Global-approver granularity: org-wide role vs per-domain (e.g. `//infra` global approvers) (§7.3)  
+9. jj as a supported client in v1.x: how much workspace-agent scope does it absorb? (§21.2)  
+10. Tag-namespace governance mechanics (§14.10.3): org-role gate vs release-bot lane vs tags-via-landed-Change  
 
 ---
 
@@ -1883,6 +1928,7 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-06 | **DAG revised after stages 0–9 shipped** (§28.3, §28.4): completed stages collapsed to a history note; new stage 9a (hardening: live-Postgres tests, stage-8 check-set fixes, CLI resolve-or-explain error UX, git ≥ 2.40 gate), 9c (opinionation mechanics), and explicit stage 10 `runkod` daemon assembly (smart-HTTP + pre-receive wiring + gitleaks scanner — previously implicit); MCP/Zoekt/web/compose renumbered 11–14; dogfood is stage 15 with a recorded Bazel-migration decision point; pre-stage checklist reduced to one blocker (adapter contract spec, §26 #13) |
 | 2026-07-07 | **Agent interface decided: CLI-first, MCP rescoped to a thin remote adapter** (§8.3, §8.8, §17.4, §22.2): four reasons recorded (context economics, composability, empirical - Runko itself was built via CLI with zero MCP calls, and the moat is server-side receive-time enforcement, not protocol-side); MCP v1 shrinks to six read-only tools (`list_projects`, `get_project`, `search_code`, `who_owns`, `get_affected`, `get_merge_requirements`) over the same REST handlers, no write tools until a real remote-write client need materializes; full catalog kept as the deferred v1.x contract, not deleted; single-contract rule ties CLI `--json` output to the same `docs/spec/mcp-tools/`/`docs/spec/webhooks/` schemas; §28.3 DAG stages 11/12 swapped and rescoped (Zoekt + AGENTS.md generator first, now teaching the CLI as the agent interface; MCP thin adapter second) |
 | 2026-07-07 | **DAG amendment: stage 11b, land wiring through the daemon** (§28.3, §28.4 budget table) - caught in review after stage 11 shipped: `land.Land`/`NeedsRevalidation` (stage 7) were fully built and race-tested, and the merge-requirements gate (stage 8) was fully built, but nothing in `runkod` ever called either - the daemon had a REST API for changes/checks/affected/merge-requirements/search but no `/land` endpoint at all, meaning stage 14's `create → change → land` loop had no wire-level "land" verb to invoke. Same class of gap as the (already-fixed) implicit-daemon-assembly gap stage 10 closed: a load-bearing integration living in no stage's done-when bar. Inserted as its own stage between 11 and 12 (deps 7, 10; blocks 13's land button and 14's loop) rather than silently folding into a later stage, so the gap can't recur unnoticed |
+| 2026-07-07 | **GitOps-consumer story + workspace restoration revision**: §14.10 expanded (14.10.1 ArgoCD/Flux read-side recipes + affected-scoped CD + mirror-first CD continuity; 14.10.2 **bot lanes decided** — path-scoped auto-land for GitOps writers, resolving the former "agent land exceptions" open question; 14.10.3 tag-ref governance flagged as documented v1 permissiveness, §11.4 + new open question); **stage 11c added** (merge policy wiring — 11b review found required checks derived from posted runs and owners `nil`, so unchecked/unapproved Changes land; default-deny outside eval mode decided); **stage 12b restored** (workspace glue v0 — silently dropped in the 2026-07-06 DAG revision; multi-workstream-as-worktrees documented in §12.3, CLI surface in §17.1, `refs/workspaces/*` receive enforcement scoped); **§9.4 added** (k8s alignment both directions; CRD-vs-tree guard decided: infrastructure shape in CRDs/Helm, policy in the tree); 13/14 deps updated to include 11c |
 
 ---
 
@@ -1969,9 +2015,11 @@ Agent never authors a multi-section platform manifest from memory.
 | 10 | **`runkod` daemon assembly** (was implicit in the old DAG; now explicit — 2–3 sessions) | 9a, 9d | Smart-HTTP hosting (bare repo + `git http-backend` + pre-receive wiring `receive.Decide()`); REST endpoints: changes / checks / affected / merge-requirements; outbox delivery worker; **gitleaks-backed `SecretScanner`** (closing the stage-6 seam); deploy-token auth. Bar, over the wire: push to `refs/for/main` creates a Change; direct trunk push gets the §6.9 script; `runko-ci report-check` round-trips against it |
 | 11 | **Zoekt + AGENTS.md generator** (reordered ahead of MCP, §8.3 CLI-first decision) | 10 | `search_code` returns project-tagged hits through the daemon; generated `AGENTS.md` teaches the CLI as the primary agent interface - command inventory, `--json` output contracts, exit-code convention (`docs/cli-contract.md`), the §6.5 structured-error shape |
 | 11b | **Land wiring through the daemon** (inserted per review - `land.Land`/`NeedsRevalidation` were fully built and race-tested at stage 7, but nothing in `runkod` ever called them, so stage 14's `create → change → land` loop had no wire-level "land" verb) | 7, 10 | `POST /api/changes/{key}/land`, gated on the exact same `Mergeable` bool `GET .../merge-requirements` reports; `runko change land`; a successful land enqueues a `change.landed` webhook and fires the `ZoektIndexWorker` trigger stage 11 placed at the trunk-ref-update branch (previously unreachable in practice - this is what makes it reachable); `RaceRetry`/`RequiresRevalidation`/conflicts surface as structured, retryable responses, never a silent 200; landing the first-ever Change onto a brand-new monorepo (trunk has no commits - the only way it can, since direct pushes are always rejected, §6.9) is a real compare-and-swap bootstrap, not an unconditional force-write |
+| 11c | **Merge policy wiring** (inserted per 11b review: the gate mechanism works but its policy inputs are homeless — required checks are currently derived *from the posted runs themselves* and owners are `nil`, so a Change with zero checks and zero approvals lands; §13.5's first two gate rows are decorative at the wire level) | 8, 10, 11b; blocks 13/14 | Required checks resolved from project `ci.checks` (§14.9) + org config, **not** from posted runs; owners requirements from the stage-4 index for touched paths + minimal `POST .../approve`; **bot lane enforcement** (§14.10.2): AgentIdentity with path-scoped `can_land_changes` auto-lands only within its allowlist with its required checks green; default posture = a Change with no resolvable policy is **not** mergeable outside eval mode (loud opt-out, the `--insecure-skip-secret-scan` precedent); e2e extended: land refused pre-check and pre-approval, succeeds after both |
+| 12b | **Workspace glue v0** (restored — silently dropped in the 2026-07-06 DAG revision; caught in review. §12.3 Phase A, §19.2 stretch) | 10, 11c | `runko workspace create/list/attach/snapshot/update-base` (worktree + sparse-cone mechanics; multi-workstream = N worktrees over one object store, §12.3); daemon workspace-registry endpoints; `refs/workspaces/<id>/*` recognized by the receive funnel — owner-only push, size caps, secret scan (closing the unconditional-accept gap); retention/GC note per §12.2. Bar: two concurrent workspaces, one user, different projects; delete the local directory → `attach` restores from the snapshot ref, nothing lost; §3.3's "editable workspace < 60s" measured |
 | 12 | **MCP thin remote adapter** (rescoped, §8.3: six read-only tools, not the full catalog) | 11 | Exactly six tools registered (`list_projects`, `get_project`, `search_code`, `who_owns`, `get_affected`, `get_merge_requirements`), each a thin wrapper over the existing REST handlers stage 10 already built; responses are schema-conformant against `docs/spec/mcp-tools/` (contract-tested, same technique as `checks/contract_test.go`); `runko mcp serve` (stdio) and the daemon's HTTP transport both work; catalog.json's other 19 tools remain present but annotated `deferred-v1.x`, not implemented |
-| 13 | Minimal web (SSR + htmx) | 10, 11b | Wizard + change page + merge requirements + a land button wired to 11b's endpoint |
-| 14 | Compose + measured 15-min loop in CI | 10–13, 11b | §16.4 smoke: `compose up → create → change → land` timed, green per release |
+| 13 | Minimal web (SSR + htmx) | 10, 11b, 11c | Wizard + change page + merge requirements + a land button wired to 11b's endpoint, gated by 11c's policy |
+| 14 | Compose + measured 15-min loop in CI | 10–13, 11b, 11c | §16.4 smoke: `compose up → create → change → land` timed, green per release — landing gated by real policy, not vacuous mergeability |
 | 15 | Dogfood hardening (3–5 sessions) | 14 | Platform hosts its own repo; real GHA checks gate its own Changes. **Decision point recorded:** migrate Runko's repo to Bazel — fires the §14.7 Tier-1 pull trigger and dogfoods the §14.5.4 golden path |
 
 ### 28.4 Pre-stage checklist (updated 2026-07-06)
@@ -1992,4 +2040,5 @@ Original pre-session-1 items: **all complete** — name (Runko), PROJECT.yaml v1
 ---
 
 *This design prioritizes monorepo accessibility for medium organizations: Git underneath with the **tree as source of truth**; CitC-class workspaces built as a **delta over upstream Git** (Scalar substrate, our enforcement); low-ceremony progressive configuration (no Boq tax by default); humans and coding agents as co-equal, policy-aware clients with **project-granular enforcement** (the moat repo-granular platforms cannot express); **CI deeply integrated via contracts/plugins/templates (execution stays with existing CI products)**; **mirror-first adoption** so no org must bet the company to try it; open source and self-host by default.*
+
 
