@@ -28,9 +28,9 @@ migrate -database "$DATABASE_URL" -path db/migrations up
 ## Live-Postgres integration tests (`make check-db`)
 
 `internal/dbtest` plus `*_pg_test.go` files (`index/sync_pg_test.go`,
-`receive/persist_pg_test.go`, `checks/persist_pg_test.go`) exercise the
-persistence wiring stages 2/4/6/8 left "unverified against a live Postgres in
-this environment" against a **real** database - not sqlc's schema analyzer.
+`receive/persist_pg_test.go`, `checks/persist_pg_test.go`,
+`runkod/pgstore_pg_test.go`, `cmd/runkod`'s restart test) exercise the
+persistence wiring against a **real** database - not sqlc's schema analyzer.
 `go test ./...` / `make check` skip them (no Postgres in this sandbox); to
 run them for real:
 
@@ -45,3 +45,13 @@ safe to discard - never a real environment's data. `psql` must be on `PATH`;
 no other tooling (Docker, testcontainers) is required, so this also works
 against a Postgres started any other way (a local install, a cloud dev
 instance, etc).
+
+**Why `make check-db` passes `-p 1`:** each package's reset wipes the
+*entire* shared schema, not just its own tables - fine when only one
+package's live-DB tests run at a time, but `go test ./...` normally runs
+different packages' test binaries concurrently, so two packages' resets can
+interleave and race (caught in CI once a 4th/5th package gained
+`*_pg_test.go` files: "relation already exists" / "relation does not
+exist" errors from a reset landing mid-test). `-p 1` forces one package at a
+time - correct for tests sharing external stateful infrastructure instead of
+being hermetic. Don't drop it when adding new live-Postgres tests.
