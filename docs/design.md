@@ -1878,7 +1878,7 @@ Agent never authors a multi-section platform manifest from memory.
 10. **Migration & mirror-first onboarding RFC**: `import plan` report format, bidirectional mirror semantics, CI shadow parity dashboard, SoR-flip checklist (§18)  
 11. ~~**Naming decision**~~ — **done: Runko** (§1, §22.2)  
 12. **jj / Josh adopt-vs-build evaluation** for the workspace read path (§12.3, §21.2)  
-13. **Build-graph adapter contract spec** (engine interface, refinement post-back schema, Bazel query recipes, Buck2 mapping notes) — blocks DAG stage 9b (§14.5.4, §28.3)  
+13. ~~**Build-graph adapter contract spec**~~ — **done**: `docs/spec/build-adapter/` (§14.5.4, §28.4)  
 
 ---
 
@@ -1951,10 +1951,10 @@ Agent never authors a multi-section platform manifest from memory.
 
 ### 28.4 Pre-stage checklist (updated 2026-07-06)
 
-Original pre-session-1 items: **all complete** — name (Runko), PROJECT.yaml v1 schema, MCP catalog, webhook/CheckRun schemas, module path (`github.com/saxocellphone/runko`), SSR+htmx decision. Current blockers:
+Original pre-session-1 items: **all complete** — name (Runko), PROJECT.yaml v1 schema, MCP catalog, webhook/CheckRun schemas, module path (`github.com/saxocellphone/runko`), SSR+htmx decision.
 
-1. **Build-graph adapter contract spec** (§26 #13) — blocks stages 9b and 9c: engine interface, refinement post-back schema, Bazel query recipes, Buck2 mapping notes  
-2. Nothing blocks 9a or 10 — both startable today; **9a first** (it's review debt the daemon builds on)
+1. ~~**Build-graph adapter contract spec**~~ — **done**: `docs/spec/build-adapter/README.md` (engine interface, `Refine`'s fail-closed table, Bazel `rdeps` query recipe, Buck2 `uquery` mapping notes, admission criteria recap) + `docs/spec/build-adapter/refinement.schema.json` (post-back payload); `project.schema.json`'s `capabilities` enum gained `build`. Unblocks 9b/9c.
+2. Nothing blocks 9a, 9b, 9c, or 10 — all startable; 9a shipped first as review debt the daemon builds on (see stage table above).
 
 ### 28.5 Anti-goals for implementation sessions
 

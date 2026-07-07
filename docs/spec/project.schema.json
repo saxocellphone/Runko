@@ -35,15 +35,15 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "enum": ["rpc", "http", "deploy", "data_store"]
+        "enum": ["rpc", "http", "deploy", "data_store", "build"]
       },
       "default": [],
-      "description": "L2, opt-in. Enabling a capability is a product action (`project add-capability <cap>`) that triggers template codegen; hand-editing this array without going through that flow may leave generated files inconsistent (§7.2, §10.4). Absence = no runtime surface beyond code."
+      "description": "L2, opt-in. Enabling a capability is a product action (`project add-capability <cap>`) that triggers template codegen; hand-editing this array without going through that flow may leave generated files inconsistent (§7.2, §10.4). Absence = no runtime surface beyond code. 'build' declares a build-graph binding (engine + target patterns, see capability_config) enabling adapter-refined affected computation (§14.5.4); it is never required for a default project (NG4)."
     },
     "capability_config": {
       "type": "object",
       "additionalProperties": true,
-      "description": "L2/L3, optional. Org-defined configuration keyed by capability name (e.g. { \"deploy\": {...}, \"rpc\": {...} }). Intentionally loosely typed here: deploy/rpc/http/data_store config shapes are org-specific templates (§7.2) and out of scope for this core schema. Keys should correspond to entries in `capabilities`."
+      "description": "L2/L3, optional. Org-defined configuration keyed by capability name (e.g. { \"deploy\": {...}, \"rpc\": {...} }). Intentionally loosely typed here: deploy/rpc/http/data_store config shapes are org-specific templates (§7.2) and out of scope for this core schema. Keys should correspond to entries in `capabilities`. The 'build' key is the one documented exception - see docs/spec/build-adapter/README.md for its { engine: 'bazel'|'buck2', target_patterns: [string] } shape."
     },
     "dependencies": {
       "type": "array",

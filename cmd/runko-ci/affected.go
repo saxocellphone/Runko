@@ -31,8 +31,15 @@ func Affected(repoDir, base, head string, rootInvalidationPatterns []string) (af
 
 	changedPaths, err := diffPaths(repoDir, base, head)
 	if err != nil {
-		wrapped := fmt.Errorf("diff %s..%s: %w", base, head, err)
-		return affected.Result{}, clierr.WrapRevisionErrorAmong(wrapped, map[string]string{"--base": base, "--head": head})
+		// Match against the raw git error BEFORE adding the "diff %s..%s"
+		// context below - that prefix mentions both base and head verbatim,
+		// which would make WrapRevisionErrorAmong's substring match pick
+		// whichever candidate a map iteration happened to visit first,
+		// rather than the one git's own message actually names.
+		if wrapped := clierr.WrapRevisionErrorAmong(err, map[string]string{"--base": base, "--head": head}); wrapped != err {
+			return affected.Result{}, wrapped
+		}
+		return affected.Result{}, fmt.Errorf("diff %s..%s: %w", base, head, err)
 	}
 
 	return affected.Compute(projects, changedPaths, affected.Options{

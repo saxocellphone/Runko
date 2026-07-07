@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runko.dev/schema/build-adapter/refinement/v1.json",
+  "title": "Affected refinement post-back v1",
+  "description": "Spec artifact for design.md §26 #13, §14.5.4 - blocks DAG stages 9b/9c. A build-graph adapter (runko-ci, runner-side only) may POST this alongside a Change's project-level affected computation (webhooks/webhook-envelope.schema.json's 'affected' object), never in place of it. run_everything=true on ANY engine failure (query error, timeout, unparseable output, version skew) per §14.5.3's fail-closed rule - there is no partial-success shape. Whether check-set policies key on 'targets' (opt-in) or stay project-scoped (default) is an org policy choice made elsewhere; this payload is additive information either way.",
+  "type": "object",
+  "required": ["spec_version", "change_id", "head_sha", "engine", "run_everything", "computed_at"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": { "const": "1" },
+    "change_id": { "type": "string", "description": "Stable Change-Id this refinement applies to (§7.4)." },
+    "head_sha": { "type": "string", "description": "Revision the engine query was evaluated at - hermetic-at-SHA is what makes this trust class 'declared, not inferred' (§13.3)." },
+    "engine": {
+      "type": "string",
+      "enum": ["bazel", "buck2"],
+      "description": "Which engine produced this refinement (§14.5.4's engine matrix)."
+    },
+    "universe_pattern": { "type": "string", "description": "e.g. '//...'. Absent when run_everything is true and no query was attempted." },
+    "run_everything": {
+      "type": "boolean",
+      "description": "True on ANY engine failure - query error, timeout, unparseable output, missing engine binary, version skew. Consumers MUST treat this identically to the platform's own affected.run_everything: fail closed to a broader run, never fail open."
+    },
+    "failure_reason": {
+      "type": "string",
+      "description": "Present only when run_everything is true because of THIS adapter (as opposed to the platform floor already being run_everything for unrelated reasons). Free text for humans/logs, not a machine-parsed enum - failure modes here are engine-specific and open-ended."
+    },
+    "targets": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Affected target labels (e.g. 'commerce/checkout:go_default_test'), engine-native format. Empty when run_everything is true, or when the query genuinely found no affected targets."
+    },
+    "target_projects": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Optional target-label -> Runko project-name mapping, resolved via the same longest-path-prefix rule affected.Compute uses for changed paths (§14.5.4 item 5). Omitted when the adapter did not attempt project resolution; absence does not imply run_everything."
+    },
+    "computed_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "run_everything": { "const": false } } },
+      "then": { "required": ["targets", "universe_pattern"] }
+    }
+  ],
+  "examples": [
+    {
+      "spec_version": "1",
+      "change_id": "chg_1042",
+      "head_sha": "def5678",
+      "engine": "bazel",
+      "universe_pattern": "//...",
+      "run_everything": false,
+      "targets": ["//commerce/checkout:go_default_test"],
+      "target_projects": { "//commerce/checkout:go_default_test": "checkout-api" },
+      "computed_at": "2026-07-06T12:00:00Z"
+    },
+    {
+      "spec_version": "1",
+      "change_id": "chg_1043",
+      "head_sha": "aa11bb22",
+      "engine": "bazel",
+      "run_everything": true,
+      "failure_reason": "bazel query: exit status 1: ERROR: no targets found beneath ''",
+      "computed_at": "2026-07-06T12:05:00Z"
+    }
+  ]
+}

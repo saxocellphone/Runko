@@ -4,7 +4,10 @@
 // 128") surfacing as the only explanation for a failure.
 package clierr
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Error is a resolve-or-explain error: Message says what went wrong,
 // Suggestion says the next command/action to take. Field names the CLI
@@ -78,20 +81,36 @@ func quote(s string) string {
 	return "\"" + s + "\""
 }
 
+// quotedCulprit matches git's own single-quoting of the offending argument,
+// e.g. "ambiguous argument 'badbase'" or "pathspec 'nope' did not match".
+// Callers that shell out (e.g. cmd/runko-ci's runGit) commonly echo the full
+// argv into their own error text too ("git diff --name-only badbase HEAD: ...")
+// - since that echoed argv is unquoted, the FIRST quoted substring in the
+// combined message is reliably git's own stderr, not the argv restatement.
+var quotedCulprit = regexp.MustCompile(`'([^']*)'`)
+
 // WrapRevisionErrorAmong is WrapRevisionError for call sites with more than
 // one user-supplied revision in play (e.g. `--base`/`--head`), where git's
-// error text names exactly which one failed to resolve (e.g. "ambiguous
-// argument 'badbase'"). candidates maps CLI flag name to the value supplied
-// for it; the field whose value is quoted in err's message is used. If no
-// candidate value appears in the message, err is returned unchanged rather
-// than guessing.
+// error text names exactly which one failed to resolve. candidates maps CLI
+// flag name to the value supplied for it; the field is chosen by extracting
+// the single-quoted culprit git itself names and matching it EXACTLY against
+// a candidate value - not by searching the whole message for a candidate as
+// a substring, because callers often echo every argument (including the
+// good ones) into their own wrapping text, which would make a plain
+// substring search pick whichever candidate happens to be checked first. If
+// the extracted culprit doesn't exactly match any candidate, err is returned
+// unchanged rather than guessing.
 func WrapRevisionErrorAmong(err error, candidates map[string]string) error {
 	if err == nil {
 		return nil
 	}
-	msg := err.Error()
+	m := quotedCulprit.FindStringSubmatch(err.Error())
+	if m == nil {
+		return err
+	}
+	culprit := m[1]
 	for field, value := range candidates {
-		if value != "" && strings.Contains(msg, value) {
+		if value != "" && value == culprit {
 			return WrapRevisionError(err, field, value)
 		}
 	}
