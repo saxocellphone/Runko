@@ -22,7 +22,13 @@ export RUNKO_GLOBAL_REQUIRED_CHECKS=smoke-check
 ALICE_TOKEN=alice-dev-token
 BOB_TOKEN=bob-dev-token
 
+ROOT=$(pwd)
 cleanup() {
+  # The loop cd's into its throwaway clone; compose commands need the
+  # repo root (where docker-compose.yml lives) - found the hard way when
+  # a failure's diagnostics printed "no configuration file provided"
+  # instead of the daemon logs.
+  cd "$ROOT" || return
   docker compose logs runkod --tail 40 || true
   docker compose down -v --remove-orphans >/dev/null 2>&1 || true
 }
@@ -81,8 +87,11 @@ land_change "$ID1"
 echo "==> edit -> second change"
 PROJECT_DIR=$(dirname "$(git ls-files | grep PROJECT.yaml | head -1)")
 git fetch -q origin main && git reset -q --hard FETCH_HEAD
-printf 'package main\n\nfunc main() {}\n' > "$PROJECT_DIR/main.go"
-git add -A && git commit -q -m "add entrypoint"
+# APPEND to the template-generated main.go: the first smoke iteration
+# wrote the template's exact bytes back ("nothing to commit" - the
+# service template already ships main.go with an empty func main).
+printf '\n// edited in the §16.4 eval loop\n' >> "$PROJECT_DIR/main.go"
+git add -A && git commit -q -m "edit entrypoint"
 ID2=$("$BIN/runko" change push --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["change_id"])')
 land_change "$ID2"
 
