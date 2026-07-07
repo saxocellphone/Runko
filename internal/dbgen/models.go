@@ -396,11 +396,12 @@ type ChangeComment struct {
 }
 
 type ChangeOwnerRequirement struct {
-	ChangeID           uuid.UUID          `json:"change_id"`
-	OwnerRef           string             `json:"owner_ref"`
-	Satisfied          bool               `json:"satisfied"`
-	SatisfiedByActorID pgtype.UUID        `json:"satisfied_by_actor_id"`
-	SatisfiedAt        pgtype.Timestamptz `json:"satisfied_at"`
+	ChangeID            uuid.UUID          `json:"change_id"`
+	OwnerRef            string             `json:"owner_ref"`
+	Satisfied           bool               `json:"satisfied"`
+	SatisfiedByActorID  pgtype.UUID        `json:"satisfied_by_actor_id"`
+	SatisfiedAt         pgtype.Timestamptz `json:"satisfied_at"`
+	SatisfiedForHeadSha *string            `json:"satisfied_for_head_sha"`
 }
 
 type CheckAnnotation struct {

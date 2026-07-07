@@ -67,7 +67,8 @@ ON CONFLICT (change_id, owner_ref) DO NOTHING;
 
 -- name: SatisfyChangeOwnerRequirement :exec
 UPDATE change_owner_requirements
-SET satisfied = true, satisfied_by_actor_id = $3, satisfied_at = now()
+SET satisfied = true, satisfied_by_actor_id = $3, satisfied_at = now(),
+    satisfied_for_head_sha = $4
 WHERE change_id = $1 AND owner_ref = $2;
 
 -- name: ListChangeOwnerRequirements :many

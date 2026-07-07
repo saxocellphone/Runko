@@ -375,7 +375,7 @@ func (q *Queries) ListChangeComments(ctx context.Context, db DBTX, arg ListChang
 }
 
 const listChangeOwnerRequirements = `-- name: ListChangeOwnerRequirements :many
-SELECT change_id, owner_ref, satisfied, satisfied_by_actor_id, satisfied_at FROM change_owner_requirements WHERE change_id = $1
+SELECT change_id, owner_ref, satisfied, satisfied_by_actor_id, satisfied_at, satisfied_for_head_sha FROM change_owner_requirements WHERE change_id = $1
 `
 
 func (q *Queries) ListChangeOwnerRequirements(ctx context.Context, db DBTX, changeID uuid.UUID) ([]*ChangeOwnerRequirement, error) {
@@ -393,6 +393,7 @@ func (q *Queries) ListChangeOwnerRequirements(ctx context.Context, db DBTX, chan
 			&i.Satisfied,
 			&i.SatisfiedByActorID,
 			&i.SatisfiedAt,
+			&i.SatisfiedForHeadSha,
 		); err != nil {
 			return nil, err
 		}
@@ -455,18 +456,25 @@ func (q *Queries) ListOpenChanges(ctx context.Context, db DBTX, arg ListOpenChan
 
 const satisfyChangeOwnerRequirement = `-- name: SatisfyChangeOwnerRequirement :exec
 UPDATE change_owner_requirements
-SET satisfied = true, satisfied_by_actor_id = $3, satisfied_at = now()
+SET satisfied = true, satisfied_by_actor_id = $3, satisfied_at = now(),
+    satisfied_for_head_sha = $4
 WHERE change_id = $1 AND owner_ref = $2
 `
 
 type SatisfyChangeOwnerRequirementParams struct {
-	ChangeID           uuid.UUID   `json:"change_id"`
-	OwnerRef           string      `json:"owner_ref"`
-	SatisfiedByActorID pgtype.UUID `json:"satisfied_by_actor_id"`
+	ChangeID            uuid.UUID   `json:"change_id"`
+	OwnerRef            string      `json:"owner_ref"`
+	SatisfiedByActorID  pgtype.UUID `json:"satisfied_by_actor_id"`
+	SatisfiedForHeadSha *string     `json:"satisfied_for_head_sha"`
 }
 
 func (q *Queries) SatisfyChangeOwnerRequirement(ctx context.Context, db DBTX, arg SatisfyChangeOwnerRequirementParams) error {
-	_, err := db.Exec(ctx, satisfyChangeOwnerRequirement, arg.ChangeID, arg.OwnerRef, arg.SatisfiedByActorID)
+	_, err := db.Exec(ctx, satisfyChangeOwnerRequirement,
+		arg.ChangeID,
+		arg.OwnerRef,
+		arg.SatisfiedByActorID,
+		arg.SatisfiedForHeadSha,
+	)
 	return err
 }
 

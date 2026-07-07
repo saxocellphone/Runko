@@ -326,7 +326,7 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	if lane != nil {
 		requiredNames = mergeCheckNames(requiredNames, lane.RequiredChecks)
 	} else {
-		owners, err = s.ownerRequirements(ctx, key, result, indexed)
+		owners, err = s.ownerRequirements(ctx, key, change.HeadSHA, result, indexed)
 		if err != nil {
 			return checks.MergeRequirements{}, err
 		}
@@ -377,7 +377,7 @@ func mergeCheckNames(names, extra []string) []string {
 // 11c work, not a default). The SATISFIED side joins stored approvals; an
 // approval for an owner the tree no longer requires is simply ignored,
 // never resurrected as a requirement (tree-as-truth, §10.3).
-func (s *Server) ownerRequirements(ctx context.Context, key string, result affected.Result, indexed []index.IndexedProject) ([]checks.OwnerRequirement, error) {
+func (s *Server) ownerRequirements(ctx context.Context, key, headSHA string, result affected.Result, indexed []index.IndexedProject) ([]checks.OwnerRequirement, error) {
 	required := map[string]bool{}
 	for _, path := range result.Paths {
 		project, ok := owningProject(indexed, path)
@@ -398,7 +398,14 @@ func (s *Server) ownerRequirements(ctx context.Context, key string, result affec
 	}
 	approved := map[string]bool{}
 	for _, a := range approvals {
-		approved[a.OwnerRef] = true
+		// §13.5 (decided 2026-07-07): an approval satisfies the gate only
+		// for the head it was granted for - an amend moves the head and
+		// the requirement returns to outstanding, exactly as check runs
+		// (keyed by head_sha) already invalidate. "" (a pre-stage-12c row)
+		// never matches: unknown approval head reads as stale, fail closed.
+		if a.HeadSHA == headSHA {
+			approved[a.OwnerRef] = true
+		}
 	}
 
 	refs := make([]string, 0, len(required))
@@ -525,7 +532,7 @@ func (s *Server) handleApproveChange(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	owners, err := s.ownerRequirements(r.Context(), key, result, indexed)
+	owners, err := s.ownerRequirements(r.Context(), key, change.HeadSHA, result, indexed)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -551,7 +558,7 @@ func (s *Server) handleApproveChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.Store.RecordApproval(r.Context(), key, req.OwnerRef, req.ApprovedBy); err != nil {
+	if err := s.Store.RecordApproval(r.Context(), key, req.OwnerRef, req.ApprovedBy, change.HeadSHA); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

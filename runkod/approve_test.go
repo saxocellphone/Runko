@@ -243,3 +243,80 @@ func TestNoOwnersAnywhereMeansNoApprovalGate(t *testing.T) {
 		t.Fatalf("expected mergeable with no owners and no checks declared, got %+v", reqs)
 	}
 }
+
+// TestAmendResetsOwnerApprovals is §13.5's approval-binding decision
+// (2026-07-07, stage 12c) as a regression test for the exact bypass it
+// closes: approve v1, amend to v2. The head change always invalidated
+// check runs (keyed by (change, head_sha)) but the approval used to
+// survive (keyed by change only), so once checks re-greened, v2 could
+// land with a human gate satisfied against code no human ever saw.
+func TestAmendResetsOwnerApprovals(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml",
+		"schema: project/v1\nname: checkout-api\ntype: service\nowners:\n  - group:commerce-eng\n")
+	repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	const changeIDTrailer = "Change-Id: I0123456789abcdef0123456789abcdef01234567"
+	repo.WriteFile("commerce/checkout/main.go", "package main // v1\n")
+	repo.Commit("add main.go\n\n" + changeIDTrailer)
+	_, head1 := pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store}
+	result := processor.Process(context.Background(), RefUpdate{OldSHA: zeroOID, NewSHA: head1, Ref: "refs/for/main"}, nil)
+	if !result.Accepted {
+		t.Fatalf("seed push was rejected: %+v", result)
+	}
+	changeID := result.ChangeID
+
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	// Approve v1; the owner gate is satisfied.
+	resp := postApprove(t, srv, changeID, "sekret", `{"owner_ref":"group:commerce-eng","approved_by":"alice"}`)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("approve: %d: %s", resp.StatusCode, body)
+	}
+	reqs := getMergeRequirements(t, srv, changeID)
+	if len(reqs.SatisfiedOwners) != 1 || len(reqs.OutstandingOwners) != 0 {
+		t.Fatalf("expected the owner gate satisfied at v1, got satisfied=%v outstanding=%v", reqs.SatisfiedOwners, reqs.OutstandingOwners)
+	}
+
+	// Amend: a new head under the SAME Change-Id (what any re-push of the
+	// magic ref produces).
+	repo.WriteFile("commerce/checkout/main.go", "package main // v2 - never reviewed\n")
+	repo.Commit("amend\n\n" + changeIDTrailer)
+	_, head2 := pushCommit(t, repo, bare, "refs/for/main")
+	result2 := processor.Process(context.Background(), RefUpdate{OldSHA: head1, NewSHA: head2, Ref: "refs/for/main"}, nil)
+	if !result2.Accepted || result2.ChangeID != changeID {
+		t.Fatalf("amend push not accepted as the same Change: %+v", result2)
+	}
+
+	// The stale approval must not count for v2.
+	reqs = getMergeRequirements(t, srv, changeID)
+	if len(reqs.OutstandingOwners) != 1 || len(reqs.SatisfiedOwners) != 0 {
+		t.Fatalf("expected the amend to reset the owner gate, got satisfied=%v outstanding=%v", reqs.SatisfiedOwners, reqs.OutstandingOwners)
+	}
+	if reqs.Mergeable {
+		t.Fatalf("expected not mergeable after amend, got %+v", reqs)
+	}
+
+	// Re-approving at v2 satisfies it again - reset, not permanent veto.
+	resp = postApprove(t, srv, changeID, "sekret", `{"owner_ref":"group:commerce-eng","approved_by":"alice"}`)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("re-approve: %d: %s", resp.StatusCode, body)
+	}
+	reqs = getMergeRequirements(t, srv, changeID)
+	if len(reqs.SatisfiedOwners) != 1 || len(reqs.OutstandingOwners) != 0 {
+		t.Fatalf("expected the owner gate satisfied after re-approval at v2, got satisfied=%v outstanding=%v", reqs.SatisfiedOwners, reqs.OutstandingOwners)
+	}
+}

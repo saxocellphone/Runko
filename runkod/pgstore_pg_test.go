@@ -132,11 +132,11 @@ func TestPostgresStoreApprovalRoundTrip(t *testing.T) {
 		t.Fatalf("expected no approvals yet, got %+v", approvals)
 	}
 
-	if err := store.RecordApproval(ctx, "Iabc", "group:commerce-eng", "alice"); err != nil {
+	if err := store.RecordApproval(ctx, "Iabc", "group:commerce-eng", "alice", "head1"); err != nil {
 		t.Fatalf("RecordApproval: %v", err)
 	}
 	// Idempotent: approving the same ref again is not an error.
-	if err := store.RecordApproval(ctx, "Iabc", "group:commerce-eng", "alice"); err != nil {
+	if err := store.RecordApproval(ctx, "Iabc", "group:commerce-eng", "alice", "head1"); err != nil {
 		t.Fatalf("RecordApproval (repeat): %v", err)
 	}
 
@@ -146,6 +146,28 @@ func TestPostgresStoreApprovalRoundTrip(t *testing.T) {
 	}
 	if len(approvals) != 1 || approvals[0].OwnerRef != "group:commerce-eng" || approvals[0].ApprovedBy != "alice" {
 		t.Fatalf("expected one approval by alice for group:commerce-eng, got %+v", approvals)
+	}
+	// §13.5: the approval round-trips WITH the head it was granted for -
+	// the merge gate's staleness comparison depends on this surviving
+	// Postgres, not just MemStore.
+	if approvals[0].HeadSHA != "head1" {
+		t.Fatalf("expected the approval bound to head1, got %q", approvals[0].HeadSHA)
+	}
+
+	// Re-approving after an amend re-binds the row to the new head (the
+	// PK is (change_id, owner_ref) - one row per owner, latest head wins).
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title"); err != nil {
+		t.Fatalf("CreateOrUpdateChange (amend): %v", err)
+	}
+	if err := store.RecordApproval(ctx, "Iabc", "group:commerce-eng", "alice", "head2"); err != nil {
+		t.Fatalf("RecordApproval (re-approve): %v", err)
+	}
+	approvals, err = store.ListApprovals(ctx, "Iabc")
+	if err != nil {
+		t.Fatalf("ListApprovals: %v", err)
+	}
+	if len(approvals) != 1 || approvals[0].HeadSHA != "head2" {
+		t.Fatalf("expected the re-approval bound to head2, got %+v", approvals)
 	}
 }
 

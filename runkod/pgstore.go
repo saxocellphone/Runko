@@ -133,7 +133,7 @@ func (s *PostgresStore) resolveChangeID(ctx context.Context, changeKey string) (
 // real actors row (UpsertActor by external_ref) rather than dropping the name
 // on the floor - break-glass and approvals must stay audited (§7.3), and the
 // schema already modeled that with satisfied_by_actor_id.
-func (s *PostgresStore) RecordApproval(ctx context.Context, changeKey, ownerRef, approvedBy string) error {
+func (s *PostgresStore) RecordApproval(ctx context.Context, changeKey, ownerRef, approvedBy, headSHA string) error {
 	changeID, err := s.resolveChangeID(ctx, changeKey)
 	if err != nil {
 		return err
@@ -149,9 +149,14 @@ func (s *PostgresStore) RecordApproval(ctx context.Context, changeKey, ownerRef,
 	}); err != nil {
 		return err
 	}
+	var headPtr *string
+	if headSHA != "" {
+		headPtr = &headSHA
+	}
 	return s.Queries.SatisfyChangeOwnerRequirement(ctx, s.Pool, dbgen.SatisfyChangeOwnerRequirementParams{
 		ChangeID: changeID, OwnerRef: ownerRef,
-		SatisfiedByActorID: pgtype.UUID{Bytes: actor.ID, Valid: true},
+		SatisfiedByActorID:  pgtype.UUID{Bytes: actor.ID, Valid: true},
+		SatisfiedForHeadSha: headPtr,
 	})
 }
 
@@ -170,6 +175,9 @@ func (s *PostgresStore) ListApprovals(ctx context.Context, changeKey string) ([]
 			continue
 		}
 		a := Approval{OwnerRef: r.OwnerRef}
+		if r.SatisfiedForHeadSha != nil {
+			a.HeadSHA = *r.SatisfiedForHeadSha
+		}
 		if r.SatisfiedByActorID.Valid {
 			actor, err := s.Queries.GetActor(ctx, s.Pool, uuid.UUID(r.SatisfiedByActorID.Bytes))
 			if err != nil {

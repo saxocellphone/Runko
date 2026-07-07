@@ -38,6 +38,10 @@ type Change struct {
 type Approval struct {
 	OwnerRef   string
 	ApprovedBy string
+	// HeadSHA is the Change head this approval was granted for. The merge
+	// gate counts an approval only while this matches the current head
+	// (§13.5); "" (pre-stage-12c rows) always reads as stale, fail closed.
+	HeadSHA string
 }
 
 // WebhookDelivery is one outbox row (§14.4.1).
@@ -68,10 +72,13 @@ type Store interface {
 	// from HeadSHA - see Change.LandedSHA's doc comment).
 	MarkChangeLanded(ctx context.Context, changeKey, landedSHA string) (Change, error)
 
-	// RecordApproval records that ownerRef's approval requirement is
-	// satisfied on changeKey (§13.5, §28.3 stage 11c). Idempotent: approving
-	// the same ownerRef twice is not an error, the latest ApprovedBy wins.
-	RecordApproval(ctx context.Context, changeKey, ownerRef, approvedBy string) error
+	// RecordApproval records that ownerRef's approval requirement on
+	// changeKey is satisfied for headSHA specifically (§13.5, decided
+	// 2026-07-07: approvals bind to the approved head - an amend moves the
+	// head and the approval stops counting; the row survives for audit).
+	// Idempotent: approving the same ownerRef twice is not an error, the
+	// latest ApprovedBy/HeadSHA wins.
+	RecordApproval(ctx context.Context, changeKey, ownerRef, approvedBy, headSHA string) error
 	// ListApprovals returns every recorded approval for changeKey, sorted by
 	// OwnerRef for deterministic output.
 	ListApprovals(ctx context.Context, changeKey string) ([]Approval, error)
@@ -169,7 +176,7 @@ func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA st
 	return c, nil
 }
 
-func (s *MemStore) RecordApproval(ctx context.Context, changeKey, ownerRef, approvedBy string) error {
+func (s *MemStore) RecordApproval(ctx context.Context, changeKey, ownerRef, approvedBy, headSHA string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.changes[changeKey]; !ok {
@@ -178,7 +185,7 @@ func (s *MemStore) RecordApproval(ctx context.Context, changeKey, ownerRef, appr
 	if s.approvals[changeKey] == nil {
 		s.approvals[changeKey] = make(map[string]Approval)
 	}
-	s.approvals[changeKey][ownerRef] = Approval{OwnerRef: ownerRef, ApprovedBy: approvedBy}
+	s.approvals[changeKey][ownerRef] = Approval{OwnerRef: ownerRef, ApprovedBy: approvedBy, HeadSHA: headSHA}
 	return nil
 }
 

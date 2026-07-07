@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"testing"
 
 	"github.com/google/uuid"
@@ -53,23 +54,37 @@ func Connect(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// resetSchema applies db/migrations/0001_init.{down,up}.sql via psql so each
-// test starts from an empty, freshly-created schema. Shelling out to psql
-// (rather than adding a migration-runner dependency) keeps this a "real
-// Postgres" test without a new mid-session dependency (CLAUDE.md rule).
+// resetSchema applies every db/migrations/NNNN_*.{down,up}.sql via psql so
+// each test starts from an empty, freshly-migrated schema - downs in
+// reverse numeric order, then ups in numeric order, the same sequence a
+// real migration runner would produce. Shelling out to psql (rather than
+// adding a migration-runner dependency) keeps this a "real Postgres" test
+// without a new mid-session dependency (CLAUDE.md rule).
 func resetSchema(t *testing.T, dsn string) {
 	t.Helper()
-	root := repoRoot(t)
-	down := filepath.Join(root, "db", "migrations", "0001_init.down.sql")
-	up := filepath.Join(root, "db", "migrations", "0001_init.up.sql")
+	dir := filepath.Join(repoRoot(t), "db", "migrations")
+	ups, err := filepath.Glob(filepath.Join(dir, "*.up.sql"))
+	if err != nil || len(ups) == 0 {
+		t.Fatalf("dbtest: find migrations in %s: %v", dir, err)
+	}
+	downs, err := filepath.Glob(filepath.Join(dir, "*.down.sql"))
+	if err != nil {
+		t.Fatalf("dbtest: find down migrations in %s: %v", dir, err)
+	}
+	sort.Strings(ups)
+	sort.Sort(sort.Reverse(sort.StringSlice(downs)))
 
 	// Best-effort teardown first (ignore errors: first run against a fresh
 	// database has nothing to tear down yet).
-	exec.Command("psql", dsn, "-q", "-f", down).Run()
+	for _, down := range downs {
+		exec.Command("psql", dsn, "-q", "-f", down).Run()
+	}
 
-	cmd := exec.Command("psql", dsn, "-v", "ON_ERROR_STOP=1", "-q", "-f", up)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("dbtest: apply migration %s: %v: %s", up, err, out)
+	for _, up := range ups {
+		cmd := exec.Command("psql", dsn, "-v", "ON_ERROR_STOP=1", "-q", "-f", up)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("dbtest: apply migration %s: %v: %s", up, err, out)
+		}
 	}
 }
 

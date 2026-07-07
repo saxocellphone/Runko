@@ -39,7 +39,8 @@ export RUNKO_TEST_DATABASE_URL="postgres://user:pass@localhost:5432/runko_test?s
 make check-db
 ```
 
-Each test wipes and re-applies `0001_init.{down,up}.sql` via `psql` before
+Each test wipes and re-applies every `db/migrations/*.{down,up}.sql` (downs
+in reverse numeric order, ups in order) via `psql` before
 running (see `internal/dbtest.Connect`), so point this at a database that's
 safe to discard - never a real environment's data. `psql` must be on `PATH`;
 no other tooling (Docker, testcontainers) is required, so this also works
