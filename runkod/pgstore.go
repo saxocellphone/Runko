@@ -99,6 +99,53 @@ func (s *PostgresStore) GetChange(ctx context.Context, changeKey string) (Change
 	return ch, true, nil
 }
 
+func (s *PostgresStore) ListChanges(ctx context.Context, state string) ([]Change, error) {
+	var rows []*dbgen.Change
+	var err error
+	if state == "" {
+		rows, err = s.Queries.ListAllChanges(ctx, s.Pool, s.MonorepoID)
+	} else {
+		rows, err = s.Queries.ListChangesByState(ctx, s.Pool, dbgen.ListChangesByStateParams{
+			MonorepoID: s.MonorepoID, State: dbgen.ChangeState(state),
+		})
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Change, len(rows))
+	for i, r := range rows {
+		if out[i], err = s.hydrateChange(ctx, r); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) MarkChangeAbandoned(ctx context.Context, changeKey string) (Change, error) {
+	existing, ok, err := s.GetChange(ctx, changeKey)
+	if err != nil {
+		return Change{}, err
+	}
+	if !ok {
+		return Change{}, fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	switch existing.State {
+	case "landed":
+		return Change{}, fmt.Errorf("runkod: change %q already landed - landed is terminal", changeKey)
+	case "abandoned":
+		return existing, nil // idempotent
+	}
+	id, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return Change{}, err
+	}
+	c, err := s.Queries.AbandonChange(ctx, s.Pool, id)
+	if err != nil {
+		return Change{}, err
+	}
+	return s.hydrateChange(ctx, c)
+}
+
 // actorIDFor maps a principal name to an actors row (§15.1 interim
 // registry, same upsert-by-external_ref approvals already use). "" - the
 // anonymous deploy token - maps to the bootstrap placeholder actor.
@@ -255,12 +302,49 @@ func (s *PostgresStore) UpsertCheckRun(ctx context.Context, changeKey, headSHA s
 		c := dbgen.CheckConclusion(run.Conclusion)
 		conclusion = &c
 	}
+	// Target the LATEST attempt (stage 12c-③): a result posted after a
+	// rerun must complete the rerun's attempt, not resurrect attempt 1 and
+	// strand the rerun as forever-queued.
+	attempt := int32(1)
+	latest, err := s.Queries.GetLatestCheckRunAttempt(ctx, s.Pool, dbgen.GetLatestCheckRunAttemptParams{
+		ChangeID: changeID, HeadSha: headSHA, Name: run.Name,
+	})
+	switch {
+	case err == nil:
+		attempt = latest.Attempt
+	case errors.Is(err, pgx.ErrNoRows):
+		// First run for this name - insert attempt 1.
+	default:
+		return err
+	}
 	_, err = s.Queries.UpsertCheckRunByName(ctx, s.Pool, dbgen.UpsertCheckRunByNameParams{
 		ChangeID: changeID, HeadSha: headSHA, Name: run.Name,
 		ExternalID: run.Name, Status: dbgen.CheckStatus(run.Status), Conclusion: conclusion,
-		Reporter: "unknown", TtlSeconds: checks.DefaultTTLSeconds,
+		Reporter: "unknown", TtlSeconds: checks.DefaultTTLSeconds, Attempt: attempt,
 	})
 	return err
+}
+
+func (s *PostgresStore) RerunCheck(ctx context.Context, changeKey, checkName, requestedBy string) (checks.CheckRunView, error) {
+	change, ok, err := s.GetChange(ctx, changeKey)
+	if err != nil {
+		return checks.CheckRunView{}, err
+	}
+	if !ok {
+		return checks.CheckRunView{}, fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return checks.CheckRunView{}, err
+	}
+	if requestedBy == "" {
+		requestedBy = "unknown"
+	}
+	run, err := checks.RerunCheck(ctx, s.Pool, s.Queries, changeID, change.HeadSHA, checkName, "", requestedBy)
+	if err != nil {
+		return checks.CheckRunView{}, err
+	}
+	return checkRunViewFromRow(run.Name, run.Status, run.Conclusion, run.LastSeenAt.Time, run.TtlSeconds), nil
 }
 
 func (s *PostgresStore) ListCheckRuns(ctx context.Context, changeKey, headSHA string) ([]checks.CheckRunView, error) {
@@ -272,15 +356,32 @@ func (s *PostgresStore) ListCheckRuns(ctx context.Context, changeKey, headSHA st
 	if err != nil {
 		return nil, err
 	}
-	out := make([]checks.CheckRunView, len(rows))
-	for i, r := range rows {
-		view := checks.CheckRunView{Name: r.Name, Status: checks.CheckStatus(r.Status)}
-		if r.Conclusion != nil {
-			view.Conclusion = checks.CheckConclusion(*r.Conclusion)
+	// One view per NAME, latest attempt wins (the merge gate's view,
+	// §14.4.2): rows arrive ordered by (name, attempt), so a later row for
+	// the same name is always the higher attempt.
+	byName := map[string]int{}
+	out := make([]checks.CheckRunView, 0, len(rows))
+	for _, r := range rows {
+		view := checkRunViewFromRow(r.Name, r.Status, r.Conclusion, r.LastSeenAt.Time, r.TtlSeconds)
+		if i, seen := byName[r.Name]; seen {
+			out[i] = view
+			continue
 		}
-		out[i] = view
+		byName[r.Name] = len(out)
+		out = append(out, view)
 	}
 	return out, nil
+}
+
+func checkRunViewFromRow(name string, status dbgen.CheckStatus, conclusion *dbgen.CheckConclusion, lastSeen time.Time, ttl int32) checks.CheckRunView {
+	view := checks.CheckRunView{
+		Name: name, Status: checks.CheckStatus(status),
+		LastSeenAt: lastSeen, TTLSeconds: int(ttl),
+	}
+	if conclusion != nil {
+		view.Conclusion = checks.CheckConclusion(*conclusion)
+	}
+	return view
 }
 
 // CreateWorkspace persists a registry row via stage 2's workspaces table

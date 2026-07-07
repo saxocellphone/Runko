@@ -327,3 +327,91 @@ func TestPostgresStoreAttributionRoundTrip(t *testing.T) {
 		t.Fatalf("expected anonymous LandedBy to read back empty, got %q", got.LandedBy)
 	}
 }
+
+// TestPostgresStoreLifecycleAndRerunAttempts covers stage 12c-③'s Postgres
+// side: list/abandon/reopen state transitions, and - the subtle one - the
+// attempt semantics around reruns: RerunCheck creates attempt N+1, a result
+// posted AFTERWARDS must complete the rerun's attempt (UpsertCheckRun now
+// resolves the latest attempt; it used to hardcode attempt 1, which would
+// have stranded every rerun as forever-queued), and ListCheckRuns collapses
+// history to one latest-attempt view per name.
+func TestPostgresStoreLifecycleAndRerunAttempts(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+
+	if _, err := store.CreateOrUpdateChange(ctx, "I1", "b", "h1", "r1", "t1", ""); err != nil {
+		t.Fatalf("create I1: %v", err)
+	}
+	if _, err := store.CreateOrUpdateChange(ctx, "I2", "b", "h2", "r2", "t2", ""); err != nil {
+		t.Fatalf("create I2: %v", err)
+	}
+
+	open, err := store.ListChanges(ctx, "open")
+	if err != nil || len(open) != 2 {
+		t.Fatalf("expected 2 open changes, got %v (%v)", open, err)
+	}
+	if open[0].ChangeKey != "I2" {
+		t.Fatalf("expected newest-first ordering (I2 has the higher number), got %+v", open)
+	}
+
+	// Abandon -> filtered lists reflect it; idempotent; re-push reopens.
+	if _, err := store.MarkChangeAbandoned(ctx, "I1"); err != nil {
+		t.Fatalf("abandon: %v", err)
+	}
+	if _, err := store.MarkChangeAbandoned(ctx, "I1"); err != nil {
+		t.Fatalf("abandon (idempotent): %v", err)
+	}
+	if abandoned, err := store.ListChanges(ctx, "abandoned"); err != nil || len(abandoned) != 1 || abandoned[0].ChangeKey != "I1" {
+		t.Fatalf("expected I1 abandoned, got %v (%v)", abandoned, err)
+	}
+	reopened, err := store.CreateOrUpdateChange(ctx, "I1", "b", "h3", "r1", "t1", "")
+	if err != nil || reopened.State != "open" {
+		t.Fatalf("expected re-push to reopen, got %+v (%v)", reopened, err)
+	}
+
+	// Landed is terminal.
+	if _, err := store.MarkChangeLanded(ctx, "I2", "h2", ""); err != nil {
+		t.Fatalf("land I2: %v", err)
+	}
+	if _, err := store.MarkChangeAbandoned(ctx, "I2"); err == nil {
+		t.Fatalf("expected abandoning a landed change to error")
+	}
+
+	// Rerun attempt semantics on I1@h3.
+	if err := store.UpsertCheckRun(ctx, "I1", "h3", checks.CheckRunView{
+		Name: "unit", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionSuccess,
+	}); err != nil {
+		t.Fatalf("report attempt 1: %v", err)
+	}
+	rerun, err := store.RerunCheck(ctx, "I1", "unit", "alice")
+	if err != nil {
+		t.Fatalf("RerunCheck: %v", err)
+	}
+	if rerun.Status != checks.CheckStatusQueued {
+		t.Fatalf("expected the rerun view queued, got %+v", rerun)
+	}
+	runs, err := store.ListCheckRuns(ctx, "I1", "h3")
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("expected ONE latest-attempt view after rerun, got %v (%v)", runs, err)
+	}
+	if runs[0].Status != checks.CheckStatusQueued {
+		t.Fatalf("expected the latest attempt (queued) to win, got %+v", runs[0])
+	}
+	if runs[0].LastSeenAt.IsZero() || runs[0].TTLSeconds <= 0 {
+		t.Fatalf("expected staleness inputs populated from Postgres, got %+v", runs[0])
+	}
+
+	// A result posted after the rerun completes the RERUN's attempt.
+	if err := store.UpsertCheckRun(ctx, "I1", "h3", checks.CheckRunView{
+		Name: "unit", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionSuccess,
+	}); err != nil {
+		t.Fatalf("report attempt 2: %v", err)
+	}
+	runs, err = store.ListCheckRuns(ctx, "I1", "h3")
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("expected one view, got %v (%v)", runs, err)
+	}
+	if runs[0].Status != checks.CheckStatusCompleted || runs[0].Conclusion != checks.ConclusionSuccess {
+		t.Fatalf("expected the rerun attempt completed (not attempt 1 resurrected), got %+v", runs[0])
+	}
+}

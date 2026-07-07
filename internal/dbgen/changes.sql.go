@@ -12,6 +12,37 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const abandonChange = `-- name: AbandonChange :one
+UPDATE changes SET state = 'abandoned', updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id
+`
+
+func (q *Queries) AbandonChange(ctx context.Context, db DBTX, id uuid.UUID) (*Change, error) {
+	row := db.QueryRow(ctx, abandonChange, id)
+	var i Change
+	err := row.Scan(
+		&i.ID,
+		&i.MonorepoID,
+		&i.ChangeKey,
+		&i.Number,
+		&i.State,
+		&i.BaseSha,
+		&i.HeadSha,
+		&i.GitRef,
+		&i.Title,
+		&i.Description,
+		&i.TestPlan,
+		&i.AuthoredByActorID,
+		&i.DependsOnChangeID,
+		&i.Mechanical,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LandedAt,
+		&i.LandedSha,
+		&i.LandedByActorID,
+	)
+	return &i, err
+}
+
 const addChangeAffectedProject = `-- name: AddChangeAffectedProject :exec
 INSERT INTO change_affected_projects (change_affected_id, project_id)
 VALUES ($1, $2) ON CONFLICT DO NOTHING
@@ -267,6 +298,50 @@ func (q *Queries) LandChange(ctx context.Context, db DBTX, arg LandChangeParams)
 	return &i, err
 }
 
+const listAllChanges = `-- name: ListAllChanges :many
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id FROM changes WHERE monorepo_id = $1 ORDER BY number DESC
+`
+
+func (q *Queries) ListAllChanges(ctx context.Context, db DBTX, monorepoID uuid.UUID) ([]*Change, error) {
+	rows, err := db.Query(ctx, listAllChanges, monorepoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Change
+	for rows.Next() {
+		var i Change
+		if err := rows.Scan(
+			&i.ID,
+			&i.MonorepoID,
+			&i.ChangeKey,
+			&i.Number,
+			&i.State,
+			&i.BaseSha,
+			&i.HeadSha,
+			&i.GitRef,
+			&i.Title,
+			&i.Description,
+			&i.TestPlan,
+			&i.AuthoredByActorID,
+			&i.DependsOnChangeID,
+			&i.Mechanical,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LandedAt,
+			&i.LandedSha,
+			&i.LandedByActorID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChangeAffectedProjects = `-- name: ListChangeAffectedProjects :many
 SELECT p.id, p.monorepo_id, p.name, p.path, p.project_type, p.template_id, p.visibility, p.capabilities, p.declared_dependencies, p.indexed_at_sha, p.created_at, p.updated_at FROM change_affected_projects cap
 JOIN projects p ON p.id = cap.project_id
@@ -410,6 +485,55 @@ func (q *Queries) ListChangeOwnerRequirements(ctx context.Context, db DBTX, chan
 	return items, nil
 }
 
+const listChangesByState = `-- name: ListChangesByState :many
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id FROM changes WHERE monorepo_id = $1 AND state = $2 ORDER BY number DESC
+`
+
+type ListChangesByStateParams struct {
+	MonorepoID uuid.UUID   `json:"monorepo_id"`
+	State      ChangeState `json:"state"`
+}
+
+func (q *Queries) ListChangesByState(ctx context.Context, db DBTX, arg ListChangesByStateParams) ([]*Change, error) {
+	rows, err := db.Query(ctx, listChangesByState, arg.MonorepoID, arg.State)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Change
+	for rows.Next() {
+		var i Change
+		if err := rows.Scan(
+			&i.ID,
+			&i.MonorepoID,
+			&i.ChangeKey,
+			&i.Number,
+			&i.State,
+			&i.BaseSha,
+			&i.HeadSha,
+			&i.GitRef,
+			&i.Title,
+			&i.Description,
+			&i.TestPlan,
+			&i.AuthoredByActorID,
+			&i.DependsOnChangeID,
+			&i.Mechanical,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LandedAt,
+			&i.LandedSha,
+			&i.LandedByActorID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenChanges = `-- name: ListOpenChanges :many
 SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number DESC LIMIT $2 OFFSET $3
 `
@@ -538,7 +662,10 @@ func (q *Queries) UpdateChangeDescription(ctx context.Context, db DBTX, arg Upda
 }
 
 const updateChangeHead = `-- name: UpdateChangeHead :one
-UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id
+UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4,
+    state = CASE WHEN changes.state = 'abandoned' THEN 'open'::change_state ELSE changes.state END,
+    updated_at = now()
+WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id
 `
 
 type UpdateChangeHeadParams struct {
@@ -550,7 +677,9 @@ type UpdateChangeHeadParams struct {
 
 // authored_by_actor_id moves with the head: the last pusher owns the
 // current content, which is also who self-approval is checked against
-// (§8.7, stage 12c).
+// (§8.7, stage 12c). Re-pushing an abandoned Change reopens it (§7.4 -
+// the change.reopened webhook event modeled this from day one); landed
+// stays landed, it is terminal.
 func (q *Queries) UpdateChangeHead(ctx context.Context, db DBTX, arg UpdateChangeHeadParams) (*Change, error) {
 	row := db.QueryRow(ctx, updateChangeHead,
 		arg.ID,

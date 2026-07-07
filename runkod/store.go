@@ -74,6 +74,16 @@ type Store interface {
 	CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy string) (Change, error)
 	GetChange(ctx context.Context, changeKey string) (Change, bool, error)
 
+	// ListChanges returns every Change in the given state, newest first;
+	// state "" means all states (§28.3 stage 12c-③ - the UI's first page).
+	ListChanges(ctx context.Context, state string) ([]Change, error)
+
+	// MarkChangeAbandoned moves an open Change to "abandoned" (§7.4's third
+	// state, settable for the first time in stage 12c-③). Abandoning an
+	// already-abandoned Change is an idempotent no-op; abandoning a LANDED
+	// Change is an error - landed is terminal, trunk already has the code.
+	MarkChangeAbandoned(ctx context.Context, changeKey string) (Change, error)
+
 	// MarkChangeLanded records a successful land.Land outcome (§13.5, §28.3
 	// stage 11b): state -> "landed", landedSHA recorded as-is (may differ
 	// from HeadSHA - see Change.LandedSHA's doc comment). landedBy is the
@@ -95,9 +105,18 @@ type Store interface {
 	// none exists yet, or updates status/conclusion in place otherwise -
 	// report-check posts a status transition for the SAME logical run
 	// (queued -> in_progress -> completed), a different flow from
-	// checks.RerunCheck's explicit new-attempt semantics (§14.4.2).
+	// RerunCheck's explicit new-attempt semantics (§14.4.2). After a
+	// rerun, the update targets the rerun's (latest) attempt.
 	UpsertCheckRun(ctx context.Context, changeKey, headSHA string, run checks.CheckRunView) error
+	// ListCheckRuns returns one view per check NAME at (changeKey, headSHA)
+	// - the latest attempt where attempts exist, since that's the only one
+	// the merge gate cares about (§14.4.2).
 	ListCheckRuns(ctx context.Context, changeKey, headSHA string) ([]checks.CheckRunView, error)
+	// RerunCheck resets checkName at the Change's CURRENT head to a fresh
+	// queued attempt (§14.4.2's re-run flow; stage 12c-③ wires it to the
+	// wire for the first time) and returns the new view. requestedBy is
+	// audit attribution, "" for the anonymous deploy token.
+	RerunCheck(ctx context.Context, changeKey, checkName, requestedBy string) (checks.CheckRunView, error)
 
 	// CreateWorkspace registers one workspace (§12.2, §28.3 stage 12b);
 	// errors if the ID is already taken. GetWorkspace/ListWorkspaces/
@@ -128,6 +147,16 @@ type MemStore struct {
 	workspaces map[string]Workspace
 	deliveries map[string]*memDelivery
 	nextID     int
+	// Now overrides the clock check-run timestamps use; nil means time.Now
+	// (tests inject a fake clock to exercise §14.4.2 staleness).
+	Now func() time.Time
+}
+
+func (s *MemStore) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
 }
 
 type memDelivery struct {
@@ -154,6 +183,12 @@ func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA,
 		existing.HeadSHA = headSHA
 		existing.GitRef = gitRef
 		existing.AuthoredBy = authoredBy
+		if existing.State == "abandoned" {
+			// Re-pushing an abandoned Change reopens it (§7.4; the webhook
+			// enum modeled change.reopened from day one). Landed stays
+			// landed - terminal.
+			existing.State = "open"
+		}
 		s.changes[changeKey] = existing
 		return existing, nil
 	}
@@ -171,6 +206,39 @@ func (s *MemStore) GetChange(ctx context.Context, changeKey string) (Change, boo
 	defer s.mu.Unlock()
 	c, ok := s.changes[changeKey]
 	return c, ok, nil
+}
+
+func (s *MemStore) ListChanges(ctx context.Context, state string) ([]Change, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Change, 0, len(s.changes))
+	for _, c := range s.changes {
+		if state == "" || c.State == state {
+			out = append(out, c)
+		}
+	}
+	// MemStore has no monotonic change number (Postgres orders by it,
+	// newest first); sort by ChangeKey for a deterministic listing.
+	sort.Slice(out, func(i, j int) bool { return out[i].ChangeKey < out[j].ChangeKey })
+	return out, nil
+}
+
+func (s *MemStore) MarkChangeAbandoned(ctx context.Context, changeKey string) (Change, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.changes[changeKey]
+	if !ok {
+		return Change{}, fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	switch c.State {
+	case "landed":
+		return Change{}, fmt.Errorf("runkod: change %q already landed - landed is terminal", changeKey)
+	case "abandoned":
+		return c, nil // idempotent
+	}
+	c.State = "abandoned"
+	s.changes[changeKey] = c
+	return c, nil
 }
 
 func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string) (Change, error) {
@@ -221,8 +289,37 @@ func (s *MemStore) UpsertCheckRun(ctx context.Context, changeKey, headSHA string
 	if s.checkRuns[key] == nil {
 		s.checkRuns[key] = make(map[string]checks.CheckRunView)
 	}
+	if run.LastSeenAt.IsZero() {
+		run.LastSeenAt = s.now()
+	}
+	if run.TTLSeconds == 0 {
+		run.TTLSeconds = checks.DefaultTTLSeconds
+	}
 	s.checkRuns[key][run.Name] = run
 	return nil
+}
+
+func (s *MemStore) RerunCheck(ctx context.Context, changeKey, checkName, requestedBy string) (checks.CheckRunView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	change, ok := s.changes[changeKey]
+	if !ok {
+		return checks.CheckRunView{}, fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	key := checkRunKey(changeKey, change.HeadSHA)
+	if s.checkRuns[key] == nil {
+		s.checkRuns[key] = make(map[string]checks.CheckRunView)
+	}
+	// MemStore keeps one view per name, so a rerun RESETS it to queued
+	// rather than growing an attempt history - the same latest-attempt view
+	// ListCheckRuns reports from Postgres, which does keep the history.
+	run := checks.CheckRunView{
+		Name: checkName, Status: checks.CheckStatusQueued,
+		LastSeenAt: s.now(), TTLSeconds: checks.DefaultTTLSeconds,
+	}
+	s.checkRuns[key][checkName] = run
+	_ = requestedBy // audit attribution is the caller's webhook/log concern in MemStore
+	return run, nil
 }
 
 func (s *MemStore) ListCheckRuns(ctx context.Context, changeKey, headSHA string) ([]checks.CheckRunView, error) {

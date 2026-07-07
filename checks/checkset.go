@@ -1,6 +1,9 @@
 package checks
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // CheckStatus and CheckConclusion mirror
 // docs/spec/webhooks/checkrun.schema.json#/$defs/CheckStatus /
@@ -32,6 +35,12 @@ type CheckRunView struct {
 	Name       string
 	Status     CheckStatus
 	Conclusion CheckConclusion // meaningful only when Status == CheckStatusCompleted
+	// LastSeenAt/TTLSeconds feed IsStale (§14.4.2: "a dead CI must block
+	// loudly, not hang silently") - when the reporter last touched this
+	// run, and how long a non-terminal run may go untouched. Zero values
+	// (older callers that never set them) read as never-stale.
+	LastSeenAt time.Time
+	TTLSeconds int
 }
 
 // CheckSetPolicy mirrors docs/spec/webhooks/checkrun.schema.json#/$defs/CheckSetPolicy.

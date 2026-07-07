@@ -59,6 +59,9 @@ schemas are.
 | `runko change push` | `{"change_id", "ref"}` |
 | `runko change land` | `land.Outcome` (`Landed`, `LandedSHA`, `RequiresRevalidation`, `Conflicts`, `RaceRetry`) - needs a live runkod (`--runkod-url`/`--token`), unlike every other command in this table, see §13.5/§28.3 stage 11b |
 | `runko change approve` | `MergeRequirements` (the same nested `{change_id, owners, checks, mergeable, blockers}` shape `GET .../merge-requirements` reports, per `docs/spec/mcp-tools/common.schema.json`) - needs a live runkod, see §13.5/§28.3 stage 11c |
+| `runko change list` | `[]ChangeInfo` (`ChangeKey`, `State`, `BaseSHA`, `HeadSHA`, `GitRef`, `Title`, `LandedSHA`, `AuthoredBy`, `LandedBy`) - needs a live runkod (`GET /api/changes?state=`; `--state all` lists every state), see §28.3 stage 12c |
+| `runko change abandon` | `ChangeInfo` - needs a live runkod; idempotent on an abandoned change, refuses a landed one (`invalid_state`), see §7.4/§28.3 stage 12c |
+| `runko change rerun-check` | `MergeRequirements` (refreshed, same as approve) - needs a live runkod; resets a REQUIRED check to queued and emits `change.check_rerun_requested` for the org's CI plugin (§14.4.2), see §28.3 stage 12c |
 | `runko agents-md` | `{"path"}` - also writes `AGENTS.md` (default; `--out` overrides) at the repo root, see §8.8/§28.3 stage 11 |
 | `runko workspace create` | `WorkspaceInfo` (`ID`, `Owner`, `BaseRevision`, `ProjectAffinity`, `WriteAllowlist`, `SnapshotRef`, `Status`, `SparsePatterns`, `RepoPath`, `TrunkRef`) - needs a live runkod, see §12.3/§28.3 stage 12b |
 | `runko workspace list` | `[]WorkspaceInfo` - needs a live runkod |

@@ -16,14 +16,17 @@ RETURNING *;
 
 -- name: UpsertCheckRunByName :one
 -- Report-check posts a STATUS TRANSITION for the same logical run (queued ->
--- in_progress -> completed), always at attempt 1 - a different flow from
+-- in_progress -> completed) - a different flow from
 -- CreateCheckRun/GetLatestCheckRunAttempt's explicit new-attempt re-run
--- semantics (§14.4.2), so this always targets attempt 1 rather than
--- incrementing it. Used by runkod's PostgresStore (§28.3 stage 10b).
+-- semantics (§14.4.2). The caller passes the attempt to target: the LATEST
+-- one (runkod's PostgresStore resolves it first), so a result posted after
+-- a rerun completes the rerun's attempt rather than resurrecting attempt 1
+-- (stage 12c-③ - previously hardcoded to attempt 1, which stranded every
+-- rerun attempt as forever-queued the moment reruns became requestable).
 INSERT INTO check_runs (
-    change_id, head_sha, name, external_id, status, conclusion, reporter, ttl_seconds
+    change_id, head_sha, name, external_id, status, conclusion, reporter, ttl_seconds, attempt
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
+    $1, $2, $3, $4, $5, $6, $7, $8, $9
 ) ON CONFLICT (change_id, head_sha, name, attempt) DO UPDATE
     SET external_id = EXCLUDED.external_id,
         status = EXCLUDED.status,

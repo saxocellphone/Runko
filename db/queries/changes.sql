@@ -15,8 +15,13 @@ SELECT * FROM changes WHERE monorepo_id = $1 AND change_key = $2;
 -- name: UpdateChangeHead :one
 -- authored_by_actor_id moves with the head: the last pusher owns the
 -- current content, which is also who self-approval is checked against
--- (§8.7, stage 12c).
-UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, updated_at = now() WHERE id = $1 RETURNING *;
+-- (§8.7, stage 12c). Re-pushing an abandoned Change reopens it (§7.4 -
+-- the change.reopened webhook event modeled this from day one); landed
+-- stays landed, it is terminal.
+UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4,
+    state = CASE WHEN changes.state = 'abandoned' THEN 'open'::change_state ELSE changes.state END,
+    updated_at = now()
+WHERE id = $1 RETURNING *;
 
 -- name: UpdateChangeDescription :one
 UPDATE changes SET description = $2, test_plan = $3, updated_at = now() WHERE id = $1 RETURNING *;
@@ -26,6 +31,15 @@ UPDATE changes SET state = 'landed', landed_at = now(), landed_sha = $2, landed_
 
 -- name: ListOpenChanges :many
 SELECT * FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number DESC LIMIT $2 OFFSET $3;
+
+-- name: ListChangesByState :many
+SELECT * FROM changes WHERE monorepo_id = $1 AND state = $2 ORDER BY number DESC;
+
+-- name: ListAllChanges :many
+SELECT * FROM changes WHERE monorepo_id = $1 ORDER BY number DESC;
+
+-- name: AbandonChange :one
+UPDATE changes SET state = 'abandoned', updated_at = now() WHERE id = $1 RETURNING *;
 
 -- name: AddChangeAssistedBy :exec
 INSERT INTO change_assisted_by (change_id, actor_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;

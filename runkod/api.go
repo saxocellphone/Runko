@@ -64,6 +64,16 @@ type Server struct {
 	// slice so API-side attribution and receive-side enforcement agree on
 	// who exists.
 	Principals []Principal
+	// Now overrides the clock the §14.4.2 check-staleness comparison uses;
+	// nil means time.Now (tests inject a fake clock).
+	Now func() time.Time
+}
+
+func (s *Server) clock() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
 }
 
 // Handler assembles the full mux: smart-HTTP git hosting at
@@ -80,7 +90,10 @@ func (s *Server) Handler() (http.Handler, error) {
 
 	mux.HandleFunc("POST /internal/pre-receive", s.handlePreReceive)
 
+	mux.HandleFunc("GET /api/changes", s.requireAuth(s.handleListChanges))
 	mux.HandleFunc("GET /api/changes/{key}", s.requireAuth(s.handleGetChange))
+	mux.HandleFunc("POST /api/changes/{key}/abandon", s.requireAuth(s.handleAbandonChange))
+	mux.HandleFunc("POST /api/changes/{key}/checks/{name}/rerun", s.requireAuth(s.handleRerunCheck))
 	mux.HandleFunc("GET /api/changes/{key}/affected", s.requireAuth(s.handleGetAffected))
 	mux.HandleFunc("GET /api/changes/{key}/merge-requirements", s.requireAuth(s.handleGetMergeRequirements))
 	mux.HandleFunc("POST /api/changes/{key}/checks", s.requireAuth(s.handlePostCheck))
@@ -232,6 +245,159 @@ func (s *Server) handlePreReceive(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, results)
 }
 
+// handleListChanges serves GET /api/changes?state= (§28.3 stage 12c-③, the
+// UI's first page): every Change in a state, newest first, all states when
+// ?state is absent. Unpaginated like /api/projects - server-side pagination
+// is deferred until a real list outgrows one response.
+func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	switch state {
+	case "", "open", "landed", "abandoned":
+	default:
+		writeJSON(w, http.StatusBadRequest, clierr.Error{
+			Code: "invalid_state", Field: "state",
+			Message:    fmt.Sprintf("%q is not a change state", state),
+			Suggestion: "use state=open|landed|abandoned, or omit it for all",
+		})
+		return
+	}
+	list, err := s.Store.ListChanges(r.Context(), state)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if list == nil {
+		list = []Change{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// handleAbandonChange serves POST /api/changes/{key}/abandon (§7.4's third
+// state, settable for the first time in stage 12c-③). Idempotent on an
+// already-abandoned Change; refuses a landed one (terminal - trunk already
+// has the code). No webhook: the envelope schema's event enum has no
+// abandoned event (docs/spec/webhooks), and the schema is the contract -
+// widening it is a spec change, not a side effect of this endpoint.
+func (s *Server) handleAbandonChange(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	_, ok, err := s.Store.GetChange(r.Context(), key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "change not found", http.StatusNotFound)
+		return
+	}
+	change, err := s.Store.MarkChangeAbandoned(r.Context(), key)
+	if err != nil {
+		writeJSON(w, http.StatusConflict, clierr.Error{
+			Code: "invalid_state", Field: "change",
+			Message:    err.Error(),
+			Suggestion: "a landed change cannot be abandoned; revert it with a new change instead",
+		})
+		return
+	}
+	if principal := s.principalFor(r); principal != nil {
+		log.Printf("runkod: change %s abandoned by %q", key, principal.Name)
+	}
+	writeJSON(w, http.StatusOK, change)
+}
+
+// handleRerunCheck serves POST /api/changes/{key}/checks/{name}/rerun -
+// §14.4.2's re-run flow, wired to the wire for the first time (stage
+// 12c-③; checks.RerunCheck and the change.check_rerun_requested webhook
+// schema existed since stage 8 with no caller). The daemon never runs CI
+// (§14): rerunning means resetting the run to queued and emitting the
+// webhook the org's CI plugin maps to a provider-specific re-run. Responds
+// with the refreshed merge requirements, the same shape approve returns.
+func (s *Server) handleRerunCheck(w http.ResponseWriter, r *http.Request) {
+	key, name := r.PathValue("key"), r.PathValue("name")
+	change, ok, err := s.Store.GetChange(r.Context(), key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "change not found", http.StatusNotFound)
+		return
+	}
+
+	// Only checks that actually gate this Change can be rerun - a rerun of
+	// an unknown name would queue a run nothing will ever report against.
+	result, indexed, err := s.computeAffected(change)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	required := mergeCheckNames(requiredCheckNames(result, indexed), s.GlobalRequiredChecks)
+	isRequired := false
+	for _, n := range required {
+		if n == name {
+			isRequired = true
+			break
+		}
+	}
+	if !isRequired {
+		suggestion := "this change requires no checks at all"
+		if len(required) > 0 {
+			suggestion = "required checks for this change: " + strings.Join(required, ", ")
+		}
+		writeJSON(w, http.StatusBadRequest, clierr.Error{
+			Code: "unknown_check", Field: "name",
+			Message:    fmt.Sprintf("%q is not a required check for change %s", name, key),
+			Suggestion: suggestion,
+		})
+		return
+	}
+
+	requestedBy := ""
+	if principal := s.principalFor(r); principal != nil {
+		requestedBy = principal.Name
+	}
+	if _, err := s.Store.RerunCheck(r.Context(), key, name, requestedBy); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.enqueueRerunWebhook(r.Context(), change, name, requestedBy)
+
+	reqs, err := s.mergeRequirements(r.Context(), key, change, s.laneFor(r))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, reqs)
+}
+
+// enqueueRerunWebhook emits change.check_rerun_requested (§14.4.2): the
+// org's CI plugin maps the rerun block to a provider-specific re-run.
+func (s *Server) enqueueRerunWebhook(ctx context.Context, change Change, checkName, requestedBy string) {
+	actor := checks.WebhookActor{Type: "user", ID: requestedBy}
+	if requestedBy == "" {
+		actor.ID = "unknown"
+	}
+	env := checks.WebhookEnvelope{
+		SpecVersion: "1",
+		DeliveryID:  change.ChangeKey + "@rerun@" + checkName + "@" + s.clock().UTC().Format(time.RFC3339),
+		Type:        "change.check_rerun_requested",
+		OccurredAt:  s.clock(),
+		Change: checks.WebhookChange{
+			ID: change.ChangeKey, State: change.State,
+			BaseSHA: change.BaseSHA, HeadSHA: change.HeadSHA, GitRef: change.GitRef,
+			Title: change.Title, Actor: actor,
+		},
+		Rerun: &checks.WebhookRerun{CheckName: checkName, RequestedBy: actor},
+	}
+	payload, err := checks.MarshalEnvelope(env)
+	if err != nil {
+		log.Printf("runkod: %s: marshal rerun webhook: %v", change.ChangeKey, err)
+		return
+	}
+	if _, err := s.Store.EnqueueWebhook(ctx, env.Type, payload); err != nil {
+		log.Printf("runkod: %s: enqueue rerun webhook: %v", change.ChangeKey, err)
+	}
+}
+
 func (s *Server) handleGetChange(w http.ResponseWriter, r *http.Request) {
 	change, ok, err := s.Store.GetChange(r.Context(), r.PathValue("key"))
 	if err != nil {
@@ -372,7 +538,26 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 		}
 	}
 
-	req := checks.ComputeMergeRequirements(key, owners, requiredNames, runs, nil, nil, nil)
+	// §14.4.2 staleness, consulted for the first time in stage 12c-③: a
+	// REQUIRED run stuck in queued/in_progress past its TTL gets a loud
+	// blocker naming it ("a dead CI must block loudly, not hang silently")
+	// - it was already non-mergeable by being pending; the blocker tells
+	// the human WHY nothing is progressing and rerun is the way out.
+	now := s.clock()
+	requiredSet := make(map[string]bool, len(requiredNames))
+	for _, n := range requiredNames {
+		requiredSet[n] = true
+	}
+	var staleNames []string
+	for _, run := range runs {
+		if requiredSet[run.Name] && !run.LastSeenAt.IsZero() &&
+			checks.IsStale(run.Status, run.LastSeenAt, run.TTLSeconds, now) {
+			staleNames = append(staleNames, run.Name)
+		}
+	}
+	sort.Strings(staleNames)
+
+	req := checks.ComputeMergeRequirements(key, owners, requiredNames, runs, nil, staleNames, nil)
 
 	if lane == nil && !s.AllowUnpolicedLand && len(req.RequiredChecks) == 0 && len(req.RequiredOwners) == 0 {
 		req.Mergeable = false
@@ -787,6 +972,17 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 		// response (or simply asking again) should see the same success,
 		// not a confusing "not mergeable"/re-attempt error.
 		writeJSON(w, http.StatusOK, landResponse{Landed: true, LandedSHA: change.LandedSHA})
+		return
+	}
+	if change.State == "abandoned" {
+		// Stage 12c-③: abandoned became reachable, so land must refuse it
+		// - gates are computed from the tree and would otherwise happily
+		// pass an abandoned Change straight onto trunk.
+		writeJSON(w, http.StatusConflict, &clierr.Error{
+			Code: "invalid_state", Field: "change",
+			Message:    fmt.Sprintf("change %s is abandoned", key),
+			Suggestion: "an abandoned change cannot land; push it again to reopen it",
+		})
 		return
 	}
 

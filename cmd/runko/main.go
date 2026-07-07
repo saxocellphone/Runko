@@ -96,6 +96,9 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   project list --runkod-url <url> --token <t>                 list projects indexed at trunk (§10.3) [--json]
   change land --change <id> --runkod-url <url> --token <t>   land a mergeable Change (§13.5) [--json]
   change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t>   record an owner approval (§13.5) [--json]
+  change list [--state open] --runkod-url <url> --token <t>  list changes, newest first (§7.4) [--json]
+  change abandon --change <id> --runkod-url <url> --token <t>   abandon an open change (§7.4) [--json]
+  change rerun-check --change <id> --name <check> --runkod-url <url> --token <t>   request a check re-run (§14.4.2) [--json]
   workspace create --name <n> --project <p>... --by <who> --runkod-url <url> --token <t>   worktree + sparse cone + registry row (§12.3) [--json]
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
   workspace attach <id> --runkod-url <url> --token <t>       restore a workspace from its snapshot ref [--json]
@@ -223,14 +226,21 @@ func cmdProjectList(args []string) error {
 }
 
 func cmdChange(args []string) error {
-	if len(args) < 1 || (args[0] != "push" && args[0] != "land" && args[0] != "approve") {
-		return usageError("usage: runko change push [--remote origin] [--trunk main] | runko change land --change <id> --runkod-url <url> --token <t> | runko change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t>")
+	valid := map[string]bool{"push": true, "land": true, "approve": true, "list": true, "abandon": true, "rerun-check": true}
+	if len(args) < 1 || !valid[args[0]] {
+		return usageError("usage: runko change push|land|approve|list|abandon|rerun-check ... (see docs/cli-contract.md)")
 	}
-	if args[0] == "land" {
+	switch args[0] {
+	case "land":
 		return cmdChangeLand(args[1:])
-	}
-	if args[0] == "approve" {
+	case "approve":
 		return cmdChangeApprove(args[1:])
+	case "list":
+		return cmdChangeList(args[1:])
+	case "abandon":
+		return cmdChangeAbandon(args[1:])
+	case "rerun-check":
+		return cmdChangeRerunCheck(args[1:])
 	}
 
 	fs := flag.NewFlagSet("change push", flag.ExitOnError)
@@ -320,6 +330,90 @@ func cmdChangeApprove(args []string) error {
 		for _, b := range reqs.Blockers {
 			fmt.Printf("  - %s\n", b)
 		}
+	}
+	return nil
+}
+
+func cmdChangeList(args []string) error {
+	fs := flag.NewFlagSet("change list", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL")
+	token := fs.String("token", "", "deploy token")
+	state := fs.String("state", "open", "filter: open|landed|abandoned|all")
+	jsonOut := fs.Bool("json", false, "emit the change list as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *runkodURL == "" || *token == "" {
+		return fmt.Errorf("change list: --runkod-url and --token are required")
+	}
+	filter := *state
+	if filter == "all" {
+		filter = ""
+	}
+	list, err := ListChanges(context.Background(), http.DefaultClient, *runkodURL, *token, filter)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(list)
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	for _, c := range list {
+		author := c.AuthoredBy
+		if author == "" {
+			author = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", c.ChangeKey, c.State, author, c.Title)
+	}
+	return tw.Flush()
+}
+
+func cmdChangeAbandon(args []string) error {
+	fs := flag.NewFlagSet("change abandon", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL")
+	token := fs.String("token", "", "deploy token")
+	changeID := fs.String("change", "", "Change-Id to abandon")
+	jsonOut := fs.Bool("json", false, "emit the abandoned change as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *runkodURL == "" || *token == "" || *changeID == "" {
+		return fmt.Errorf("change abandon: --runkod-url, --token, and --change are required")
+	}
+	change, err := AbandonChange(context.Background(), http.DefaultClient, *runkodURL, *token, *changeID)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(change)
+	}
+	fmt.Printf("abandoned %s (%s)\n", change.ChangeKey, change.Title)
+	return nil
+}
+
+func cmdChangeRerunCheck(args []string) error {
+	fs := flag.NewFlagSet("change rerun-check", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL")
+	token := fs.String("token", "", "deploy token")
+	changeID := fs.String("change", "", "Change-Id whose check to rerun")
+	name := fs.String("name", "", "required check name to rerun")
+	jsonOut := fs.Bool("json", false, "emit the refreshed merge requirements as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *runkodURL == "" || *token == "" || *changeID == "" || *name == "" {
+		return fmt.Errorf("change rerun-check: --runkod-url, --token, --change, and --name are required")
+	}
+	reqs, err := RerunCheck(context.Background(), http.DefaultClient, *runkodURL, *token, *changeID, *name)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(reqs)
+	}
+	fmt.Printf("rerun requested for %s on %s\n", *name, *changeID)
+	for _, b := range reqs.Blockers {
+		fmt.Printf("  - %s\n", b)
 	}
 	return nil
 }
