@@ -21,8 +21,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/saxocellphone/runko/agentsmd"
 	"github.com/saxocellphone/runko/project"
 )
 
@@ -47,6 +49,8 @@ func main() {
 		err = cmdProject(os.Args[2:])
 	case "change":
 		err = cmdChange(os.Args[2:])
+	case "agents-md":
+		err = cmdAgentsMD(os.Args[2:])
 	case "auth", "workspace", "mcp":
 		fmt.Fprintf(os.Stderr, "runko %s: requires a live control plane - not implemented yet (docs/design.md §17.1, §19.2)\n", os.Args[1])
 		os.Exit(1)
@@ -76,6 +80,7 @@ commands (operate on the local repo only):
   doctor                          check remotes/hooks, print a cheat-sheet (§6.9) [--json]
   project create --name <n> ...   create a project from an intent, on top of HEAD (§10.1) [--json]
   change push                     push HEAD to refs/for/<trunk> for review (§11.5) [--json]
+  agents-md                       (re)generate AGENTS.md teaching this CLI to agents (§8.8) [--json]
 
 not yet implemented (need a live control plane, §19.2):
   auth login, workspace create/attach, change create/requirements, mcp serve
@@ -180,6 +185,34 @@ func cmdChange(args []string) error {
 		})
 	}
 	fmt.Printf("pushed to refs/for/%s (Change-Id: %s)\n", *trunk, changeID)
+	return nil
+}
+
+// cmdAgentsMD implements `runko agents-md`: (re)write AGENTS.md at the repo
+// root from agentsmd.Generate() - §8.8's "reference prompts / skill files
+// ... generated per monorepo", stage 11's (§28.3) done-when bar. Overwrites
+// unconditionally, matching how sqlc/oapi-codegen generated files in this
+// repo are treated: regenerate, don't hand-edit.
+func cmdAgentsMD(args []string) error {
+	fs := flag.NewFlagSet("agents-md", flag.ExitOnError)
+	repoDir := fs.String("repo", ".", "path to the local repo")
+	out := fs.String("out", "AGENTS.md", "output path, relative to --repo unless absolute")
+	jsonOut := fs.Bool("json", false, "emit {path} as JSON instead of a human summary")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	path := *out
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(*repoDir, path)
+	}
+	if err := os.WriteFile(path, []byte(agentsmd.Generate()), 0o644); err != nil {
+		return fmt.Errorf("agents-md: write %s: %w", path, err)
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"path": path})
+	}
+	fmt.Printf("generated %s\n", path)
 	return nil
 }
 

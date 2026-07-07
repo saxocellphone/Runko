@@ -4,16 +4,20 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/saxocellphone/runko/affected"
 	"github.com/saxocellphone/runko/checks"
 	"github.com/saxocellphone/runko/core"
 	"github.com/saxocellphone/runko/index"
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
+	"github.com/saxocellphone/runko/search"
 )
 
 // Server assembles every HTTP surface runkod exposes: smart-HTTP git
@@ -28,6 +32,11 @@ type Server struct {
 	Store     Store
 	Processor *Processor
 	Token     string // deploy token (REST API) and pre-receive shared secret
+	// Searcher backs GET /api/search (§8.3's search_code tool). Defaults to
+	// search.NotConfiguredSearcher{} in Handler if left nil, so a daemon
+	// started without --search-url still answers with a structured "not
+	// configured" error rather than panicking.
+	Searcher search.CodeSearcher
 }
 
 // Handler assembles the full mux: smart-HTTP git hosting at
@@ -48,8 +57,19 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/changes/{key}/affected", s.requireAuth(s.handleGetAffected))
 	mux.HandleFunc("GET /api/changes/{key}/merge-requirements", s.requireAuth(s.handleGetMergeRequirements))
 	mux.HandleFunc("POST /api/changes/{key}/checks", s.requireAuth(s.handlePostCheck))
+	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
 
 	return mux, nil
+}
+
+// searcher returns s.Searcher, or search.NotConfiguredSearcher{} if unset -
+// so callers (Handler's route, tests constructing a bare Server{}) never
+// need to nil-check before calling Search.
+func (s *Server) searcher() search.CodeSearcher {
+	if s.Searcher == nil {
+		return search.NotConfiguredSearcher{}
+	}
+	return s.Searcher
 }
 
 // requireAuth wraps a handler with deploy-token bearer auth. The
@@ -259,6 +279,68 @@ func (s *Server) handlePostCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+}
+
+// handleSearch implements search_code (§8.3): a project-tagged code search
+// over trunk, served through the daemon (stage 11's DAG entry). Project
+// tagging happens here, not inside search.CodeSearcher - that package stays
+// a leaf (no dependency on index/affected), the same layering
+// handleGetAffected already uses (its own index.Scan, then affected.Compute).
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		http.Error(w, "q is required", http.StatusBadRequest)
+		return
+	}
+	num := 0
+	if n := r.URL.Query().Get("num"); n != "" {
+		if v, err := strconv.Atoi(n); err == nil {
+			num = v
+		}
+	}
+
+	result, err := s.searcher().Search(r.Context(), q, search.SearchOptions{Num: num})
+	if err != nil {
+		var ce *clierr.Error
+		if errors.As(err, &ce) {
+			writeJSON(w, http.StatusServiceUnavailable, ce)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	gstore := gitstore.New(s.RepoDir)
+	if indexed, ierr := index.Scan(gstore, core.Revision("refs/heads/"+s.TrunkRef), nil); ierr == nil {
+		tagProjects(result, indexed)
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// tagProjects fills each Hit's Project by the same longest-path-prefix rule
+// affected.Compute uses (§13.3) - duplicated here in miniature rather than
+// exported from affected/, since that package's findOwner is deliberately
+// unexported and this is a three-line rule, not worth a cross-package API
+// for.
+func tagProjects(result *search.Result, projects []index.IndexedProject) {
+	for i, hit := range result.Hits {
+		var best index.IndexedProject
+		found := false
+		for _, p := range projects {
+			matches := p.Path == "" || hit.Path == p.Path || strings.HasPrefix(hit.Path, p.Path+"/")
+			if !matches {
+				continue
+			}
+			if !found || len(p.Path) > len(best.Path) {
+				best = p
+				found = true
+			}
+		}
+		if found {
+			result.Hits[i].Project = best.Name
+		}
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

@@ -92,6 +92,12 @@ type Processor struct {
 	// push through this daemon computed affected with the hardcoded empty
 	// Options{}, silently ignoring any org root-invalidation config.
 	RootInvalidationPatterns []string
+	// ZoektIndexWorker, if set, is triggered whenever an accepted push
+	// updates the trunk ref itself - see zoekt.go's doc comment for why
+	// that's currently unreachable in practice (trunk never advances
+	// through this daemon yet) but is the semantically correct hook point.
+	// Nil-safe: ZoektIndexWorker.Trigger no-ops on a nil receiver.
+	ZoektIndexWorker *ZoektIndexWorker
 }
 
 // ProcessBatch evaluates every ref update in one push, then - only if ALL
@@ -212,6 +218,10 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 	}
 
 	p.computeAffectedAndEnqueue(ctx, change, v.changedPaths, v.extraEnv)
+
+	if v.update.Ref == "refs/heads/"+p.TrunkRef {
+		p.ZoektIndexWorker.Trigger()
+	}
 
 	return RefResult{
 		Ref: v.update.Ref, Accepted: true, ChangeID: change.ChangeKey,

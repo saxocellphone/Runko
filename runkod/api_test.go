@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
 	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/search"
 )
 
 // newTestServer creates a real bare repo with one seeded Change (via a real
@@ -209,5 +212,96 @@ func TestAPIPostCheckAndMergeRequirementsRoundTrip(t *testing.T) {
 	}
 	if !mr2.Mergeable {
 		t.Fatalf("expected mergeable after the check completed successfully")
+	}
+}
+
+func TestAPISearchRequiresAuth(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	resp := authedGet(t, srv, "/api/search?q=checkout", "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without a token, got %d", resp.StatusCode)
+	}
+}
+
+// TestAPISearchNotConfiguredReturnsStructuredError guards the "NO silent
+// git-grep fallback" rule (§8.2): a server with no Searcher configured
+// (the newTestServer default) must surface the §6.5 structured error, not a
+// generic 500 or an empty-but-200 result a caller could mistake for "no
+// matches".
+func TestAPISearchNotConfiguredReturnsStructuredError(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	resp := authedGet(t, srv, "/api/search?q=checkout", "sekret")
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when no searcher is configured, got %d", resp.StatusCode)
+	}
+	var ce clierr.Error
+	if err := json.NewDecoder(resp.Body).Decode(&ce); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if ce.Code != "search_not_configured" {
+		t.Fatalf("expected code search_not_configured, got %+v", ce)
+	}
+}
+
+func TestAPISearchMissingQueryIsBadRequest(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+
+	resp := authedGet(t, srv, "/api/search", "sekret")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 without ?q=, got %d", resp.StatusCode)
+	}
+}
+
+// stubSearcher is a fake search.CodeSearcher returning canned hits, so this
+// test exercises runkod's own project-tagging layer (tagProjects) without
+// depending on a real zoekt-webserver.
+type stubSearcher struct{ result search.Result }
+
+func (s stubSearcher) Search(_ context.Context, _ string, _ search.SearchOptions) (*search.Result, error) {
+	r := s.result
+	return &r, nil
+}
+
+// TestAPISearchProjectTagsHits proves handleSearch fills in Hit.Project by
+// scanning the repo's current trunk state (§13.3's longest-prefix rule) -
+// the "project-tagged hits through the daemon" stage 11 DAG entry names
+// explicitly, not something a bare CodeSearcher client can do on its own
+// (it has no notion of PROJECT.yaml).
+func TestAPISearchProjectTagsHits(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\n")
+	repo.WriteFile("commerce/checkout/main.go", "package main\n")
+	repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	store := NewMemStore()
+	searcher := stubSearcher{result: search.Result{
+		Query: "main",
+		Hits:  []search.Hit{{Path: "commerce/checkout/main.go", LineNumber: 1, Line: "package main"}},
+	}}
+	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: newTestProcessor(bare, store), Token: "sekret", Searcher: searcher}
+	handler, err := srv.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	httpSrv := httptest.NewServer(handler)
+	defer httpSrv.Close()
+
+	resp := authedGet(t, httpSrv, "/api/search?q="+url.QueryEscape("main"), "sekret")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var result search.Result
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result.Hits) != 1 || result.Hits[0].Project != "checkout-api" {
+		t.Fatalf("expected the hit tagged with project checkout-api, got %+v", result.Hits)
 	}
 }

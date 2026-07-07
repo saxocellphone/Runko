@@ -1,9 +1,17 @@
 // Command runkod is the write-path daemon (docs/design.md §28.3 DAG stage
 // 10): smart-HTTP hosting of one bare monorepo, real pre-receive wiring to
 // receive.Decide(), a gitleaks-backed SecretScanner, REST endpoints
-// (changes/checks/affected/merge-requirements), and a webhook outbox
+// (changes/checks/affected/merge-requirements/search), and a webhook outbox
 // delivery worker. See runkod/doc.go for this session's scope boundaries
 // (one monorepo per daemon, deploy-token bearer auth, in-memory Store).
+//
+// search_code (§8.3, §28.3 stage 11) is wired the same way: --search-url
+// points at a real zoekt-webserver (search.ZoektSearcher, a stdlib HTTP
+// client - see search/doc.go for why this is a process, not a Go library
+// dependency); --zoekt-index-dir enables a debounced zoekt-git-index run on
+// trunk advance (runkod.ZoektIndexWorker). Neither flag is required - absent
+// --search-url, GET /api/search returns a structured "not configured"
+// error, deliberately never a git-grep fallback (§8.2).
 package main
 
 import (
@@ -22,6 +30,7 @@ import (
 
 	"github.com/saxocellphone/runko/receive"
 	"github.com/saxocellphone/runko/runkod"
+	"github.com/saxocellphone/runko/search"
 )
 
 func main() {
@@ -72,6 +81,9 @@ func cmdServe(args []string) error {
 	skipScan := fs.Bool("insecure-skip-secret-scan", false, "DEV/EVAL ONLY: disable secret scanning entirely (never use in production, docs/design.md §11.4)")
 	databaseURL := fs.String("database-url", "", "Postgres DSN for durable storage (default: in-memory Store, the §9.3 Eval/dev profile - lost on restart)")
 	rootInvalidation := fs.String("root-invalidation", "", "comma-separated root-invalidation glob patterns (org policy, §14.5.2)")
+	searchURL := fs.String("search-url", "", "zoekt-webserver base URL for search_code (§8.3); absent -> search_code returns a structured 'not configured' error, never a git-grep fallback (§8.2)")
+	zoektIndexDir := fs.String("zoekt-index-dir", "", "directory zoekt-git-index writes shards into (required to enable indexing on trunk advance)")
+	zoektIndexBin := fs.String("zoekt-index-bin", "zoekt-git-index", "zoekt-git-index binary (path or PATH-resolved name)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -125,11 +137,32 @@ func cmdServe(args []string) error {
 		store = runkod.NewMemStore()
 	}
 
+	var indexWorker *runkod.ZoektIndexWorker
+	if *zoektIndexDir != "" {
+		if _, err := exec.LookPath(*zoektIndexBin); err != nil {
+			return fmt.Errorf("serve: zoekt-git-index binary %q not found: install Zoekt or pass --zoekt-index-bin", *zoektIndexBin)
+		}
+		indexWorker = &runkod.ZoektIndexWorker{
+			Indexer:  search.ZoektIndexer{Bin: *zoektIndexBin, IndexDir: *zoektIndexDir},
+			RepoDir:  *repoDir,
+			Debounce: 5 * time.Second,
+		}
+	}
+
+	var searcher search.CodeSearcher
+	if *searchURL != "" {
+		searcher = search.ZoektSearcher{BaseURL: *searchURL}
+	} else {
+		fmt.Fprintln(os.Stderr, "runkod: no --search-url given - search_code (GET /api/search) will return a structured 'not configured' error (§8.2: no git-grep fallback)")
+		searcher = search.NotConfiguredSearcher{}
+	}
+
 	processor := &runkod.Processor{
 		RepoDir: *repoDir, TrunkRef: *trunk, Scanner: scanner, Store: store,
 		RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
+		ZoektIndexWorker:         indexWorker,
 	}
-	server := &runkod.Server{RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token}
+	server := &runkod.Server{RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher}
 	handler, err := server.Handler()
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -140,6 +173,9 @@ func cmdServe(args []string) error {
 	if *webhookURL != "" {
 		worker := &runkod.OutboxWorker{Store: store, URL: *webhookURL, Secret: []byte(*webhookSecret)}
 		go worker.Run(ctx, 5*time.Second)
+	}
+	if indexWorker != nil {
+		indexWorker.Trigger() // index whatever trunk already holds at startup, not just future advances
 	}
 
 	fmt.Printf("runkod: serving %s at %s (clone: %s/%s)\n", *repoDir, selfURL, selfURL, runkod.RepoMountName(*repoDir))

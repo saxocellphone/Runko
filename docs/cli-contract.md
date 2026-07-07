@@ -56,6 +56,7 @@ schemas are.
 | `runko doctor` | `DoctorReport` (`RepoDir`, `TrunkRef`, `HasRemote`, `RemoteName`, `RemoteURL`, `HasChangeIDHook`, `HooksDir`, `GitVersion`, `GitVersionOK`, `GitVersionError`) |
 | `runko project create` | `{"name", "path", "rev"}` |
 | `runko change push` | `{"change_id", "ref"}` |
+| `runko agents-md` | `{"path"}` - also writes `AGENTS.md` (default; `--out` overrides) at the repo root, see §8.8/§28.3 stage 11 |
 | `runko-ci affected` | `affected.Result` (always JSON - no human mode exists for this command; it is CI-facing by design) |
 | `runko-ci checkout` | `{"rev", "dest"}` |
 | `runko-ci report-check` | `{"name", "status", "external_id"}` |

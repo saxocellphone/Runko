@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -206,6 +207,74 @@ func TestEndToEndDaemon(t *testing.T) {
 	}
 	if !mr.Mergeable {
 		t.Fatalf("expected the Change to be mergeable after a successful check report")
+	}
+}
+
+// TestEndToEndDaemonSearchNotConfigured proves the real compiled daemon,
+// started with no --search-url (the default in every other test in this
+// file), answers GET /api/search with the structured §6.5 "not configured"
+// error over real HTTP - not a git-grep fallback, per §8.2.
+func TestEndToEndDaemonSearchNotConfigured(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	token := "sekret-token"
+	baseURL := startDaemon(t, bin, repoDir, token)
+
+	req, _ := http.NewRequest(http.MethodGet, baseURL+"/api/search?q=foo", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/search: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 with no --search-url, got %d", resp.StatusCode)
+	}
+	var body struct{ Code string }
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Code != "search_not_configured" {
+		t.Fatalf("expected code search_not_configured, got %+v", body)
+	}
+}
+
+// TestEndToEndDaemonSearchProxiesToZoektWebserver starts the real compiled
+// daemon with --search-url pointed at an httptest.Server standing in for a
+// real zoekt-webserver (the real binary isn't installed in this sandbox -
+// see search/doc.go; the wire format itself is covered by search/zoekt_test.go
+// against the exact JSON shape read from zoekt's own source). This proves
+// the --search-url flag actually reaches ZoektSearcher and the REST layer
+// round-trips a real HTTP response through search_code end to end.
+func TestEndToEndDaemonSearchProxiesToZoektWebserver(t *testing.T) {
+	zoekt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"result":{"FileMatches":[{"FileName":"a.go","Matches":[{"LineNum":1,"Fragments":[{"Pre":"","Match":"foo","Post":""}]}]}]}}`))
+	}))
+	defer zoekt.Close()
+
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	token := "sekret-token"
+	baseURL := startDaemon(t, bin, repoDir, token, "--search-url", zoekt.URL)
+
+	req, _ := http.NewRequest(http.MethodGet, baseURL+"/api/search?q=foo", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/search: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 with --search-url configured, got %d", resp.StatusCode)
+	}
+	var result struct {
+		Hits []struct{ Path string }
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result.Hits) != 1 || result.Hits[0].Path != "a.go" {
+		t.Fatalf("expected the zoekt-webserver stub's hit to round-trip, got %+v", result.Hits)
 	}
 }
 

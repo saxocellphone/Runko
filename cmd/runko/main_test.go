@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/saxocellphone/runko/internal/gitfixture"
@@ -138,5 +140,58 @@ func TestCmdChangeJSONOutput(t *testing.T) {
 	}
 	if result["change_id"] == "" || result["ref"] != "refs/for/main" {
 		t.Fatalf("expected change_id+ref in JSON output, got %+v", result)
+	}
+}
+
+func TestCmdAgentsMDWritesFile(t *testing.T) {
+	dir := t.TempDir()
+
+	var cmdErr error
+	out := captureStdout(t, func() {
+		cmdErr = cmdAgentsMD([]string{"--repo", dir})
+	})
+	if cmdErr != nil {
+		t.Fatalf("cmdAgentsMD: %v", cmdErr)
+	}
+	if !strings.Contains(out, "generated") {
+		t.Fatalf("expected a human summary line, got %q", out)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("expected AGENTS.md to be written: %v", err)
+	}
+	if !strings.Contains(string(content), "runko doctor") {
+		t.Fatalf("expected the generated command inventory, got:\n%s", content)
+	}
+}
+
+func TestCmdAgentsMDJSONOutput(t *testing.T) {
+	dir := t.TempDir()
+
+	var cmdErr error
+	out := captureStdout(t, func() {
+		cmdErr = cmdAgentsMD([]string{"--repo", dir, "--json"})
+	})
+	if cmdErr != nil {
+		t.Fatalf("cmdAgentsMD: %v", cmdErr)
+	}
+	var result map[string]string
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("expected valid JSON output, got %q: %v", out, err)
+	}
+	if result["path"] != filepath.Join(dir, "AGENTS.md") {
+		t.Fatalf("expected path in JSON output, got %+v", result)
+	}
+}
+
+func TestCmdAgentsMDCustomOut(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := cmdAgentsMD([]string{"--repo", dir, "--out", "SKILL.md"}); err != nil {
+		t.Fatalf("cmdAgentsMD: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
+		t.Fatalf("expected --out to control the written filename: %v", err)
 	}
 }
