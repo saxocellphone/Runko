@@ -154,6 +154,73 @@ func TestProcessAmendedPushUpdatesSameChange(t *testing.T) {
 	}
 }
 
+// TestProcessCreatesStablePerChangeRef guards a real gap found in review:
+// refs/for/<trunk> is a single literal ref every push (any Change, any
+// amend) overwrites in turn. Without a stable per-Change ref, a second,
+// unrelated Change pushed after the first makes the first Change's commit
+// unreachable - a GC hazard - and runko-ci has no stable path to fetch a
+// specific Change by id (§14.4.4). This asserts refs/changes/<id>/head
+// survives a LATER, unrelated push moving refs/for/main on to something else.
+func TestProcessCreatesStablePerChangeRef(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	initialSHA := repo.Commit("initial")
+	oldSHA, _ := pushCommit(t, repo, bare, "refs/heads/main")
+
+	repo.WriteFile("a.txt", "a\n")
+	repo.Commit("change A\n\nChange-Id: I0000000000000000000000000000000000000aaa")
+	_, headA := pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	p := newTestProcessor(bare, store)
+	resultA := p.Process(context.Background(), RefUpdate{OldSHA: oldSHA, NewSHA: headA, Ref: "refs/for/main"}, nil)
+	if !resultA.Accepted {
+		t.Fatalf("expected change A's push to be accepted, got %+v", resultA)
+	}
+
+	changeA, ok, err := store.GetChange(context.Background(), resultA.ChangeID)
+	if err != nil || !ok {
+		t.Fatalf("GetChange(A): ok=%v err=%v", ok, err)
+	}
+	wantRefA := "refs/changes/" + resultA.ChangeID + "/head"
+	if changeA.GitRef != wantRefA {
+		t.Fatalf("expected Change A's git_ref to be the stable per-Change ref %s, got %s", wantRefA, changeA.GitRef)
+	}
+	gotA, err := gitfixtureRunGit(bare, "rev-parse", "--verify", wantRefA)
+	if err != nil || gotA != headA {
+		t.Fatalf("expected %s to resolve to %s, got %q (err=%v)", wantRefA, headA, gotA, err)
+	}
+
+	// A second, unrelated Change (built as a sibling of "initial", not on
+	// top of A) now overwrites the SAME literal refs/for/main - real git
+	// requires --force for this, since refs/for/main's current tip on the
+	// remote is A's commit, and B's commit isn't a descendant of it.
+	repo.Run("checkout " + initialSHA)
+	repo.WriteFile("b.txt", "b\n")
+	repo.Commit("change B\n\nChange-Id: I0000000000000000000000000000000000000bbb")
+	oldForMain, headB := pushCommit(t, repo, bare, "refs/for/main")
+	if oldForMain != headA {
+		t.Fatalf("expected refs/for/main's prior tip to be A's commit %s, got %s", headA, oldForMain)
+	}
+
+	resultB := p.Process(context.Background(), RefUpdate{OldSHA: oldForMain, NewSHA: headB, Ref: "refs/for/main"}, nil)
+	if !resultB.Accepted {
+		t.Fatalf("expected change B's push to be accepted, got %+v", resultB)
+	}
+
+	// Change A's stable ref must be untouched by B's push.
+	stillA, err := gitfixtureRunGit(bare, "rev-parse", "--verify", wantRefA)
+	if err != nil || stillA != headA {
+		t.Fatalf("expected %s to still resolve to A's commit %s after B's push, got %q (err=%v)", wantRefA, headA, stillA, err)
+	}
+	wantRefB := "refs/changes/" + resultB.ChangeID + "/head"
+	gotB, err := gitfixtureRunGit(bare, "rev-parse", "--verify", wantRefB)
+	if err != nil || gotB != headB {
+		t.Fatalf("expected %s to resolve to B's commit %s, got %q (err=%v)", wantRefB, headB, gotB, err)
+	}
+}
+
 func TestProcessSecretFindingRejectsPush(t *testing.T) {
 	bare := newBareRepo(t)
 	repo := gitfixture.New(t)

@@ -81,7 +81,7 @@ func TestMemStoreWebhookOutboxLifecycle(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	id, err := s.EnqueueWebhook(ctx, []byte(`{"type":"change.opened"}`))
+	id, err := s.EnqueueWebhook(ctx, "change.opened", []byte(`{"type":"change.opened"}`))
 	if err != nil {
 		t.Fatalf("EnqueueWebhook: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestMemStoreWebhookDeadLettersPastMaxAttempts(t *testing.T) {
 	s := NewMemStore()
 	ctx := context.Background()
 	now := time.Now()
-	id, _ := s.EnqueueWebhook(ctx, []byte(`{}`))
+	id, _ := s.EnqueueWebhook(ctx, "test.event", []byte(`{}`))
 
 	for i := 0; i < checks.MaxDeliveryAttempts; i++ {
 		if err := s.RecordDeliveryResult(ctx, id, checks.DeliveryAttempt{Success: false, Err: errors.New("boom")}, time.Millisecond, time.Millisecond, now); err != nil {

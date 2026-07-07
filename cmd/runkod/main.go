@@ -70,6 +70,8 @@ func cmdServe(args []string) error {
 	webhookSecret := fs.String("webhook-secret", "", "webhook HMAC secret")
 	gitleaksBin := fs.String("gitleaks-bin", "gitleaks", "gitleaks binary (path or PATH-resolved name)")
 	skipScan := fs.Bool("insecure-skip-secret-scan", false, "DEV/EVAL ONLY: disable secret scanning entirely (never use in production, docs/design.md §11.4)")
+	databaseURL := fs.String("database-url", "", "Postgres DSN for durable storage (default: in-memory Store, the §9.3 Eval/dev profile - lost on restart)")
+	rootInvalidation := fs.String("root-invalidation", "", "comma-separated root-invalidation glob patterns (org policy, §14.5.2)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -109,8 +111,24 @@ func cmdServe(args []string) error {
 		return fmt.Errorf("serve: %w", err)
 	}
 
-	store := runkod.NewMemStore()
-	processor := &runkod.Processor{RepoDir: *repoDir, TrunkRef: *trunk, Scanner: scanner, Store: store}
+	var store runkod.Store
+	if *databaseURL != "" {
+		orgName := strings.TrimSuffix(runkod.RepoMountName(*repoDir), ".git")
+		pg, err := runkod.BootstrapPostgresStore(context.Background(), *databaseURL, orgName, *trunk)
+		if err != nil {
+			return fmt.Errorf("serve: %w", err)
+		}
+		store = pg
+		fmt.Println("runkod: using Postgres-backed storage (durable across restarts)")
+	} else {
+		fmt.Fprintln(os.Stderr, "runkod: WARNING no --database-url given - using in-memory storage (§9.3 Eval/dev profile): every Change, check run, and queued webhook is LOST on restart.")
+		store = runkod.NewMemStore()
+	}
+
+	processor := &runkod.Processor{
+		RepoDir: *repoDir, TrunkRef: *trunk, Scanner: scanner, Store: store,
+		RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
+	}
 	server := &runkod.Server{RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token}
 	handler, err := server.Handler()
 	if err != nil {
@@ -204,4 +222,17 @@ func cmdHook(args []string) {
 	if !allAccepted {
 		os.Exit(1)
 	}
+}
+
+func splitNonEmpty(csv string) []string {
+	if csv == "" {
+		return nil
+	}
+	var out []string
+	for _, s := range strings.Split(csv, ",") {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

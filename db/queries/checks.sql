@@ -14,6 +14,25 @@ SET status = $2, conclusion = $3, completed_at = $4, details_url = $5,
 WHERE id = $1
 RETURNING *;
 
+-- name: UpsertCheckRunByName :one
+-- Report-check posts a STATUS TRANSITION for the same logical run (queued ->
+-- in_progress -> completed), always at attempt 1 - a different flow from
+-- CreateCheckRun/GetLatestCheckRunAttempt's explicit new-attempt re-run
+-- semantics (§14.4.2), so this always targets attempt 1 rather than
+-- incrementing it. Used by runkod's PostgresStore (§28.3 stage 10b).
+INSERT INTO check_runs (
+    change_id, head_sha, name, external_id, status, conclusion, reporter, ttl_seconds
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+) ON CONFLICT (change_id, head_sha, name, attempt) DO UPDATE
+    SET external_id = EXCLUDED.external_id,
+        status = EXCLUDED.status,
+        conclusion = EXCLUDED.conclusion,
+        reporter = EXCLUDED.reporter,
+        completed_at = CASE WHEN EXCLUDED.status = 'completed' THEN now() ELSE check_runs.completed_at END,
+        last_seen_at = now()
+RETURNING *;
+
 -- name: ListCheckRunsForChange :many
 SELECT * FROM check_runs WHERE change_id = $1 AND head_sha = $2 ORDER BY name, attempt;
 

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/saxocellphone/runko/internal/dbtest"
 )
 
 // buildRunkod compiles the real runkod binary once per test run - the
@@ -54,14 +56,26 @@ func scriptedCleanGitleaks(t *testing.T) string {
 var servingAddrPattern = regexp.MustCompile(`at (http://127\.0\.0\.1:\d+)`)
 
 // startDaemon runs the real compiled binary as a subprocess and returns its
-// base URL once it's ready to accept connections.
-func startDaemon(t *testing.T, bin, repoDir, token string) string {
+// base URL once it's ready to accept connections. The subprocess is killed
+// automatically at test cleanup.
+func startDaemon(t *testing.T, bin, repoDir, token string, extraArgs ...string) string {
+	t.Helper()
+	addr, stop := startDaemonProcess(t, bin, repoDir, token, extraArgs...)
+	t.Cleanup(stop)
+	return addr
+}
+
+// startDaemonProcess is startDaemon without automatic cleanup registration -
+// for tests that need to stop ONE daemon instance mid-test (e.g. to prove
+// state survives a restart) before starting a second.
+func startDaemonProcess(t *testing.T, bin, repoDir, token string, extraArgs ...string) (addr string, stop func()) {
 	t.Helper()
 	fakeGitleaks := scriptedCleanGitleaks(t)
-	cmd := exec.Command(bin, "serve",
+	args := append([]string{"serve",
 		"--repo-dir", repoDir, "--addr", "127.0.0.1:0", "--trunk", "main",
 		"--token", token, "--gitleaks-bin", fakeGitleaks,
-	)
+	}, extraArgs...)
+	cmd := exec.Command(bin, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("StdoutPipe: %v", err)
@@ -70,10 +84,10 @@ func startDaemon(t *testing.T, bin, repoDir, token string) string {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start runkod: %v", err)
 	}
-	t.Cleanup(func() {
+	stop = func() {
 		cmd.Process.Kill()
 		cmd.Wait()
-	})
+	}
 
 	addrCh := make(chan string, 1)
 	go func() {
@@ -88,12 +102,13 @@ func startDaemon(t *testing.T, bin, repoDir, token string) string {
 	}()
 
 	select {
-	case addr := <-addrCh:
-		return addr
+	case addr = <-addrCh:
+		return addr, stop
 	case <-time.After(10 * time.Second):
+		stop()
 		t.Fatalf("timed out waiting for runkod to report its listen address")
 	}
-	return ""
+	return "", stop
 }
 
 func runGit(t *testing.T, dir string, args ...string) (string, error) {
@@ -191,5 +206,74 @@ func TestEndToEndDaemon(t *testing.T) {
 	}
 	if !mr.Mergeable {
 		t.Fatalf("expected the Change to be mergeable after a successful check report")
+	}
+}
+
+// TestEndToEndDaemonPersistsAcrossRestartWithPostgres closes the loop on a
+// real gap found in review: serve previously constructed an in-memory Store
+// unconditionally, so a fully-tested PostgresStore sat unused while the
+// daemon forgot every Change on restart. This test proves --database-url
+// actually survives a restart: create a Change against one daemon process,
+// kill it, start a SECOND daemon process pointed at the same repo AND the
+// same database, and confirm the Change is still there - not by inspecting
+// Postgres directly, but by asking the new process's REST API, exactly as
+// a real client would after a daemon redeploy.
+//
+// Skips unless RUNKO_TEST_DATABASE_URL is set (see internal/dbtest,
+// db/README.md) - no Postgres in this sandbox; verified for real via
+// `make check-db` in CI (docs/design.md §28.3 stage 9d).
+func TestEndToEndDaemonPersistsAcrossRestartWithPostgres(t *testing.T) {
+	dbtest.Connect(t) // resets the schema; skips this test if RUNKO_TEST_DATABASE_URL is unset
+	dsn := os.Getenv("RUNKO_TEST_DATABASE_URL")
+
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	token := "sekret-token"
+
+	baseURL1, stop1 := startDaemonProcess(t, bin, repoDir, token, "--database-url", dsn)
+
+	work := t.TempDir()
+	if _, err := runGit(t, work, "init", "-q", "-b", "main"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "README.md"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if _, err := runGit(t, work, "add", "-A"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := runGit(t, work, "commit", "-q", "-m", "add readme"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	remoteURL1 := strings.Replace(baseURL1, "http://", "http://runko:"+token+"@", 1) + "/" + filepath.Base(repoDir) + "/"
+	if _, err := runGit(t, work, "remote", "add", "origin", remoteURL1); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+
+	out, err := runGit(t, work, "push", "origin", "+HEAD:refs/for/main")
+	if err != nil {
+		t.Fatalf("push to refs/for/main: %v\n%s", err, out)
+	}
+	m := regexp.MustCompile(`(I[0-9a-f]{40}) -> refs/for/main`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("expected a Change-Id in the push output, got:\n%s", out)
+	}
+	changeID := m[1]
+
+	// Kill the first daemon entirely - the whole point is that nothing
+	// in-process survives; only Postgres does.
+	stop1()
+
+	baseURL2 := startDaemon(t, bin, repoDir, token, "--database-url", dsn)
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, _ := http.NewRequest(http.MethodGet, baseURL2+"/api/changes/"+changeID, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET change from the restarted daemon: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected the Change to survive the restart via Postgres, got status %d", resp.StatusCode)
 	}
 }

@@ -24,6 +24,7 @@ type Change struct {
 // WebhookDelivery is one outbox row (§14.4.1).
 type WebhookDelivery struct {
 	ID            string
+	EventType     string
 	Payload       []byte
 	Status        string // "pending" | "delivered" | "failed" | "dead_letter"
 	Attempt       int
@@ -51,7 +52,11 @@ type Store interface {
 	UpsertCheckRun(ctx context.Context, changeKey, headSHA string, run checks.CheckRunView) error
 	ListCheckRuns(ctx context.Context, changeKey, headSHA string) ([]checks.CheckRunView, error)
 
-	EnqueueWebhook(ctx context.Context, payload []byte) (id string, err error)
+	// EnqueueWebhook enqueues one outbox row. eventType mirrors the
+	// envelope's own "type" field (e.g. "change.updated") - a durable Store
+	// needs it as a first-class column (internal/dbgen's webhook_deliveries.
+	// event_type), not something to re-parse out of the payload later.
+	EnqueueWebhook(ctx context.Context, eventType string, payload []byte) (id string, err error)
 	ListDueWebhookDeliveries(ctx context.Context, now time.Time) ([]WebhookDelivery, error)
 	RecordDeliveryResult(ctx context.Context, id string, result checks.DeliveryAttempt, backoffBase, backoffMax time.Duration, now time.Time) error
 }
@@ -129,13 +134,13 @@ func (s *MemStore) ListCheckRuns(ctx context.Context, changeKey, headSHA string)
 	return out, nil
 }
 
-func (s *MemStore) EnqueueWebhook(ctx context.Context, payload []byte) (string, error) {
+func (s *MemStore) EnqueueWebhook(ctx context.Context, eventType string, payload []byte) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextID++
 	id := fmt.Sprintf("dlv_%d", s.nextID)
 	s.deliveries[id] = &memDelivery{WebhookDelivery: WebhookDelivery{
-		ID: id, Payload: payload, Status: "pending", NextAttemptAt: time.Time{},
+		ID: id, EventType: eventType, Payload: payload, Status: "pending", NextAttemptAt: time.Time{},
 	}}
 	return id, nil
 }

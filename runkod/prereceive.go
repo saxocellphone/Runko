@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -86,6 +87,11 @@ type Processor struct {
 	Scanner  receive.SecretScanner
 	Store    Store
 	Now      func() time.Time
+	// RootInvalidationPatterns mirrors runko-ci affected's own
+	// --root-invalidation flag (org policy, §14.5.2) - without it, every
+	// push through this daemon computed affected with the hardcoded empty
+	// Options{}, silently ignoring any org root-invalidation config.
+	RootInvalidationPatterns []string
 }
 
 // ProcessBatch evaluates every ref update in one push, then - only if ALL
@@ -182,11 +188,25 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 	}
 	d := v.decision
 
+	// A stable per-Change ref, independent of whatever rotating ref the
+	// client pushed to: refs/for/<trunk> is a single ref every Change (and
+	// every amend of THIS Change - PushChange force-pushes it, see
+	// cmd/runko/change.go) overwrites in turn. Without this, an accepted
+	// Change's commit becomes unreachable - and thus GC-eligible - the
+	// moment a later push moves refs/for/<trunk> on, which breaks both
+	// "commits are versions of a Change" (§7.4, the Change row would point
+	// at a dangling SHA) and runko-ci checkout's need to fetch a specific
+	// Change by a stable path (§14.4.4).
+	changeRef := "refs/changes/" + d.ChangeID + "/head"
+	if _, err := p.runGit(v.extraEnv, "update-ref", changeRef, v.update.NewSHA); err != nil {
+		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change ref: %v\n", err)}
+	}
+
 	base := v.update.OldSHA
 	if base == zeroOID {
 		base = ""
 	}
-	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, v.update.Ref, firstLine(d.CommitMessage))
+	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, changeRef, firstLine(d.CommitMessage))
 	if err != nil {
 		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
 	}
@@ -203,20 +223,22 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 // (§13.3) and enqueues a webhook envelope - the funnel's remaining two
 // steps after Change persistence (§7.4, §11.5: "receive -> policy -> secret
 // scan -> Change create/update -> affected compute -> webhooks"). Errors
-// here are logged, not fatal to the push: the Change is already durable, so
-// a failed affected computation shouldn't un-accept an otherwise-good push -
-// it should show up as an operational alert instead.
+// here are logged (not silently dropped), not fatal to the push: the Change
+// is already durable, so a failed affected computation shouldn't un-accept
+// an otherwise-good push - it should show up as an operational alert
+// instead, which is exactly what the log line is for.
 func (p *Processor) computeAffectedAndEnqueue(ctx context.Context, change Change, changedPaths []string, extraEnv []string) {
 	store := &gitstore.Store{Dir: p.RepoDir, Ref: "HEAD", ExtraEnv: extraEnv}
 	indexed, err := index.Scan(store, core.Revision(change.HeadSHA), nil)
 	if err != nil {
+		log.Printf("runkod: %s: scan projects at %s: %v", change.ChangeKey, change.HeadSHA, err)
 		return
 	}
 	projects := make([]affected.ProjectInfo, len(indexed))
 	for i, ip := range indexed {
 		projects[i] = affected.ProjectInfo{Name: ip.Name, Path: ip.Path, DeclaredDependencies: ip.DeclaredDependencies}
 	}
-	result := affected.Compute(projects, changedPaths, affected.Options{})
+	result := affected.Compute(projects, changedPaths, affected.Options{RootInvalidationPatterns: p.RootInvalidationPatterns})
 
 	// Actor attribution and Change numbering need real AuthN/a persistent
 	// counter, neither built yet (doc.go's scope boundary) - placeholders
@@ -246,9 +268,12 @@ func (p *Processor) computeAffectedAndEnqueue(ctx context.Context, change Change
 
 	payload, err := checks.MarshalEnvelope(env)
 	if err != nil {
+		log.Printf("runkod: %s: marshal webhook envelope: %v", change.ChangeKey, err)
 		return
 	}
-	p.Store.EnqueueWebhook(ctx, payload)
+	if _, err := p.Store.EnqueueWebhook(ctx, env.Type, payload); err != nil {
+		log.Printf("runkod: %s: enqueue webhook: %v", change.ChangeKey, err)
+	}
 }
 
 func (p *Processor) now() time.Time {

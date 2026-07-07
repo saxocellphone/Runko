@@ -24,7 +24,7 @@ func TestOutboxWorkerDeliversToRealServer(t *testing.T) {
 
 	store := NewMemStore()
 	ctx := context.Background()
-	if _, err := store.EnqueueWebhook(ctx, []byte(`{"type":"change.opened"}`)); err != nil {
+	if _, err := store.EnqueueWebhook(ctx, "change.opened", []byte(`{"type":"change.opened"}`)); err != nil {
 		t.Fatalf("EnqueueWebhook: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestOutboxWorkerRecordsFailureAndBacksOff(t *testing.T) {
 
 	store := NewMemStore()
 	ctx := context.Background()
-	if _, err := store.EnqueueWebhook(ctx, []byte(`{}`)); err != nil {
+	if _, err := store.EnqueueWebhook(ctx, "test.event", []byte(`{}`)); err != nil {
 		t.Fatalf("EnqueueWebhook: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func TestOutboxWorkerRunStopsOnContextCancel(t *testing.T) {
 	defer server.Close()
 
 	store := NewMemStore()
-	if _, err := store.EnqueueWebhook(context.Background(), []byte(`{}`)); err != nil {
+	if _, err := store.EnqueueWebhook(context.Background(), "test.event", []byte(`{}`)); err != nil {
 		t.Fatalf("EnqueueWebhook: %v", err)
 	}
 

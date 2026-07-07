@@ -343,3 +343,70 @@ func (q *Queries) UpdateCheckRun(ctx context.Context, db DBTX, arg UpdateCheckRu
 	)
 	return &i, err
 }
+
+const upsertCheckRunByName = `-- name: UpsertCheckRunByName :one
+INSERT INTO check_runs (
+    change_id, head_sha, name, external_id, status, conclusion, reporter, ttl_seconds
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+) ON CONFLICT (change_id, head_sha, name, attempt) DO UPDATE
+    SET external_id = EXCLUDED.external_id,
+        status = EXCLUDED.status,
+        conclusion = EXCLUDED.conclusion,
+        reporter = EXCLUDED.reporter,
+        completed_at = CASE WHEN EXCLUDED.status = 'completed' THEN now() ELSE check_runs.completed_at END,
+        last_seen_at = now()
+RETURNING id, change_id, head_sha, name, external_id, status, conclusion, started_at, completed_at, details_url, output_title, output_summary, output_text, app_id, reporter, attempt, ttl_seconds, last_seen_at, created_at
+`
+
+type UpsertCheckRunByNameParams struct {
+	ChangeID   uuid.UUID        `json:"change_id"`
+	HeadSha    string           `json:"head_sha"`
+	Name       string           `json:"name"`
+	ExternalID string           `json:"external_id"`
+	Status     CheckStatus      `json:"status"`
+	Conclusion *CheckConclusion `json:"conclusion"`
+	Reporter   string           `json:"reporter"`
+	TtlSeconds int32            `json:"ttl_seconds"`
+}
+
+// Report-check posts a STATUS TRANSITION for the same logical run (queued ->
+// in_progress -> completed), always at attempt 1 - a different flow from
+// CreateCheckRun/GetLatestCheckRunAttempt's explicit new-attempt re-run
+// semantics (§14.4.2), so this always targets attempt 1 rather than
+// incrementing it. Used by runkod's PostgresStore (§28.3 stage 10b).
+func (q *Queries) UpsertCheckRunByName(ctx context.Context, db DBTX, arg UpsertCheckRunByNameParams) (*CheckRun, error) {
+	row := db.QueryRow(ctx, upsertCheckRunByName,
+		arg.ChangeID,
+		arg.HeadSha,
+		arg.Name,
+		arg.ExternalID,
+		arg.Status,
+		arg.Conclusion,
+		arg.Reporter,
+		arg.TtlSeconds,
+	)
+	var i CheckRun
+	err := row.Scan(
+		&i.ID,
+		&i.ChangeID,
+		&i.HeadSha,
+		&i.Name,
+		&i.ExternalID,
+		&i.Status,
+		&i.Conclusion,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.DetailsUrl,
+		&i.OutputTitle,
+		&i.OutputSummary,
+		&i.OutputText,
+		&i.AppID,
+		&i.Reporter,
+		&i.Attempt,
+		&i.TtlSeconds,
+		&i.LastSeenAt,
+		&i.CreatedAt,
+	)
+	return &i, err
+}
