@@ -7,6 +7,38 @@ import (
 	"github.com/saxocellphone/runko/internal/gitfixture"
 )
 
+// TestExtraEnvIsForwardedToGit guards a real bug found building runkod
+// (§28.3 stage 10): git's object quarantine sets GIT_OBJECT_DIRECTORY/
+// GIT_ALTERNATE_OBJECT_DIRECTORIES on a pre-receive hook's OWN process env,
+// but a Store used from a DIFFERENT process (the daemon the hook forwards
+// to over HTTP) never saw them, and so couldn't read a push's just-received
+// objects. Proven here with GIT_DIR: point Store.Dir at a directory that
+// isn't a git repo at all, and confirm ExtraEnv's GIT_DIR override still
+// makes git operations succeed against the REAL repo elsewhere.
+func TestExtraEnvIsForwardedToGit(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hello\n")
+	head := repo.Commit("initial")
+
+	notARepo := t.TempDir()
+	s := &Store{Dir: notARepo, ExtraEnv: []string{"GIT_DIR=" + repo.Dir + "/.git"}}
+
+	rev, err := s.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef with ExtraEnv-forwarded GIT_DIR: %v", err)
+	}
+	if string(rev) != head {
+		t.Fatalf("ResolveRef: want %s, got %s", head, rev)
+	}
+}
+
+func TestWithoutExtraEnvNonRepoDirFails(t *testing.T) {
+	s := New(t.TempDir())
+	if _, err := s.ResolveRef("HEAD"); err == nil {
+		t.Fatalf("expected ResolveRef to fail against a non-repo directory with no ExtraEnv override")
+	}
+}
+
 func TestResolveRefAndGetTreeAndGetBlob(t *testing.T) {
 	repo := gitfixture.New(t)
 	repo.WriteFile("README.md", "hello\n")

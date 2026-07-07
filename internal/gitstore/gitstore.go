@@ -27,6 +27,15 @@ type Store struct {
 	Dir string
 	// Ref is the default ref ListHistory walks when opts.Since is unset.
 	Ref string
+	// ExtraEnv is appended to os.Environ() for every call that doesn't
+	// already build its own explicit env (CommitOverlay does, for its
+	// scratch index file). Needed for git's object quarantine: a
+	// pre-receive hook's OWN process gets GIT_OBJECT_DIRECTORY/
+	// GIT_ALTERNATE_OBJECT_DIRECTORIES pointing at incoming-but-not-yet-
+	// committed objects, but a Store used from a DIFFERENT process (e.g. a
+	// daemon the hook forwards to over HTTP, runkod's Processor) has no way
+	// to see them unless those vars are explicitly forwarded and set here.
+	ExtraEnv []string
 }
 
 // New returns a Store rooted at an existing git repository directory, walking
@@ -38,8 +47,11 @@ func New(dir string) *Store {
 func (s *Store) run(env []string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = s.Dir
-	if env != nil {
+	switch {
+	case env != nil:
 		cmd.Env = env
+	case s.ExtraEnv != nil:
+		cmd.Env = append(os.Environ(), s.ExtraEnv...)
 	}
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out

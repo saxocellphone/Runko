@@ -1,0 +1,343 @@
+package runkod
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/saxocellphone/runko/affected"
+	"github.com/saxocellphone/runko/checks"
+	"github.com/saxocellphone/runko/core"
+	"github.com/saxocellphone/runko/index"
+	"github.com/saxocellphone/runko/internal/gitstore"
+	"github.com/saxocellphone/runko/receive"
+)
+
+// zeroOID is the all-zeros object id git's pre-receive hook uses in the
+// old-sha slot for a brand-new ref.
+const zeroOID = "0000000000000000000000000000000000000000"
+
+// emptyTreeOID is git's well-known empty-tree object, present in every Git
+// repository - the standard way to diff "everything in a brand-new ref"
+// (there's no real old commit to diff against).
+const emptyTreeOID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// RefUpdate is one line of real pre-receive hook stdin: "<old-sha> <new-sha>
+// <ref-name>", git's own documented format - this is what makes the wiring
+// in this file "an actual git pre-receive hook" rather than a simulation.
+type RefUpdate struct {
+	OldSHA, NewSHA, Ref string
+}
+
+// ParseRefUpdates parses pre-receive hook stdin.
+func ParseRefUpdates(r io.Reader) ([]RefUpdate, error) {
+	var updates []RefUpdate
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 3 {
+			return nil, fmt.Errorf("runkod: malformed pre-receive line %q", line)
+		}
+		updates = append(updates, RefUpdate{OldSHA: fields[0], NewSHA: fields[1], Ref: fields[2]})
+	}
+	return updates, scanner.Err()
+}
+
+// RefResult is one ref-update's verdict, in the shape a pre-receive hook
+// needs: Message is printed to the pushing client ("remote: ..." lines).
+type RefResult struct {
+	Ref      string
+	Accepted bool
+	Message  string
+	ChangeID string // set when Accepted and this was a magic-ref push
+}
+
+// verdict is one ref's pure decision, computed before any Store writes -
+// kept separate from committing so a whole batch can be evaluated first and
+// persisted only if EVERY ref in it is accepted (real git pre-receive hooks
+// are all-or-nothing across every ref in one push; a hook can't selectively
+// apply half of a push).
+type verdict struct {
+	update       RefUpdate
+	skip         bool // ref outside the funnel's two sanctioned shapes - accepted unconditionally, never persisted
+	decision     receive.Decision
+	changedPaths []string
+	extraEnv     []string
+	evalErr      string // set on an I/O failure evaluating this ref (git diff/log failed)
+}
+
+func (v verdict) accepted() bool { return v.skip || v.decision.Accepted }
+
+// Processor wires receive.Decide to a real bare repo + Store - the
+// "pre-receive wiring" this stage's DAG entry names explicitly.
+type Processor struct {
+	RepoDir  string
+	TrunkRef string
+	Scanner  receive.SecretScanner
+	Store    Store
+	Now      func() time.Time
+}
+
+// ProcessBatch evaluates every ref update in one push, then - only if ALL
+// are accepted - persists Changes and enqueues webhooks for the ones the
+// funnel actually governs. This mirrors real git pre-receive semantics: one
+// hook invocation's exit status decides the WHOLE push, atomically.
+//
+// extraEnv is forwarded from the invoking pre-receive hook's own process
+// env (GIT_OBJECT_DIRECTORY / GIT_ALTERNATE_OBJECT_DIRECTORIES) - git's
+// object quarantine stores an incoming push's new objects in a temporary
+// area exposed via those two vars ONLY on the hook process; since this
+// Processor runs inside the daemon (a different process the hook forwards
+// to over HTTP, hook.go), it cannot see quarantined objects at all without
+// them being explicitly passed through and merged into every git
+// subprocess this evaluation shells out to.
+func (p *Processor) ProcessBatch(ctx context.Context, updates []RefUpdate, extraEnv []string) []RefResult {
+	verdicts := make([]verdict, len(updates))
+	allAccepted := true
+	for i, u := range updates {
+		v := p.evaluate(u, extraEnv)
+		verdicts[i] = v
+		if !v.accepted() {
+			allAccepted = false
+		}
+	}
+
+	results := make([]RefResult, len(updates))
+	for i, v := range verdicts {
+		switch {
+		case v.skip:
+			results[i] = RefResult{Ref: v.update.Ref, Accepted: true}
+		case !allAccepted:
+			results[i] = RefResult{Ref: v.update.Ref, Accepted: false, Message: rejectionMessage(v)}
+		default:
+			results[i] = p.commit(ctx, v)
+		}
+	}
+	return results
+}
+
+// Process is ProcessBatch for the common single-ref push - what a real
+// `git push origin HEAD:refs/for/main` or `git push origin main` sends.
+func (p *Processor) Process(ctx context.Context, u RefUpdate, extraEnv []string) RefResult {
+	return p.ProcessBatch(ctx, []RefUpdate{u}, extraEnv)[0]
+}
+
+// evaluate runs receive.Decide for one ref update without writing to Store -
+// refs outside the funnel's two sanctioned shapes (refs/heads/<trunk>,
+// refs/for/<trunk>) are marked skip: workspace snapshot refs
+// (refs/workspaces/*, §12) and anything else are out of scope for this
+// stage; stage 12 wires those through the same funnel later.
+func (p *Processor) evaluate(u RefUpdate, extraEnv []string) verdict {
+	isTrunkPush := u.Ref == "refs/heads/"+p.TrunkRef
+	_, isMagicRef := receive.ParseMagicRef(u.Ref)
+	if !isTrunkPush && !isMagicRef {
+		return verdict{update: u, skip: true}
+	}
+
+	changedPaths, files, err := p.diff(u.OldSHA, u.NewSHA, extraEnv)
+	if err != nil {
+		return verdict{update: u, evalErr: fmt.Sprintf("remote: could not inspect push: %v\n", err)}
+	}
+	msg, err := p.commitMessage(u.NewSHA, extraEnv)
+	if err != nil {
+		return verdict{update: u, evalErr: fmt.Sprintf("remote: could not read commit message: %v\n", err)}
+	}
+
+	req := receive.PushRequest{
+		Ref: u.Ref, TrunkRef: p.TrunkRef, CommitMessage: msg,
+		Files: files, ChangedPaths: changedPaths,
+		ChangeIDSeed: u.NewSHA,
+	}
+	return verdict{
+		update: u, changedPaths: changedPaths, extraEnv: extraEnv,
+		decision: receive.Decide(req, p.Scanner),
+	}
+}
+
+func rejectionMessage(v verdict) string {
+	if v.evalErr != "" {
+		return v.evalErr
+	}
+	if !v.decision.Accepted {
+		return renderRejection(v.decision)
+	}
+	return "remote: rejected because another ref in this push was rejected\n"
+}
+
+// commit persists an accepted verdict's Change and enqueues its webhook -
+// only called once ProcessBatch has confirmed the WHOLE push is accepted.
+func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
+	if v.evalErr != "" {
+		return RefResult{Ref: v.update.Ref, Accepted: false, Message: v.evalErr}
+	}
+	d := v.decision
+
+	base := v.update.OldSHA
+	if base == zeroOID {
+		base = ""
+	}
+	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, v.update.Ref, firstLine(d.CommitMessage))
+	if err != nil {
+		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
+	}
+
+	p.computeAffectedAndEnqueue(ctx, change, v.changedPaths, v.extraEnv)
+
+	return RefResult{
+		Ref: v.update.Ref, Accepted: true, ChangeID: change.ChangeKey,
+		Message: fmt.Sprintf("remote: %s -> %s\n", change.ChangeKey, v.update.Ref),
+	}
+}
+
+// computeAffectedAndEnqueue runs the platform-floor affected computation
+// (§13.3) and enqueues a webhook envelope - the funnel's remaining two
+// steps after Change persistence (§7.4, §11.5: "receive -> policy -> secret
+// scan -> Change create/update -> affected compute -> webhooks"). Errors
+// here are logged, not fatal to the push: the Change is already durable, so
+// a failed affected computation shouldn't un-accept an otherwise-good push -
+// it should show up as an operational alert instead.
+func (p *Processor) computeAffectedAndEnqueue(ctx context.Context, change Change, changedPaths []string, extraEnv []string) {
+	store := &gitstore.Store{Dir: p.RepoDir, Ref: "HEAD", ExtraEnv: extraEnv}
+	indexed, err := index.Scan(store, core.Revision(change.HeadSHA), nil)
+	if err != nil {
+		return
+	}
+	projects := make([]affected.ProjectInfo, len(indexed))
+	for i, ip := range indexed {
+		projects[i] = affected.ProjectInfo{Name: ip.Name, Path: ip.Path, DeclaredDependencies: ip.DeclaredDependencies}
+	}
+	result := affected.Compute(projects, changedPaths, affected.Options{})
+
+	// Actor attribution and Change numbering need real AuthN/a persistent
+	// counter, neither built yet (doc.go's scope boundary) - placeholders
+	// here are informational fields on an already-durable Change, not a
+	// gate on anything.
+	env := checks.WebhookEnvelope{
+		SpecVersion: "1",
+		DeliveryID:  change.ChangeKey + "@" + change.HeadSHA,
+		Type:        "change.updated",
+		OccurredAt:  p.now(),
+		Change: checks.WebhookChange{
+			ID: change.ChangeKey, State: change.State,
+			BaseSHA: change.BaseSHA, HeadSHA: change.HeadSHA, GitRef: change.GitRef,
+			Title: change.Title,
+			Actor: checks.WebhookActor{Type: "user", ID: "unknown"},
+		},
+		Affected: &checks.WebhookAffected{
+			ComputationID: result.ComputationID,
+			Paths:         result.Paths,
+			ReasonCodes:   result.ReasonCodes,
+			RunEverything: result.RunEverything,
+		},
+	}
+	for _, pr := range result.Projects {
+		env.Affected.Projects = append(env.Affected.Projects, checks.WebhookAffectedProject{Name: pr.Name, Path: pr.Path})
+	}
+
+	payload, err := checks.MarshalEnvelope(env)
+	if err != nil {
+		return
+	}
+	p.Store.EnqueueWebhook(ctx, payload)
+}
+
+func (p *Processor) now() time.Time {
+	if p.Now != nil {
+		return p.Now()
+	}
+	return time.Now()
+}
+
+// diff returns the changed paths and, for added/modified files only (never
+// deletions - secret scanning cares about content entering the repo, not
+// content leaving it), their full content at newSHA.
+func (p *Processor) diff(oldSHA, newSHA string, extraEnv []string) ([]string, []receive.FileContent, error) {
+	from := oldSHA
+	if from == zeroOID {
+		from = emptyTreeOID
+	}
+	out, err := p.runGit(extraEnv, "diff", "--name-status", from, newSHA)
+	if err != nil {
+		return nil, nil, err
+	}
+	if out == "" {
+		return nil, nil, nil
+	}
+
+	store := &gitstore.Store{Dir: p.RepoDir, Ref: "HEAD", ExtraEnv: extraEnv}
+	var paths []string
+	var files []receive.FileContent
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		status, path := fields[0], fields[len(fields)-1]
+		paths = append(paths, path)
+		if strings.HasPrefix(status, "D") {
+			continue
+		}
+		blob, err := store.GetBlob(core.Revision(newSHA), path)
+		if err != nil {
+			continue
+		}
+		files = append(files, receive.FileContent{Path: path, Content: blob.Content})
+	}
+	return paths, files, nil
+}
+
+func (p *Processor) commitMessage(rev string, extraEnv []string) (string, error) {
+	return p.runGit(extraEnv, "log", "-1", "--format=%B", rev)
+}
+
+func (p *Processor) runGit(extraEnv []string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = p.RepoDir
+	if extraEnv != nil {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(errBuf.String()))
+	}
+	return strings.TrimRight(out.String(), "\n"), nil
+}
+
+// renderRejection turns a Decision's rejection reasons into the plain-
+// language, "remote: ..." prefixed lines git relays to the pushing client
+// (§6.6, §6.9) - never a raw internal error.
+func renderRejection(d receive.Decision) string {
+	if d.RejectionMessage != "" {
+		return d.RejectionMessage
+	}
+	var b strings.Builder
+	for _, v := range d.PolicyViolations {
+		fmt.Fprintf(&b, "remote: policy violation: %s\n", v.Message)
+		if v.Suggestion != "" {
+			fmt.Fprintf(&b, "remote:   -> %s\n", v.Suggestion)
+		}
+	}
+	for _, f := range d.SecretFindings {
+		fmt.Fprintf(&b, "remote: possible secret in %s (line %d): %s\n", f.Path, f.Line, f.Description)
+	}
+	return b.String()
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}

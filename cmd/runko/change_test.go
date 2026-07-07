@@ -105,6 +105,59 @@ func TestPushChangePreservesExistingChangeID(t *testing.T) {
 	}
 }
 
+// TestPushChangeAmendAndRepushSucceeds guards against a real bug found
+// while building runkod (§28.3 stage 10): runkod keeps refs/for/<trunk> as a
+// literal, repeatedly-overwritten ref rather than redirecting it server-side
+// the way real Gerrit's customized receive-pack does (see PushChange's
+// doc comment) - so amending a Change and re-pushing is a non-fast-forward
+// update to that same ref, which a plain (non-forced) push refuses.
+func TestPushChangeAmendAndRepushSucceeds(t *testing.T) {
+	remote := newBareRemote(t)
+
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("initial")
+	repo.Run("remote add origin " + remote)
+	if _, err := runGit(repo.Dir, "push", "origin", "main"); err != nil {
+		t.Fatalf("seed remote main: %v", err)
+	}
+
+	repo.WriteFile("feature.txt", "v1\n")
+	repo.Commit("add feature")
+	if _, err := PushChange(repo.Dir, "origin", "main"); err != nil {
+		t.Fatalf("PushChange (first push): %v", err)
+	}
+
+	repo.WriteFile("feature.txt", "v2\n")
+	if _, err := runGit(repo.Dir, "add", "feature.txt"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := runGit(repo.Dir, "commit", "--amend", "--no-edit"); err != nil {
+		t.Fatalf("amend: %v", err)
+	}
+
+	changeID, err := PushChange(repo.Dir, "origin", "main")
+	if err != nil {
+		t.Fatalf("PushChange (amended re-push) - must not fail non-fast-forward: %v", err)
+	}
+	if changeID == "" {
+		t.Fatalf("expected a Change-Id on the re-push")
+	}
+
+	head, err := runGit(repo.Dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse HEAD: %v", err)
+	}
+	remoteTip, err := runGit(remote, "rev-parse", "refs/for/main")
+	if err != nil {
+		t.Fatalf("rev-parse remote refs/for/main: %v", err)
+	}
+	if head != remoteTip {
+		t.Fatalf("expected refs/for/main to reflect the amended commit %s, got %s", head, remoteTip)
+	}
+}
+
 // Note: "does re-pushing an amended commit update the same Change" is NOT
 // tested here. That behavior belongs to the server's receive funnel
 // (refs/for/<trunk> is a magic ref the server intercepts and maps to a
