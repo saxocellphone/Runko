@@ -20,9 +20,15 @@ import (
 // an upsert keyed on (monorepo_id, name) if that continuity turns out to
 // matter before v1 ships.
 //
-// Untested against a live Postgres in this environment (no Docker/Postgres
-// available here - see CLAUDE.md); the query shapes are sqlc-verified
-// (internal/dbgen) but this wiring has not been run against a real database.
+// Verified against a live Postgres (§28.3 stage 9d's CI, `make check-db`):
+// the first real run caught a genuine bug sqlc's own schema analysis could
+// never have found - projects.capabilities and .declared_dependencies are
+// NOT NULL, but a project with neither in its PROJECT.yaml (the common
+// case: both are optional per §6.2's layering rule) unmarshals to a nil Go
+// slice, which pgx sends as SQL NULL, not an empty array. nonNilStrings
+// below normalizes at this persistence boundary, the same fix
+// checks.MergeRequirements' MarshalJSON already applies for JSON's
+// analogous null-vs-[] distinction.
 func Sync(ctx context.Context, db dbgen.DBTX, q *dbgen.Queries, monorepoID uuid.UUID, indexedAtSHA string, projects []IndexedProject) error {
 	if err := q.DeleteProjectsForMonorepo(ctx, db, monorepoID); err != nil {
 		return fmt.Errorf("index: clear existing projects: %w", err)
@@ -35,8 +41,8 @@ func Sync(ctx context.Context, db dbgen.DBTX, q *dbgen.Queries, monorepoID uuid.
 			Path:                 p.Path,
 			ProjectType:          p.Type,
 			Visibility:           p.Visibility,
-			Capabilities:         p.Capabilities,
-			DeclaredDependencies: p.DeclaredDependencies,
+			Capabilities:         nonNilStrings(p.Capabilities),
+			DeclaredDependencies: nonNilStrings(p.DeclaredDependencies),
 			IndexedAtSha:         indexedAtSHA,
 		})
 		if err != nil {
@@ -53,4 +59,14 @@ func Sync(ctx context.Context, db dbgen.DBTX, q *dbgen.Queries, monorepoID uuid.
 		}
 	}
 	return nil
+}
+
+// nonNilStrings replaces a nil slice with an empty one - projects.capabilities
+// and .declared_dependencies are NOT NULL columns, but pgx encodes a nil Go
+// []string as SQL NULL rather than an empty array.
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
