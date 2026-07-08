@@ -9,6 +9,7 @@ import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { ChangeService } from "../gen/runko/v1/changes_pb";
 import { ProjectService } from "../gen/runko/v1/projects_pb";
+import { RepoService } from "../gen/runko/v1/repo_pb";
 import { SearchService } from "../gen/runko/v1/search_pb";
 import { WorkspaceService } from "../gen/runko/v1/workspaces_pb";
 import { createFakeTransport } from "./fake/transport";
@@ -21,5 +22,6 @@ const transport = baseUrl ? createConnectTransport({ baseUrl }) : createFakeTran
 
 export const changesClient = createClient(ChangeService, transport);
 export const projectsClient = createClient(ProjectService, transport);
+export const repoClient = createClient(RepoService, transport);
 export const workspacesClient = createClient(WorkspaceService, transport);
 export const searchClient = createClient(SearchService, transport);

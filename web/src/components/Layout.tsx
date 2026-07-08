@@ -4,6 +4,7 @@ import { usingDemoData } from "../api/client";
 
 const nav = [
   { to: "/changes", label: "Changes", icon: ChangesIcon },
+  { to: "/browse", label: "Browse", icon: BrowseIcon },
   { to: "/projects", label: "Projects", icon: ProjectsIcon },
   { to: "/workspaces", label: "Workspaces", icon: WorkspacesIcon },
   { to: "/search", label: "Search", icon: SearchIcon },
@@ -81,6 +82,14 @@ function ChangesIcon() {
       <circle cx="8" cy="3" r="1.8" />
       <circle cx="8" cy="13" r="1.8" />
       <line x1="8" y1="4.8" x2="8" y2="11.2" />
+    </svg>
+  );
+}
+
+function BrowseIcon() {
+  return (
+    <svg {...iconProps} aria-hidden>
+      <path d="M5.5 2v12M2 5.5h3.5M9 8h5M9 8a3.5 3.5 0 0 1-3.5-3.5M9 12.5h5M9 12.5A3.5 3.5 0 0 1 5.5 9" />
     </svg>
   );
 }

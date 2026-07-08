@@ -915,3 +915,124 @@ tr.hunk-head td {
 .theme-toggle {
   align-self: flex-start;
 }
+
+/* -------------------------------------------------------------- browser */
+
+.browse-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .browse-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tree-panel {
+  padding: 8px 6px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding-top: 3.5px;
+  padding-bottom: 3.5px;
+  padding-right: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.tree-row:hover {
+  background: var(--surface-2);
+}
+.tree-row.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tree-caret {
+  width: 10px;
+  flex: none;
+  color: var(--text-3);
+  font-size: 9px;
+  transition: transform 0.12s ease;
+}
+.tree-caret.open {
+  transform: rotate(90deg);
+}
+.tree-icon {
+  flex: none;
+  color: var(--text-3);
+}
+.tree-icon.folder {
+  color: var(--accent);
+  opacity: 0.75;
+}
+.tree-row.selected .tree-icon {
+  color: var(--accent);
+}
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-loading {
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+.file-panel {
+  overflow: hidden;
+}
+.file-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.file-panel-head .file-path {
+  font-weight: 600;
+}
+.file-panel-head .spacer {
+  flex: 1;
+}
+
+.blob-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.blob-table td {
+  padding: 0;
+  vertical-align: top;
+}
+.blob-table .gutter {
+  width: 1%;
+  min-width: 40px;
+  padding: 0 10px !important;
+  text-align: right;
+  color: var(--text-3);
+  user-select: none;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+}
+.blob-table .line-content {
+  padding: 0 12px !important;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

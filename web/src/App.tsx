@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
+import { BrowsePage } from "./pages/BrowsePage";
 import { ChangePage } from "./pages/ChangePage";
 import { ChangesPage } from "./pages/ChangesPage";
 import { ProjectPage } from "./pages/ProjectPage";
@@ -14,6 +15,8 @@ export default function App() {
         <Route index element={<Navigate to="/changes" replace />} />
         <Route path="/changes" element={<ChangesPage />} />
         <Route path="/changes/:changeId" element={<ChangePage />} />
+        {/* Splat: file paths contain slashes. */}
+        <Route path="/browse/*" element={<BrowsePage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         {/* Splat: project names contain slashes (commerce/cart). */}
         <Route path="/projects/*" element={<ProjectPage />} />

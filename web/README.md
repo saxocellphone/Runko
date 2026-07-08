@@ -19,6 +19,9 @@ single violet accent, light + dark themes.
   delta), stack panel, §13.5 merge gates (owners + checks) with
   approve/rerun, land/abandon actions gated on the same `mergeable` bool
   the server reports.
+- **Browse** — barebones repo explorer (`RepoService`: lazy directory
+  tree + file viewer, deep-linkable as `/browse/<path>`, project-badged
+  via longest-prefix ownership).
 - **Projects / project detail / workspaces / code search** — thinner reads
   over the corresponding services.
 

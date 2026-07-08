@@ -105,6 +105,7 @@ decided - see "Open questions" before treating any of this as final.
 | `changes.proto` | `ChangeService`: get/list/stack/diff/affected/merge-requirements/approve/land/abandon/rerun |
 | `workspaces.proto` | `WorkspaceService`: create/list/get/update-base |
 | `search.proto` | `SearchService`: code search |
+| `repo.proto` | `RepoService`: read-only tree/blob browsing (stage 13 explorer; REST equivalents pending, like the stack/diff RPCs) |
 
 `ListChanges`, `AbandonChange`, and `RerunCheck` correspond to REST
 endpoints being added in parallel (§28.3 stage 12c, slice 3) - this draft

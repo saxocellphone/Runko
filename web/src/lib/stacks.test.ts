@@ -5,6 +5,7 @@ import { groupIntoStacks } from "./stacks";
 import { createFakeTransport } from "../api/fake/transport";
 import { createClient } from "@connectrpc/connect";
 import { ChangeService } from "../gen/runko/v1/changes_pb";
+import { RepoService, TreeEntryType } from "../gen/runko/v1/repo_pb";
 import { stackBottom, stackMiddle, stackTop, soloChange } from "../api/fake/fixtures";
 
 const c = (id: string, base: string, head: string, number: number): ChangeSummary =>
@@ -117,5 +118,38 @@ describe("fake transport", () => {
         approvedBy: "user:demo",
       }),
     ).rejects.toThrow(/not_a_required_owner/);
+  });
+});
+
+describe("fake RepoService", () => {
+  const repo = () => createClient(RepoService, createFakeTransport());
+
+  it("lists the root with dirs before files and project tags", async () => {
+    const res = await repo().getTree({ path: "" });
+    const names = res.entries.map((e) => e.name);
+    expect(names).toEqual(["commerce", "platform", "tools", "web", "OWNERS", "README.md"]);
+    const commerce = res.entries.find((e) => e.name === "commerce")!;
+    expect(commerce.type).toBe(TreeEntryType.DIR);
+  });
+
+  it("lists a nested directory and tags the owning project", async () => {
+    const res = await repo().getTree({ path: "commerce/cart" });
+    expect(res.entries.every((e) => e.project === "commerce/cart")).toBe(true);
+    expect(res.entries.some((e) => e.name === "PROJECT.yaml")).toBe(true);
+  });
+
+  it("serves file content and flags binary", async () => {
+    const cl = repo();
+    const text = await cl.getBlob({ path: "commerce/cart/sku.go" });
+    expect(text.content).toContain("func ParseSKU");
+    expect(text.binary).toBe(false);
+    const bin = await cl.getBlob({ path: "web/storefront/assets/error-icon.png" });
+    expect(bin.binary).toBe(true);
+    expect(bin.content).toBe("");
+  });
+
+  it("404s unknown paths", async () => {
+    await expect(repo().getTree({ path: "no/such/dir" })).rejects.toThrow(/not found/);
+    await expect(repo().getBlob({ path: "no/such/file.go" })).rejects.toThrow(/not found/);
   });
 });

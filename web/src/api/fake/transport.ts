@@ -46,6 +46,12 @@ import {
   UpdateWorkspaceBaseResponseSchema,
 } from "../../gen/runko/v1/workspaces_pb";
 import { SearchService, SearchCodeResponseSchema } from "../../gen/runko/v1/search_pb";
+import {
+  RepoService,
+  TreeEntryType,
+  GetTreeResponseSchema,
+  GetBlobResponseSchema,
+} from "../../gen/runko/v1/repo_pb";
 import { OwnersSource, WorkspaceStatus } from "../../gen/runko/v1/common_pb";
 import {
   changes as fixtureChanges,
@@ -55,6 +61,8 @@ import {
   searchCorpus,
   workspaces as fixtureWorkspaces,
   fakeSha,
+  fsFiles,
+  BINARY_MARKER,
   TRUNK_SHA,
 } from "./fixtures";
 
@@ -434,6 +442,63 @@ export function createFakeTransport(): Transport {
         if (!w) throw notFound("workspace", req.id);
         w.baseRevision = req.baseRevision || TRUNK_SHA;
         return create(UpdateWorkspaceBaseResponseSchema, { workspace: w });
+      },
+    });
+
+    service(RepoService, {
+      async getTree(req) {
+        await delay();
+        const prefix = req.path === "" ? "" : req.path.replace(/\/+$/, "") + "/";
+        const dirs = new Set<string>();
+        const files: { name: string; path: string; size: number }[] = [];
+        let sawPrefix = prefix === "";
+        for (const [p, content] of Object.entries(fsFiles)) {
+          if (!p.startsWith(prefix)) continue;
+          sawPrefix = true;
+          const rest = p.slice(prefix.length);
+          const slash = rest.indexOf("/");
+          if (slash >= 0) {
+            dirs.add(rest.slice(0, slash));
+          } else {
+            files.push({ name: rest, path: p, size: content.length });
+          }
+        }
+        if (!sawPrefix) throw notFound("directory", req.path);
+        const entries = [
+          ...[...dirs].sort().map((name) => ({
+            name,
+            path: prefix + name,
+            type: TreeEntryType.DIR,
+            size: 0n,
+            project: owningProject(prefix + name),
+          })),
+          ...files
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((f) => ({
+              name: f.name,
+              path: f.path,
+              type: TreeEntryType.FILE,
+              size: BigInt(f.size),
+              project: owningProject(f.path),
+            })),
+        ];
+        return create(GetTreeResponseSchema, { entries, rev: req.rev || TRUNK_SHA });
+      },
+
+      async getBlob(req) {
+        await delay();
+        const content = fsFiles[req.path];
+        if (content === undefined) throw notFound("file", req.path);
+        const binary = content === BINARY_MARKER;
+        return create(GetBlobResponseSchema, {
+          path: req.path,
+          rev: req.rev || TRUNK_SHA,
+          content: binary ? "" : content,
+          binary,
+          truncated: false,
+          size: BigInt(binary ? 3 : content.length),
+          project: owningProject(req.path),
+        });
       },
     });
 
