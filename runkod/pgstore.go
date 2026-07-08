@@ -47,9 +47,30 @@ func BootstrapPostgresStore(ctx context.Context, dsn, orgName, trunkRef string) 
 	// full embedded migration set, an existing one gets only what's new,
 	// a current one is a no-op. Stage 14's compose smoke found this
 	// missing - nothing outside the test harnesses had ever applied DDL.
-	ran, err := ApplyMigrations(ctx, pool)
-	if err != nil {
-		return nil, err
+	//
+	// Bounded retry on the initial connection: postgres:16's entrypoint
+	// runs a TEMPORARY server during first-boot init, and pg_isready-style
+	// healthchecks pass against it - a compose/k8s neighbor starting "after
+	// postgres is healthy" can still hit "the database system is starting
+	// up" (SQLSTATE 57P03) in the restart window. Seen flaking CI's
+	// compose-smoke; a daemon that dies on a database mid-boot instead of
+	// waiting a few seconds is wrong in every deployment shape.
+	var ran []string
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		ran, err = ApplyMigrations(ctx, pool)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return nil, err
+		}
+		log.Printf("runkod: postgres not ready yet (%v); retrying", err)
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(2 * time.Second):
+		}
 	}
 	if len(ran) > 0 {
 		log.Printf("runkod: applied schema migrations: %s", strings.Join(ran, ", "))
