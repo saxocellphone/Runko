@@ -17,14 +17,14 @@ function fail(msg) {
   process.exitCode = 1;
 }
 
-// Root, no token: live transport, unauthenticated errors - never demo data.
+// Root, no credential: the sign-in gate, never demo data or a 401 wall.
 await page.goto(`${base}/changes`);
 await page.waitForTimeout(1500);
 const root = await page.textContent("body");
-if (!root.includes("Live, no token")) fail("expected the tokenless live badge");
-if (!root.includes("Set token")) fail("expected the Set token button");
+if (!root.includes("Sign in to this control plane")) fail("expected the sign-in gate");
+if (!root.includes("Explore the demo")) fail("expected the demo link on the gate");
 if (root.includes("storefront: surface SKU errors")) fail("root is showing DEMO fixture data");
-await page.screenshot({ path: `${out}/root-tokenless.png` });
+await page.screenshot({ path: `${out}/root-signin.png` });
 
 // The RPC actually went same-origin to runkod and came back 401.
 const rpc = await page.evaluate(async (b) => {

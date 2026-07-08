@@ -35,12 +35,18 @@ single violet accent, light + dark themes.
   abandon) so every flow is exercisable. `main.tsx` mounts the app under
   the `/demo` basename, so in-app navigation stays inside the demo; the
   sidebar badge cross-links back to the live app.
-- **everywhere else with `VITE_RUNKO_URL=http://host:port`** — Connect
-  protocol against runkod's connect-go handlers (`runkod/rpc.go`, stage
-  13's server half). `VITE_RUNKO_TOKEN=<deploy token>` rides as the same
-  `Authorization: Bearer` header every other client sends; the daemon's
-  RPC routes answer CORS preflights, so the Vite dev server (or any
-  origin) can talk to it directly.
+- **everywhere else with `VITE_RUNKO_URL`** (`/` = same-origin, or an
+  absolute URL for the dev loop) — Connect protocol against runkod's
+  connect-go handlers (`runkod/rpc.go`). Auth is a **sign-in gate**:
+  name + password of a runkod named principal (`--principal
+  name=…;token=…`; the password IS the registry token), validated via
+  `GET /api/whoami` and stored per-browser. The signed-in identity drives
+  approve/land attribution server-side; the deploy token as password
+  gives an anonymous session. `VITE_RUNKO_TOKEN=<deploy token>` remains a
+  build-time anonymous-bearer fallback for the local dev loop ONLY —
+  never set it on a published image. The daemon's RPC + whoami routes
+  answer CORS preflights, so the Vite dev server (or any origin) can talk
+  to it directly.
 - **everywhere else, unset** — the fake transport serves the root app
   too, with the "Demo data — set VITE_RUNKO_URL" badge.
 

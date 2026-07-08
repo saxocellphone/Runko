@@ -32,8 +32,9 @@ type Principal struct {
 }
 
 // principalFor resolves the API caller's principal from the Authorization
-// header (constant-time token match, like laneFor). Nil means the caller
-// authenticated some other way (deploy token, bot lane) or not at all.
+// header (bearer token or Basic name+password - see auth.go). Nil means
+// the caller authenticated some other way (deploy token, bot lane) or not
+// at all.
 func (s *Server) principalFor(r *http.Request) *Principal {
 	return s.principalForAuthHeader(r.Header.Get("Authorization"))
 }
@@ -42,13 +43,7 @@ func (s *Server) principalFor(r *http.Request) *Principal {
 // value - the Connect RPC surface (rpc.go) carries headers on
 // connect.Request rather than *http.Request.
 func (s *Server) principalForAuthHeader(auth string) *Principal {
-	for i := range s.Principals {
-		want := "Bearer " + s.Principals[i].Token
-		if subtle.ConstantTimeCompare([]byte(auth), []byte(want)) == 1 {
-			return &s.Principals[i]
-		}
-	}
-	return nil
+	return s.callerForAuthHeader(auth).principal
 }
 
 // principalForBasicAuth resolves a git smart-HTTP caller (HTTP Basic; the

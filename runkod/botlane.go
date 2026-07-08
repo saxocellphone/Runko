@@ -3,7 +3,6 @@
 package runkod
 
 import (
-	"crypto/subtle"
 	"net/http"
 
 	"github.com/saxocellphone/runko/affected"
@@ -49,13 +48,7 @@ func (s *Server) laneFor(r *http.Request) *BotLane {
 // laneForAuthHeader is laneFor over a raw Authorization header value, for
 // the Connect RPC surface (rpc.go).
 func (s *Server) laneForAuthHeader(auth string) *BotLane {
-	for i := range s.BotLanes {
-		want := "Bearer " + s.BotLanes[i].Token
-		if subtle.ConstantTimeCompare([]byte(auth), []byte(want)) == 1 {
-			return &s.BotLanes[i]
-		}
-	}
-	return nil
+	return s.callerForAuthHeader(auth).lane
 }
 
 // pathsOutsideAllowlist returns the touched paths the lane's allowlist does

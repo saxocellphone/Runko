@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { authUser } from "../api/client";
 import { ChangeState, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import { InfoTip } from "./ui";
 
@@ -64,7 +65,11 @@ export function MergeGates({
                   <button
                     className="btn btn-sm"
                     disabled={busy}
-                    onClick={() => onApprove(o, approveAs)}
+                    // A signed-in principal approves as itself: the server
+                    // derives the approver from the credential and rejects
+                    // a mismatched approved_by, so send none. The free-text
+                    // field exists only for the anonymous deploy token.
+                    onClick={() => onApprove(o, authUser ? "" : approveAs)}
                   >
                     Approve
                   </button>
@@ -72,7 +77,7 @@ export function MergeGates({
               </div>
             );
           })}
-          {open && owners!.outstanding.length > 0 && (
+          {open && !authUser && owners!.outstanding.length > 0 && (
             <div className="approve-as">
               <input
                 type="text"

@@ -52,14 +52,14 @@ await shot("02-change-live");
 
 // 3. Approve as user:reviewer (author is anonymous; any non-author name).
 await page.fill('input[aria-label="approve as"]', "user:reviewer");
-await page.click('button:has-text("Approve")');
+await page.click('button.btn:text-is("Approve")');
 await page.waitForTimeout(1500);
 const approved = await page.textContent("body");
 if (!approved.includes("Ready to land")) fail("approve did not unlock the land gate");
 await shot("03-approved");
 
 // 4. Land through the UI.
-await page.click('button:has-text("Land")');
+await page.click('button.btn-primary:text-is("Land")');
 await page.waitForTimeout(2000);
 const landed = await page.textContent("body");
 if (!landed.includes("Landed as")) fail("land banner missing");

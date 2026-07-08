@@ -1,14 +1,21 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { liveUnauthenticated } from "./api/client";
 import { Layout } from "./components/Layout";
 import { BrowsePage } from "./pages/BrowsePage";
 import { ChangePage } from "./pages/ChangePage";
 import { ChangesPage } from "./pages/ChangesPage";
+import { LoginPage } from "./pages/LoginPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SearchPage } from "./pages/SearchPage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
 
 export default function App() {
+  // A live control plane with no credential in this browser: everything
+  // would 401, so gate on sign-in instead of a wall of errors. The /demo
+  // mount never reaches this (it runs the fake transport, and the login
+  // page links to it for anonymous visitors).
+  if (liveUnauthenticated) return <LoginPage />;
   return (
     <Routes>
       <Route element={<Layout />}>

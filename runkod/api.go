@@ -123,7 +123,37 @@ func (s *Server) Handler() (http.Handler, error) {
 	// rpc.go) - same Store, same cores, same token, one more transport.
 	s.mountRPC(mux)
 
+	// whoami validates a credential and names the caller - the web UI's
+	// sign-in check (auth.go). Mounted method-less behind rpcMiddleware so
+	// the browser's CORS preflight (OPTIONS, unauthenticated) works from a
+	// dev-server origin exactly like the RPC routes.
+	mux.Handle("/api/whoami", s.rpcMiddleware(http.HandlerFunc(s.handleWhoami)))
+
 	return mux, nil
+}
+
+// handleWhoami reports the authenticated caller's identity: a named
+// principal ({name, is_agent}), a bot lane ({name, lane}), or the
+// anonymous deploy token ({anonymous}). rpcMiddleware already rejected
+// invalid credentials with 401.
+func (s *Server) handleWhoami(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	c := s.callerForAuthHeader(r.Header.Get("Authorization"))
+	switch {
+	case c.principal != nil:
+		writeJSON(w, http.StatusOK, map[string]any{
+			"name": c.principal.Name, "is_agent": c.principal.IsAgent, "anonymous": false,
+		})
+	case c.lane != nil:
+		writeJSON(w, http.StatusOK, map[string]any{
+			"name": c.lane.Name, "lane": true, "anonymous": false,
+		})
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"name": "", "anonymous": true})
+	}
 }
 
 // searcher returns s.Searcher, or search.NotConfiguredSearcher{} if unset -
@@ -215,29 +245,18 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// tokenMatches reports whether the Authorization header carries ANY valid
+// credential - bearer (deploy token, bot lane, principal) or Basic
+// (principal name+password, or the deploy token as password). Identity
+// resolution for attribution/gating lives on the same resolver
+// (callerForAuthHeader, auth.go), so authentication and identity can never
+// disagree.
 func (s *Server) tokenMatches(authHeader string) bool {
-	want := "Bearer " + s.Token
-	if subtle.ConstantTimeCompare([]byte(authHeader), []byte(want)) == 1 {
-		return true
-	}
-	// Bot-lane tokens are full API clients too (§8.8 "internal bots: same
-	// CLI/API surface") - lane semantics apply only at the land gate and
-	// the merge-requirements view, via laneFor.
-	for i := range s.BotLanes {
-		laneWant := "Bearer " + s.BotLanes[i].Token
-		if subtle.ConstantTimeCompare([]byte(authHeader), []byte(laneWant)) == 1 {
-			return true
-		}
-	}
-	// Named principals (§15.1 interim registry) are full API clients;
-	// principalFor resolves WHO they are where attribution matters.
-	for i := range s.Principals {
-		want := "Bearer " + s.Principals[i].Token
-		if subtle.ConstantTimeCompare([]byte(authHeader), []byte(want)) == 1 {
-			return true
-		}
-	}
-	return false
+	return s.callerForAuthHeader(authHeader).ok
+}
+
+func constantTimeEquals(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 // requireGitAuth gates the smart-HTTP git transport itself (§14.11,
@@ -257,21 +276,32 @@ func (s *Server) tokenMatches(authHeader string) bool {
 // the funnel knows WHO pushed without any signature change on the wire.
 func (s *Server) requireGitAuth(git *cgi.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, pass, ok := r.BasicAuth()
+		user, pass, ok := r.BasicAuth()
 		if !ok {
 			w.Header().Set("WWW-Authenticate", `Basic realm="runko"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if principal := s.principalForBasicAuth(pass); principal != nil {
-			authed := *git // shallow copy; Env must not mutate the shared handler
-			authed.Env = append(append([]string{}, git.Env...), "REMOTE_USER="+principal.Name)
-			authed.ServeHTTP(w, r)
-			return
+		// Proper name+password pairs first (auth.go), then the historical
+		// password-only principal resolution - existing remotes embed
+		// arbitrary usernames (`http://user:<token>@...`), and the token
+		// alone is the secret, so a URL-borne username never blocks a
+		// clone; it just doesn't claim someone else's identity.
+		c := s.callerForBasic(user, pass)
+		if !c.ok {
+			if p := s.principalForBasicAuth(pass); p != nil {
+				c = caller{ok: true, principal: p}
+			}
 		}
-		if subtle.ConstantTimeCompare([]byte(pass), []byte(s.Token)) != 1 {
+		if !c.ok {
 			w.Header().Set("WWW-Authenticate", `Basic realm="runko"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if c.principal != nil {
+			authed := *git // shallow copy; Env must not mutate the shared handler
+			authed.Env = append(append([]string{}, git.Env...), "REMOTE_USER="+c.principal.Name)
+			authed.ServeHTTP(w, r)
 			return
 		}
 		git.ServeHTTP(w, r)

@@ -30,13 +30,18 @@ const baseUrl =
     ? new URL(rawBaseUrl, window.location.origin).toString()
     : rawBaseUrl;
 
-// The bearer token is per-BROWSER at runtime (localStorage, set from the
-// sidebar), falling back to the build-time var for local dev only. Never
-// bake VITE_RUNKO_TOKEN into a published image: Vite inlines it into the
-// bundle, which would hand the deploy token to every visitor.
-const token: string | undefined =
-  (typeof window !== "undefined" ? window.localStorage.getItem("runko-token") : null) ??
-  import.meta.env.VITE_RUNKO_TOKEN;
+// Sign-in state is per BROWSER at runtime (localStorage), never baked at
+// build time - Vite inlines build vars into the public bundle, which
+// would hand the credential to every visitor. Basic auth (name + the
+// principal's password) is the human flow, resolved server-side against
+// runkod's named-principal registry (§15.1 interim; runkod/auth.go);
+// VITE_RUNKO_TOKEN remains as an anonymous bearer fallback for the local
+// dev loop only.
+const storedUser: string | null =
+  typeof window !== "undefined" ? window.localStorage.getItem("runko-user") : null;
+const storedBasic: string | null =
+  typeof window !== "undefined" ? window.localStorage.getItem("runko-basic") : null;
+const devToken: string | undefined = import.meta.env.VITE_RUNKO_TOKEN;
 
 /** True when the current page lives under the /demo mount (see main.tsx). */
 export const onDemoRoute =
@@ -45,12 +50,23 @@ export const onDemoRoute =
 
 export const usingDemoData = onDemoRoute || !baseUrl;
 
-/** Live transport configured but no token in this browser yet: every RPC
- * will 401 until the user sets one (Layout surfaces this). */
-export const liveTokenMissing = !usingDemoData && !token;
+/** The signed-in principal's name; null when not signed in OR signed in
+ * anonymously (deploy-token password). The server re-derives identity
+ * from the credential on every call - this is display state, not
+ * authority. */
+export const authUser: string | null =
+  !usingDemoData && storedBasic && storedUser ? storedUser : null;
+
+/** True when this browser holds a credential (named or anonymous). */
+export const signedIn = !usingDemoData && !!storedBasic;
+
+/** Live transport configured but no credential in this browser yet: every
+ * RPC will 401, so App gates on the sign-in screen. */
+export const liveUnauthenticated = !usingDemoData && !storedBasic && !devToken;
 
 const auth: Interceptor = (next) => (req) => {
-  if (token) req.header.set("Authorization", `Bearer ${token}`);
+  if (storedBasic) req.header.set("Authorization", `Basic ${storedBasic}`);
+  else if (devToken) req.header.set("Authorization", `Bearer ${devToken}`);
   return next(req);
 };
 
@@ -58,11 +74,29 @@ const transport = usingDemoData
   ? createFakeTransport()
   : createConnectTransport({ baseUrl: baseUrl!, interceptors: [auth] });
 
-/** Store (or clear) the runkod deploy token for this browser and reload so
- * every client picks it up. */
-export function setRunkoToken(value: string): void {
-  if (value) window.localStorage.setItem("runko-token", value);
-  else window.localStorage.removeItem("runko-token");
+/** Validate name+password against runkod (GET /api/whoami) and, on
+ * success, store the Basic credential for this browser and reload so
+ * every client picks it up. Throws with a human-readable message on
+ * rejection. */
+export async function signIn(name: string, password: string): Promise<void> {
+  const basic = btoa(`${name}:${password}`);
+  const res = await fetch(new URL("api/whoami", baseUrl), {
+    headers: { Authorization: `Basic ${basic}` },
+  });
+  if (res.status === 401) throw new Error("wrong name or password");
+  if (!res.ok) throw new Error(`runkod answered HTTP ${res.status}`);
+  const who = (await res.json()) as { name?: string; anonymous?: boolean };
+  // A deploy-token password signs in "anonymous" - allowed (it is the
+  // documented everyone-credential until retired) but shown as such.
+  window.localStorage.setItem("runko-user", who.anonymous ? "" : (who.name ?? name));
+  window.localStorage.setItem("runko-basic", basic);
+  window.location.reload();
+}
+
+/** Clear this browser's credential and reload. */
+export function signOut(): void {
+  window.localStorage.removeItem("runko-user");
+  window.localStorage.removeItem("runko-basic");
   window.location.reload();
 }
 

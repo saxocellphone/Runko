@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { liveTokenMissing, onDemoRoute, setRunkoToken, usingDemoData } from "../api/client";
+import { authUser, onDemoRoute, signedIn, signOut, usingDemoData } from "../api/client";
 
 const nav = [
   { to: "/changes", label: "Changes", icon: ChangesIcon },
@@ -43,31 +43,21 @@ export function Layout() {
             </div>
           ) : (
             <div className="demo-badge">
-              {liveTokenMissing ? (
+              {authUser ? (
                 <>
-                  Live, no token — <a href="/demo/changes">view demo</a>
+                  Signed in as <strong>{authUser}</strong> —{" "}
+                  <a href="/demo/changes">view demo</a>
                 </>
               ) : (
                 <>
-                  Live — <a href="/demo/changes">view demo</a>
+                  Live{signedIn ? ", anonymous" : ""} — <a href="/demo/changes">view demo</a>
                 </>
               )}
             </div>
           )}
-          {!onDemoRoute && !usingDemoData && (
-            // Per-browser deploy token (localStorage): the public bundle
-            // ships without one - see client.ts. prompt() keeps this a
-            // one-liner until a real settings surface exists.
-            <button
-              className="btn btn-sm theme-toggle"
-              onClick={() => {
-                const t = window.prompt(
-                  "runkod deploy token (stored only in this browser; empty clears)",
-                );
-                if (t !== null) setRunkoToken(t.trim());
-              }}
-            >
-              {liveTokenMissing ? "Set token" : "Change token"}
+          {!onDemoRoute && !usingDemoData && signedIn && (
+            <button className="btn btn-sm theme-toggle" onClick={() => signOut()}>
+              Sign out
             </button>
           )}
           <button
