@@ -407,23 +407,24 @@ func stackForChange(all []Change, change Change) ([]Change, int) {
 		upSeen[parent.ChangeKey] = true
 		root = parent
 	}
+	// The FULL tree below the root, not a first-child linearization: a
+	// workspace's parallel branches (§12.2) fork a stack, and the client
+	// rebuilds the tree from base/head relations - pre-order DFS keeps
+	// every parent before its children (changes.proto GetChangeStack).
 	chain := []Change{root}
 	downSeen := map[string]bool{root.ChangeKey: true}
-	for {
-		var next *Change
-		for i := range children[chain[len(chain)-1].ChangeKey] {
-			c := children[chain[len(chain)-1].ChangeKey][i]
-			if !downSeen[c.ChangeKey] {
-				next = &c
-				break
+	var walk func(parent Change)
+	walk = func(parent Change) {
+		for _, c := range children[parent.ChangeKey] {
+			if downSeen[c.ChangeKey] {
+				continue
 			}
+			downSeen[c.ChangeKey] = true
+			chain = append(chain, c)
+			walk(c)
 		}
-		if next == nil {
-			break
-		}
-		downSeen[next.ChangeKey] = true
-		chain = append(chain, *next)
 	}
+	walk(root)
 	position := 0
 	for i, c := range chain {
 		if c.ChangeKey == change.ChangeKey {

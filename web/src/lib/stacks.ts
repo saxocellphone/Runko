@@ -2,53 +2,82 @@ import type { ChangeSummary } from "../gen/runko/v1/common_pb";
 
 // Client-side mirror of GetChangeStack's derived relation
 // (proto/runko/v1/changes.proto): Change B is stacked on Change A iff
-// B.baseSha == A.headSha. Used by the changes list, which already holds
-// every open ChangeSummary and shouldn't issue one stack RPC per change.
-//
-// Each returned stack is ordered trunk-most first. A fork (two changes
-// based on the same head) yields one stack per leaf, sharing the prefix -
-// linear rendering per path, the same simplification Graphite's list
-// makes.
-export function groupIntoStacks(changes: ChangeSummary[]): ChangeSummary[][] {
+// B.baseSha == A.headSha. Stacks can FORK - two changes built on one base,
+// e.g. from a workspace's parallel branches (§12.2) - so the model is a
+// tree, never a forced line: the rail renders forks as indented siblings.
+
+export interface StackNode {
+  change: ChangeSummary;
+  children: StackNode[];
+}
+
+// One row of a rendered stack: `depth` is the node's distance from the
+// trunk-most root - the rail indents by it, which is how a fork reads.
+export interface StackRow {
+  change: ChangeSummary;
+  depth: number;
+}
+
+// buildStackForest groups changes into connected trees (roots are the
+// trunk-based changes), newest activity first. Used by the inbox on the
+// full open list, and by the change page on GetChangeStack's flat tree.
+export function buildStackForest(changes: ChangeSummary[]): StackNode[] {
   const byHead = new Map<string, ChangeSummary>();
   for (const c of changes) byHead.set(c.headSha, c);
 
-  const childrenOf = new Map<string, ChangeSummary[]>();
-  const roots: ChangeSummary[] = [];
+  const nodes = new Map<string, StackNode>();
+  const node = (c: ChangeSummary): StackNode => {
+    let n = nodes.get(c.id);
+    if (!n) {
+      n = { change: c, children: [] };
+      nodes.set(c.id, n);
+    }
+    return n;
+  };
+
+  const roots: StackNode[] = [];
   for (const c of changes) {
     const parent = byHead.get(c.baseSha);
     if (parent && parent.id !== c.id) {
-      const kids = childrenOf.get(parent.id);
-      if (kids) kids.push(c);
-      else childrenOf.set(parent.id, [c]);
+      node(parent).children.push(node(c));
     } else {
-      roots.push(c);
+      roots.push(node(c));
     }
   }
+  for (const n of nodes.values()) {
+    n.children.sort((a, b) => Number(a.change.number - b.change.number));
+  }
+  roots.sort((a, b) => Number(maxNumber(b) - maxNumber(a)));
+  return roots;
+}
 
-  const stacks: ChangeSummary[][] = [];
-  const walk = (prefix: ChangeSummary[], c: ChangeSummary) => {
-    const chain = [...prefix, c];
-    const kids = [...(childrenOf.get(c.id) ?? [])].sort(byNumberAsc);
-    if (kids.length === 0) {
-      stacks.push(chain);
-      return;
+// flattenStack renders a tree top-first the way the rail draws it:
+// descendants above ancestors (the visual "upstack is up"), the root
+// (trunk-most) last. Child subtrees render in ascending change-number
+// order so each parent sits directly below its own line's rows - keeping
+// unrelated fork leaves from ending up visually adjacent.
+export function flattenStack(root: StackNode): StackRow[] {
+  const rows: StackRow[] = [];
+  const walk = (n: StackNode, depth: number) => {
+    for (const child of [...n.children].sort((a, b) => Number(a.change.number - b.change.number))) {
+      walk(child, depth + 1);
     }
-    for (const k of kids) walk(chain, k);
+    rows.push({ change: n.change, depth });
   };
-  for (const r of roots) walk([], r);
-
-  // Newest activity first: order stacks by their highest change number.
-  stacks.sort((a, b) => Number(maxNumber(b) - maxNumber(a)));
-  return stacks;
+  walk(root, 0);
+  return rows;
 }
 
-function byNumberAsc(a: ChangeSummary, b: ChangeSummary): number {
-  return Number(a.number - b.number);
+// stackSize counts a tree's changes (the inbox card header).
+export function stackSize(root: StackNode): number {
+  return 1 + root.children.reduce((sum, c) => sum + stackSize(c), 0);
 }
 
-function maxNumber(stack: ChangeSummary[]): bigint {
-  let max = 0n;
-  for (const c of stack) if (c.number > max) max = c.number;
+function maxNumber(n: StackNode): bigint {
+  let max = n.change.number;
+  for (const c of n.children) {
+    const m = maxNumber(c);
+    if (m > max) max = m;
+  }
   return max;
 }

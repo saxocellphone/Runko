@@ -160,6 +160,22 @@ export const stackTop = mkChange({
   author: val,
 });
 
+// Forks the stack at stackBottom (same base as stackMiddle): the parallel
+// line built on workspace branch "inline-errors" (§12.2 workspace
+// branches) - the stacked-diff UI renders this as a real fork, not a
+// linearized or duplicated prefix.
+export const stackFork = mkChange({
+  seed: "sku-inline-cart-errors",
+  number: 346,
+  title: "cart: surface SKU errors from the cart API instead",
+  description:
+    "Parallel approach to #343, built on workspace branch inline-errors:\n" +
+    "let the cart API shape the error and skip the checkout hop.",
+  baseSha: stackBottom.headSha,
+  headSeed: "head-sku-fork",
+  author: val,
+});
+
 export const soloChange = mkChange({
   seed: "authz-cache",
   number: 341,
@@ -207,6 +223,7 @@ export const changes: ChangeSummary[] = [
   stackBottom,
   stackMiddle,
   stackTop,
+  stackFork,
   soloChange,
   agentChange,
   landedChange,
@@ -268,6 +285,14 @@ export const requirements: MergeRequirements[] = [
       required: ["storefront-e2e", "manifest-lint", "secrets-scan"],
       passing: ["manifest-lint", "secrets-scan"],
       failing: ["storefront-e2e"],
+    },
+  ),
+  req(
+    stackFork.id,
+    { required: ["group:commerce"], satisfied: [] },
+    {
+      required: ["bazel_test://commerce/cart:cart_test", "manifest-lint"],
+      passing: ["bazel_test://commerce/cart:cart_test", "manifest-lint"],
     },
   ),
   req(

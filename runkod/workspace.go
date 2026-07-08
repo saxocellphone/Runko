@@ -232,7 +232,13 @@ func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	// Enriched rows, same shape as GET /api/workspaces/{id} - found live:
+	// bare registry rows left `runko workspace list` without branches.
+	out := make([]workspaceResponse, len(list))
+	for i, ws := range list {
+		out[i] = s.workspaceResponse(ws)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {

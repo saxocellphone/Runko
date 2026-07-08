@@ -169,17 +169,24 @@ function stackOf(state: FakeState, id: string): ChangeSummary[] {
     upSeen.add(parent.id);
     root = parent;
   }
+  // The FULL tree below the root, pre-order (parents before children,
+  // siblings by number) - stacks can fork when a workspace's parallel
+  // branches (§12.2) build on one base; clients rebuild the edges from
+  // base/head, mirroring runkod's stackForChange.
   const chain = [root];
   const downSeen = new Set([root.id]);
-  for (;;) {
-    const kids = [...(childrenOf.get(chain[chain.length - 1]!.id) ?? [])].sort((a, b) =>
+  const walk = (parent: ChangeSummary) => {
+    const kids = [...(childrenOf.get(parent.id) ?? [])].sort((a, b) =>
       Number(a.number - b.number),
     );
-    const next = kids.find((k) => !downSeen.has(k.id));
-    if (!next) break;
-    downSeen.add(next.id);
-    chain.push(next);
-  }
+    for (const k of kids) {
+      if (downSeen.has(k.id)) continue;
+      downSeen.add(k.id);
+      chain.push(k);
+      walk(k);
+    }
+  };
+  walk(root);
   return chain;
 }
 

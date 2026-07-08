@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { changesClient } from "../api/client";
 import { ChangeState, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import { changeNumberLabel, shortChangeId } from "../lib/format";
-import { groupIntoStacks } from "../lib/stacks";
+import { buildStackForest, flattenStack, stackSize, type StackNode } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
 import {
   AuthorChip,
@@ -87,35 +87,38 @@ function StackedList({
   changes: ChangeSummary[];
   requirements: Map<string, MergeRequirements>;
 }) {
-  const stacks = groupIntoStacks(changes);
+  const forest = buildStackForest(changes);
   return (
     <div>
-      {stacks.map((stack) => (
-        <StackCard key={stack[0]!.id} stack={stack} requirements={requirements} />
+      {forest.map((root) => (
+        <StackCard key={root.change.id} root={root} requirements={requirements} />
       ))}
     </div>
   );
 }
 
 function StackCard({
-  stack,
+  root,
   requirements,
 }: {
-  stack: ChangeSummary[];
+  root: StackNode;
   requirements: Map<string, MergeRequirements>;
 }) {
-  const topFirst = [...stack].reverse();
+  const rows = flattenStack(root);
+  const size = stackSize(root);
+  const hasFork = (n: StackNode): boolean => n.children.length > 1 || n.children.some(hasFork);
+  const forked = hasFork(root);
   return (
     <section className="card stack-card">
-      {stack.length > 1 && (
+      {size > 1 && (
         <header className="stack-card-head">
-          Stack · {stack.length} changes
+          Stack · {size} changes{forked ? " · forked" : ""}
         </header>
       )}
-      {topFirst.map((c, i) => (
-        <div className="stack-row" key={c.id}>
+      {rows.map(({ change: c, depth }, i) => (
+        <div className="stack-row" key={c.id} style={{ paddingLeft: depth * 18 }}>
           <span className={`rail${i > 0 ? " rail-up" : ""} rail-down`}>
-            <StatusDot requirements={requirements.get(c.id)} />
+            <StatusDot requirements={requirements.get(c.id)} state={c.state} />
           </span>
           <div className="change-line">
             <Link className="change-title-link" to={`/changes/${c.id}`}>

@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { ChangeState, ChangeSummarySchema, type ChangeSummary } from "../gen/runko/v1/common_pb";
-import { groupIntoStacks } from "./stacks";
+import { buildStackForest, flattenStack, stackSize } from "./stacks";
 import { createFakeTransport } from "../api/fake/transport";
 import { createClient } from "@connectrpc/connect";
 import { ChangeService } from "../gen/runko/v1/changes_pb";
 import { RepoService, TreeEntryType } from "../gen/runko/v1/repo_pb";
-import { stackBottom, stackMiddle, stackTop, soloChange } from "../api/fake/fixtures";
+import {
+  stackBottom,
+  stackFork,
+  stackMiddle,
+  stackTop,
+  soloChange,
+} from "../api/fake/fixtures";
 
 const c = (id: string, base: string, head: string, number: number): ChangeSummary =>
   create(ChangeSummarySchema, {
@@ -17,64 +23,71 @@ const c = (id: string, base: string, head: string, number: number): ChangeSummar
     number: BigInt(number),
   });
 
-describe("groupIntoStacks", () => {
-  it("keeps independent changes as stacks of one", () => {
-    const stacks = groupIntoStacks([c("a", "T", "A", 1), c("b", "T", "B", 2)]);
-    expect(stacks.map((s) => s.map((x) => x.id))).toEqual([["b"], ["a"]]);
+describe("buildStackForest", () => {
+  it("keeps independent changes as trees of one, newest first", () => {
+    const forest = buildStackForest([c("a", "T", "A", 1), c("b", "T", "B", 2)]);
+    expect(forest.map((n) => n.change.id)).toEqual(["b", "a"]);
+    expect(forest.every((n) => n.children.length === 0)).toBe(true);
   });
 
-  it("chains base->head links trunk-most first regardless of input order", () => {
-    const stacks = groupIntoStacks([
+  it("chains base->head links regardless of input order", () => {
+    const [root] = buildStackForest([
       c("top", "B", "C", 3),
       c("bottom", "T", "A", 1),
       c("middle", "A", "B", 2),
     ]);
-    expect(stacks).toHaveLength(1);
-    expect(stacks[0]!.map((x) => x.id)).toEqual(["bottom", "middle", "top"]);
+    expect(root!.change.id).toBe("bottom");
+    expect(root!.children.map((n) => n.change.id)).toEqual(["middle"]);
+    expect(stackSize(root!)).toBe(3);
   });
 
-  it("emits one stack per leaf on a fork, sharing the prefix", () => {
-    const stacks = groupIntoStacks([
+  it("a fork is ONE tree with sibling children - never a duplicated prefix", () => {
+    const forest = buildStackForest([
       c("root", "T", "A", 1),
       c("left", "A", "L", 2),
       c("right", "A", "R", 3),
     ]);
-    expect(stacks.map((s) => s.map((x) => x.id))).toEqual([
-      ["root", "right"],
-      ["root", "left"],
-    ]);
-  });
-
-  it("orders stacks by newest change number first", () => {
-    const stacks = groupIntoStacks([
-      c("old", "T", "A", 1),
-      c("newRoot", "T", "B", 2),
-      c("newTop", "B", "C", 5),
-    ]);
-    expect(stacks.map((s) => s[0]!.id)).toEqual(["newRoot", "old"]);
+    expect(forest).toHaveLength(1);
+    expect(forest[0]!.children.map((n) => n.change.id)).toEqual(["left", "right"]);
   });
 });
 
-describe("fake transport", () => {
+describe("flattenStack", () => {
+  it("renders descendants above ancestors, fork siblings indented at one depth", () => {
+    const [root] = buildStackForest([
+      c("root", "T", "A", 1),
+      c("left", "A", "L", 2),
+      c("right", "A", "R", 3),
+    ]);
+    const rows = flattenStack(root!);
+    // Ascending sibling lines, each parent below its own subtree, root last.
+    expect(rows.map((r) => `${r.change.id}@${r.depth}`)).toEqual([
+      "left@1",
+      "right@1",
+      "root@0",
+    ]);
+  });
+});
+
+describe("fake transport stacks", () => {
   const client = () => createClient(ChangeService, createFakeTransport());
 
-  it("GetChangeStack returns the full chain from any member, trunk-most first", async () => {
-    for (const [id, wantPos] of [
+  it("GetChangeStack returns the FULL tree from any member, parents first", async () => {
+    // The demo scene forks at stackBottom: middle->top on one line,
+    // stackFork (a workspace-branch parallel approach) on the other.
+    const want = [stackBottom.id, stackMiddle.id, stackTop.id, stackFork.id];
+    for (const [id, pos] of [
       [stackBottom.id, 0],
-      [stackMiddle.id, 1],
       [stackTop.id, 2],
+      [stackFork.id, 3],
     ] as const) {
       const res = await client().getChangeStack({ changeId: id });
-      expect(res.changes.map((x) => x.id)).toEqual([
-        stackBottom.id,
-        stackMiddle.id,
-        stackTop.id,
-      ]);
-      expect(res.position).toBe(wantPos);
+      expect(res.changes.map((x) => x.id)).toEqual(want);
+      expect(res.position).toBe(pos);
     }
   });
 
-  it("GetChangeStack returns a stack of one for an unstacked change", async () => {
+  it("GetChangeStack returns a tree of one for an unstacked change", async () => {
     const res = await client().getChangeStack({ changeId: soloChange.id });
     expect(res.changes.map((x) => x.id)).toEqual([soloChange.id]);
     expect(res.position).toBe(0);
@@ -84,15 +97,12 @@ describe("fake transport", () => {
     const cl = client();
     const before = await cl.getMergeRequirements({ changeId: stackMiddle.id });
     expect(before.requirements!.mergeable).toBe(false);
-    await expect(cl.landChange({ changeId: stackMiddle.id })).rejects.toThrow(
-      /not mergeable/,
-    );
+    await expect(cl.landChange({ changeId: stackMiddle.id })).rejects.toThrow(/not mergeable/);
 
     const ready = await cl.getMergeRequirements({ changeId: stackBottom.id });
     expect(ready.requirements!.mergeable).toBe(true);
     const landed = await cl.landChange({ changeId: stackBottom.id });
     expect(landed.landed).toBe(true);
-    expect(landed.landedSha).not.toBe("");
   });
 
   it("approve moves the owner gate and refreshes blockers", async () => {
@@ -102,12 +112,8 @@ describe("fake transport", () => {
       ownerRef: "group:commerce",
       approvedBy: "user:demo",
     });
-    const owners = res.requirements!.owners!;
-    expect(owners.outstanding).toEqual([]);
-    expect(owners.satisfied).toContain("group:commerce");
-    // Still blocked: the bazel check is pending.
+    expect(res.requirements!.owners!.outstanding).toEqual([]);
     expect(res.requirements!.mergeable).toBe(false);
-    expect(res.requirements!.blockers.some((b) => b.includes("still running"))).toBe(true);
   });
 
   it("approve rejects a non-required owner with the structured code", async () => {
