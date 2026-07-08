@@ -3,3 +3,10 @@ name: checkout-api
 type: service
 owners:
     - group:commerce-eng
+capabilities:
+    - build
+capability_config:
+    build:
+        engine: bazel
+        target_patterns:
+            - //checkout-api/...

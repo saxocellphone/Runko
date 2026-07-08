@@ -181,18 +181,38 @@ func TestPlanCreateBuildCapabilityGeneratesBuildFileWithZeroHandAuthoredLines(t 
 	}
 }
 
-func TestPlanCreateWithoutBuildCapabilityHasNoBuildFile(t *testing.T) {
+// Bazel is the org default (2026-07-08): a bare intent gets the build
+// capability from every template; an EXPLICIT capability list (even empty)
+// replaces the defaults entirely - that's the opt-out.
+func TestPlanCreateDefaultsToBuildCapability(t *testing.T) {
 	plan, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service"}, DefaultTemplates())
+	if len(errs) != 0 {
+		t.Fatalf("PlanCreate: unexpected errors: %v", errs)
+	}
+	hasBuildFile := false
+	for _, f := range plan.Files {
+		hasBuildFile = hasBuildFile || f.Path == "BUILD.bazel"
+	}
+	if !hasBuildFile || !hasCapability(plan.EffectiveManifest.Capabilities, "build") {
+		t.Fatalf("bare intent should default to the build capability, got %+v", plan.EffectiveManifest)
+	}
+	if plan.EffectiveManifest.CapabilityConfig["build"] == nil {
+		t.Fatalf("expected generated capability_config.build, got %+v", plan.EffectiveManifest.CapabilityConfig)
+	}
+}
+
+func TestPlanCreateExplicitCapabilitiesOptOutOfBuild(t *testing.T) {
+	plan, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service", Capabilities: []string{}}, DefaultTemplates())
 	if len(errs) != 0 {
 		t.Fatalf("PlanCreate: unexpected errors: %v", errs)
 	}
 	for _, f := range plan.Files {
 		if f.Path == "BUILD.bazel" {
-			t.Fatalf("did not expect a BUILD.bazel file without the build capability, got files: %+v", plan.Files)
+			t.Fatalf("explicit empty capabilities must opt out of BUILD.bazel, got files: %+v", plan.Files)
 		}
 	}
 	if plan.EffectiveManifest.CapabilityConfig != nil {
-		t.Fatalf("expected no capability_config without the build capability, got %+v", plan.EffectiveManifest.CapabilityConfig)
+		t.Fatalf("expected no capability_config after opt-out, got %+v", plan.EffectiveManifest.CapabilityConfig)
 	}
 }
 

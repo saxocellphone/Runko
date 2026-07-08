@@ -63,7 +63,14 @@ func readmeFile(intent Intent) FileWrite {
 }
 
 // DefaultTemplates returns the built-in registry: one default template per
-// project type (library/service/app/job/other).
+// project type (library/service/app/job/other). Every template defaults to
+// the "build" capability (decided 2026-07-08: Bazel is the org default,
+// §14.5.4's greenfield golden path) - so a bare `runko project create`
+// emits generated BUILD.bazel wiring and capability_config.build
+// ({engine: bazel, target_patterns: [//<path>/...]}) with zero
+// hand-authored lines, and `runko-ci affected --engine bazel` can refine
+// from day one. Opt-out stays possible: an explicit (non-nil) capability
+// list in the intent replaces the defaults entirely.
 func DefaultTemplates() TemplateSet {
 	entrypointFiles := func(intent Intent) []FileWrite {
 		return []FileWrite{
@@ -75,6 +82,7 @@ func DefaultTemplates() TemplateSet {
 	templates := []Template{
 		{
 			ID: "library-default", Name: "Default library", ProjectType: "library",
+			DefaultCapabilities: []string{"build"},
 			Files: func(intent Intent) []FileWrite {
 				return []FileWrite{
 					readmeFile(intent),
@@ -82,12 +90,13 @@ func DefaultTemplates() TemplateSet {
 				}
 			},
 		},
-		{ID: "service-default", Name: "Default service", ProjectType: "service", Files: entrypointFiles},
-		{ID: "app-default", Name: "Default app", ProjectType: "app", Files: entrypointFiles},
-		{ID: "job-default", Name: "Default job", ProjectType: "job", Files: entrypointFiles},
+		{ID: "service-default", Name: "Default service", ProjectType: "service", DefaultCapabilities: []string{"build"}, Files: entrypointFiles},
+		{ID: "app-default", Name: "Default app", ProjectType: "app", DefaultCapabilities: []string{"build"}, Files: entrypointFiles},
+		{ID: "job-default", Name: "Default job", ProjectType: "job", DefaultCapabilities: []string{"build"}, Files: entrypointFiles},
 		{
 			ID: "other-default", Name: "Default (other)", ProjectType: "other",
-			Files: func(intent Intent) []FileWrite { return []FileWrite{readmeFile(intent)} },
+			DefaultCapabilities: []string{"build"},
+			Files:               func(intent Intent) []FileWrite { return []FileWrite{readmeFile(intent)} },
 		},
 	}
 
