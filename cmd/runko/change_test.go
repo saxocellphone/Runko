@@ -234,3 +234,110 @@ func TestCreateChangeIDsAreGloballyUnique(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+// TestPushChangeRefusesWhenHeadAlreadyOnTrunk pins the 2026-07-08 dogfood
+// footgun: trunk commits keep their landed Change-Id trailer, so a `runko
+// change push` from a clean trunk tip - no new commit - used to re-push
+// the landed commit (the daemon now also rejects it at receive; the CLI
+// should never send it at all).
+func TestPushChangeRefusesWhenHeadAlreadyOnTrunk(t *testing.T) {
+	remote := newBareRemote(t)
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("initial\n\nChange-Id: I9999999999999999999999999999999999999999")
+	if _, err := runGit(repo.Dir, "push", remote, "HEAD:refs/heads/main"); err != nil {
+		t.Fatalf("seed trunk: %v", err)
+	}
+
+	_, err := PushChange(repo.Dir, remote, "main")
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "already_on_trunk" {
+		t.Fatalf("want already_on_trunk, got %v", err)
+	}
+
+	// A real new commit pushes fine.
+	repo.WriteFile("feature.txt", "v1\n")
+	repo.Commit("add feature")
+	if _, err := PushChange(repo.Dir, remote, "main"); err != nil {
+		t.Fatalf("push with a new commit: %v", err)
+	}
+}
+
+// TestPushChangeWarnsWhenLocalConfigShadowedByWorktree pins the config-
+// split trap: `git config runko.workspace x` (no --worktree) writes a
+// value that LOOKS set but never wins over the worktree config `runko
+// workspace attach` writes - the push must say which value it actually
+// used.
+func TestPushChangeWarnsWhenLocalConfigShadowedByWorktree(t *testing.T) {
+	remote := newBareRemote(t)
+	if _, err := runGit(remote, "config", "receive.advertisePushOptions", "true"); err != nil {
+		t.Fatalf("enable push options on remote: %v", err)
+	}
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("initial")
+	if _, err := runGit(repo.Dir, "push", remote, "HEAD:refs/heads/main"); err != nil {
+		t.Fatalf("seed trunk: %v", err)
+	}
+	repo.WriteFile("feature.txt", "v1\n")
+	repo.Commit("add feature")
+
+	// Worktree config (what workspace attach writes) vs a shadowed local
+	// value someone set with plain `git config`.
+	for _, args := range [][]string{
+		{"config", "extensions.worktreeConfig", "true"},
+		{"config", "--worktree", "runko.workspace", "real-ws"},
+		{"config", "--local", "runko.workspace", "fake-ws"},
+	} {
+		if _, err := runGit(repo.Dir, args...); err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+	}
+
+	var warnings strings.Builder
+	oldWarn := warnWriter
+	warnWriter = &warnings
+	defer func() { warnWriter = oldWarn }()
+
+	// The push itself fails only if the remote refuses push options; the
+	// warning must fire either way before the transport runs.
+	_, pushErr := PushChange(repo.Dir, remote, "main")
+	if pushErr != nil {
+		t.Fatalf("PushChange: %v", pushErr)
+	}
+	if !strings.Contains(warnings.String(), `"fake-ws"`) || !strings.Contains(warnings.String(), `"real-ws"`) {
+		t.Fatalf("expected a warning naming both values, got %q", warnings.String())
+	}
+	if !strings.Contains(warnings.String(), "worktree value wins") {
+		t.Fatalf("warning should say which value wins: %q", warnings.String())
+	}
+}
+
+// TestCreateChangeRefusesSparseSkippedFiles: `git add -A` in a sparse-cone
+// worktree skips out-of-cone paths with only an advisory warning, so the
+// commit silently omitted them - easy way to lose work (2026-07-08 dogfood
+// review). change create must refuse instead.
+func TestCreateChangeRefusesSparseSkippedFiles(t *testing.T) {
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("proj/keep.txt", "in cone\n")
+	repo.WriteFile("elsewhere/other.txt", "outside cone\n")
+	repo.Commit("initial")
+	if _, err := runGit(repo.Dir, "sparse-checkout", "set", "--cone", "proj"); err != nil {
+		t.Fatalf("sparse-checkout set: %v", err)
+	}
+
+	repo.WriteFile("proj/keep.txt", "edited in cone\n")
+	repo.WriteFile("orphan-dir/README.md", "outside the cone\n")
+
+	_, err := CreateChange(repo.Dir, "edit both sides")
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "outside_sparse_cone" {
+		t.Fatalf("want outside_sparse_cone, got %v", err)
+	}
+	if !strings.Contains(ce.Message, "orphan-dir/README.md") {
+		t.Fatalf("error must name the skipped file, got %q", ce.Message)
+	}
+}

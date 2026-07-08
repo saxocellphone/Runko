@@ -172,3 +172,28 @@ func TestCreateProjectRejectsInvalidIntent(t *testing.T) {
 		t.Fatalf("expected an invalid project name to be rejected")
 	}
 }
+
+// TestCreateProjectRefusesDuplicateName mirrors the daemon-side guard
+// (runkod/createproject.go): the CLI happily committed a second "Create
+// project checkout-api" (2026-07-08 dogfood review) that would thrash the
+// tree when pushed.
+func TestCreateProjectRefusesDuplicateName(t *testing.T) {
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "# monorepo\n")
+	repo.Commit("initial")
+
+	intent := project.Intent{Name: "checkout-api", Type: "service", Owners: []string{"group:commerce-eng"}}
+	if _, err := CreateProject(repo.Dir, intent); err != nil {
+		t.Fatalf("first CreateProject: %v", err)
+	}
+
+	_, err := CreateProject(repo.Dir, intent)
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "already_exists" {
+		t.Fatalf("want already_exists, got %v", err)
+	}
+	if !strings.Contains(ce.Message, "checkout-api") {
+		t.Fatalf("error must name the colliding project: %q", ce.Message)
+	}
+}

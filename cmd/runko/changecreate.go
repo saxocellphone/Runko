@@ -38,8 +38,25 @@ func CreateChange(repoDir, message string) (changeID string, err error) {
 			DocURL:     "docs/design.md#67-empty-states-and-education",
 		}
 	}
-	if _, err := runGit(repoDir, "add", "-A"); err != nil {
-		return "", fmt.Errorf("stage changes: %w", err)
+	// In a sparse-cone worktree (runko workspace attach), paths outside
+	// the cone must fail the change LOUDLY with a structured error - work
+	// silently left out of a commit is work lost (2026-07-08 dogfood
+	// review). Git's own behavior here varies by version: newer gits fail
+	// `add -A` outright (raw exit-1 advice text), older ones skip the
+	// paths with a warning and stage the rest - both funnel into the same
+	// clierr below via the post-add untracked check.
+	addErr := func() error { _, err := runGit(repoDir, "add", "-A"); return err }()
+	if skipped, err := runGit(repoDir, "ls-files", "--others", "--exclude-standard"); err == nil && skipped != "" {
+		return "", &clierr.Error{
+			Code:       "outside_sparse_cone",
+			Field:      "repo",
+			Message:    "these files are outside this workspace's sparse cone and cannot be part of the change: " + strings.Join(strings.Split(skipped, "\n"), ", "),
+			Suggestion: "widen the cone first (`git sparse-checkout add <dir>`), or move the files under a materialized project",
+			DocURL:     "docs/design.md#122-durability-snapshot-refs",
+		}
+	}
+	if addErr != nil {
+		return "", fmt.Errorf("stage changes: %w", addErr)
 	}
 	staged, err := runGit(repoDir, "diff", "--cached", "--name-only")
 	if err != nil {

@@ -2,10 +2,18 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"os"
+	"strings"
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/receive"
 )
+
+// warnWriter receives non-fatal CLI warnings (stderr in production; tests
+// swap it to capture output). Warnings never touch stdout - that belongs
+// to --json (docs/cli-contract.md).
+var warnWriter io.Writer = os.Stderr
 
 // PushChange implements `runko change push` (§11.5, §17.1): ensure HEAD's
 // commit message carries a Change-Id trailer (amending if it doesn't), then
@@ -52,6 +60,34 @@ func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
 		}
 	}
 
+	// Footgun guard (2026-07-08 dogfood review): trunk commits keep their
+	// landed Change-Id trailer, so `runko change push` from a clean trunk
+	// tip - no new commit at all - used to "succeed" by re-pushing the
+	// landed commit. The daemon rejects landed Change-Ids at receive now,
+	// but the honest answer is available before any push: if HEAD is
+	// already reachable from the remote trunk, there is nothing to submit.
+	// An unreachable remote skips the guard - the push itself will surface
+	// the real transport error.
+	if tip, err := lsRemoteTrunk(repoDir, remote, trunk); err == nil && tip != "" {
+		onTrunk := tip == headSHA
+		if !onTrunk {
+			// merge-base needs the tip object locally; a stale clone that
+			// hasn't fetched it simply skips this half of the guard.
+			if _, err := runGit(repoDir, "merge-base", "--is-ancestor", headSHA, tip); err == nil {
+				onTrunk = true
+			}
+		}
+		if onTrunk {
+			return "", &clierr.Error{
+				Code:       "already_on_trunk",
+				Field:      "repo",
+				Message:    fmt.Sprintf("HEAD (%.12s) is already on %s's trunk - there is no new commit to submit", headSHA, remote),
+				Suggestion: "make a commit first (`runko change create -m ...` or plain git commit)",
+				DocURL:     "docs/change-lifecycle.md",
+			}
+		}
+	}
+
 	msg, err := runGit(repoDir, "log", "-1", "--format=%B")
 	if err != nil {
 		return "", fmt.Errorf("read HEAD commit message: %w", err)
@@ -71,6 +107,18 @@ func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
 	// on. Plain clones have neither key and push exactly as before.
 	args := []string{"push"}
 	if ws, _ := runGit(repoDir, "config", "runko.workspace"); ws != "" {
+		// Config-split warning (2026-07-08 dogfood review): in an attached
+		// worktree the key lives in WORKTREE config (workspace attach uses
+		// `git config --worktree`), which outranks --local on read - so a
+		// plain `git config runko.workspace <x>` writes a value that LOOKS
+		// set (`--list --local` shows it) but never wins. Say so instead of
+		// letting the push silently use the other value.
+		if local, _ := runGit(repoDir, "config", "--local", "runko.workspace"); local != "" && local != ws {
+			fmt.Fprintf(warnWriter,
+				"warning: runko.workspace is %q in local git config but %q in this worktree's config - the worktree value wins\n"+
+					"         (use `git config --worktree runko.workspace ...` to change it, or `git config --unset runko.workspace` to drop the shadowed local value)\n",
+				local, ws)
+		}
 		args = append(args, "--push-option=workspace="+ws)
 		branch, _ := runGit(repoDir, "config", "runko.branch")
 		if branch == "" {
@@ -83,4 +131,18 @@ func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
 		return "", fmt.Errorf("push to refs/for/%s: %w", trunk, err)
 	}
 	return id, nil
+}
+
+// lsRemoteTrunk asks the remote for its trunk tip ("" when the remote has
+// no such ref yet - an unborn trunk).
+func lsRemoteTrunk(repoDir, remote, trunk string) (string, error) {
+	out, err := runGit(repoDir, "ls-remote", remote, "refs/heads/"+trunk)
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(out)
+	if len(fields) == 0 {
+		return "", nil
+	}
+	return fields[0], nil
 }

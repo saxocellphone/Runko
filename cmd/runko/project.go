@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/saxocellphone/runko/core"
+	"github.com/saxocellphone/runko/index"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/project"
@@ -26,6 +27,27 @@ func CreateProject(repoDir string, intent project.Intent) (rev string, err error
 	base, err := resolveBaseOrEmpty(repoDir, store)
 	if err != nil {
 		return "", err
+	}
+
+	// Same duplicate guard the daemon's create-project flow has
+	// (runkod/createproject.go, 2026-07-08 dogfood review: the CLI happily
+	// committed a second "Create project checkout-api" that would thrash
+	// the tree when pushed). An empty base has no projects to collide with.
+	if base != "" {
+		existing, err := index.Scan(store, base, nil)
+		if err != nil {
+			return "", fmt.Errorf("scan existing projects: %w", err)
+		}
+		for _, p := range existing {
+			if p.Name == plan.EffectiveManifest.Name || p.Path == plan.Path {
+				return "", &clierr.Error{
+					Code:       "already_exists",
+					Field:      "name",
+					Message:    fmt.Sprintf("project %s already exists at %s", p.Name, p.Path),
+					Suggestion: "pick a different name, or evolve the existing project with an ordinary change",
+				}
+			}
+		}
 	}
 
 	newRev, err := project.Apply(store, base, plan, core.CommitMeta{
