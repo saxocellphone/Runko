@@ -1,8 +1,10 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { projectsClient } from "../api/client";
 import { projectTypeLabel } from "../lib/format";
 import { Visibility } from "../gen/runko/v1/common_pb";
+import { dependencyClosure, dependentClosure } from "../lib/depgraph";
 import { useRpc } from "../lib/useRpc";
+import { DepGraph, GraphLegend, useGraphProjects } from "../components/DepGraph";
 import { BackLink, ErrorNote, InfoTip, Spinner } from "../components/ui";
 
 export function ProjectPage() {
@@ -27,9 +29,6 @@ export function ProjectPage() {
         <h1 className="page-title">{p.name}</h1>
         <p className="page-sub chip-row">
           <span className="chip">{projectTypeLabel(p.type)}</span>
-          <Link className="chip chip-violet" to={`/graph?focus=${encodeURIComponent(p.name)}`}>
-            view in dependency graph
-          </Link>
         </p>
       </header>
 
@@ -100,6 +99,56 @@ export function ProjectPage() {
           </dd>
         </dl>
       </section>
+
+      <RelatedProjects name={p.name} />
     </div>
+  );
+}
+
+// The project's dependency neighborhood: itself, everything it
+// (transitively) depends on, and everything that depends on it - the two
+// closures that matter, cut out of the full monorepo DAG. Clicking a
+// neighbor navigates to that project.
+function RelatedProjects({ name }: { name: string }) {
+  const navigate = useNavigate();
+  const { data, error, loading } = useGraphProjects();
+  if (loading) return <Spinner />;
+  if (error) return <ErrorNote error={error} />;
+  if (!data) return null;
+
+  const related = new Set([
+    name,
+    ...dependencyClosure(data, name),
+    ...dependentClosure(data, name),
+  ]);
+  const items = data
+    .filter((p) => related.has(p.name))
+    // Drop edges leaving the neighborhood so the layout only draws what
+    // it shows.
+    .map((p) => ({ ...p, deps: p.deps.filter((d) => related.has(d)) }));
+
+  return (
+    <section className="related-graph">
+      <div className="graph-toolbar">
+        <h2 className="side-heading">Related projects</h2>
+        <GraphLegend />
+      </div>
+      {items.length === 1 ? (
+        <p className="page-sub">
+          No declared relationships — nothing depends on this project and it depends on
+          nothing.
+        </p>
+      ) : (
+        <section className="card graph-panel">
+          <DepGraph
+            items={items}
+            selected={name}
+            onSelect={(n) => {
+              if (n && n !== name) navigate(`/projects/${n}`);
+            }}
+          />
+        </section>
+      )}
+    </section>
   );
 }

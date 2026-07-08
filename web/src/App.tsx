@@ -1,9 +1,8 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { BrowsePage } from "./pages/BrowsePage";
 import { ChangePage } from "./pages/ChangePage";
 import { ChangesPage } from "./pages/ChangesPage";
-import { GraphPage } from "./pages/GraphPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SearchPage } from "./pages/SearchPage";
@@ -18,7 +17,8 @@ export default function App() {
         <Route path="/changes/:changeId" element={<ChangePage />} />
         {/* Splat: file paths contain slashes. */}
         <Route path="/browse/*" element={<BrowsePage />} />
-        <Route path="/graph" element={<GraphPage />} />
+        {/* The DAG lives on the projects page now; keep old links working. */}
+        <Route path="/graph" element={<GraphRedirect />} />
         <Route path="/projects" element={<ProjectsPage />} />
         {/* Splat: project names contain slashes (commerce/cart). */}
         <Route path="/projects/*" element={<ProjectPage />} />
@@ -28,4 +28,9 @@ export default function App() {
       </Route>
     </Routes>
   );
+}
+
+function GraphRedirect() {
+  const location = useLocation();
+  return <Navigate to={{ pathname: "/projects", search: location.search }} replace />;
 }

@@ -1236,3 +1236,15 @@ tr.hunk-head td {
 .graph-node.sel .graph-name {
   fill: var(--accent);
 }
+
+.related-graph {
+  margin-top: 20px;
+}
+.side-heading {
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+  margin: 0;
+}

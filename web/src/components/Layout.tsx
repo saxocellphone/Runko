@@ -6,7 +6,6 @@ const nav = [
   { to: "/changes", label: "Changes", icon: ChangesIcon },
   { to: "/browse", label: "Browse", icon: BrowseIcon },
   { to: "/projects", label: "Projects", icon: ProjectsIcon },
-  { to: "/graph", label: "Graph", icon: GraphIcon },
   { to: "/workspaces", label: "Workspaces", icon: WorkspacesIcon },
   { to: "/search", label: "Search", icon: SearchIcon },
 ];
@@ -131,18 +130,6 @@ function ProjectsIcon() {
   return (
     <svg {...iconProps} aria-hidden>
       <path d="M2 4.5c0-.8.7-1.5 1.5-1.5h3l1.5 2h4.5c.8 0 1.5.7 1.5 1.5v6c0 .8-.7 1.5-1.5 1.5h-9C2.7 14 2 13.3 2 12.5v-8z" />
-    </svg>
-  );
-}
-
-function GraphIcon() {
-  return (
-    <svg {...iconProps} aria-hidden>
-      <circle cx="8" cy="3" r="1.8" />
-      <circle cx="4" cy="13" r="1.8" />
-      <circle cx="12" cy="13" r="1.8" />
-      <line x1="7" y1="4.6" x2="4.8" y2="11.4" />
-      <line x1="9" y1="4.6" x2="11.2" y2="11.4" />
     </svg>
   );
 }
