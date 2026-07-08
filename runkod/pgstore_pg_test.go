@@ -65,12 +65,15 @@ func TestPostgresStoreCreateOrUpdateChangeAndGetChange(t *testing.T) {
 		t.Fatalf("expected a new Change to start open, got %+v", created)
 	}
 
-	updated, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title", "")
+	updated, err := store.CreateOrUpdateChange(ctx, "Iabc", "base2", "head2", "refs/changes/1/head", "title", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (update): %v", err)
 	}
 	if updated.HeadSHA != "head2" {
 		t.Fatalf("expected head_sha to advance, got %+v", updated)
+	}
+	if updated.BaseSHA != "base2" {
+		t.Fatalf("expected base_sha to move with the amend (edge case E7: a frozen base makes requires_revalidation permanent), got %+v", updated)
 	}
 
 	got, ok, err := store.GetChange(ctx, "Iabc")

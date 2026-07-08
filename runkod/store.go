@@ -188,6 +188,11 @@ func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA,
 		existing.HeadSHA = headSHA
 		existing.GitRef = gitRef
 		existing.AuthoredBy = authoredBy
+		// base_sha moves with the head (found by compose edge case E7): the
+		// pusher computed it as merge-base(new head, trunk). Freezing the
+		// creation-time base made §13.5's requires_revalidation a permanent
+		// dead end - the prescribed rebase+re-push never cleared it.
+		existing.BaseSHA = baseSHA
 		if existing.State == "abandoned" {
 			// Re-pushing an abandoned Change reopens it (§7.4; the webhook
 			// enum modeled change.reopened from day one). Landed stays

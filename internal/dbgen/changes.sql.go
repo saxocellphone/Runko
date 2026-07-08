@@ -662,7 +662,7 @@ func (q *Queries) UpdateChangeDescription(ctx context.Context, db DBTX, arg Upda
 }
 
 const updateChangeHead = `-- name: UpdateChangeHead :one
-UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4,
+UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, base_sha = $5,
     state = CASE WHEN changes.state = 'abandoned' THEN 'open'::change_state ELSE changes.state END,
     updated_at = now()
 WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id
@@ -673,19 +673,24 @@ type UpdateChangeHeadParams struct {
 	HeadSha           string    `json:"head_sha"`
 	GitRef            string    `json:"git_ref"`
 	AuthoredByActorID uuid.UUID `json:"authored_by_actor_id"`
+	BaseSha           string    `json:"base_sha"`
 }
 
 // authored_by_actor_id moves with the head: the last pusher owns the
 // current content, which is also who self-approval is checked against
-// (§8.7, stage 12c). Re-pushing an abandoned Change reopens it (§7.4 -
-// the change.reopened webhook event modeled this from day one); landed
-// stays landed, it is terminal.
+// (§8.7, stage 12c). base_sha moves with it too (compose edge case E7):
+// it is merge-base(head, trunk) at push time, and freezing the creation-
+// time value made §13.5's requires_revalidation a permanent dead end.
+// Re-pushing an abandoned Change reopens it (§7.4 - the change.reopened
+// webhook event modeled this from day one); landed stays landed, it is
+// terminal.
 func (q *Queries) UpdateChangeHead(ctx context.Context, db DBTX, arg UpdateChangeHeadParams) (*Change, error) {
 	row := db.QueryRow(ctx, updateChangeHead,
 		arg.ID,
 		arg.HeadSha,
 		arg.GitRef,
 		arg.AuthoredByActorID,
+		arg.BaseSha,
 	)
 	var i Change
 	err := row.Scan(

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -454,5 +455,111 @@ func TestHandleLandChangeRequiresRevalidationWhenTrunkDeltaIntersects(t *testing
 	change, _, _ := store.GetChange(context.Background(), result.ChangeID)
 	if change.State == "landed" {
 		t.Fatalf("expected the Change to remain open, not landed")
+	}
+}
+
+func mustRepoGit(t *testing.T, repo *gitfixture.Repo, args ...string) {
+	t.Helper()
+	// Identity flags: gitfixture's own Commit injects identity per call;
+	// raw commands (rebase creates commits) need the same.
+	full := append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)
+	if _, err := gitfixtureRunGit(repo.Dir, full...); err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+}
+
+// TestRevalidationRebaseRepushLands is §13.5's own escape hatch as a
+// regression test, found by the compose edge suite (E7): a gated Change
+// 409s requires_revalidation when trunk's delta intersects its affected
+// set, and the PRESCRIBED way out - rebase onto trunk, re-push the same
+// Change-Id, re-gate - must then land. Pre-fix it could not, ever: the
+// amend path updated head_sha but froze base_sha at creation time, so the
+// trunk delta was computed from the stale base forever and revalidation
+// became a dead end for the Change.
+func TestRevalidationRebaseRepushLands(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\n")
+	repo.Commit("initial")
+	_, trunkTip := pushCommit(t, repo, bare, "refs/heads/main")
+
+	store := NewMemStore()
+	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	// Change A and Change B, both based on the same trunk tip, same project.
+	repo.WriteFile("commerce/checkout/a.go", "package main // a\n")
+	repo.Commit("change A\n\nChange-Id: Iaaaa000000000000000000000000000000000001")
+	_, headA := pushCommit(t, repo, bare, "refs/for/main")
+	resA := processor.Process(context.Background(), RefUpdate{OldSHA: zeroOID, NewSHA: headA, Ref: "refs/for/main"}, nil)
+	if !resA.Accepted {
+		t.Fatalf("push A rejected: %+v", resA)
+	}
+
+	// B: sibling of A (branch from trunk, not from A).
+	mustRepoGit(t, repo, "checkout", "-q", trunkTip)
+	mustRepoGit(t, repo, "checkout", "-q", "-b", "changeB")
+	repo.WriteFile("commerce/checkout/b.go", "package main // b\n")
+	repo.Commit("change B\n\nChange-Id: Ibbbb000000000000000000000000000000000002")
+	_, headB := pushCommit(t, repo, bare, "refs/for/main")
+	resB := processor.Process(context.Background(), RefUpdate{OldSHA: headA, NewSHA: headB, Ref: "refs/for/main"}, nil)
+	if !resB.Accepted {
+		t.Fatalf("push B rejected: %+v", resB)
+	}
+
+	// Land A: trunk moves, its delta touches B's affected project.
+	landResp := postLand(t, srv, resA.ChangeID, "sekret")
+	if landResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(landResp.Body)
+		t.Fatalf("land A: %d: %s", landResp.StatusCode, body)
+	}
+	landResp.Body.Close()
+
+	// Land B: correctly refused - revalidation required.
+	landResp = postLand(t, srv, resB.ChangeID, "sekret")
+	body, _ := io.ReadAll(landResp.Body)
+	landResp.Body.Close()
+	if landResp.StatusCode != http.StatusConflict || !strings.Contains(string(body), "requires_revalidation") {
+		t.Fatalf("expected 409 requires_revalidation for B, got %d: %s", landResp.StatusCode, body)
+	}
+
+	// §13.5's way out: rebase B onto the new trunk, re-push the same
+	// Change-Id. The amend must move base_sha to the new merge-base.
+	newTrunk, err := gitfixtureRunGit(bare, "rev-parse", "refs/heads/main")
+	if err != nil {
+		t.Fatalf("rev-parse trunk: %v", err)
+	}
+	mustRepoGit(t, repo, "fetch", "-q", bare, "refs/heads/main")
+	mustRepoGit(t, repo, "rebase", "-q", newTrunk)
+	rebasedHead, err := gitfixtureRunGit(repo.Dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse rebased head: %v", err)
+	}
+	pushCommit(t, repo, bare, "refs/for/main")
+	resB2 := processor.Process(context.Background(), RefUpdate{OldSHA: headB, NewSHA: rebasedHead, Ref: "refs/for/main"}, nil)
+	if !resB2.Accepted || resB2.ChangeID != resB.ChangeID {
+		t.Fatalf("re-push of rebased B not accepted as the same Change: %+v", resB2)
+	}
+
+	change, ok, err := store.GetChange(context.Background(), resB.ChangeID)
+	if err != nil || !ok {
+		t.Fatalf("GetChange: ok=%v err=%v", ok, err)
+	}
+	if change.BaseSHA != newTrunk {
+		t.Fatalf("amend must move base_sha to the new merge-base: base=%s want=%s (stale base makes revalidation a permanent dead end)", change.BaseSHA, newTrunk)
+	}
+
+	// And now B lands.
+	landResp = postLand(t, srv, resB.ChangeID, "sekret")
+	body, _ = io.ReadAll(landResp.Body)
+	landResp.Body.Close()
+	if landResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected the rebased re-push to land, got %d: %s", landResp.StatusCode, body)
 	}
 }

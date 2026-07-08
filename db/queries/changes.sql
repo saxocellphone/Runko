@@ -15,10 +15,13 @@ SELECT * FROM changes WHERE monorepo_id = $1 AND change_key = $2;
 -- name: UpdateChangeHead :one
 -- authored_by_actor_id moves with the head: the last pusher owns the
 -- current content, which is also who self-approval is checked against
--- (§8.7, stage 12c). Re-pushing an abandoned Change reopens it (§7.4 -
--- the change.reopened webhook event modeled this from day one); landed
--- stays landed, it is terminal.
-UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4,
+-- (§8.7, stage 12c). base_sha moves with it too (compose edge case E7):
+-- it is merge-base(head, trunk) at push time, and freezing the creation-
+-- time value made §13.5's requires_revalidation a permanent dead end.
+-- Re-pushing an abandoned Change reopens it (§7.4 - the change.reopened
+-- webhook event modeled this from day one); landed stays landed, it is
+-- terminal.
+UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, base_sha = $5,
     state = CASE WHEN changes.state = 'abandoned' THEN 'open'::change_state ELSE changes.state END,
     updated_at = now()
 WHERE id = $1 RETURNING *;

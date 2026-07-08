@@ -49,6 +49,7 @@ func CreateOrUpdateChange(
 			HeadSha:           headSHA,
 			GitRef:            gitRef,
 			AuthoredByActorID: authorActorID,
+			BaseSha:           baseSHA,
 		})
 	case errors.Is(err, pgx.ErrNoRows):
 		// Expected: no existing Change with this Change-Id yet - fall through to create.
