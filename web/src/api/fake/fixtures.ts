@@ -665,6 +665,18 @@ export const diffs = new Map<string, FileDiff[]>([
   ],
 ]);
 
+// addedFileDiff builds the all-additions FileDiff for one newly created
+// file - what a create-project Change's diff shows (transport.ts).
+export function addedFileDiff(fullPath: string, project: string, content: string): FileDiff {
+  const lines = content.replace(/\n$/, "").split("\n");
+  return file({
+    path: fullPath,
+    status: FileDiffStatus.ADDED,
+    project,
+    hunks: [hunk(0, 1, "", lines.map((l) => "+" + l))],
+  });
+}
+
 // --------------------------------------------------------------- workspaces
 
 const workspace = (init: {

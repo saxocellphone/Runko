@@ -13,6 +13,55 @@ service ProjectService {
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
   rpc GetProject(GetProjectRequest) returns (GetProjectResponse);
   rpc WhoOwns(WhoOwnsRequest) returns (WhoOwnsResponse);
+  // PreviewCreateProject runs the intent -> files pipeline (§10.1) without
+  // applying anything: the exact files CreateProject would commit, so the
+  // UI can show them live while the form is being filled. Validation
+  // failures are INVALID_ARGUMENT with an ErrorDetail (§6.5).
+  rpc PreviewCreateProject(PreviewCreateProjectRequest) returns (PreviewCreateProjectResponse);
+  // CreateProject applies the plan as one commit and registers it as an
+  // ordinary open Change - trunk stays closed to direct writes (§6.9), so
+  // the project becomes real by LANDING that Change through the normal
+  // §13.5 gates. This is the MCP catalog's create_project semantics
+  // (deferred-v1.x there); the web UI is the first remote-write client
+  // that needed it (§8.5, §10.2). Duplicate name/path is ALREADY_EXISTS.
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+}
+
+// CreateProjectIntent is the L0-only create request (§10.1, §8.5),
+// mirroring common.schema.json#/$defs/CreateProjectIntent and
+// project.Intent: name + type is a complete request; everything else is
+// optional and inherited/derived (anti-Boq, §2.3).
+message CreateProjectIntent {
+  string name = 1;
+  string type = 2;            // library|service|app|job|other (§7.2)
+  repeated string owners = 3; // empty -> inherited via §7.3 resolution
+  string template_id = 4;     // empty -> the type's default template
+  string path = 5;            // empty -> derived from name
+}
+
+message PreviewCreateProjectRequest {
+  CreateProjectIntent intent = 1;
+}
+
+message PlannedFile {
+  string path = 1;   // project-root-relative
+  string action = 2; // "create" | "modify"
+  string content = 3;
+}
+
+message PreviewCreateProjectResponse {
+  string path = 1; // resolved repo-root-relative project root
+  repeated PlannedFile files = 2;
+}
+
+message CreateProjectRequest {
+  CreateProjectIntent intent = 1;
+}
+
+message CreateProjectResponse {
+  // The open Change carrying the new project's files. Land it (§13.5) and
+  // the project appears on trunk; abandon it and nothing ever existed.
+  ChangeSummary change = 1;
 }
 
 message ListProjectsRequest {

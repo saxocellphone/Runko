@@ -41,6 +41,12 @@ const (
 	ProjectServiceGetProjectProcedure = "/runko.v1.ProjectService/GetProject"
 	// ProjectServiceWhoOwnsProcedure is the fully-qualified name of the ProjectService's WhoOwns RPC.
 	ProjectServiceWhoOwnsProcedure = "/runko.v1.ProjectService/WhoOwns"
+	// ProjectServicePreviewCreateProjectProcedure is the fully-qualified name of the ProjectService's
+	// PreviewCreateProject RPC.
+	ProjectServicePreviewCreateProjectProcedure = "/runko.v1.ProjectService/PreviewCreateProject"
+	// ProjectServiceCreateProjectProcedure is the fully-qualified name of the ProjectService's
+	// CreateProject RPC.
+	ProjectServiceCreateProjectProcedure = "/runko.v1.ProjectService/CreateProject"
 )
 
 // ProjectServiceClient is a client for the runko.v1.ProjectService service.
@@ -48,6 +54,18 @@ type ProjectServiceClient interface {
 	ListProjects(context.Context, *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error)
 	GetProject(context.Context, *connect.Request[v1.GetProjectRequest]) (*connect.Response[v1.GetProjectResponse], error)
 	WhoOwns(context.Context, *connect.Request[v1.WhoOwnsRequest]) (*connect.Response[v1.WhoOwnsResponse], error)
+	// PreviewCreateProject runs the intent -> files pipeline (§10.1) without
+	// applying anything: the exact files CreateProject would commit, so the
+	// UI can show them live while the form is being filled. Validation
+	// failures are INVALID_ARGUMENT with an ErrorDetail (§6.5).
+	PreviewCreateProject(context.Context, *connect.Request[v1.PreviewCreateProjectRequest]) (*connect.Response[v1.PreviewCreateProjectResponse], error)
+	// CreateProject applies the plan as one commit and registers it as an
+	// ordinary open Change - trunk stays closed to direct writes (§6.9), so
+	// the project becomes real by LANDING that Change through the normal
+	// §13.5 gates. This is the MCP catalog's create_project semantics
+	// (deferred-v1.x there); the web UI is the first remote-write client
+	// that needed it (§8.5, §10.2). Duplicate name/path is ALREADY_EXISTS.
+	CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error)
 }
 
 // NewProjectServiceClient constructs a client for the runko.v1.ProjectService service. By default,
@@ -79,14 +97,28 @@ func NewProjectServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(projectServiceMethods.ByName("WhoOwns")),
 			connect.WithClientOptions(opts...),
 		),
+		previewCreateProject: connect.NewClient[v1.PreviewCreateProjectRequest, v1.PreviewCreateProjectResponse](
+			httpClient,
+			baseURL+ProjectServicePreviewCreateProjectProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("PreviewCreateProject")),
+			connect.WithClientOptions(opts...),
+		),
+		createProject: connect.NewClient[v1.CreateProjectRequest, v1.CreateProjectResponse](
+			httpClient,
+			baseURL+ProjectServiceCreateProjectProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("CreateProject")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // projectServiceClient implements ProjectServiceClient.
 type projectServiceClient struct {
-	listProjects *connect.Client[v1.ListProjectsRequest, v1.ListProjectsResponse]
-	getProject   *connect.Client[v1.GetProjectRequest, v1.GetProjectResponse]
-	whoOwns      *connect.Client[v1.WhoOwnsRequest, v1.WhoOwnsResponse]
+	listProjects         *connect.Client[v1.ListProjectsRequest, v1.ListProjectsResponse]
+	getProject           *connect.Client[v1.GetProjectRequest, v1.GetProjectResponse]
+	whoOwns              *connect.Client[v1.WhoOwnsRequest, v1.WhoOwnsResponse]
+	previewCreateProject *connect.Client[v1.PreviewCreateProjectRequest, v1.PreviewCreateProjectResponse]
+	createProject        *connect.Client[v1.CreateProjectRequest, v1.CreateProjectResponse]
 }
 
 // ListProjects calls runko.v1.ProjectService.ListProjects.
@@ -104,11 +136,33 @@ func (c *projectServiceClient) WhoOwns(ctx context.Context, req *connect.Request
 	return c.whoOwns.CallUnary(ctx, req)
 }
 
+// PreviewCreateProject calls runko.v1.ProjectService.PreviewCreateProject.
+func (c *projectServiceClient) PreviewCreateProject(ctx context.Context, req *connect.Request[v1.PreviewCreateProjectRequest]) (*connect.Response[v1.PreviewCreateProjectResponse], error) {
+	return c.previewCreateProject.CallUnary(ctx, req)
+}
+
+// CreateProject calls runko.v1.ProjectService.CreateProject.
+func (c *projectServiceClient) CreateProject(ctx context.Context, req *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error) {
+	return c.createProject.CallUnary(ctx, req)
+}
+
 // ProjectServiceHandler is an implementation of the runko.v1.ProjectService service.
 type ProjectServiceHandler interface {
 	ListProjects(context.Context, *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error)
 	GetProject(context.Context, *connect.Request[v1.GetProjectRequest]) (*connect.Response[v1.GetProjectResponse], error)
 	WhoOwns(context.Context, *connect.Request[v1.WhoOwnsRequest]) (*connect.Response[v1.WhoOwnsResponse], error)
+	// PreviewCreateProject runs the intent -> files pipeline (§10.1) without
+	// applying anything: the exact files CreateProject would commit, so the
+	// UI can show them live while the form is being filled. Validation
+	// failures are INVALID_ARGUMENT with an ErrorDetail (§6.5).
+	PreviewCreateProject(context.Context, *connect.Request[v1.PreviewCreateProjectRequest]) (*connect.Response[v1.PreviewCreateProjectResponse], error)
+	// CreateProject applies the plan as one commit and registers it as an
+	// ordinary open Change - trunk stays closed to direct writes (§6.9), so
+	// the project becomes real by LANDING that Change through the normal
+	// §13.5 gates. This is the MCP catalog's create_project semantics
+	// (deferred-v1.x there); the web UI is the first remote-write client
+	// that needed it (§8.5, §10.2). Duplicate name/path is ALREADY_EXISTS.
+	CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error)
 }
 
 // NewProjectServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -136,6 +190,18 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 		connect.WithSchema(projectServiceMethods.ByName("WhoOwns")),
 		connect.WithHandlerOptions(opts...),
 	)
+	projectServicePreviewCreateProjectHandler := connect.NewUnaryHandler(
+		ProjectServicePreviewCreateProjectProcedure,
+		svc.PreviewCreateProject,
+		connect.WithSchema(projectServiceMethods.ByName("PreviewCreateProject")),
+		connect.WithHandlerOptions(opts...),
+	)
+	projectServiceCreateProjectHandler := connect.NewUnaryHandler(
+		ProjectServiceCreateProjectProcedure,
+		svc.CreateProject,
+		connect.WithSchema(projectServiceMethods.ByName("CreateProject")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/runko.v1.ProjectService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ProjectServiceListProjectsProcedure:
@@ -144,6 +210,10 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 			projectServiceGetProjectHandler.ServeHTTP(w, r)
 		case ProjectServiceWhoOwnsProcedure:
 			projectServiceWhoOwnsHandler.ServeHTTP(w, r)
+		case ProjectServicePreviewCreateProjectProcedure:
+			projectServicePreviewCreateProjectHandler.ServeHTTP(w, r)
+		case ProjectServiceCreateProjectProcedure:
+			projectServiceCreateProjectHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -163,4 +233,12 @@ func (UnimplementedProjectServiceHandler) GetProject(context.Context, *connect.R
 
 func (UnimplementedProjectServiceHandler) WhoOwns(context.Context, *connect.Request[v1.WhoOwnsRequest]) (*connect.Response[v1.WhoOwnsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ProjectService.WhoOwns is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) PreviewCreateProject(context.Context, *connect.Request[v1.PreviewCreateProjectRequest]) (*connect.Response[v1.PreviewCreateProjectResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ProjectService.PreviewCreateProject is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ProjectService.CreateProject is not implemented"))
 }

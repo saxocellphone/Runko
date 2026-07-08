@@ -22,6 +22,10 @@ single violet accent, light + dark themes.
 - **Browse** — barebones repo explorer (`RepoService`: lazy directory
   tree + file viewer, deep-linkable as `/browse/<path>`, project-badged
   via longest-prefix ownership).
+- **New project** — the §10.1 create flow: name + type (+ optional
+  owners), live preview of the generated files, and "Create as a change" —
+  creation opens an ordinary Change (trunk is closed, §6.9); landing it is
+  what makes the project real.
 - **Projects / project detail / workspaces / code search** — thinner reads
   over the corresponding services.
 

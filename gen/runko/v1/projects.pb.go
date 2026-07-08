@@ -21,6 +21,332 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// CreateProjectIntent is the L0-only create request (§10.1, §8.5),
+// mirroring common.schema.json#/$defs/CreateProjectIntent and
+// project.Intent: name + type is a complete request; everything else is
+// optional and inherited/derived (anti-Boq, §2.3).
+type CreateProjectIntent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`                               // library|service|app|job|other (§7.2)
+	Owners        []string               `protobuf:"bytes,3,rep,name=owners,proto3" json:"owners,omitempty"`                           // empty -> inherited via §7.3 resolution
+	TemplateId    string                 `protobuf:"bytes,4,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"` // empty -> the type's default template
+	Path          string                 `protobuf:"bytes,5,opt,name=path,proto3" json:"path,omitempty"`                               // empty -> derived from name
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateProjectIntent) Reset() {
+	*x = CreateProjectIntent{}
+	mi := &file_runko_v1_projects_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateProjectIntent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateProjectIntent) ProtoMessage() {}
+
+func (x *CreateProjectIntent) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateProjectIntent.ProtoReflect.Descriptor instead.
+func (*CreateProjectIntent) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *CreateProjectIntent) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateProjectIntent) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *CreateProjectIntent) GetOwners() []string {
+	if x != nil {
+		return x.Owners
+	}
+	return nil
+}
+
+func (x *CreateProjectIntent) GetTemplateId() string {
+	if x != nil {
+		return x.TemplateId
+	}
+	return ""
+}
+
+func (x *CreateProjectIntent) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type PreviewCreateProjectRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Intent        *CreateProjectIntent   `protobuf:"bytes,1,opt,name=intent,proto3" json:"intent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PreviewCreateProjectRequest) Reset() {
+	*x = PreviewCreateProjectRequest{}
+	mi := &file_runko_v1_projects_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreviewCreateProjectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreviewCreateProjectRequest) ProtoMessage() {}
+
+func (x *PreviewCreateProjectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreviewCreateProjectRequest.ProtoReflect.Descriptor instead.
+func (*PreviewCreateProjectRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *PreviewCreateProjectRequest) GetIntent() *CreateProjectIntent {
+	if x != nil {
+		return x.Intent
+	}
+	return nil
+}
+
+type PlannedFile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`     // project-root-relative
+	Action        string                 `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"` // "create" | "modify"
+	Content       string                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlannedFile) Reset() {
+	*x = PlannedFile{}
+	mi := &file_runko_v1_projects_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlannedFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlannedFile) ProtoMessage() {}
+
+func (x *PlannedFile) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlannedFile.ProtoReflect.Descriptor instead.
+func (*PlannedFile) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *PlannedFile) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *PlannedFile) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *PlannedFile) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+type PreviewCreateProjectResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"` // resolved repo-root-relative project root
+	Files         []*PlannedFile         `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PreviewCreateProjectResponse) Reset() {
+	*x = PreviewCreateProjectResponse{}
+	mi := &file_runko_v1_projects_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreviewCreateProjectResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreviewCreateProjectResponse) ProtoMessage() {}
+
+func (x *PreviewCreateProjectResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreviewCreateProjectResponse.ProtoReflect.Descriptor instead.
+func (*PreviewCreateProjectResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *PreviewCreateProjectResponse) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *PreviewCreateProjectResponse) GetFiles() []*PlannedFile {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
+type CreateProjectRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Intent        *CreateProjectIntent   `protobuf:"bytes,1,opt,name=intent,proto3" json:"intent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateProjectRequest) Reset() {
+	*x = CreateProjectRequest{}
+	mi := &file_runko_v1_projects_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateProjectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateProjectRequest) ProtoMessage() {}
+
+func (x *CreateProjectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateProjectRequest.ProtoReflect.Descriptor instead.
+func (*CreateProjectRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *CreateProjectRequest) GetIntent() *CreateProjectIntent {
+	if x != nil {
+		return x.Intent
+	}
+	return nil
+}
+
+type CreateProjectResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The open Change carrying the new project's files. Land it (§13.5) and
+	// the project appears on trunk; abandon it and nothing ever existed.
+	Change        *ChangeSummary `protobuf:"bytes,1,opt,name=change,proto3" json:"change,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateProjectResponse) Reset() {
+	*x = CreateProjectResponse{}
+	mi := &file_runko_v1_projects_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateProjectResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateProjectResponse) ProtoMessage() {}
+
+func (x *CreateProjectResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateProjectResponse.ProtoReflect.Descriptor instead.
+func (*CreateProjectResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CreateProjectResponse) GetChange() *ChangeSummary {
+	if x != nil {
+		return x.Change
+	}
+	return nil
+}
+
 type ListProjectsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"` // optional substring filter on name or path
@@ -32,7 +358,7 @@ type ListProjectsRequest struct {
 
 func (x *ListProjectsRequest) Reset() {
 	*x = ListProjectsRequest{}
-	mi := &file_runko_v1_projects_proto_msgTypes[0]
+	mi := &file_runko_v1_projects_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -44,7 +370,7 @@ func (x *ListProjectsRequest) String() string {
 func (*ListProjectsRequest) ProtoMessage() {}
 
 func (x *ListProjectsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_projects_proto_msgTypes[0]
+	mi := &file_runko_v1_projects_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -57,7 +383,7 @@ func (x *ListProjectsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProjectsRequest.ProtoReflect.Descriptor instead.
 func (*ListProjectsRequest) Descriptor() ([]byte, []int) {
-	return file_runko_v1_projects_proto_rawDescGZIP(), []int{0}
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListProjectsRequest) GetQuery() string {
@@ -91,7 +417,7 @@ type ListProjectsResponse struct {
 
 func (x *ListProjectsResponse) Reset() {
 	*x = ListProjectsResponse{}
-	mi := &file_runko_v1_projects_proto_msgTypes[1]
+	mi := &file_runko_v1_projects_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -103,7 +429,7 @@ func (x *ListProjectsResponse) String() string {
 func (*ListProjectsResponse) ProtoMessage() {}
 
 func (x *ListProjectsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_projects_proto_msgTypes[1]
+	mi := &file_runko_v1_projects_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -116,7 +442,7 @@ func (x *ListProjectsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProjectsResponse.ProtoReflect.Descriptor instead.
 func (*ListProjectsResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_projects_proto_rawDescGZIP(), []int{1}
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListProjectsResponse) GetProjects() []*ProjectSummary {
@@ -142,7 +468,7 @@ type GetProjectRequest struct {
 
 func (x *GetProjectRequest) Reset() {
 	*x = GetProjectRequest{}
-	mi := &file_runko_v1_projects_proto_msgTypes[2]
+	mi := &file_runko_v1_projects_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -154,7 +480,7 @@ func (x *GetProjectRequest) String() string {
 func (*GetProjectRequest) ProtoMessage() {}
 
 func (x *GetProjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_projects_proto_msgTypes[2]
+	mi := &file_runko_v1_projects_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -167,7 +493,7 @@ func (x *GetProjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProjectRequest.ProtoReflect.Descriptor instead.
 func (*GetProjectRequest) Descriptor() ([]byte, []int) {
-	return file_runko_v1_projects_proto_rawDescGZIP(), []int{2}
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetProjectRequest) GetProject() string {
@@ -192,7 +518,7 @@ type WhoOwnsRequest struct {
 
 func (x *WhoOwnsRequest) Reset() {
 	*x = WhoOwnsRequest{}
-	mi := &file_runko_v1_projects_proto_msgTypes[3]
+	mi := &file_runko_v1_projects_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -204,7 +530,7 @@ func (x *WhoOwnsRequest) String() string {
 func (*WhoOwnsRequest) ProtoMessage() {}
 
 func (x *WhoOwnsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_projects_proto_msgTypes[3]
+	mi := &file_runko_v1_projects_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -217,7 +543,7 @@ func (x *WhoOwnsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WhoOwnsRequest.ProtoReflect.Descriptor instead.
 func (*WhoOwnsRequest) Descriptor() ([]byte, []int) {
-	return file_runko_v1_projects_proto_rawDescGZIP(), []int{3}
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *WhoOwnsRequest) GetTarget() isWhoOwnsRequest_Target {
@@ -270,7 +596,7 @@ type GetProjectResponse struct {
 
 func (x *GetProjectResponse) Reset() {
 	*x = GetProjectResponse{}
-	mi := &file_runko_v1_projects_proto_msgTypes[4]
+	mi := &file_runko_v1_projects_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -282,7 +608,7 @@ func (x *GetProjectResponse) String() string {
 func (*GetProjectResponse) ProtoMessage() {}
 
 func (x *GetProjectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_projects_proto_msgTypes[4]
+	mi := &file_runko_v1_projects_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -295,7 +621,7 @@ func (x *GetProjectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProjectResponse.ProtoReflect.Descriptor instead.
 func (*GetProjectResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_projects_proto_rawDescGZIP(), []int{4}
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetProjectResponse) GetProject() *ProjectDetail {
@@ -314,7 +640,7 @@ type WhoOwnsResponse struct {
 
 func (x *WhoOwnsResponse) Reset() {
 	*x = WhoOwnsResponse{}
-	mi := &file_runko_v1_projects_proto_msgTypes[5]
+	mi := &file_runko_v1_projects_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -326,7 +652,7 @@ func (x *WhoOwnsResponse) String() string {
 func (*WhoOwnsResponse) ProtoMessage() {}
 
 func (x *WhoOwnsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_projects_proto_msgTypes[5]
+	mi := &file_runko_v1_projects_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -339,7 +665,7 @@ func (x *WhoOwnsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WhoOwnsResponse.ProtoReflect.Descriptor instead.
 func (*WhoOwnsResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_projects_proto_rawDescGZIP(), []int{5}
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WhoOwnsResponse) GetOwners() *OwnersResult {
@@ -353,7 +679,27 @@ var File_runko_v1_projects_proto protoreflect.FileDescriptor
 
 const file_runko_v1_projects_proto_rawDesc = "" +
 	"\n" +
-	"\x17runko/v1/projects.proto\x12\brunko.v1\x1a\x15runko/v1/common.proto\"g\n" +
+	"\x17runko/v1/projects.proto\x12\brunko.v1\x1a\x15runko/v1/common.proto\"\x8a\x01\n" +
+	"\x13CreateProjectIntent\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x16\n" +
+	"\x06owners\x18\x03 \x03(\tR\x06owners\x12\x1f\n" +
+	"\vtemplate_id\x18\x04 \x01(\tR\n" +
+	"templateId\x12\x12\n" +
+	"\x04path\x18\x05 \x01(\tR\x04path\"T\n" +
+	"\x1bPreviewCreateProjectRequest\x125\n" +
+	"\x06intent\x18\x01 \x01(\v2\x1d.runko.v1.CreateProjectIntentR\x06intent\"S\n" +
+	"\vPlannedFile\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
+	"\x06action\x18\x02 \x01(\tR\x06action\x12\x18\n" +
+	"\acontent\x18\x03 \x01(\tR\acontent\"_\n" +
+	"\x1cPreviewCreateProjectResponse\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12+\n" +
+	"\x05files\x18\x02 \x03(\v2\x15.runko.v1.PlannedFileR\x05files\"M\n" +
+	"\x14CreateProjectRequest\x125\n" +
+	"\x06intent\x18\x01 \x01(\v2\x1d.runko.v1.CreateProjectIntentR\x06intent\"H\n" +
+	"\x15CreateProjectResponse\x12/\n" +
+	"\x06change\x18\x01 \x01(\v2\x17.runko.v1.ChangeSummaryR\x06change\"g\n" +
 	"\x13ListProjectsRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
@@ -371,12 +717,14 @@ const file_runko_v1_projects_proto_rawDesc = "" +
 	"\x12GetProjectResponse\x121\n" +
 	"\aproject\x18\x01 \x01(\v2\x17.runko.v1.ProjectDetailR\aproject\"A\n" +
 	"\x0fWhoOwnsResponse\x12.\n" +
-	"\x06owners\x18\x01 \x01(\v2\x16.runko.v1.OwnersResultR\x06owners2\xe8\x01\n" +
+	"\x06owners\x18\x01 \x01(\v2\x16.runko.v1.OwnersResultR\x06owners2\xa1\x03\n" +
 	"\x0eProjectService\x12M\n" +
 	"\fListProjects\x12\x1d.runko.v1.ListProjectsRequest\x1a\x1e.runko.v1.ListProjectsResponse\x12G\n" +
 	"\n" +
 	"GetProject\x12\x1b.runko.v1.GetProjectRequest\x1a\x1c.runko.v1.GetProjectResponse\x12>\n" +
-	"\aWhoOwns\x12\x18.runko.v1.WhoOwnsRequest\x1a\x19.runko.v1.WhoOwnsResponseB5Z3github.com/saxocellphone/runko/gen/runko/v1;runkov1b\x06proto3"
+	"\aWhoOwns\x12\x18.runko.v1.WhoOwnsRequest\x1a\x19.runko.v1.WhoOwnsResponse\x12e\n" +
+	"\x14PreviewCreateProject\x12%.runko.v1.PreviewCreateProjectRequest\x1a&.runko.v1.PreviewCreateProjectResponse\x12P\n" +
+	"\rCreateProject\x12\x1e.runko.v1.CreateProjectRequest\x1a\x1f.runko.v1.CreateProjectResponseB5Z3github.com/saxocellphone/runko/gen/runko/v1;runkov1b\x06proto3"
 
 var (
 	file_runko_v1_projects_proto_rawDescOnce sync.Once
@@ -390,33 +738,48 @@ func file_runko_v1_projects_proto_rawDescGZIP() []byte {
 	return file_runko_v1_projects_proto_rawDescData
 }
 
-var file_runko_v1_projects_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_runko_v1_projects_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_runko_v1_projects_proto_goTypes = []any{
-	(*ListProjectsRequest)(nil),  // 0: runko.v1.ListProjectsRequest
-	(*ListProjectsResponse)(nil), // 1: runko.v1.ListProjectsResponse
-	(*GetProjectRequest)(nil),    // 2: runko.v1.GetProjectRequest
-	(*WhoOwnsRequest)(nil),       // 3: runko.v1.WhoOwnsRequest
-	(*GetProjectResponse)(nil),   // 4: runko.v1.GetProjectResponse
-	(*WhoOwnsResponse)(nil),      // 5: runko.v1.WhoOwnsResponse
-	(*ProjectSummary)(nil),       // 6: runko.v1.ProjectSummary
-	(*ProjectDetail)(nil),        // 7: runko.v1.ProjectDetail
-	(*OwnersResult)(nil),         // 8: runko.v1.OwnersResult
+	(*CreateProjectIntent)(nil),          // 0: runko.v1.CreateProjectIntent
+	(*PreviewCreateProjectRequest)(nil),  // 1: runko.v1.PreviewCreateProjectRequest
+	(*PlannedFile)(nil),                  // 2: runko.v1.PlannedFile
+	(*PreviewCreateProjectResponse)(nil), // 3: runko.v1.PreviewCreateProjectResponse
+	(*CreateProjectRequest)(nil),         // 4: runko.v1.CreateProjectRequest
+	(*CreateProjectResponse)(nil),        // 5: runko.v1.CreateProjectResponse
+	(*ListProjectsRequest)(nil),          // 6: runko.v1.ListProjectsRequest
+	(*ListProjectsResponse)(nil),         // 7: runko.v1.ListProjectsResponse
+	(*GetProjectRequest)(nil),            // 8: runko.v1.GetProjectRequest
+	(*WhoOwnsRequest)(nil),               // 9: runko.v1.WhoOwnsRequest
+	(*GetProjectResponse)(nil),           // 10: runko.v1.GetProjectResponse
+	(*WhoOwnsResponse)(nil),              // 11: runko.v1.WhoOwnsResponse
+	(*ChangeSummary)(nil),                // 12: runko.v1.ChangeSummary
+	(*ProjectSummary)(nil),               // 13: runko.v1.ProjectSummary
+	(*ProjectDetail)(nil),                // 14: runko.v1.ProjectDetail
+	(*OwnersResult)(nil),                 // 15: runko.v1.OwnersResult
 }
 var file_runko_v1_projects_proto_depIdxs = []int32{
-	6, // 0: runko.v1.ListProjectsResponse.projects:type_name -> runko.v1.ProjectSummary
-	7, // 1: runko.v1.GetProjectResponse.project:type_name -> runko.v1.ProjectDetail
-	8, // 2: runko.v1.WhoOwnsResponse.owners:type_name -> runko.v1.OwnersResult
-	0, // 3: runko.v1.ProjectService.ListProjects:input_type -> runko.v1.ListProjectsRequest
-	2, // 4: runko.v1.ProjectService.GetProject:input_type -> runko.v1.GetProjectRequest
-	3, // 5: runko.v1.ProjectService.WhoOwns:input_type -> runko.v1.WhoOwnsRequest
-	1, // 6: runko.v1.ProjectService.ListProjects:output_type -> runko.v1.ListProjectsResponse
-	4, // 7: runko.v1.ProjectService.GetProject:output_type -> runko.v1.GetProjectResponse
-	5, // 8: runko.v1.ProjectService.WhoOwns:output_type -> runko.v1.WhoOwnsResponse
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0,  // 0: runko.v1.PreviewCreateProjectRequest.intent:type_name -> runko.v1.CreateProjectIntent
+	2,  // 1: runko.v1.PreviewCreateProjectResponse.files:type_name -> runko.v1.PlannedFile
+	0,  // 2: runko.v1.CreateProjectRequest.intent:type_name -> runko.v1.CreateProjectIntent
+	12, // 3: runko.v1.CreateProjectResponse.change:type_name -> runko.v1.ChangeSummary
+	13, // 4: runko.v1.ListProjectsResponse.projects:type_name -> runko.v1.ProjectSummary
+	14, // 5: runko.v1.GetProjectResponse.project:type_name -> runko.v1.ProjectDetail
+	15, // 6: runko.v1.WhoOwnsResponse.owners:type_name -> runko.v1.OwnersResult
+	6,  // 7: runko.v1.ProjectService.ListProjects:input_type -> runko.v1.ListProjectsRequest
+	8,  // 8: runko.v1.ProjectService.GetProject:input_type -> runko.v1.GetProjectRequest
+	9,  // 9: runko.v1.ProjectService.WhoOwns:input_type -> runko.v1.WhoOwnsRequest
+	1,  // 10: runko.v1.ProjectService.PreviewCreateProject:input_type -> runko.v1.PreviewCreateProjectRequest
+	4,  // 11: runko.v1.ProjectService.CreateProject:input_type -> runko.v1.CreateProjectRequest
+	7,  // 12: runko.v1.ProjectService.ListProjects:output_type -> runko.v1.ListProjectsResponse
+	10, // 13: runko.v1.ProjectService.GetProject:output_type -> runko.v1.GetProjectResponse
+	11, // 14: runko.v1.ProjectService.WhoOwns:output_type -> runko.v1.WhoOwnsResponse
+	3,  // 15: runko.v1.ProjectService.PreviewCreateProject:output_type -> runko.v1.PreviewCreateProjectResponse
+	5,  // 16: runko.v1.ProjectService.CreateProject:output_type -> runko.v1.CreateProjectResponse
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_runko_v1_projects_proto_init() }
@@ -425,7 +788,7 @@ func file_runko_v1_projects_proto_init() {
 		return
 	}
 	file_runko_v1_common_proto_init()
-	file_runko_v1_projects_proto_msgTypes[3].OneofWrappers = []any{
+	file_runko_v1_projects_proto_msgTypes[9].OneofWrappers = []any{
 		(*WhoOwnsRequest_Path)(nil),
 		(*WhoOwnsRequest_Project)(nil),
 	}
@@ -435,7 +798,7 @@ func file_runko_v1_projects_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runko_v1_projects_proto_rawDesc), len(file_runko_v1_projects_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

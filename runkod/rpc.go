@@ -32,6 +32,7 @@ import (
 	"github.com/saxocellphone/runko/index"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
+	"github.com/saxocellphone/runko/project"
 	"github.com/saxocellphone/runko/search"
 )
 
@@ -98,7 +99,7 @@ func (s *Server) rpcMiddleware(next http.Handler) http.Handler {
 func connectErr(e *apiError) error {
 	var code connect.Code
 	switch {
-	case e.Err.Code == "workspace_exists":
+	case e.Err.Code == "workspace_exists", e.Err.Code == "already_exists":
 		code = connect.CodeAlreadyExists
 	case e.Status == http.StatusBadRequest:
 		code = connect.CodeInvalidArgument
@@ -508,6 +509,40 @@ func (r *rpcServer) WhoOwns(ctx context.Context, req *connect.Request[runkov1.Wh
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("target is required: set path or project"))
 	}
+}
+
+func intentFromProto(in *runkov1.CreateProjectIntent) project.Intent {
+	if in == nil {
+		return project.Intent{}
+	}
+	return project.Intent{
+		Name:       in.Name,
+		Type:       in.Type,
+		Owners:     in.Owners,
+		TemplateID: in.TemplateId,
+		Path:       in.Path,
+	}
+}
+
+func (r *rpcServer) PreviewCreateProject(ctx context.Context, req *connect.Request[runkov1.PreviewCreateProjectRequest]) (*connect.Response[runkov1.PreviewCreateProjectResponse], error) {
+	plan, apiErr := r.s.previewProjectCore(intentFromProto(req.Msg.Intent))
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	files := make([]*runkov1.PlannedFile, len(plan.Files))
+	for i, f := range plan.Files {
+		files[i] = &runkov1.PlannedFile{Path: f.Path, Action: f.Action, Content: f.Content}
+	}
+	return connect.NewResponse(&runkov1.PreviewCreateProjectResponse{Path: plan.Path, Files: files}), nil
+}
+
+func (r *rpcServer) CreateProject(ctx context.Context, req *connect.Request[runkov1.CreateProjectRequest]) (*connect.Response[runkov1.CreateProjectResponse], error) {
+	principal := r.s.principalForAuthHeader(req.Header().Get("Authorization"))
+	change, apiErr := r.s.createProjectCore(ctx, intentFromProto(req.Msg.Intent), principal)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	return connect.NewResponse(&runkov1.CreateProjectResponse{Change: r.s.protoChange(change)}), nil
 }
 
 // ---- WorkspaceService ----

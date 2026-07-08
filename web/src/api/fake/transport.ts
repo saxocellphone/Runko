@@ -10,13 +10,17 @@
 import { Code, ConnectError, createRouterTransport, type Transport } from "@connectrpc/connect";
 import { clone, create } from "@bufbuild/protobuf";
 import {
+  ActorType,
   ChangeState,
   ChangeSummarySchema,
   MergeRequirementsSchema,
+  ProjectDetailSchema,
+  ProjectType,
   ReasonCode,
   WorkspaceSummarySchema,
   type ChangeSummary,
   type MergeRequirements,
+  type ProjectDetail,
   type WorkspaceSummary,
 } from "../../gen/runko/v1/common_pb";
 import {
@@ -37,6 +41,9 @@ import {
   GetProjectResponseSchema,
   ListProjectsResponseSchema,
   WhoOwnsResponseSchema,
+  PreviewCreateProjectResponseSchema,
+  CreateProjectResponseSchema,
+  type CreateProjectIntent,
 } from "../../gen/runko/v1/projects_pb";
 import {
   WorkspaceService,
@@ -53,11 +60,13 @@ import {
   GetBlobResponseSchema,
 } from "../../gen/runko/v1/repo_pb";
 import { OwnersSource, WorkspaceStatus } from "../../gen/runko/v1/common_pb";
+import type { FileDiff } from "../../gen/runko/v1/changes_pb";
 import {
+  addedFileDiff,
   changes as fixtureChanges,
   diffs as fixtureDiffs,
   requirements as fixtureRequirements,
-  projects,
+  projects as fixtureProjects,
   searchCorpus,
   workspaces as fixtureWorkspaces,
   fakeSha,
@@ -70,6 +79,11 @@ interface FakeState {
   changes: Map<string, ChangeSummary>;
   requirements: Map<string, MergeRequirements>;
   workspaces: Map<string, WorkspaceSummary>;
+  projects: ProjectDetail[];
+  diffs: Map<string, FileDiff[]>;
+  // Tree-as-truth in miniature: a UI-created project rides its open
+  // Change and only joins `projects` when that Change LANDS.
+  pendingProjects: Map<string, ProjectDetail>;
 }
 
 // Deep-clone the fixtures: each transport owns mutable state (approve,
@@ -86,6 +100,9 @@ function freshState(): FakeState {
     workspaces: new Map(
       fixtureWorkspaces.map((w) => [w.id, clone(WorkspaceSummarySchema, w)]),
     ),
+    projects: fixtureProjects.map((p) => clone(ProjectDetailSchema, p)),
+    diffs: new Map(fixtureDiffs),
+    pendingProjects: new Map(),
   };
   for (const r of state.requirements.values()) recompute(r);
   return state;
@@ -168,7 +185,7 @@ function stackOf(state: FakeState, id: string): ChangeSummary[] {
 
 // Longest-prefix path -> project match (§13.3), plus reverse declared-dep
 // closure for the affected set.
-function owningProject(path: string): string {
+function owningProject(projects: ProjectDetail[], path: string): string {
   let best = "";
   for (const p of projects) {
     if ((path === p.path || path.startsWith(p.path + "/")) && p.path.length > best.length) {
@@ -178,10 +195,10 @@ function owningProject(path: string): string {
   return best;
 }
 
-function affectedForPaths(paths: string[]) {
+function affectedForPaths(projects: ProjectDetail[], paths: string[]) {
   const direct = new Set<string>();
   for (const p of paths) {
-    const owner = owningProject(p);
+    const owner = owningProject(projects, p);
     if (owner) direct.add(owner);
   }
   const reasons = new Set<ReasonCode>();
@@ -214,6 +231,66 @@ function affectedForPaths(paths: string[]) {
     reasonCodes: [...reasons],
     runEverything: false,
   };
+}
+
+// planProject is the fake's §10.1 intent -> files pipeline: a loose mirror
+// of project.DefaultTemplates (PROJECT.yaml + README + a type entrypoint),
+// with the same validation/collision error codes the daemon returns.
+const PROJECT_TYPES = ["library", "service", "app", "job", "other"];
+
+function planProject(state: FakeState, intent: CreateProjectIntent | undefined) {
+  const name = intent?.name.trim() ?? "";
+  const type = intent?.type ?? "";
+  if (!name) {
+    throw new ConnectError("invalid_intent: name is required", Code.InvalidArgument);
+  }
+  if (!/^[a-z0-9][a-z0-9._/-]*$/i.test(name)) {
+    throw new ConnectError(
+      `invalid_intent: name ${JSON.stringify(name)} may only contain letters, digits, ".", "_", "-" and "/"`,
+      Code.InvalidArgument,
+    );
+  }
+  if (!PROJECT_TYPES.includes(type)) {
+    throw new ConnectError(
+      `invalid_intent: type must be one of ${PROJECT_TYPES.join(", ")}`,
+      Code.InvalidArgument,
+    );
+  }
+  const path = intent?.path || name;
+  for (const p of state.projects) {
+    if (p.name === name || p.path === path) {
+      throw new ConnectError(
+        `already_exists: project ${p.name} already exists at ${p.path}`,
+        Code.AlreadyExists,
+      );
+    }
+  }
+  const owners = intent?.owners ?? [];
+  const manifest = [
+    "schema: project/v1",
+    `name: ${name}`,
+    `type: ${type}`,
+    ...(owners.length ? ["owners:", ...owners.map((o) => `  - ${o}`)] : []),
+  ].join("\n") + "\n";
+  const short = name.split("/").pop()!;
+  const files = [
+    { path: "PROJECT.yaml", action: "create", content: manifest },
+    { path: "README.md", action: "create", content: `# ${name}\n` },
+  ];
+  if (type === "service" || type === "app" || type === "job") {
+    files.push({
+      path: "main.go",
+      action: "create",
+      content: `package main\n\nfunc main() {\n\t// ${short}: generated entrypoint (\u00a710.1)\n}\n`,
+    });
+  } else if (type === "library") {
+    files.push({
+      path: "doc.go",
+      action: "create",
+      content: `// Package ${short.replace(/[^a-z0-9]/gi, "")} - generated by create_project.\npackage ${short.replace(/[^a-z0-9]/gi, "")}\n`,
+    });
+  }
+  return { path, files, owners, name, type };
 }
 
 const simulatedDelayMs = 150;
@@ -251,7 +328,7 @@ export function createFakeTransport(): Transport {
       async getChangeDiff(req) {
         await delay();
         const c = mustChange(state, req.changeId);
-        const files = fixtureDiffs.get(req.changeId) ?? [];
+        const files = state.diffs.get(req.changeId) ?? [];
         return create(GetChangeDiffResponseSchema, {
           changeId: c.id,
           baseSha: c.baseSha,
@@ -267,11 +344,11 @@ export function createFakeTransport(): Transport {
           paths = req.target.value.paths;
         } else if (req.target.case === "changeId") {
           mustChange(state, req.target.value);
-          paths = (fixtureDiffs.get(req.target.value) ?? []).map((f) => f.path);
+          paths = (state.diffs.get(req.target.value) ?? []).map((f) => f.path);
         } else {
           throw new ConnectError("target is required", Code.InvalidArgument);
         }
-        return create(GetAffectedResponseSchema, { affected: affectedForPaths(paths) });
+        return create(GetAffectedResponseSchema, { affected: affectedForPaths(state.projects, paths) });
       },
 
       async getMergeRequirements(req) {
@@ -318,6 +395,11 @@ export function createFakeTransport(): Transport {
         }
         c.state = ChangeState.LANDED;
         c.landedSha = fakeSha(c.id + "-landed");
+        const pending = state.pendingProjects.get(c.id);
+        if (pending) {
+          state.projects.push(pending);
+          state.pendingProjects.delete(c.id);
+        }
         return create(LandChangeResponseSchema, { landed: true, landedSha: c.landedSha });
       },
 
@@ -353,7 +435,7 @@ export function createFakeTransport(): Transport {
       async listProjects(req) {
         await delay();
         const q = req.query.toLowerCase();
-        const out = projects.filter(
+        const out = state.projects.filter(
           (p) => !q || p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q),
         );
         return create(ListProjectsResponseSchema, {
@@ -370,23 +452,80 @@ export function createFakeTransport(): Transport {
 
       async getProject(req) {
         await delay();
-        const p = projects.find((x) => x.id === req.project || x.name === req.project);
+        const p = state.projects.find((x) => x.id === req.project || x.name === req.project);
         if (!p) throw notFound("project", req.project);
         return create(GetProjectResponseSchema, { project: p });
+      },
+
+
+      async previewCreateProject(req) {
+        await delay();
+        const plan = planProject(state, req.intent);
+        return create(PreviewCreateProjectResponseSchema, {
+          path: plan.path,
+          files: plan.files,
+        });
+      },
+
+      async createProject(req) {
+        await delay();
+        const plan = planProject(state, req.intent);
+        const number = Math.max(0, ...[...state.changes.values()].map((c) => Number(c.number))) + 1;
+        const id = "I" + fakeSha(`create-${plan.name}-${number}`);
+        const change = create(ChangeSummarySchema, {
+          id,
+          state: ChangeState.OPEN,
+          baseSha: TRUNK_SHA,
+          headSha: fakeSha(`head-create-${plan.name}-${number}`),
+          gitRef: `refs/changes/${id}/head`,
+          title: `Create project ${plan.name}`,
+          description: "Generated by the create-project flow (\u00a710.1): land to make it real.",
+          authoredBy: { type: ActorType.USER, id: "you" },
+          number: BigInt(number),
+        });
+        state.changes.set(id, change);
+        const reqs = create(MergeRequirementsSchema, {
+          changeId: id,
+          owners: { required: plan.owners, satisfied: [], outstanding: [...plan.owners] },
+          checks: { required: [], passing: [], failing: [], pending: [] },
+        });
+        recompute(reqs);
+        state.requirements.set(id, reqs);
+        state.diffs.set(
+          id,
+          plan.files.map((f) => addedFileDiff(`${plan.path}/${f.path}`, plan.name, f.content)),
+        );
+        const typeEnum =
+          { library: ProjectType.LIBRARY, service: ProjectType.SERVICE, app: ProjectType.APP, job: ProjectType.JOB }[
+            plan.type
+          ] ?? ProjectType.OTHER;
+        state.pendingProjects.set(
+          id,
+          create(ProjectDetailSchema, {
+            id: plan.name,
+            name: plan.name,
+            type: typeEnum,
+            path: plan.path,
+            effectiveOwners: plan.owners,
+            capabilities: [],
+            dependencies: { declared: [], inferred: [] },
+          }),
+        );
+        return create(CreateProjectResponseSchema, { change });
       },
 
       async whoOwns(req) {
         await delay();
         if (req.target.case === "project") {
-          const p = projects.find((x) => x.name === req.target.value);
+          const p = state.projects.find((x) => x.name === req.target.value);
           if (!p) throw notFound("project", req.target.value);
           return create(WhoOwnsResponseSchema, {
             owners: { owners: p.effectiveOwners, source: OwnersSource.PROJECT_MANIFEST },
           });
         }
         if (req.target.case === "path") {
-          const owner = owningProject(req.target.value);
-          const p = projects.find((x) => x.path === owner);
+          const owner = owningProject(state.projects, req.target.value);
+          const p = state.projects.find((x) => x.path === owner);
           return create(WhoOwnsResponseSchema, {
             owners: p
               ? { owners: p.effectiveOwners, source: OwnersSource.PROJECT_MANIFEST }
@@ -470,7 +609,7 @@ export function createFakeTransport(): Transport {
             path: prefix + name,
             type: TreeEntryType.DIR,
             size: 0n,
-            project: owningProject(prefix + name),
+            project: owningProject(state.projects, prefix + name),
           })),
           ...files
             .sort((a, b) => a.name.localeCompare(b.name))
@@ -479,7 +618,7 @@ export function createFakeTransport(): Transport {
               path: f.path,
               type: TreeEntryType.FILE,
               size: BigInt(f.size),
-              project: owningProject(f.path),
+              project: owningProject(state.projects, f.path),
             })),
         ];
         return create(GetTreeResponseSchema, { entries, rev: req.rev || TRUNK_SHA });
@@ -497,7 +636,7 @@ export function createFakeTransport(): Transport {
           binary,
           truncated: false,
           size: BigInt(binary ? 3 : content.length),
-          project: owningProject(req.path),
+          project: owningProject(state.projects, req.path),
         });
       },
     });

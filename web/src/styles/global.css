@@ -1314,3 +1314,36 @@ tr.hunk-head td {
   font-size: 11.5px;
   margin: 4px 0 0;
 }
+
+/* ---------------------------------------------------------- new project */
+
+.page-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.new-project-form {
+  padding: 18px;
+  max-width: 460px;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 16px;
+}
+.form-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.form-optional {
+  font-weight: 500;
+  color: var(--text-3);
+}
+.form-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+}

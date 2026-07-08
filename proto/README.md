@@ -104,7 +104,7 @@ decided - see "Open questions" before treating any of this as final.
 | File | Covers |
 |---|---|
 | `common.proto` | Shared messages/enums, mirroring `common.schema.json` $defs |
-| `projects.proto` | `ProjectService`: list/get/who-owns |
+| `projects.proto` | `ProjectService`: list/get/who-owns; preview-create/create (the first write RPC to graduate from the MCP catalog's deferred set - creation opens an ordinary Change, §6.9/§10.1) |
 | `changes.proto` | `ChangeService`: get/list/stack/diff/affected/merge-requirements/approve/land/abandon/rerun |
 | `workspaces.proto` | `WorkspaceService`: create/list/get/update-base |
 | `search.proto` | `SearchService`: code search |

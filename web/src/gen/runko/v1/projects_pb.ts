@@ -4,7 +4,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { OwnersResult, ProjectDetail, ProjectSummary } from "./common_pb";
+import type { ChangeSummary, OwnersResult, ProjectDetail, ProjectSummary } from "./common_pb";
 import { file_runko_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,166 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file runko/v1/projects.proto.
  */
 export const file_runko_v1_projects: GenFile = /*@__PURE__*/
-  fileDesc("ChdydW5rby92MS9wcm9qZWN0cy5wcm90bxIIcnVua28udjEiSwoTTGlzdFByb2plY3RzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJbChRMaXN0UHJvamVjdHNSZXNwb25zZRIqCghwcm9qZWN0cxgBIAMoCzIYLnJ1bmtvLnYxLlByb2plY3RTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIkChFHZXRQcm9qZWN0UmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJIj0KDldob093bnNSZXF1ZXN0Eg4KBHBhdGgYASABKAlIABIRCgdwcm9qZWN0GAIgASgJSABCCAoGdGFyZ2V0Ij4KEkdldFByb2plY3RSZXNwb25zZRIoCgdwcm9qZWN0GAEgASgLMhcucnVua28udjEuUHJvamVjdERldGFpbCI5Cg9XaG9Pd25zUmVzcG9uc2USJgoGb3duZXJzGAEgASgLMhYucnVua28udjEuT3duZXJzUmVzdWx0MugBCg5Qcm9qZWN0U2VydmljZRJNCgxMaXN0UHJvamVjdHMSHS5ydW5rby52MS5MaXN0UHJvamVjdHNSZXF1ZXN0Gh4ucnVua28udjEuTGlzdFByb2plY3RzUmVzcG9uc2USRwoKR2V0UHJvamVjdBIbLnJ1bmtvLnYxLkdldFByb2plY3RSZXF1ZXN0GhwucnVua28udjEuR2V0UHJvamVjdFJlc3BvbnNlEj4KB1dob093bnMSGC5ydW5rby52MS5XaG9Pd25zUmVxdWVzdBoZLnJ1bmtvLnYxLldob093bnNSZXNwb25zZUI1WjNnaXRodWIuY29tL3NheG9jZWxscGhvbmUvcnVua28vZ2VuL3J1bmtvL3YxO3J1bmtvdjFiBnByb3RvMw", [file_runko_v1_common]);
+  fileDesc("ChdydW5rby92MS9wcm9qZWN0cy5wcm90bxIIcnVua28udjEiZAoTQ3JlYXRlUHJvamVjdEludGVudBIMCgRuYW1lGAEgASgJEgwKBHR5cGUYAiABKAkSDgoGb3duZXJzGAMgAygJEhMKC3RlbXBsYXRlX2lkGAQgASgJEgwKBHBhdGgYBSABKAkiTAobUHJldmlld0NyZWF0ZVByb2plY3RSZXF1ZXN0Ei0KBmludGVudBgBIAEoCzIdLnJ1bmtvLnYxLkNyZWF0ZVByb2plY3RJbnRlbnQiPAoLUGxhbm5lZEZpbGUSDAoEcGF0aBgBIAEoCRIOCgZhY3Rpb24YAiABKAkSDwoHY29udGVudBgDIAEoCSJSChxQcmV2aWV3Q3JlYXRlUHJvamVjdFJlc3BvbnNlEgwKBHBhdGgYASABKAkSJAoFZmlsZXMYAiADKAsyFS5ydW5rby52MS5QbGFubmVkRmlsZSJFChRDcmVhdGVQcm9qZWN0UmVxdWVzdBItCgZpbnRlbnQYASABKAsyHS5ydW5rby52MS5DcmVhdGVQcm9qZWN0SW50ZW50IkAKFUNyZWF0ZVByb2plY3RSZXNwb25zZRInCgZjaGFuZ2UYASABKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5IksKE0xpc3RQcm9qZWN0c1JlcXVlc3QSDQoFcXVlcnkYASABKAkSEQoJcGFnZV9zaXplGAIgASgFEhIKCnBhZ2VfdG9rZW4YAyABKAkiWwoUTGlzdFByb2plY3RzUmVzcG9uc2USKgoIcHJvamVjdHMYASADKAsyGC5ydW5rby52MS5Qcm9qZWN0U3VtbWFyeRIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkiJAoRR2V0UHJvamVjdFJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCSI9Cg5XaG9Pd25zUmVxdWVzdBIOCgRwYXRoGAEgASgJSAASEQoHcHJvamVjdBgCIAEoCUgAQggKBnRhcmdldCI+ChJHZXRQcm9qZWN0UmVzcG9uc2USKAoHcHJvamVjdBgBIAEoCzIXLnJ1bmtvLnYxLlByb2plY3REZXRhaWwiOQoPV2hvT3duc1Jlc3BvbnNlEiYKBm93bmVycxgBIAEoCzIWLnJ1bmtvLnYxLk93bmVyc1Jlc3VsdDKhAwoOUHJvamVjdFNlcnZpY2USTQoMTGlzdFByb2plY3RzEh0ucnVua28udjEuTGlzdFByb2plY3RzUmVxdWVzdBoeLnJ1bmtvLnYxLkxpc3RQcm9qZWN0c1Jlc3BvbnNlEkcKCkdldFByb2plY3QSGy5ydW5rby52MS5HZXRQcm9qZWN0UmVxdWVzdBocLnJ1bmtvLnYxLkdldFByb2plY3RSZXNwb25zZRI+CgdXaG9Pd25zEhgucnVua28udjEuV2hvT3duc1JlcXVlc3QaGS5ydW5rby52MS5XaG9Pd25zUmVzcG9uc2USZQoUUHJldmlld0NyZWF0ZVByb2plY3QSJS5ydW5rby52MS5QcmV2aWV3Q3JlYXRlUHJvamVjdFJlcXVlc3QaJi5ydW5rby52MS5QcmV2aWV3Q3JlYXRlUHJvamVjdFJlc3BvbnNlElAKDUNyZWF0ZVByb2plY3QSHi5ydW5rby52MS5DcmVhdGVQcm9qZWN0UmVxdWVzdBofLnJ1bmtvLnYxLkNyZWF0ZVByb2plY3RSZXNwb25zZUI1WjNnaXRodWIuY29tL3NheG9jZWxscGhvbmUvcnVua28vZ2VuL3J1bmtvL3YxO3J1bmtvdjFiBnByb3RvMw", [file_runko_v1_common]);
+
+/**
+ * CreateProjectIntent is the L0-only create request (§10.1, §8.5),
+ * mirroring common.schema.json#/$defs/CreateProjectIntent and
+ * project.Intent: name + type is a complete request; everything else is
+ * optional and inherited/derived (anti-Boq, §2.3).
+ *
+ * @generated from message runko.v1.CreateProjectIntent
+ */
+export type CreateProjectIntent = Message<"runko.v1.CreateProjectIntent"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * library|service|app|job|other (§7.2)
+   *
+   * @generated from field: string type = 2;
+   */
+  type: string;
+
+  /**
+   * empty -> inherited via §7.3 resolution
+   *
+   * @generated from field: repeated string owners = 3;
+   */
+  owners: string[];
+
+  /**
+   * empty -> the type's default template
+   *
+   * @generated from field: string template_id = 4;
+   */
+  templateId: string;
+
+  /**
+   * empty -> derived from name
+   *
+   * @generated from field: string path = 5;
+   */
+  path: string;
+};
+
+/**
+ * Describes the message runko.v1.CreateProjectIntent.
+ * Use `create(CreateProjectIntentSchema)` to create a new message.
+ */
+export const CreateProjectIntentSchema: GenMessage<CreateProjectIntent> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 0);
+
+/**
+ * @generated from message runko.v1.PreviewCreateProjectRequest
+ */
+export type PreviewCreateProjectRequest = Message<"runko.v1.PreviewCreateProjectRequest"> & {
+  /**
+   * @generated from field: runko.v1.CreateProjectIntent intent = 1;
+   */
+  intent?: CreateProjectIntent | undefined;
+};
+
+/**
+ * Describes the message runko.v1.PreviewCreateProjectRequest.
+ * Use `create(PreviewCreateProjectRequestSchema)` to create a new message.
+ */
+export const PreviewCreateProjectRequestSchema: GenMessage<PreviewCreateProjectRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 1);
+
+/**
+ * @generated from message runko.v1.PlannedFile
+ */
+export type PlannedFile = Message<"runko.v1.PlannedFile"> & {
+  /**
+   * project-root-relative
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * "create" | "modify"
+   *
+   * @generated from field: string action = 2;
+   */
+  action: string;
+
+  /**
+   * @generated from field: string content = 3;
+   */
+  content: string;
+};
+
+/**
+ * Describes the message runko.v1.PlannedFile.
+ * Use `create(PlannedFileSchema)` to create a new message.
+ */
+export const PlannedFileSchema: GenMessage<PlannedFile> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 2);
+
+/**
+ * @generated from message runko.v1.PreviewCreateProjectResponse
+ */
+export type PreviewCreateProjectResponse = Message<"runko.v1.PreviewCreateProjectResponse"> & {
+  /**
+   * resolved repo-root-relative project root
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: repeated runko.v1.PlannedFile files = 2;
+   */
+  files: PlannedFile[];
+};
+
+/**
+ * Describes the message runko.v1.PreviewCreateProjectResponse.
+ * Use `create(PreviewCreateProjectResponseSchema)` to create a new message.
+ */
+export const PreviewCreateProjectResponseSchema: GenMessage<PreviewCreateProjectResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 3);
+
+/**
+ * @generated from message runko.v1.CreateProjectRequest
+ */
+export type CreateProjectRequest = Message<"runko.v1.CreateProjectRequest"> & {
+  /**
+   * @generated from field: runko.v1.CreateProjectIntent intent = 1;
+   */
+  intent?: CreateProjectIntent | undefined;
+};
+
+/**
+ * Describes the message runko.v1.CreateProjectRequest.
+ * Use `create(CreateProjectRequestSchema)` to create a new message.
+ */
+export const CreateProjectRequestSchema: GenMessage<CreateProjectRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 4);
+
+/**
+ * @generated from message runko.v1.CreateProjectResponse
+ */
+export type CreateProjectResponse = Message<"runko.v1.CreateProjectResponse"> & {
+  /**
+   * The open Change carrying the new project's files. Land it (§13.5) and
+   * the project appears on trunk; abandon it and nothing ever existed.
+   *
+   * @generated from field: runko.v1.ChangeSummary change = 1;
+   */
+  change?: ChangeSummary | undefined;
+};
+
+/**
+ * Describes the message runko.v1.CreateProjectResponse.
+ * Use `create(CreateProjectResponseSchema)` to create a new message.
+ */
+export const CreateProjectResponseSchema: GenMessage<CreateProjectResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 5);
 
 /**
  * @generated from message runko.v1.ListProjectsRequest
@@ -41,7 +200,7 @@ export type ListProjectsRequest = Message<"runko.v1.ListProjectsRequest"> & {
  * Use `create(ListProjectsRequestSchema)` to create a new message.
  */
 export const ListProjectsRequestSchema: GenMessage<ListProjectsRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 0);
+  messageDesc(file_runko_v1_projects, 6);
 
 /**
  * @generated from message runko.v1.ListProjectsResponse
@@ -63,7 +222,7 @@ export type ListProjectsResponse = Message<"runko.v1.ListProjectsResponse"> & {
  * Use `create(ListProjectsResponseSchema)` to create a new message.
  */
 export const ListProjectsResponseSchema: GenMessage<ListProjectsResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 1);
+  messageDesc(file_runko_v1_projects, 7);
 
 /**
  * @generated from message runko.v1.GetProjectRequest
@@ -82,7 +241,7 @@ export type GetProjectRequest = Message<"runko.v1.GetProjectRequest"> & {
  * Use `create(GetProjectRequestSchema)` to create a new message.
  */
 export const GetProjectRequestSchema: GenMessage<GetProjectRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 2);
+  messageDesc(file_runko_v1_projects, 8);
 
 /**
  * WhoOwnsRequest resolves owners for a path OR a project - exactly one,
@@ -114,7 +273,7 @@ export type WhoOwnsRequest = Message<"runko.v1.WhoOwnsRequest"> & {
  * Use `create(WhoOwnsRequestSchema)` to create a new message.
  */
 export const WhoOwnsRequestSchema: GenMessage<WhoOwnsRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 3);
+  messageDesc(file_runko_v1_projects, 9);
 
 /**
  * @generated from message runko.v1.GetProjectResponse
@@ -131,7 +290,7 @@ export type GetProjectResponse = Message<"runko.v1.GetProjectResponse"> & {
  * Use `create(GetProjectResponseSchema)` to create a new message.
  */
 export const GetProjectResponseSchema: GenMessage<GetProjectResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 4);
+  messageDesc(file_runko_v1_projects, 10);
 
 /**
  * @generated from message runko.v1.WhoOwnsResponse
@@ -148,7 +307,7 @@ export type WhoOwnsResponse = Message<"runko.v1.WhoOwnsResponse"> & {
  * Use `create(WhoOwnsResponseSchema)` to create a new message.
  */
 export const WhoOwnsResponseSchema: GenMessage<WhoOwnsResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 5);
+  messageDesc(file_runko_v1_projects, 11);
 
 /**
  * ProjectService mirrors the navigation-category MCP tools (§17.4) and
@@ -181,6 +340,34 @@ export const ProjectService: GenService<{
     methodKind: "unary";
     input: typeof WhoOwnsRequestSchema;
     output: typeof WhoOwnsResponseSchema;
+  },
+  /**
+   * PreviewCreateProject runs the intent -> files pipeline (§10.1) without
+   * applying anything: the exact files CreateProject would commit, so the
+   * UI can show them live while the form is being filled. Validation
+   * failures are INVALID_ARGUMENT with an ErrorDetail (§6.5).
+   *
+   * @generated from rpc runko.v1.ProjectService.PreviewCreateProject
+   */
+  previewCreateProject: {
+    methodKind: "unary";
+    input: typeof PreviewCreateProjectRequestSchema;
+    output: typeof PreviewCreateProjectResponseSchema;
+  },
+  /**
+   * CreateProject applies the plan as one commit and registers it as an
+   * ordinary open Change - trunk stays closed to direct writes (§6.9), so
+   * the project becomes real by LANDING that Change through the normal
+   * §13.5 gates. This is the MCP catalog's create_project semantics
+   * (deferred-v1.x there); the web UI is the first remote-write client
+   * that needed it (§8.5, §10.2). Duplicate name/path is ALREADY_EXISTS.
+   *
+   * @generated from rpc runko.v1.ProjectService.CreateProject
+   */
+  createProject: {
+    methodKind: "unary";
+    input: typeof CreateProjectRequestSchema;
+    output: typeof CreateProjectResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_runko_v1_projects, 0);

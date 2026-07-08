@@ -25,7 +25,12 @@ export function ProjectsPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <h1 className="page-title">Projects</h1>
+        <div className="page-header-row">
+          <h1 className="page-title">Projects</h1>
+          <Link className="btn btn-primary" to="/projects/new">
+            New project
+          </Link>
+        </div>
         <p className="page-sub">
           Everything with a PROJECT.yaml on trunk. Arrows point at what a project depends on
           (declared deps only, §13.3)

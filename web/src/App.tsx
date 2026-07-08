@@ -5,6 +5,7 @@ import { BrowsePage } from "./pages/BrowsePage";
 import { ChangePage } from "./pages/ChangePage";
 import { ChangesPage } from "./pages/ChangesPage";
 import { LoginPage } from "./pages/LoginPage";
+import { NewProjectPage } from "./pages/NewProjectPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SearchPage } from "./pages/SearchPage";
@@ -27,6 +28,7 @@ export default function App() {
         {/* The DAG lives on the projects page now; keep old links working. */}
         <Route path="/graph" element={<GraphRedirect />} />
         <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/new" element={<NewProjectPage />} />
         {/* Splat: project names contain slashes (commerce/cart). */}
         <Route path="/projects/*" element={<ProjectPage />} />
         <Route path="/workspaces" element={<WorkspacesPage />} />
