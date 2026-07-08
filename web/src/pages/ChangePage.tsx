@@ -9,7 +9,7 @@ import { useRpc } from "../lib/useRpc";
 import { DiffView } from "../components/DiffView";
 import { MergeGates } from "../components/MergeGates";
 import { StackRail } from "../components/StackRail";
-import { AuthorChip, BackLink, ErrorNote, Spinner, StateBadge } from "../components/ui";
+import { AuthorChip, BackLink, ErrorNote, InfoTip, Spinner, StateBadge } from "../components/ui";
 
 export function ChangePage() {
   const { changeId = "" } = useParams();
@@ -86,6 +86,7 @@ export function ChangePage() {
           <span className="mono" title={`base ${change.baseSha}`}>
             base {shortSha(change.baseSha)}
           </span>
+          <InfoTip text="The merge-base with trunk as of this version's push. Landing recomputes trunk's delta since this commit - if it doesn't intersect what this change affects, it lands without re-running checks; otherwise checks re-run (§13.5)." />
           <span className="mono" title={`head ${change.headSha}`}>
             head {shortSha(change.headSha)}
           </span>
@@ -125,7 +126,10 @@ export function ChangePage() {
         </div>
         <aside>
           <section className="card side-card">
-            <h2>Stack</h2>
+            <h2>
+              Stack
+              <InfoTip text="Changes stacked on one another: each one's base is the previous one's head. They land independently, bottom-up - a change can't land until everything below it in the stack already has." />
+            </h2>
             <StackRail stack={stack} currentId={change.id} requirementsById={requirementsById} />
           </section>
 

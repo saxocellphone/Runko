@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChangeState, type MergeRequirements } from "../gen/runko/v1/common_pb";
+import { InfoTip } from "./ui";
 
 // The §13.5 merge gates, rendered the way GET merge-requirements reports
 // them: required owners (satisfied/outstanding) and required checks
@@ -47,7 +48,10 @@ export function MergeGates({
 
       {hasOwners && (
         <div className="gate-section">
-          <p className="gate-title">Owners</p>
+          <p className="gate-title">
+            Owners
+            <InfoTip text="Required because this change touches paths these owners are responsible for - computed from the touched paths, not from every project the change might affect. An agent can never satisfy this on its own; a human approval is always required." />
+          </p>
           {owners!.required.map((o) => {
             const satisfied = owners!.satisfied.includes(o);
             return (
@@ -84,7 +88,10 @@ export function MergeGates({
 
       {hasChecks && (
         <div className="gate-section">
-          <p className="gate-title">Checks</p>
+          <p className="gate-title">
+            Checks
+            <InfoTip text="Required checks, bound to this change's exact head commit. Rebasing onto a new base makes them stale and they must re-run - unless the trunk delta doesn't touch anything this change affects, in which case landing skips straight through (optimistic revalidation, §13.5)." />
+          </p>
           {checks!.required.map((name) => {
             const failing = checks!.failing.includes(name);
             const pending = checks!.pending.includes(name);

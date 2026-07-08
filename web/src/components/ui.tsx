@@ -117,6 +117,25 @@ export function MergeableChip({ requirements }: { requirements: MergeRequirement
   return <span className="chip chip-green">mergeable</span>;
 }
 
+// A small "?" glyph that reveals a definition on hover/focus - for Runko
+// jargon (capability, inferred deps, ...) that a first-time reader of the
+// UI has no way to already know. Native `title` attributes already cover
+// "here is the full value" cases (a truncated sha, a check name); this is
+// for "here is what this word means" cases, which want to stay visible
+// long enough to actually read.
+export function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="info-tip" tabIndex={0}>
+      <span className="info-tip-glyph" aria-hidden>
+        ?
+      </span>
+      <span className="info-tip-bubble" role="tooltip">
+        {text}
+      </span>
+    </span>
+  );
+}
+
 export function AgentIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden>

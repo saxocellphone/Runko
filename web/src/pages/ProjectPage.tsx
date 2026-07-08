@@ -3,7 +3,7 @@ import { projectsClient } from "../api/client";
 import { projectTypeLabel } from "../lib/format";
 import { Visibility } from "../gen/runko/v1/common_pb";
 import { useRpc } from "../lib/useRpc";
-import { BackLink, ErrorNote, Spinner } from "../components/ui";
+import { BackLink, ErrorNote, InfoTip, Spinner } from "../components/ui";
 
 export function ProjectPage() {
   // Project names contain slashes (commerce/cart), so the route is a splat.
@@ -35,10 +35,16 @@ export function ProjectPage() {
           <dt>Path</dt>
           <dd className="mono">{p.path}</dd>
 
-          <dt>Visibility</dt>
+          <dt>
+            Visibility
+            <InfoTip text="Restricted projects are only readable by their owners and org admins. Most projects use the org default." />
+          </dt>
           <dd>{p.visibility === Visibility.RESTRICTED ? "restricted" : "default"}</dd>
 
-          <dt>Owners</dt>
+          <dt>
+            Owners
+            <InfoTip text="Path owners for this project, resolved from PROJECT.yaml, the nearest OWNERS file, or the org default (in that order). A Change touching this project's paths needs their approval to land." />
+          </dt>
           <dd className="chip-row">
             {p.effectiveOwners.length === 0 && <span className="chip">none</span>}
             {p.effectiveOwners.map((o) => (
@@ -48,7 +54,10 @@ export function ProjectPage() {
             ))}
           </dd>
 
-          <dt>Capabilities</dt>
+          <dt>
+            Capabilities
+            <InfoTip text="Opt-in features a project can turn on (rpc, http, deploy, build, ...). Each one generates config on demand - a project with none is still a complete, valid project." />
+          </dt>
           <dd className="chip-row">
             {p.capabilities.length === 0 && <span className="chip">none (L0 project)</span>}
             {p.capabilities.map((c) => (
@@ -58,7 +67,10 @@ export function ProjectPage() {
             ))}
           </dd>
 
-          <dt>Declared deps</dt>
+          <dt>
+            Declared deps
+            <InfoTip text="Dependencies this project explicitly lists in its own PROJECT.yaml. These are facts, not guesses - they're what determines which projects re-test when this one changes." />
+          </dt>
           <dd className="chip-row">
             {(p.dependencies?.declared.length ?? 0) === 0 && <span className="chip">none</span>}
             {p.dependencies?.declared.map((d) => (
@@ -68,7 +80,10 @@ export function ProjectPage() {
             ))}
           </dd>
 
-          <dt>Inferred deps</dt>
+          <dt>
+            Inferred deps
+            <InfoTip text="Dependencies guessed by scanning imports, shown as suggestions to promote to declared. Advisory only - unlike declared deps, these never block a merge or trigger a re-run." />
+          </dt>
           <dd className="chip-row">
             {(p.dependencies?.inferred.length ?? 0) === 0 ? (
               <span className="chip">none (advisory-only, never gates)</span>

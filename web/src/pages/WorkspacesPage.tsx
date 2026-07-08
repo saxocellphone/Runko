@@ -3,7 +3,7 @@ import { workspacesClient } from "../api/client";
 import { WorkspaceStatus } from "../gen/runko/v1/common_pb";
 import { shortSha } from "../lib/format";
 import { useRpc } from "../lib/useRpc";
-import { EmptyState, ErrorNote, Spinner } from "../components/ui";
+import { EmptyState, ErrorNote, InfoTip, Spinner } from "../components/ui";
 
 const statusLabel: Record<number, string> = {
   [WorkspaceStatus.ACTIVE]: "active",
@@ -36,9 +36,18 @@ export function WorkspacesPage() {
               <tr>
                 <th>Workspace</th>
                 <th>Owner</th>
-                <th>Base</th>
-                <th>Project affinity</th>
-                <th>Snapshot ref</th>
+                <th>
+                  Base
+                  <InfoTip text="The trunk revision this workspace was last rebased onto." />
+                </th>
+                <th>
+                  Project affinity
+                  <InfoTip text="Which projects this workspace may write to. Writes from an agent are required to stay inside this set - it's enforced server-side at push time, not just a client-side hint." />
+                </th>
+                <th>
+                  Snapshot ref
+                  <InfoTip text="The Git ref (refs/workspaces/<id>/head) this workspace's WIP is durably pushed to. Registry rows here are metadata only - the actual content always lives in Git, never only in this database." />
+                </th>
                 <th>Status</th>
               </tr>
             </thead>

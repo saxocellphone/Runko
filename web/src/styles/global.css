@@ -883,6 +883,72 @@ tr.hunk-head td {
   min-width: 0;
 }
 
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+  outline: none;
+}
+.info-tip:hover,
+.info-tip:focus-visible {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.info-tip-glyph {
+  pointer-events: none;
+}
+.info-tip-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 7px);
+  transform: translateX(-50%) translateY(2px);
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 11.5px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.1s ease, transform 0.1s ease;
+  z-index: 20;
+}
+.info-tip-bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--text);
+}
+.info-tip:hover .info-tip-bubble,
+.info-tip:focus-visible .info-tip-bubble {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
 .chip-row {
   display: flex;
   gap: 6px;
@@ -1070,4 +1136,95 @@ tr.hunk-head td {
   padding: 0 12px !important;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ------------------------------------------------------------ dep graph */
+
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  min-height: 26px;
+}
+.graph-legend-deps {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.graph-legend-rdeps {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.graph-panel {
+  padding: 4px;
+}
+.graph-scroll {
+  overflow: auto;
+  display: flex;
+  justify-content: safe center;
+}
+
+.graph-edge {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.graph-edge marker path,
+#arrow path {
+  fill: var(--border-strong);
+}
+.graph-edge.in-deps {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.graph-edge.in-rdeps {
+  stroke: var(--amber);
+  stroke-width: 2;
+}
+.graph-edge.dim {
+  opacity: 0.25;
+}
+
+.graph-node {
+  cursor: pointer;
+}
+.graph-node rect {
+  fill: var(--surface-2);
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+}
+.graph-node:hover rect {
+  stroke: var(--accent);
+}
+.graph-node.sel rect {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.graph-node.in-deps rect {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+.graph-node.in-rdeps rect {
+  stroke: var(--amber);
+  stroke-width: 1.6;
+}
+.graph-node.dim {
+  opacity: 0.35;
+}
+
+.graph-name {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+.graph-type {
+  fill: var(--text-3);
+  font-size: 10.5px;
+  text-anchor: middle;
+}
+.graph-node.sel .graph-name {
+  fill: var(--accent);
 }
