@@ -1,13 +1,14 @@
 import { Link } from "react-router-dom";
 import type { ChangeSummary, MergeRequirements } from "../gen/runko/v1/common_pb";
 import { changeNumberLabel } from "../lib/format";
-import { buildStackForest, flattenStack, type StackRow } from "../lib/stacks";
-import { StatusDot, TrunkIcon } from "./ui";
+import { buildStackForest, layoutStack } from "../lib/stacks";
+import { RailGraphRow, RailGraphTrunk } from "./RailGraph";
 
 // The Graphite-style stack panel: upstack changes on top, trunk at the
 // bottom, one status dot per change. `stack` arrives as GetChangeStack's
 // flat tree (parents before children); forks - e.g. two workspace branches
-// building on one base (§12.2) - render as indented sibling lines.
+// building on one base (§12.2) - render as extra lanes merging into their
+// parent, git-log-graph style.
 export function StackRail({
   stack,
   currentId,
@@ -17,29 +18,33 @@ export function StackRail({
   currentId: string;
   requirementsById: Map<string, MergeRequirements>;
 }) {
-  const rows: StackRow[] = buildStackForest(stack).flatMap(flattenStack);
+  const forest = buildStackForest(stack);
+  const lanes = Math.max(1, ...forest.map((root) => layoutStack(root).lanes));
   return (
     <nav className="rail-list">
-      {rows.map(({ change: c, depth }) => (
-        <Link
-          key={c.id}
-          to={`/changes/${c.id}`}
-          className={`rail-item${c.id === currentId ? " current" : ""}`}
-          style={{ marginLeft: depth * 14 }}
-        >
-          <span className="rail rail-up rail-down">
-            <StatusDot requirements={requirementsById.get(c.id)} state={c.state} />
-          </span>
-          <span className="rail-item-body">
-            <div className="rail-item-title">{c.title}</div>
-            <div className="rail-item-sub">{changeNumberLabel(c.number)}</div>
-          </span>
-        </Link>
-      ))}
+      {forest.map((root) => {
+        const layout = layoutStack(root);
+        return layout.rows.map(({ change: c }, i) => (
+          <Link
+            key={c.id}
+            to={`/changes/${c.id}`}
+            className={`rail-item${c.id === currentId ? " current" : ""}`}
+          >
+            <RailGraphRow
+              layout={layout}
+              rowIndex={i}
+              change={c}
+              requirements={requirementsById.get(c.id)}
+            />
+            <span className="rail-item-body">
+              <div className="rail-item-title">{c.title}</div>
+              <div className="rail-item-sub">{changeNumberLabel(c.number)}</div>
+            </span>
+          </Link>
+        ));
+      })}
       <div className="rail-item trunk">
-        <span className="rail rail-up">
-          <TrunkIcon />
-        </span>
+        <RailGraphTrunk lanes={lanes} />
         <span className="rail-item-body">main</span>
       </div>
     </nav>

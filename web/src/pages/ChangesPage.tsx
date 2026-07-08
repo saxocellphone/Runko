@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { changesClient } from "../api/client";
 import { ChangeState, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import { changeNumberLabel, shortChangeId } from "../lib/format";
-import { buildStackForest, flattenStack, stackSize, type StackNode } from "../lib/stacks";
+import { buildStackForest, layoutStack, stackHasFork, stackSize, type StackNode } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
+import { RailGraphRow, RailGraphTrunk } from "../components/RailGraph";
 import {
   AuthorChip,
   ChecksChip,
@@ -14,8 +15,6 @@ import {
   ReviewChip,
   Spinner,
   StateBadge,
-  StatusDot,
-  TrunkIcon,
 } from "../components/ui";
 
 const tabs = [
@@ -104,22 +103,23 @@ function StackCard({
   root: StackNode;
   requirements: Map<string, MergeRequirements>;
 }) {
-  const rows = flattenStack(root);
+  const layout = layoutStack(root);
   const size = stackSize(root);
-  const hasFork = (n: StackNode): boolean => n.children.length > 1 || n.children.some(hasFork);
-  const forked = hasFork(root);
   return (
     <section className="card stack-card">
       {size > 1 && (
         <header className="stack-card-head">
-          Stack · {size} changes{forked ? " · forked" : ""}
+          Stack · {size} changes{stackHasFork(root) ? " · forked" : ""}
         </header>
       )}
-      {rows.map(({ change: c, depth }, i) => (
-        <div className="stack-row" key={c.id} style={{ paddingLeft: depth * 18 }}>
-          <span className={`rail${i > 0 ? " rail-up" : ""} rail-down`}>
-            <StatusDot requirements={requirements.get(c.id)} state={c.state} />
-          </span>
+      {layout.rows.map(({ change: c }, i) => (
+        <div className="stack-row" key={c.id}>
+          <RailGraphRow
+            layout={layout}
+            rowIndex={i}
+            change={c}
+            requirements={requirements.get(c.id)}
+          />
           <div className="change-line">
             <Link className="change-title-link" to={`/changes/${c.id}`}>
               {c.title}
@@ -138,9 +138,7 @@ function StackCard({
         </div>
       ))}
       <div className="stack-row stack-row-trunk">
-        <span className="rail rail-up">
-          <TrunkIcon />
-        </span>
+        <RailGraphTrunk lanes={layout.lanes} />
         <div className="change-line">main</div>
         <span />
       </div>

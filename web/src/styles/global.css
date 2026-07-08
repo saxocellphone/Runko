@@ -381,7 +381,7 @@ a:hover {
 
 .stack-row {
   display: grid;
-  grid-template-columns: 30px 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   padding: 0 16px;
   min-height: 52px;
@@ -585,7 +585,7 @@ a:hover {
 }
 .rail-item {
   display: grid;
-  grid-template-columns: 22px 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   min-height: 40px;
   border-radius: 7px;
@@ -1346,4 +1346,68 @@ tr.hunk-head td {
 .form-hint {
   font-size: 11.5px;
   color: var(--text-3);
+}
+
+/* ------------------------------------------------------- rail graph cells */
+/* git-log-graph style gutter: fixed-width lane cells with absolutely
+   positioned segments, so verticals align across rows regardless of the
+   surrounding row layout. */
+
+.rail-graph {
+  display: flex;
+  align-self: stretch;
+  flex: none;
+}
+.rgc {
+  position: relative;
+  width: 22px;
+}
+.rg-v,
+.rg-v-top,
+.rg-v-bottom {
+  position: absolute;
+  left: 50%;
+  width: 1.5px;
+  margin-left: -0.75px;
+  background: var(--border-strong);
+}
+.rg-v {
+  top: 0;
+  bottom: 0;
+}
+.rg-v-top {
+  top: 0;
+  bottom: 50%;
+}
+.rg-v-bottom {
+  top: 50%;
+  bottom: 0;
+}
+.rg-h,
+.rg-h-left,
+.rg-h-right {
+  position: absolute;
+  top: 50%;
+  height: 1.5px;
+  margin-top: -0.75px;
+  background: var(--border-strong);
+}
+.rg-h {
+  left: 0;
+  right: 0;
+}
+.rg-h-left {
+  left: 0;
+  right: 50%;
+}
+.rg-h-right {
+  left: 50%;
+  right: 0;
+}
+.rg-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
 }

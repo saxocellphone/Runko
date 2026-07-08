@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { ChangeState, ChangeSummarySchema, type ChangeSummary } from "../gen/runko/v1/common_pb";
-import { buildStackForest, flattenStack, stackSize } from "./stacks";
+import { buildStackForest, layoutStack, railCells, stackSize } from "./stacks";
 import { createFakeTransport } from "../api/fake/transport";
 import { createClient } from "@connectrpc/connect";
 import { ChangeService } from "../gen/runko/v1/changes_pb";
@@ -52,19 +52,41 @@ describe("buildStackForest", () => {
   });
 });
 
-describe("flattenStack", () => {
-  it("renders descendants above ancestors, fork siblings indented at one depth", () => {
-    const [root] = buildStackForest([
+describe("layoutStack + railCells", () => {
+  const fork = () =>
+    buildStackForest([
       c("root", "T", "A", 1),
       c("left", "A", "L", 2),
       c("right", "A", "R", 3),
-    ]);
-    const rows = flattenStack(root!);
-    // Ascending sibling lines, each parent below its own subtree, root last.
-    expect(rows.map((r) => `${r.change.id}@${r.depth}`)).toEqual([
+    ])[0]!;
+
+  it("puts the last-rendered child straight above its parent, forks in outer lanes", () => {
+    const layout = layoutStack(fork());
+    expect(layout.rows.map((r) => `${r.change.id}@${r.lane}`)).toEqual([
       "left@1",
-      "right@1",
+      "right@0",
       "root@0",
+    ]);
+    expect(layout.lanes).toBe(2);
+  });
+
+  it("draws pass-through verticals and a merge corner that line up", () => {
+    const layout = layoutStack(fork());
+    // left's row: dot in lane 1, nothing in lane 0 yet.
+    expect(railCells(layout, 0)).toEqual([
+      { kind: "empty" },
+      { kind: "dot", up: false, down: true, right: false },
+    ]);
+    // right's row: dot in lane 0, left's line PASSES THROUGH lane 1.
+    expect(railCells(layout, 1)).toEqual([
+      { kind: "dot", up: false, down: true, right: false },
+      { kind: "v" },
+    ]);
+    // root's row: dot with the straight child from above + the fork
+    // merging in with a corner.
+    expect(railCells(layout, 2)).toEqual([
+      { kind: "dot", up: true, down: true, right: true },
+      { kind: "corner", right: false },
     ]);
   });
 });
