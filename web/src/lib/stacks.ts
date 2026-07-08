@@ -230,3 +230,25 @@ export function changesByOrigin(changes: ChangeSummary[]): Map<string, ChangeSum
   }
   return groups;
 }
+
+// branchesForWorkspace unions a workspace's refs-derived branch list with
+// the branches its open changes claim as origin. A branch materializes as
+// a ref only on the first snapshot push - but a change pushed from a
+// fresh worktree already names its branch, and hiding its stack until a
+// snapshot happens would make the branch ↔ stack mapping look broken
+// exactly when it's newest. "head" sorts first (the §12.2 default), the
+// rest alphabetical.
+export function branchesForWorkspace(
+  derived: string[],
+  stacks: Map<string, unknown>,
+  workspaceId: string,
+): string[] {
+  const all = new Set(derived);
+  const prefix = `${workspaceId}/`;
+  for (const key of stacks.keys()) {
+    if (key.startsWith(prefix)) all.add(key.slice(prefix.length));
+  }
+  return [...all].sort((a, b) =>
+    a === "head" ? -1 : b === "head" ? 1 : a.localeCompare(b),
+  );
+}

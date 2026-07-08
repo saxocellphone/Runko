@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { ChangeState, ChangeSummarySchema, type ChangeSummary } from "../gen/runko/v1/common_pb";
-import { buildStackForest, changesByOrigin, layoutStack, railCells, stackOrigin, stackSize } from "./stacks";
+import { branchesForWorkspace, buildStackForest, changesByOrigin, layoutStack, railCells, stackOrigin, stackSize } from "./stacks";
 import { createFakeTransport } from "../api/fake/transport";
 import { createClient } from "@connectrpc/connect";
 import { ChangeService } from "../gen/runko/v1/changes_pb";
@@ -221,5 +221,23 @@ describe("stackOrigin / changesByOrigin", () => {
     ]);
     expect(groups.get("sku-validation/head")!.map((x) => x.id)).toEqual(["bottom", "top"]);
     expect(groups.get("sku-validation/inline-errors")!.map((x) => x.id)).toEqual(["fork"]);
+  });
+});
+
+describe("branchesForWorkspace", () => {
+  it("unions refs-derived branches with origin-claimed ones, head first", () => {
+    const stacks = new Map<string, unknown>([
+      ["ws-a/head", []],
+      ["ws-a/perf", []],
+      ["ws-b/head", []],
+    ]);
+    // A fresh workspace: no snapshot pushed yet, but a change already
+    // claims head - the branch must show so its stack has a row to live on.
+    expect(branchesForWorkspace([], stacks, "ws-a")).toEqual(["head", "perf"]);
+    // Refs-derived branches without open changes still show.
+    expect(branchesForWorkspace(["head", "idle-line"], stacks, "ws-b")).toEqual([
+      "head",
+      "idle-line",
+    ]);
   });
 });

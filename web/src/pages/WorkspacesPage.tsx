@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { changesClient, workspacesClient } from "../api/client";
 import { ChangeState, WorkspaceStatus } from "../gen/runko/v1/common_pb";
 import { shortSha } from "../lib/format";
-import { changesByOrigin } from "../lib/stacks";
+import { branchesForWorkspace, changesByOrigin } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
 import { EmptyState, ErrorNote, InfoTip, Spinner } from "../components/ui";
 
@@ -60,7 +60,9 @@ export function WorkspacesPage() {
               </tr>
             </thead>
             <tbody>
-              {data.workspaces.map((w) => (
+              {data.workspaces.map((w) => {
+                const branches = branchesForWorkspace(w.branches, data.stacks, w.id);
+                return (
                 <tr key={w.id}>
                   <td className="mono">{w.id}</td>
                   <td>{w.owner}</td>
@@ -75,8 +77,8 @@ export function WorkspacesPage() {
                     </span>
                   </td>
                   <td>
-                    {w.branches.length === 0 && <span className="chip">none yet</span>}
-                    {w.branches.map((b) => (
+                    {branches.length === 0 && <span className="chip">none yet</span>}
+                    {branches.map((b) => (
                       <BranchStack
                         key={b}
                         branch={b}
@@ -92,7 +94,8 @@ export function WorkspacesPage() {
                     </span>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </section>
