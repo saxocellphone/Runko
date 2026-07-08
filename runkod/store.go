@@ -125,6 +125,15 @@ type Store interface {
 	// refs/workspaces/<id>/head commits, never in the Store.
 	CreateWorkspace(ctx context.Context, ws Workspace) (Workspace, error)
 	GetWorkspace(ctx context.Context, id string) (Workspace, bool, error)
+
+	// CreatePrincipal registers a self-service human principal (§15.1
+	// sign-up flow; db/migrations/0004): name + PBKDF2 credential hash
+	// (credential.go), never a plaintext token. Errors if the name is
+	// taken. Operator principals (--principal) stay daemon config and are
+	// checked FIRST everywhere - a signup can never shadow one (the
+	// handler rejects colliding names before calling this).
+	CreatePrincipal(ctx context.Context, name, credentialHash string) error
+	GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error)
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	UpdateWorkspaceBase(ctx context.Context, id, baseRevision string) (Workspace, error)
 
@@ -144,12 +153,21 @@ type Store interface {
 
 // MemStore is an in-memory Store - the "Eval / dev" deployment profile
 // (§9.3), not merely a test double (see doc.go). Safe for concurrent use.
+// StoredPrincipal is one self-service registered identity (§15.1 sign-up)
+// - always human; agent principals carry policy and remain operator
+// config.
+type StoredPrincipal struct {
+	Name           string
+	CredentialHash string
+}
+
 type MemStore struct {
 	mu         sync.Mutex
 	changes    map[string]Change
 	checkRuns  map[string]map[string]checks.CheckRunView // changeKey|headSHA -> name -> run
 	approvals  map[string]map[string]Approval            // changeKey -> ownerRef -> approval
 	workspaces map[string]Workspace
+	principals map[string]StoredPrincipal
 	deliveries map[string]*memDelivery
 	nextID     int
 	// Now overrides the clock check-run timestamps use; nil means time.Now
@@ -361,6 +379,26 @@ func (s *MemStore) GetWorkspace(ctx context.Context, id string) (Workspace, bool
 	defer s.mu.Unlock()
 	ws, ok := s.workspaces[id]
 	return ws, ok, nil
+}
+
+func (s *MemStore) CreatePrincipal(ctx context.Context, name, credentialHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.principals == nil {
+		s.principals = make(map[string]StoredPrincipal)
+	}
+	if _, taken := s.principals[name]; taken {
+		return fmt.Errorf("runkod: principal %q already exists", name)
+	}
+	s.principals[name] = StoredPrincipal{Name: name, CredentialHash: credentialHash}
+	return nil
+}
+
+func (s *MemStore) GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sp, ok := s.principals[name]
+	return sp, ok, nil
 }
 
 func (s *MemStore) ListWorkspaces(ctx context.Context) ([]Workspace, error) {

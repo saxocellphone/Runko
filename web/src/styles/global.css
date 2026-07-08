@@ -1411,3 +1411,20 @@ tr.hunk-head td {
   transform: translate(-50%, -50%);
   display: flex;
 }
+
+.login-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin: -6px 0 10px;
+}
+.login-link {
+  font: inherit;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+.login-link:hover {
+  text-decoration: underline;
+}

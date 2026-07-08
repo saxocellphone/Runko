@@ -88,6 +88,8 @@ func cmdServe(args []string) error {
 	databaseURL := fs.String("database-url", envString("DATABASE_URL", ""), "Postgres DSN for durable storage (default: in-memory Store, the §9.3 Eval/dev profile - lost on restart) [RUNKO_DATABASE_URL]")
 	rootInvalidation := fs.String("root-invalidation", envString("ROOT_INVALIDATION", ""), "comma-separated root-invalidation glob patterns (org policy, §14.5.2) [RUNKO_ROOT_INVALIDATION]")
 	globalChecks := fs.String("global-required-checks", envString("GLOBAL_REQUIRED_CHECKS", ""), "comma-separated org-level check names required on EVERY change (§14.9, e.g. secrets-scan) [RUNKO_GLOBAL_REQUIRED_CHECKS]")
+	allowSignup := fs.Bool("allow-signup", envBool("ALLOW_SIGNUP"), "enable self-service sign-up (POST /api/signup, §15.1) - default off [RUNKO_ALLOW_SIGNUP]")
+	signupCode := fs.String("signup-code", envString("SIGNUP_CODE", ""), "invite code sign-ups must present (only meaningful with --allow-signup) [RUNKO_SIGNUP_CODE]")
 	allowUnpoliced := fs.Bool("insecure-allow-unpoliced-land", envBool("INSECURE_ALLOW_UNPOLICED_LAND"), "DEV/EVAL ONLY: let changes that resolve NO merge policy (no required checks, no owners) land anyway - the in-memory eval profile implies this; a durable deployment should declare policy instead (§28.3 stage 11c) [RUNKO_INSECURE_ALLOW_UNPOLICED_LAND]")
 	var botLanes botLaneFlag
 	fs.Var(&botLanes, "bot-lane", "path-scoped auto-land grant (§14.10.2), repeatable: 'name=<n>;token=<t>;paths=<glob,glob>;checks=<check,check>' [RUNKO_BOT_LANES, '|'-separated]")
@@ -203,6 +205,8 @@ func cmdServe(args []string) error {
 		RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher,
 		GlobalRequiredChecks: splitNonEmpty(*globalChecks),
 		AllowUnpolicedLand:   *allowUnpoliced,
+		AllowSignup:          *allowSignup,
+		SignupCode:           *signupCode,
 		BotLanes:             botLanes,
 		Principals:           principals,
 	}

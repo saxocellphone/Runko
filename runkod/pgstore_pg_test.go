@@ -418,3 +418,22 @@ func TestPostgresStoreLifecycleAndRerunAttempts(t *testing.T) {
 		t.Fatalf("expected the rerun attempt completed (not attempt 1 resurrected), got %+v", runs[0])
 	}
 }
+
+func TestPostgresStorePrincipalRoundTrip(t *testing.T) {
+	store := newTestPostgresStore(t)
+
+	if _, found, err := store.GetStoredPrincipal(context.Background(), "val"); err != nil || found {
+		t.Fatalf("empty table: found=%v err=%v", found, err)
+	}
+	if err := store.CreatePrincipal(context.Background(), "val", "pbkdf2-sha256$1$c2FsdA$aGFzaA"); err != nil {
+		t.Fatalf("CreatePrincipal: %v", err)
+	}
+	sp, found, err := store.GetStoredPrincipal(context.Background(), "val")
+	if err != nil || !found || sp.Name != "val" || sp.CredentialHash != "pbkdf2-sha256$1$c2FsdA$aGFzaA" {
+		t.Fatalf("round trip: %+v found=%v err=%v", sp, found, err)
+	}
+	// The unique constraint backs the handler's race path.
+	if err := store.CreatePrincipal(context.Background(), "val", "other"); err == nil {
+		t.Fatalf("duplicate CreatePrincipal should error")
+	}
+}

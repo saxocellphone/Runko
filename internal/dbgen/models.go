@@ -469,6 +469,14 @@ type Org struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type Principal struct {
+	ID             uuid.UUID          `json:"id"`
+	OrgID          uuid.UUID          `json:"org_id"`
+	Name           string             `json:"name"`
+	CredentialHash string             `json:"credential_hash"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type Project struct {
 	ID                   uuid.UUID          `json:"id"`
 	MonorepoID           uuid.UUID          `json:"monorepo_id"`

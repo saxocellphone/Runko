@@ -1,6 +1,7 @@
 package runkod
 
 import (
+	"context"
 	"crypto/subtle"
 	"net/http"
 	"strings"
@@ -68,6 +69,15 @@ func (p *Processor) principalByName(name string) *Principal {
 	for i := range p.Principals {
 		if p.Principals[i].Name == name {
 			return &p.Principals[i]
+		}
+	}
+	// Store-backed principals (§15.1 sign-up) are always human - no agent
+	// policy to enforce - but they must resolve here so workspace
+	// owner-only pushes and authored_by attribution treat them as the
+	// named identities they are.
+	if p.Store != nil {
+		if sp, found, err := p.Store.GetStoredPrincipal(context.Background(), name); err == nil && found {
+			return &Principal{Name: sp.Name}
 		}
 	}
 	return nil

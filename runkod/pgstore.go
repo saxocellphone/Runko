@@ -547,3 +547,24 @@ func (s *PostgresStore) RecordDeliveryResult(ctx context.Context, id string, res
 }
 
 var _ Store = (*PostgresStore)(nil)
+
+func (s *PostgresStore) CreatePrincipal(ctx context.Context, name, credentialHash string) error {
+	_, err := s.Queries.CreatePrincipal(ctx, s.Pool, dbgen.CreatePrincipalParams{
+		OrgID: s.OrgID, Name: name, CredentialHash: credentialHash,
+	})
+	if err != nil {
+		return fmt.Errorf("runkod: create principal %q: %w", name, err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error) {
+	row, err := s.Queries.GetPrincipalByName(ctx, s.Pool, dbgen.GetPrincipalByNameParams{OrgID: s.OrgID, Name: name})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return StoredPrincipal{}, false, nil
+	}
+	if err != nil {
+		return StoredPrincipal{}, false, fmt.Errorf("runkod: get principal %q: %w", name, err)
+	}
+	return StoredPrincipal{Name: row.Name, CredentialHash: row.CredentialHash}, true, nil
+}

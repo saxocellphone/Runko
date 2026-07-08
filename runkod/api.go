@@ -50,6 +50,15 @@ type Server struct {
 	// daemon config for now; §9.4's guard ("the tree owns policy") marks
 	// both for eventual relocation into the tree.
 	GlobalRequiredChecks []string
+	// AllowSignup enables POST /api/signup (§15.1 self-service
+	// principals; signup.go). Default off - the default-deny posture. When
+	// SignupCode is also set, sign-ups must present it (a shareable invite
+	// string, not a secret credential).
+	AllowSignup bool
+	SignupCode  string
+	// credCache amortizes PBKDF2 verification for store-backed principals
+	// (credential.go) - Basic credentials arrive on EVERY request.
+	credCache credCache
 	// AllowUnpolicedLand disables the §28.3 stage 11c default-deny posture:
 	// a Change for which NO merge policy resolves (zero required checks
 	// after ci.checks + GlobalRequiredChecks, and zero owner requirements
@@ -128,6 +137,16 @@ func (s *Server) Handler() (http.Handler, error) {
 	// the browser's CORS preflight (OPTIONS, unauthenticated) works from a
 	// dev-server origin exactly like the RPC routes.
 	mux.Handle("/api/whoami", s.rpcMiddleware(http.HandlerFunc(s.handleWhoami)))
+
+	// Sign-up + its discovery config are unauthenticated by design - see
+	// signup.go - and carry public CORS headers: the deployed layout is
+	// same-origin, but the dev loop (Vite on one port, daemon on another)
+	// is not, and the login page must be able to ask "is signup on?"
+	// before anyone has a credential. Found by driving the real UI: the
+	// first cut had no CORS here and the sign-up offer silently never
+	// appeared cross-origin.
+	mux.HandleFunc("/api/signup", publicCORS(http.MethodPost, s.handleSignup))
+	mux.HandleFunc("/api/auth/config", publicCORS(http.MethodGet, s.handleAuthConfig))
 
 	return mux, nil
 }

@@ -23,6 +23,7 @@
 package runkod
 
 import (
+	"context"
 	"encoding/base64"
 	"strings"
 )
@@ -97,6 +98,17 @@ func (s *Server) callerForBasic(user, pass string) caller {
 	}
 	if constantTimeEquals(pass, s.Token) {
 		return caller{ok: true}
+	}
+	// Store-backed principals (§15.1 sign-up, signup.go): checked LAST so
+	// operator config always wins a name. The PBKDF2 verification is
+	// cached per (name, password) pair - Basic rides on every request.
+	if s.Store != nil {
+		if sp, found, err := s.Store.GetStoredPrincipal(context.Background(), user); err == nil && found {
+			if s.credCache.hit(user, pass) || verifyCredential(pass, sp.CredentialHash) {
+				s.credCache.remember(user, pass)
+				return caller{ok: true, principal: &Principal{Name: sp.Name}}
+			}
+		}
 	}
 	return caller{}
 }

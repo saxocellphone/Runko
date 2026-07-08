@@ -93,6 +93,47 @@ export async function signIn(name: string, password: string): Promise<void> {
   window.location.reload();
 }
 
+/** Whether this control plane offers self-service sign-up (§15.1),
+ * fetched unauthenticated so the login page can decide what to render. */
+export interface AuthConfig {
+  signupEnabled: boolean;
+  codeRequired: boolean;
+}
+
+export async function fetchAuthConfig(): Promise<AuthConfig> {
+  try {
+    const res = await fetch(new URL("api/auth/config", baseUrl));
+    if (!res.ok) return { signupEnabled: false, codeRequired: false };
+    const d = (await res.json()) as { signup_enabled?: boolean; code_required?: boolean };
+    return { signupEnabled: !!d.signup_enabled, codeRequired: !!d.code_required };
+  } catch {
+    return { signupEnabled: false, codeRequired: false };
+  }
+}
+
+/** Create a principal via POST /api/signup, then sign in with it. Throws
+ * with the server's structured message + suggestion on rejection. */
+export async function signUp(name: string, password: string, code: string): Promise<void> {
+  const res = await fetch(new URL("api/signup", baseUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, password, code }),
+  });
+  if (!res.ok) {
+    let msg = `sign-up failed (HTTP ${res.status})`;
+    try {
+      // The REST error shape uses the Go structs' exported names
+      // (docs/cli-contract.md's convention): {Code, Field, Message, ...}.
+      const e = (await res.json()) as { Message?: string; Suggestion?: string };
+      if (e.Message) msg = e.Message + (e.Suggestion ? ` — ${e.Suggestion}` : "");
+    } catch {
+      // plain-text body; keep the status message
+    }
+    throw new Error(msg);
+  }
+  await signIn(name, password);
+}
+
 /** Clear this browser's credential and reload. */
 export function signOut(): void {
   window.localStorage.removeItem("runko-user");
