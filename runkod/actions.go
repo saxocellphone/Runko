@@ -342,6 +342,7 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 		if s.Processor != nil {
 			s.Processor.ZoektIndexWorker.Trigger()
 		}
+		s.Mirror.Trigger() // trunk moved - nil-safe like the zoekt trigger
 		return landDecision{Landed: true, LandedSHA: outcome.LandedSHA, Forced: forced}, nil
 	case outcome.RequiresRevalidation:
 		return landDecision{RequiresRevalidation: true}, nil

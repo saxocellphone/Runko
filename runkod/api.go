@@ -74,6 +74,10 @@ type Server struct {
 	// slice so API-side attribution and receive-side enforcement agree on
 	// who exists.
 	Principals []Principal
+	// Mirror is the outbound mirror worker (§18.6 M1, mirror.go); nil when
+	// no --mirror-remote is configured. Provider-agnostic by construction:
+	// any smart-HTTPS git host, or any git URL at all without token auth.
+	Mirror *MirrorWorker
 	// Now overrides the clock the §14.4.2 check-staleness comparison uses;
 	// nil means time.Now (tests inject a fake clock).
 	Now func() time.Time
@@ -108,6 +112,8 @@ func (s *Server) Handler() (http.Handler, error) {
 
 	mux.HandleFunc("POST /internal/pre-receive", s.handlePreReceive)
 
+	mux.HandleFunc("GET /api/mirror/status", s.requireAuth(s.handleMirrorStatus))
+	mux.HandleFunc("POST /api/mirror/unfreeze", s.requireAuth(s.handleMirrorUnfreeze))
 	mux.HandleFunc("GET /api/changes", s.requireAuth(s.handleListChanges))
 	mux.HandleFunc("GET /api/changes/{key}", s.requireAuth(s.handleGetChange))
 	mux.HandleFunc("POST /api/changes/{key}/abandon", s.requireAuth(s.handleAbandonChange))
@@ -238,6 +244,9 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# HELP runkod_up Whether the daemon is serving.\n# TYPE runkod_up gauge\nrunkod_up 1\n")
 	fmt.Fprintf(w, "# HELP runkod_uptime_seconds Seconds since this process started serving.\n# TYPE runkod_uptime_seconds gauge\nrunkod_uptime_seconds %d\n", int64(time.Since(processStart).Seconds()))
 	fmt.Fprintf(w, "# HELP runkod_open_changes Open Changes in the store.\n# TYPE runkod_open_changes gauge\nrunkod_open_changes %d\n", len(open))
+	if s.Mirror != nil {
+		fmt.Fprintf(w, "# HELP runkod_mirror_frozen Mirror refs frozen on divergence (unfreeze via POST /api/mirror/unfreeze).\n# TYPE runkod_mirror_frozen gauge\nrunkod_mirror_frozen %d\n", s.mirrorFrozenCount(r.Context()))
+	}
 }
 
 var processStart = time.Now()

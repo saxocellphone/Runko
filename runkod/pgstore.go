@@ -236,6 +236,52 @@ func (s *PostgresStore) hydrateChange(ctx context.Context, c *dbgen.Change) (Cha
 	return ch, nil
 }
 
+func (s *PostgresStore) GetMirrorCursor(ctx context.Context, remote, ref string) (MirrorCursor, bool, error) {
+	c, err := s.Queries.GetMirrorCursor(ctx, s.Pool, dbgen.GetMirrorCursorParams{MonorepoID: s.MonorepoID, RemoteName: remote, RefName: ref})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MirrorCursor{}, false, nil
+	}
+	if err != nil {
+		return MirrorCursor{}, false, err
+	}
+	return mirrorCursorFromRow(c), true, nil
+}
+
+func (s *PostgresStore) ListMirrorCursors(ctx context.Context, remote string) ([]MirrorCursor, error) {
+	rows, err := s.Queries.ListMirrorCursors(ctx, s.Pool, dbgen.ListMirrorCursorsParams{MonorepoID: s.MonorepoID, RemoteName: remote})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MirrorCursor, len(rows))
+	for i, r := range rows {
+		out[i] = mirrorCursorFromRow(r)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) UpsertMirrorCursor(ctx context.Context, remote, ref, lastSyncedSHA string) error {
+	_, err := s.Queries.UpsertMirrorCursor(ctx, s.Pool, dbgen.UpsertMirrorCursorParams{
+		MonorepoID: s.MonorepoID, RemoteName: remote, RefName: ref,
+		LastSyncedSha: &lastSyncedSHA, Writer: "runko",
+	})
+	return err
+}
+
+func (s *PostgresStore) FreezeMirrorCursor(ctx context.Context, remote, ref string) error {
+	_, err := s.Queries.FreezeMirrorCursor(ctx, s.Pool, dbgen.FreezeMirrorCursorParams{
+		MonorepoID: s.MonorepoID, RemoteName: remote, RefName: ref, Writer: "runko",
+	})
+	return err
+}
+
+func mirrorCursorFromRow(c *dbgen.MirrorCursor) MirrorCursor {
+	mc := MirrorCursor{Ref: c.RefName, Frozen: c.Frozen, UpdatedAt: c.UpdatedAt.Time}
+	if c.LastSyncedSha != nil {
+		mc.LastSyncedSHA = *c.LastSyncedSha
+	}
+	return mc
+}
+
 // MarkChangeLanded uses dbgen's LandChange query, generated straight from
 // db/queries/changes.sql back in stage 2 - this stage is the first caller,
 // but the query was already there waiting, since the schema always modeled

@@ -11,21 +11,85 @@ import (
 	"github.com/google/uuid"
 )
 
-const freezeMirrorCursor = `-- name: FreezeMirrorCursor :exec
-UPDATE mirror_cursors SET frozen = true, updated_at = now() WHERE id = $1
+const freezeMirrorCursor = `-- name: FreezeMirrorCursor :one
+INSERT INTO mirror_cursors (monorepo_id, remote_name, ref_name, last_synced_sha, writer, frozen)
+VALUES ($1, $2, $3, NULL, $4, true)
+ON CONFLICT (monorepo_id, remote_name, ref_name) DO UPDATE
+    SET frozen = true, updated_at = now()
+RETURNING id, monorepo_id, remote_name, ref_name, last_synced_sha, writer, frozen, updated_at
 `
 
-func (q *Queries) FreezeMirrorCursor(ctx context.Context, db DBTX, id uuid.UUID) error {
-	_, err := db.Exec(ctx, freezeMirrorCursor, id)
-	return err
+type FreezeMirrorCursorParams struct {
+	MonorepoID uuid.UUID `json:"monorepo_id"`
+	RemoteName string    `json:"remote_name"`
+	RefName    string    `json:"ref_name"`
+	Writer     string    `json:"writer"`
+}
+
+func (q *Queries) FreezeMirrorCursor(ctx context.Context, db DBTX, arg FreezeMirrorCursorParams) (*MirrorCursor, error) {
+	row := db.QueryRow(ctx, freezeMirrorCursor,
+		arg.MonorepoID,
+		arg.RemoteName,
+		arg.RefName,
+		arg.Writer,
+	)
+	var i MirrorCursor
+	err := row.Scan(
+		&i.ID,
+		&i.MonorepoID,
+		&i.RemoteName,
+		&i.RefName,
+		&i.LastSyncedSha,
+		&i.Writer,
+		&i.Frozen,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
+const getMirrorCursor = `-- name: GetMirrorCursor :one
+
+SELECT id, monorepo_id, remote_name, ref_name, last_synced_sha, writer, frozen, updated_at FROM mirror_cursors WHERE monorepo_id = $1 AND remote_name = $2 AND ref_name = $3
+`
+
+type GetMirrorCursorParams struct {
+	MonorepoID uuid.UUID `json:"monorepo_id"`
+	RemoteName string    `json:"remote_name"`
+	RefName    string    `json:"ref_name"`
+}
+
+// Mirror cursors (§18.6): per-(remote, ref) sync state for the outbound
+// mirror. writer names which side may write the ref (always 'runko' in the
+// outbound M1 - the single-writer lease's bookkeeping half); frozen is
+// invariant 4's loud stop. State is rebuildable from the two git histories
+// (invariant 5) - these rows are cache and audit, never truth.
+func (q *Queries) GetMirrorCursor(ctx context.Context, db DBTX, arg GetMirrorCursorParams) (*MirrorCursor, error) {
+	row := db.QueryRow(ctx, getMirrorCursor, arg.MonorepoID, arg.RemoteName, arg.RefName)
+	var i MirrorCursor
+	err := row.Scan(
+		&i.ID,
+		&i.MonorepoID,
+		&i.RemoteName,
+		&i.RefName,
+		&i.LastSyncedSha,
+		&i.Writer,
+		&i.Frozen,
+		&i.UpdatedAt,
+	)
+	return &i, err
 }
 
 const listMirrorCursors = `-- name: ListMirrorCursors :many
-SELECT id, monorepo_id, remote_name, ref_name, last_synced_sha, writer, frozen, updated_at FROM mirror_cursors WHERE monorepo_id = $1
+SELECT id, monorepo_id, remote_name, ref_name, last_synced_sha, writer, frozen, updated_at FROM mirror_cursors WHERE monorepo_id = $1 AND remote_name = $2 ORDER BY ref_name
 `
 
-func (q *Queries) ListMirrorCursors(ctx context.Context, db DBTX, monorepoID uuid.UUID) ([]*MirrorCursor, error) {
-	rows, err := db.Query(ctx, listMirrorCursors, monorepoID)
+type ListMirrorCursorsParams struct {
+	MonorepoID uuid.UUID `json:"monorepo_id"`
+	RemoteName string    `json:"remote_name"`
+}
+
+func (q *Queries) ListMirrorCursors(ctx context.Context, db DBTX, arg ListMirrorCursorsParams) ([]*MirrorCursor, error) {
+	rows, err := db.Query(ctx, listMirrorCursors, arg.MonorepoID, arg.RemoteName)
 	if err != nil {
 		return nil, err
 	}
@@ -55,12 +119,9 @@ func (q *Queries) ListMirrorCursors(ctx context.Context, db DBTX, monorepoID uui
 
 const upsertMirrorCursor = `-- name: UpsertMirrorCursor :one
 INSERT INTO mirror_cursors (monorepo_id, remote_name, ref_name, last_synced_sha, writer, frozen)
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES ($1, $2, $3, $4, $5, false)
 ON CONFLICT (monorepo_id, remote_name, ref_name) DO UPDATE
-    SET last_synced_sha = EXCLUDED.last_synced_sha,
-        writer = EXCLUDED.writer,
-        frozen = EXCLUDED.frozen,
-        updated_at = now()
+    SET last_synced_sha = EXCLUDED.last_synced_sha, frozen = false, updated_at = now()
 RETURNING id, monorepo_id, remote_name, ref_name, last_synced_sha, writer, frozen, updated_at
 `
 
@@ -70,7 +131,6 @@ type UpsertMirrorCursorParams struct {
 	RefName       string    `json:"ref_name"`
 	LastSyncedSha *string   `json:"last_synced_sha"`
 	Writer        string    `json:"writer"`
-	Frozen        bool      `json:"frozen"`
 }
 
 func (q *Queries) UpsertMirrorCursor(ctx context.Context, db DBTX, arg UpsertMirrorCursorParams) (*MirrorCursor, error) {
@@ -80,7 +140,6 @@ func (q *Queries) UpsertMirrorCursor(ctx context.Context, db DBTX, arg UpsertMir
 		arg.RefName,
 		arg.LastSyncedSha,
 		arg.Writer,
-		arg.Frozen,
 	)
 	var i MirrorCursor
 	err := row.Scan(

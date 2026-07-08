@@ -31,6 +31,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/saxocellphone/runko/mirror"
 	"github.com/saxocellphone/runko/receive"
 	"github.com/saxocellphone/runko/runkod"
 	"github.com/saxocellphone/runko/search"
@@ -99,6 +100,9 @@ func cmdServe(args []string) error {
 	searchURL := fs.String("search-url", envString("SEARCH_URL", ""), "zoekt-webserver base URL for search_code (§8.3); absent -> search_code returns a structured 'not configured' error, never a git-grep fallback (§8.2) [RUNKO_SEARCH_URL]")
 	zoektIndexDir := fs.String("zoekt-index-dir", envString("ZOEKT_INDEX_DIR", ""), "directory zoekt-git-index writes shards into (required to enable indexing on trunk advance) [RUNKO_ZOEKT_INDEX_DIR]")
 	zoektIndexBin := fs.String("zoekt-index-bin", envString("ZOEKT_INDEX_BIN", "zoekt-git-index"), "zoekt-git-index binary (path or PATH-resolved name) [RUNKO_ZOEKT_INDEX_BIN]")
+	mirrorRemote := fs.String("mirror-remote", envString("MIRROR_REMOTE", ""), "outbound mirror git URL (§18.6 M1) - ANY git host: https:// gets token auth, everything else used as-is [RUNKO_MIRROR_REMOTE]")
+	mirrorUsername := fs.String("mirror-username", envString("MIRROR_USERNAME", ""), "basic-auth username for the mirror token: GitHub 'x-access-token' (default), GitLab 'oauth2', Gitea anything [RUNKO_MIRROR_USERNAME]")
+	mirrorToken := fs.String("mirror-token", envString("MIRROR_TOKEN", ""), "mirror access token (prefer the env var - never lands in shell history) [RUNKO_MIRROR_TOKEN]")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -196,10 +200,22 @@ func cmdServe(args []string) error {
 		searcher = search.NotConfiguredSearcher{}
 	}
 
+	var mirrorWorker *runkod.MirrorWorker
+	if *mirrorRemote != "" {
+		mirrorWorker = &runkod.MirrorWorker{
+			Remote:   &mirror.Remote{RepoDir: *repoDir, URL: *mirrorRemote, Username: *mirrorUsername, Token: *mirrorToken},
+			Store:    store,
+			TrunkRef: *trunk,
+			Debounce: 3 * time.Second,
+			Interval: time.Minute,
+		}
+	}
+
 	processor := &runkod.Processor{
 		RepoDir: *repoDir, TrunkRef: *trunk, Scanner: scanner, Store: store,
 		RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
 		ZoektIndexWorker:         indexWorker,
+		Mirror:                   mirrorWorker,
 		Principals:               principals,
 	}
 	server := &runkod.Server{
@@ -210,6 +226,7 @@ func cmdServe(args []string) error {
 		SignupCode:           *signupCode,
 		BotLanes:             botLanes,
 		Principals:           principals,
+		Mirror:               mirrorWorker,
 	}
 	handler, err := server.Handler()
 	if err != nil {
@@ -224,6 +241,11 @@ func cmdServe(args []string) error {
 	}
 	if indexWorker != nil {
 		indexWorker.Trigger() // index whatever trunk already holds at startup, not just future advances
+	}
+	if mirrorWorker != nil {
+		go mirrorWorker.Run(ctx) // reconcile loop; restarts and missed triggers self-heal
+		mirrorWorker.Trigger()   // sync whatever exists at startup
+		fmt.Printf("runkod: mirroring to %s (trunk leased, tags, change refs; workspace snapshots never)\n", *mirrorRemote)
 	}
 
 	fmt.Printf("runkod: serving %s at %s (clone: %s/%s)\n", *repoDir, selfURL, selfURL, runkod.RepoMountName(*repoDir))

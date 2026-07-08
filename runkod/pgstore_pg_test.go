@@ -443,3 +443,32 @@ func TestPostgresStorePrincipalRoundTrip(t *testing.T) {
 		t.Fatalf("duplicate CreatePrincipal should error")
 	}
 }
+
+// TestPostgresStoreMirrorCursors round-trips the §18.6 cursor state:
+// upsert (records sync + clears frozen), freeze, list.
+func TestPostgresStoreMirrorCursors(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+
+	if _, ok, err := store.GetMirrorCursor(ctx, "mirror", "refs/heads/main"); err != nil || ok {
+		t.Fatalf("empty cursor: ok=%v err=%v", ok, err)
+	}
+	if err := store.UpsertMirrorCursor(ctx, "mirror", "refs/heads/main", "sha1"); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if err := store.FreezeMirrorCursor(ctx, "mirror", "refs/heads/main"); err != nil {
+		t.Fatalf("freeze: %v", err)
+	}
+	c, ok, err := store.GetMirrorCursor(ctx, "mirror", "refs/heads/main")
+	if err != nil || !ok || !c.Frozen || c.LastSyncedSHA != "sha1" {
+		t.Fatalf("frozen cursor: %+v ok=%v err=%v", c, ok, err)
+	}
+	// Upsert IS the unfreeze (the admin action re-points and thaws in one).
+	if err := store.UpsertMirrorCursor(ctx, "mirror", "refs/heads/main", "sha2"); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+	list, err := store.ListMirrorCursors(ctx, "mirror")
+	if err != nil || len(list) != 1 || list[0].Frozen || list[0].LastSyncedSHA != "sha2" {
+		t.Fatalf("list after thaw: %+v err=%v", list, err)
+	}
+}

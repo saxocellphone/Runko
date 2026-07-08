@@ -51,6 +51,7 @@ land/               rebase-based landing + optimistic revalidation
 checks/             Checks API, merge requirements, webhook outbox
 buildadapter/       build-graph adapter (Bazel first)
 search/             Zoekt code-search integration (process, not library)
+mirror/             outbound mirror to any git host (git protocol only; docs/mirror.md)
 mcp/                MCP stdio server (six read-only tools)
 runkod/             write-path daemon: pre-receive processor, smart-HTTP, REST + Connect APIs
 proto/runko/v1/     Connect/gRPC schema (web ↔ runkod); gen/ is its generated Go

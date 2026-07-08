@@ -105,6 +105,10 @@ type Processor struct {
 	// through this daemon yet) but is the semantically correct hook point.
 	// Nil-safe: ZoektIndexWorker.Trigger no-ops on a nil receiver.
 	ZoektIndexWorker *ZoektIndexWorker
+	// Mirror, when configured, is triggered after any accepted funnel push
+	// - change refs just moved and the outbound mirror (§18.6 M1) carries
+	// them too. Nil-safe like the zoekt worker.
+	Mirror *MirrorWorker
 	// MaxSnapshotDiffBytes caps the total content bytes one workspace
 	// snapshot push may introduce - §12.2's backstop against build
 	// artifacts/dependency trees (node_modules, target/, .venv) entering
@@ -513,6 +517,7 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 	if v.update.Ref == "refs/heads/"+p.TrunkRef {
 		p.ZoektIndexWorker.Trigger()
 	}
+	p.Mirror.Trigger()
 
 	fmt.Fprintf(&msg, "remote: %s -> %s\n", tip.ChangeKey, v.update.Ref)
 	return RefResult{

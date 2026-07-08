@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,6 +64,15 @@ type Approval struct {
 	// gate counts an approval only while this matches the current head
 	// (§13.5); "" (pre-stage-12c rows) always reads as stale, fail closed.
 	HeadSHA string
+}
+
+// MirrorCursor is one (remote, ref) sync cursor (§18.6): what the mirror
+// last agreed with us about, and whether mirroring that ref is frozen.
+type MirrorCursor struct {
+	Ref           string
+	LastSyncedSHA string
+	Frozen        bool
+	UpdatedAt     time.Time
 }
 
 // WebhookDelivery is one outbox row (§14.4.1).
@@ -134,6 +144,17 @@ type Store interface {
 	// audit attribution, "" for the anonymous deploy token.
 	RerunCheck(ctx context.Context, changeKey, checkName, requestedBy string) (checks.CheckRunView, error)
 
+	// Mirror cursors (§18.6, outbound M1): per-(remote, ref) sync state.
+	// GetMirrorCursor's bool reports row existence; UpsertMirrorCursor
+	// records a successful sync (and clears frozen - the sync that lands a
+	// cursor IS the proof the lease held); FreezeMirrorCursor is invariant
+	// 4's loud stop, cleared only by the explicit admin unfreeze (which
+	// re-points the cursor at observed remote reality via Upsert).
+	GetMirrorCursor(ctx context.Context, remote, ref string) (MirrorCursor, bool, error)
+	ListMirrorCursors(ctx context.Context, remote string) ([]MirrorCursor, error)
+	UpsertMirrorCursor(ctx context.Context, remote, ref, lastSyncedSHA string) error
+	FreezeMirrorCursor(ctx context.Context, remote, ref string) error
+
 	// CreateWorkspace registers one workspace (§12.2, §28.3 stage 12b);
 	// errors if the ID is already taken. GetWorkspace/ListWorkspaces/
 	// UpdateWorkspaceBase are the registry reads and the update-base write.
@@ -185,6 +206,7 @@ type MemStore struct {
 	workspaces map[string]Workspace
 	principals map[string]StoredPrincipal
 	deliveries map[string]*memDelivery
+	mirrors    map[string]MirrorCursor
 	nextID     int
 	// Now overrides the clock check-run timestamps use; nil means time.Now
 	// (tests inject a fake clock to exercise §14.4.2 staleness).
@@ -211,7 +233,49 @@ func NewMemStore() *MemStore {
 		approvals:  make(map[string]map[string]Approval),
 		workspaces: make(map[string]Workspace),
 		deliveries: make(map[string]*memDelivery),
+		mirrors:    make(map[string]MirrorCursor),
 	}
+}
+
+func mirrorKey(remote, ref string) string { return remote + "\x00" + ref }
+
+func (s *MemStore) GetMirrorCursor(ctx context.Context, remote, ref string) (MirrorCursor, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.mirrors[mirrorKey(remote, ref)]
+	return c, ok, nil
+}
+
+func (s *MemStore) ListMirrorCursors(ctx context.Context, remote string) ([]MirrorCursor, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []MirrorCursor
+	prefix := remote + "\x00"
+	for k, c := range s.mirrors {
+		if strings.HasPrefix(k, prefix) {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
+	return out, nil
+}
+
+func (s *MemStore) UpsertMirrorCursor(ctx context.Context, remote, ref, lastSyncedSHA string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mirrors[mirrorKey(remote, ref)] = MirrorCursor{Ref: ref, LastSyncedSHA: lastSyncedSHA, Frozen: false, UpdatedAt: s.now()}
+	return nil
+}
+
+func (s *MemStore) FreezeMirrorCursor(ctx context.Context, remote, ref string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.mirrors[mirrorKey(remote, ref)]
+	c.Ref = ref
+	c.Frozen = true
+	c.UpdatedAt = s.now()
+	s.mirrors[mirrorKey(remote, ref)] = c
+	return nil
 }
 
 func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy, originWorkspace, originBranch string) (Change, error) {
