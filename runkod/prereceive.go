@@ -235,10 +235,26 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		req.DiffBytes = totalContentBytes(files)
 		req.ModifiesOwners = modifiesOwners(changedPaths)
 	}
+	decision := receive.Decide(req, p.Scanner)
+	if decision.Accepted && isMagicRef {
+		// Landed is terminal (§7.4): a push carrying an already-landed
+		// Change-Id must not zombie the landed row (new head on a landed
+		// Change, stable ref overwritten) - Gerrit's "change is closed".
+		// Abandoned is different: re-push is exactly how it reopens.
+		if existing, known, err := p.Store.GetChange(ctx, decision.ChangeID); err != nil {
+			return verdict{update: u, evalErr: fmt.Sprintf("remote: could not look up change %s: %v\n", decision.ChangeID, err)}
+		} else if known && existing.State == "landed" {
+			return verdict{update: u, decision: receive.Decision{
+				Accepted: false,
+				RejectionMessage: fmt.Sprintf("remote: change %s has already landed - landed is terminal (§7.4)\nremote:   -> start new work as a fresh change: drop the Change-Id trailer (or `runko change create`) and push again\n",
+					decision.ChangeID),
+			}}
+		}
+	}
 	return verdict{
 		update: u, changedPaths: changedPaths, extraEnv: extraEnv, author: author,
 		originWorkspace: originWS, originBranch: originBranch,
-		decision: receive.Decide(req, p.Scanner),
+		decision: decision,
 	}
 }
 

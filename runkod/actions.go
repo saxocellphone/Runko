@@ -57,7 +57,35 @@ func writeAPIError(w http.ResponseWriter, e *apiError) {
 // tree currently requires, the approval record, and the refreshed merge
 // requirements. change is the caller's already-fetched row (both transports
 // 404 before reaching here).
+// requireOpenChange is the state-machine guard for events only an OPEN
+// Change may receive (docs/change-lifecycle.md): landed is terminal (§7.4)
+// and abandoned's only exit is a re-push. Approving an abandoned Change was
+// a real leak, not just untidiness - approvals bind to head_sha, so a
+// reopen via re-push of the SAME commit would inherit an approval granted
+// while the Change was abandoned.
+func requireOpenChange(key string, change Change, verb string) *apiError {
+	switch change.State {
+	case "open":
+		return nil
+	case "landed":
+		return typedErr(http.StatusConflict, clierr.Error{
+			Code: "invalid_state", Field: "change",
+			Message:    fmt.Sprintf("change %s has already landed", key),
+			Suggestion: fmt.Sprintf("landed is terminal - nothing to %s; new work needs a new change", verb),
+		})
+	default: // abandoned
+		return typedErr(http.StatusConflict, clierr.Error{
+			Code: "invalid_state", Field: "change",
+			Message:    fmt.Sprintf("change %s is abandoned", key),
+			Suggestion: fmt.Sprintf("push the change again to reopen it, then %s", verb),
+		})
+	}
+}
+
 func (s *Server) approveChangeCore(ctx context.Context, key string, change Change, ownerRef, approvedBy string, principal *Principal) (checks.MergeRequirements, *apiError) {
+	if apiErr := requireOpenChange(key, change, "approve"); apiErr != nil {
+		return checks.MergeRequirements{}, apiErr
+	}
 	// Attribution (§15.1 interim principals, stage 12c): a named principal
 	// approves as itself - the client-asserted approved_by is only trusted
 	// from the anonymous deploy token (the documented v1 eval boundary).
@@ -289,6 +317,9 @@ func (s *Server) abandonChangeCore(ctx context.Context, key string, principal *P
 // Responds with the refreshed merge requirements, per-principal like every
 // merge-requirements read.
 func (s *Server) rerunCheckCore(ctx context.Context, key string, change Change, name string, principal *Principal, lane *BotLane) (checks.MergeRequirements, *apiError) {
+	if apiErr := requireOpenChange(key, change, "rerun checks"); apiErr != nil {
+		return checks.MergeRequirements{}, apiErr
+	}
 	result, indexed, err := s.computeAffected(change)
 	if err != nil {
 		return checks.MergeRequirements{}, internalErr(err)
