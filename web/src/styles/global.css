@@ -895,15 +895,19 @@ tr.hunk-head td {
   width: 14px;
   height: 14px;
   margin-left: 5px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
   background: var(--surface-3);
   color: var(--text-3);
+  font: inherit;
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
   cursor: help;
   vertical-align: middle;
   outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .info-tip:hover,
 .info-tip:focus-visible {

@@ -123,16 +123,23 @@ export function MergeableChip({ requirements }: { requirements: MergeRequirement
 // "here is the full value" cases (a truncated sha, a check name); this is
 // for "here is what this word means" cases, which want to stay visible
 // long enough to actually read.
+//
+// Deliberately a <button>, not a <span tabIndex>: :focus-visible's
+// click-vs-keyboard heuristic is only spec-consistent across browsers for
+// real interactive elements. On a span with tabIndex, some browsers (not
+// Chromium, which is why this slipped through here) treat a plain mouse
+// click as keyboard-style focus and pop the tooltip open with nothing to
+// close it - a real click never triggers :focus-visible on a <button>.
 export function InfoTip({ text }: { text: string }) {
   return (
-    <span className="info-tip" tabIndex={0}>
+    <button type="button" className="info-tip" aria-label={text}>
       <span className="info-tip-glyph" aria-hidden>
         ?
       </span>
       <span className="info-tip-bubble" role="tooltip">
         {text}
       </span>
-    </span>
+    </button>
   );
 }
 
