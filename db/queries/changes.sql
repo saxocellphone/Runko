@@ -24,7 +24,10 @@ SELECT * FROM changes WHERE monorepo_id = $1 AND change_key = $2;
 -- terminal. Origin provenance (§12.2 branch ↔ stack) moves with the head
 -- when the push carries it, and is PRESERVED when it doesn't - a plain-git
 -- amend of a workspace Change must not erase where the Change lives.
+-- Title moves with the head too: an amend that rewords the commit subject
+-- is the pusher renaming the Change.
 UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, base_sha = $5,
+    title = sqlc.arg(title)::text,
     origin_workspace = CASE WHEN sqlc.arg(origin_workspace)::text = '' THEN changes.origin_workspace ELSE sqlc.arg(origin_workspace)::text END,
     origin_branch = CASE WHEN sqlc.arg(origin_workspace)::text = '' THEN changes.origin_branch ELSE sqlc.arg(origin_branch)::text END,
     state = CASE WHEN changes.state = 'abandoned' THEN 'open'::change_state ELSE changes.state END,

@@ -367,14 +367,19 @@ func (r *rpcServer) RerunCheck(ctx context.Context, req *connect.Request[runkov1
 
 // stackForChange derives the stack containing change (changes.proto's
 // GetChangeStack relation): B is stacked on A iff B.base_sha == A.head_sha
-// and neither is abandoned; the requested Change itself always participates
+// and both are OPEN; the requested Change itself always participates
 // regardless of state ("always contains at least the requested Change").
-// Trunk-most first; children are walked in ChangeKey order for a
-// deterministic chain when two Changes share a base.
+// A stack is pending work only: a landed Change's head is (or was) a trunk
+// commit, so letting it parent relations chains every independent Change
+// based at that trunk tip into one false mega-stack of siblings - the
+// 2026-07-08 dogfood review's "blob of every open change that shares that
+// base". A child of a landed parent reads as based-on-trunk, which is what
+// it now is. Trunk-most first; children are walked in ChangeKey order for
+// a deterministic chain when two Changes share a base.
 func stackForChange(all []Change, change Change) ([]Change, int) {
 	alive := make([]Change, 0, len(all))
 	for _, c := range all {
-		if c.State != "abandoned" || c.ChangeKey == change.ChangeKey {
+		if c.State == "open" || c.ChangeKey == change.ChangeKey {
 			alive = append(alive, c)
 		}
 	}

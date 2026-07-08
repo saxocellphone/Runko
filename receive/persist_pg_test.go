@@ -35,7 +35,7 @@ func TestCreateOrUpdateChangeAgainstLivePostgres(t *testing.T) {
 		t.Fatalf("expected a new Change to start open, got %v", created.State)
 	}
 
-	updated, err := CreateOrUpdateChange(ctx, db, q, fx.MonorepoID, fx.ActorID, decision, "base1", "head2", "refs/changes/1/head", "Add checkout retries", "", "")
+	updated, err := CreateOrUpdateChange(ctx, db, q, fx.MonorepoID, fx.ActorID, decision, "base1", "head2", "refs/changes/1/head", "Add checkout retries, reworded", "", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (update): %v", err)
 	}
@@ -44,6 +44,9 @@ func TestCreateOrUpdateChangeAgainstLivePostgres(t *testing.T) {
 	}
 	if updated.HeadSha != "head2" {
 		t.Fatalf("expected head_sha to advance to head2, got %q", updated.HeadSha)
+	}
+	if updated.Title != "Add checkout retries, reworded" {
+		t.Fatalf("expected the title to follow the amended subject, got %q", updated.Title)
 	}
 
 	all, err := q.ListOpenChanges(ctx, db, dbgen.ListOpenChangesParams{MonorepoID: fx.MonorepoID, Limit: 100, Offset: 0})

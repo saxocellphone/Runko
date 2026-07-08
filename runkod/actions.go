@@ -179,6 +179,15 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 		})
 	}
 
+	// Stacked-land ordering (§7.4): a Change whose recorded base is not on
+	// trunk is stacked on another pending Change - land.Land would rebase
+	// only base..head onto trunk, silently landing the child WITHOUT its
+	// parent's content. Refuse until the parent lands (or the child is
+	// rebased onto trunk and re-pushed).
+	if apiErr := s.refuseUnlandedParent(ctx, key, change); apiErr != nil {
+		return landDecision{}, apiErr
+	}
+
 	if lane != nil {
 		// §14.10.2: the lane may land ONLY Changes fully inside its path
 		// allowlist. Refused before gating - an out-of-scope Change is not

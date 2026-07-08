@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -53,9 +55,22 @@ func CreateChange(repoDir, message string) (changeID string, err error) {
 
 	// Bake the Change-Id in from the first commit (rather than letting
 	// `change push` amend it in later): the id should be stable the moment
-	// the Change exists locally.
-	seed, _ := runGit(repoDir, "rev-parse", "HEAD") // "" on an unborn branch is a fine seed
-	id, msgWithID := receive.EnsureChangeID(message, seed+"|"+staged)
+	// the Change exists locally. The seed must be globally unique, not
+	// reproducible: HEAD + staged path names alone collide the moment two
+	// clones at the same tip touch the same file (two engineers - or two
+	// agents - would fight over one Change identity on push), so mix in the
+	// staged CONTENT (the index's tree hash), the message, and random bytes.
+	// Determinism in receive.GenerateChangeID is for the server-side seed
+	// (the commit SHA, already unique); a client minting a fresh identity
+	// wants entropy.
+	head, _ := runGit(repoDir, "rev-parse", "HEAD") // "" on an unborn branch is fine
+	stagedTree, _ := runGit(repoDir, "write-tree")
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("generate change id nonce: %w", err)
+	}
+	seed := strings.Join([]string{head, stagedTree, staged, message, hex.EncodeToString(nonce)}, "|")
+	id, msgWithID := receive.EnsureChangeID(message, seed)
 
 	// Same identity fallback as workspace snapshot: committing must work
 	// on a machine with no configured git identity.
@@ -113,7 +128,7 @@ func ChangeRequirements(ctx context.Context, client *http.Client, cred Credentia
 		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return checks.MergeRequirements{}, fmt.Errorf("merge-requirements: HTTP %d", resp.StatusCode)
+		return checks.MergeRequirements{}, decodeAPIError(resp, "merge-requirements")
 	}
 	var reqs checks.MergeRequirements
 	if err := json.NewDecoder(resp.Body).Decode(&reqs); err != nil {

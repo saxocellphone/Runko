@@ -14,21 +14,24 @@ Git is the only substrate (no custom storage layer, ever); Postgres holds a **re
 
 ## Status
 
-Early implementation, following the build plan in `docs/design.md` §28. Progress against the session DAG is tracked in [`CLAUDE.md`](CLAUDE.md):
+Working end-to-end system, following the build plan in `docs/design.md` §28. Detailed per-stage progress is tracked in [`CLAUDE.md`](CLAUDE.md):
 
 - ✅ Pre-session-1 schema artifacts (`docs/spec/`)
 - ✅ Repo bootstrap + git-fixture test harness
-- ✅ Persistence (Postgres DDL + sqlc)
-- ✅ Project model (intent → files → commit)
-- ✅ Tree indexer + owners resolution
-- ✅ Affected computation
-- ✅ Receive funnel (Change-Id, magic-ref, agent policy, secret-scan seam)
+- ✅ Persistence (Postgres DDL + sqlc, CI-tested against a live `postgres:16`)
+- ✅ Project model (intent → files → commit), tree indexer + owners, affected computation
+- ✅ Receive funnel (Change-Id, magic-ref, agent policy, real gitleaks secret scan)
 - ✅ Land engine (rebase-based landing, optimistic revalidation)
 - ✅ Checks + merge requirements + webhook outbox
-- ✅ `runko` CLI + `runko-ci`
-- ⬜ MCP server, minimal web UI, compose eval, dogfooding
+- ✅ `runko` CLI (incl. `auth login`, workspaces, approve/land) + `runko-ci`
+- ✅ `runkod` daemon: smart-HTTP git serving, pre-receive wiring, REST + Connect/gRPC APIs, merge-policy gates, principals, bot lanes
+- ✅ Workspaces v0 (snapshot refs, sparse cones), Zoekt code search, `AGENTS.md` generator
+- ✅ MCP server (six read-only tools over the daemon's REST API)
+- ✅ Web UI (`web/`: React + Connect-ES, stacked-diff review, sign-in over principals)
+- ✅ Compose eval loop (`docker-compose.yml` + `scripts/compose-smoke.sh`, measured in CI against §3.3's budget)
+- ⬜ Dogfood hardening (in progress — live-deployment findings being worked through)
 
-There is no running service yet — no compose stack, no live control-plane API, no web UI. What exists today operates directly against local Git repositories and a Postgres schema (the latter unverified against a live database in this development environment; see `CLAUDE.md`).
+`docker compose up` brings up runkod + Postgres; the measured create → change → land loop runs in CI on every push.
 
 ## Repository layout
 
@@ -46,8 +49,15 @@ affected/           pure function: paths/deps -> affected projects
 receive/            magic-ref + Change-Id + agent policy + secret-scan seam
 land/               rebase-based landing + optimistic revalidation
 checks/             Checks API, merge requirements, webhook outbox
+buildadapter/       build-graph adapter (Bazel first)
+search/             Zoekt code-search integration (process, not library)
+mcp/                MCP stdio server (six read-only tools)
+runkod/             write-path daemon: pre-receive processor, smart-HTTP, REST + Connect APIs
+proto/runko/v1/     Connect/gRPC schema (web ↔ runkod); gen/ is its generated Go
+web/                web UI (React + TypeScript + Vite + Connect-ES)
 cmd/runko/          human/agent-facing CLI
 cmd/runko-ci/       CI-facing CLI
+cmd/runkod/         daemon entrypoint
 ```
 
 ## Building and testing

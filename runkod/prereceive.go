@@ -453,7 +453,7 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change ref: %v\n", err)}
 	}
 
-	base := p.computeBaseSHA(v.update, v.extraEnv)
+	base := p.computeBaseSHA(ctx, v.update, d.ChangeID, v.extraEnv)
 	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, changeRef, firstLine(d.CommitMessage), v.author, v.originWorkspace, v.originBranch)
 	if err != nil {
 		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
@@ -478,7 +478,14 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 // Change's first push, and the Change's own PRIOR commit on an amend/
 // re-push (PushChange force-pushes the same rotating ref, see
 // cmd/runko/change.go) - neither is "where this Change branched from
-// trunk". The real answer is `git merge-base(newSHA, trunk tip)`.
+// trunk". For an unstacked Change the answer is `git merge-base(newSHA,
+// trunk tip)`; for a STACKED Change (the pushed commit's parent chain
+// contains another pending Change's commit, §7.4) it is that nearest
+// pending ancestor - recording trunk's merge-base there made every stacked
+// Change's diff span the whole stack and left GetChangeStack unable to
+// derive the parent relation at all (B stacked on A iff B.base_sha ==
+// A.head_sha), since nothing in the receive path ever recorded a
+// non-trunk base.
 //
 // Found via §28.3 stage 11b (land wiring): land.Land computes the trunk
 // delta as diffPaths(BaseSHA, trunkTip) to decide whether checks must be
@@ -489,12 +496,15 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 // a trivial fast-forward. This was invisible in every earlier stage's tests
 // because they only ever exercised BaseSHA/HeadSHA at receive time, never
 // fed it back into a trunk-delta diff the way land.Land does.
-func (p *Processor) computeBaseSHA(u RefUpdate, extraEnv []string) string {
+func (p *Processor) computeBaseSHA(ctx context.Context, u RefUpdate, changeID string, extraEnv []string) string {
 	if u.Ref == "refs/heads/"+p.TrunkRef {
 		if u.OldSHA == zeroOID {
 			return ""
 		}
 		return u.OldSHA
+	}
+	if base, ok := p.nearestPendingChangeBase(ctx, u.NewSHA, changeID, extraEnv); ok {
+		return base
 	}
 	base, err := p.runGit(extraEnv, "merge-base", u.NewSHA, "refs/heads/"+p.TrunkRef)
 	if err != nil {
@@ -503,6 +513,48 @@ func (p *Processor) computeBaseSHA(u RefUpdate, extraEnv []string) string {
 		return ""
 	}
 	return base
+}
+
+// stackWalkLimit bounds nearestPendingChangeBase's ancestor walk - a stack
+// deeper than this is pathological, and the merge-base fallback below it is
+// merely conservative (whole-stack diff), never wrong about content.
+const stackWalkLimit = 100
+
+// nearestPendingChangeBase walks the pushed commit's first-parent ancestry
+// (nearest first, stopping at trunk) looking for a commit that belongs to
+// another Change this Store knows: that ancestor is the pushed Change's
+// stack parent, and therefore its base (§7.4 - B stacked on A iff
+// B.base_sha == A.head_sha, the relation GetChangeStack derives and
+// GetChangeDiff's base..head scoping depends on). Ancestors carrying the
+// pushed Change's OWN Change-Id are skipped: a same-Id commit stacked on
+// itself is one Change grown by a commit, and its base must stay below the
+// whole Change, not split it. The parent Change's state doesn't matter -
+// even a landed/abandoned parent's commit is exactly where this Change's
+// own delta starts. Unknown trailer-less ancestors keep walking: a series
+// pushed without intermediate Changes lands as one delta, so the base must
+// stay below it.
+func (p *Processor) nearestPendingChangeBase(ctx context.Context, newSHA, changeID string, extraEnv []string) (string, bool) {
+	out, err := p.runGit(extraEnv, "rev-list", "--first-parent", fmt.Sprintf("--max-count=%d", stackWalkLimit),
+		newSHA+"~1", "^refs/heads/"+p.TrunkRef)
+	if err != nil || out == "" {
+		// Unborn trunk, root commit, or ancestry already on trunk - no
+		// pending ancestors to consider.
+		return "", false
+	}
+	for _, sha := range strings.Split(out, "\n") {
+		msg, err := p.commitMessage(sha, extraEnv)
+		if err != nil {
+			continue
+		}
+		key, ok := receive.ParseChangeID(msg)
+		if !ok || key == changeID {
+			continue
+		}
+		if _, known, err := p.Store.GetChange(ctx, key); err == nil && known {
+			return sha, true
+		}
+	}
+	return "", false
 }
 
 // computeAffectedAndEnqueue runs the platform-floor affected computation

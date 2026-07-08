@@ -37,13 +37,6 @@ func ApproveChange(ctx context.Context, client *http.Client, baseURL, token, cha
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusBadRequest {
-		var ce clierr.Error
-		if err := json.NewDecoder(resp.Body).Decode(&ce); err != nil {
-			return checks.MergeRequirements{}, fmt.Errorf("change approve: decode error response: %w", err)
-		}
-		return checks.MergeRequirements{}, &ce
-	}
 	if resp.StatusCode == http.StatusNotFound {
 		return checks.MergeRequirements{}, &clierr.Error{
 			Code:       "not_found",
@@ -54,7 +47,7 @@ func ApproveChange(ctx context.Context, client *http.Client, baseURL, token, cha
 		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return checks.MergeRequirements{}, fmt.Errorf("change approve: %s returned %d", baseURL, resp.StatusCode)
+		return checks.MergeRequirements{}, decodeAPIError(resp, "change approve")
 	}
 
 	var reqs checks.MergeRequirements

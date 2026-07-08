@@ -134,10 +134,17 @@ func TestProcessAmendedPushUpdatesSameChange(t *testing.T) {
 		t.Fatalf("expected the explicit Change-Id to be used, got %+v", first)
 	}
 
-	// Amend and re-push - same Change-Id trailer, new commit content.
+	// Amend and re-push - same Change-Id trailer, new commit content AND a
+	// reworded subject: the Change's title must follow the head (pre-fix it
+	// froze at creation time, so a renamed Change kept its original title
+	// in every view forever).
 	repo.WriteFile("feature.txt", "v2\n")
 	repo.Run("add feature.txt")
-	repo.Run("commit --amend --no-edit")
+	if _, err := gitfixtureRunGit(repo.Dir, "-c", "user.name=Test", "-c", "user.email=test@runko.dev",
+		"commit", "--amend", "-m",
+		"reworded feature\n\nChange-Id: I0123456789abcdef0123456789abcdef01234567"); err != nil {
+		t.Fatalf("amend: %v", err)
+	}
 	_, head2 := pushCommit(t, repo, bare, "refs/for/main")
 
 	second := p.Process(context.Background(), RefUpdate{OldSHA: head1, NewSHA: head2, Ref: "refs/for/main"}, nil)
@@ -151,6 +158,9 @@ func TestProcessAmendedPushUpdatesSameChange(t *testing.T) {
 	}
 	if change.HeadSHA != head2 {
 		t.Fatalf("expected the Change's head_sha to advance to the amended commit %s, got %s", head2, change.HeadSHA)
+	}
+	if change.Title != "reworded feature" {
+		t.Fatalf("expected the Change's title to follow the amended subject, got %q", change.Title)
 	}
 }
 

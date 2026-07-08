@@ -218,6 +218,9 @@ func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA,
 	if existing, ok := s.changes[changeKey]; ok {
 		existing.HeadSHA = headSHA
 		existing.GitRef = gitRef
+		// Title moves with the head like authored_by: an amend that rewords
+		// the commit subject is the pusher renaming the Change.
+		existing.Title = title
 		existing.AuthoredBy = authoredBy
 		// base_sha moves with the head (found by compose edge case E7): the
 		// pusher computed it as merge-base(new head, trunk). Freezing the

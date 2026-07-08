@@ -50,6 +50,9 @@ func CreateOrUpdateChange(
 			GitRef:            gitRef,
 			AuthoredByActorID: authorActorID,
 			BaseSha:           baseSHA,
+			// Title moves with the head: an amend that rewords the commit
+			// subject is the pusher renaming the Change.
+			Title: title,
 			// Empty preserves the stored origin (the query's CASE): a
 			// plain-git amend of a workspace Change keeps its provenance.
 			OriginWorkspace: originWorkspace,

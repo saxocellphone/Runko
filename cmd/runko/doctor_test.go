@@ -7,6 +7,7 @@ import (
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
+	"github.com/saxocellphone/runko/receive"
 )
 
 // TestRunDoctorOnNonRepoDirReturnsStructuredError closes a raw-passthrough
@@ -136,5 +137,60 @@ func TestPrintCheatSheetMentionsTrunkRef(t *testing.T) {
 	}
 	if !strings.Contains(out, "runko change push") {
 		t.Fatalf("expected cheat sheet to mention `runko change push`, got:\n%s", out)
+	}
+}
+
+// TestInstalledHookGeneratesDistinctChangeIDs pins the 2026-07-08 dogfood
+// finding: the hook's seed was `git var GIT_COMMITTER_IDENT` alone, so
+// plain commits from one identity (within the ident's one-second timestamp
+// resolution) all got the SAME Change-Id - distinct work collapsed into one
+// Change on push. The seed now mixes tree/parents/idents/message/random
+// bytes, so even byte-identical circumstances must yield distinct ids.
+func TestInstalledHookGeneratesDistinctChangeIDs(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("init")
+	if err := InstallChangeIDHook(repo.Dir); err != nil {
+		t.Fatalf("InstallChangeIDHook: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for i, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		repo.WriteFile(name, "content\n")
+		// Same message every time - the worst case for a weak seed.
+		repo.Commit("do the thing")
+		msg, err := runGit(repo.Dir, "log", "-1", "--format=%B")
+		if err != nil {
+			t.Fatalf("read commit message: %v", err)
+		}
+		id, ok := receive.ParseChangeID(msg)
+		if !ok {
+			t.Fatalf("commit %d: no valid Change-Id trailer in:\n%s", i, msg)
+		}
+		if seen[id] {
+			t.Fatalf("commit %d: Change-Id %s repeats an earlier commit's id", i, id)
+		}
+		seen[id] = true
+	}
+}
+
+// TestRunDoctorRedactsRemoteURLPassword: remote URLs here embed the
+// smart-HTTP credential (user:pass@host is the documented transport form),
+// and doctor printed it verbatim - in --json too.
+func TestRunDoctorRedactsRemoteURLPassword(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("init")
+	repo.Run("remote add origin https://saxo:hunter2@example.com/monorepo.git")
+
+	report, err := RunDoctor(repo.Dir, "main")
+	if err != nil {
+		t.Fatalf("RunDoctor: %v", err)
+	}
+	if strings.Contains(report.RemoteURL, "hunter2") {
+		t.Fatalf("remote URL leaks the password: %q", report.RemoteURL)
+	}
+	if report.RemoteURL != "https://saxo:***@example.com/monorepo.git" {
+		t.Fatalf("unexpected redacted form: %q", report.RemoteURL)
 	}
 }

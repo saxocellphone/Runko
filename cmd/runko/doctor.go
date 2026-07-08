@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,11 +16,27 @@ import (
 // server-side receive funnel enforces (receive.EnsureChangeID, §11.5) -
 // client-side convenience, not a substitute for server-side enforcement,
 // since client hooks are advisory only (§8.4, §15.3).
+// The seed mixes what Gerrit's own hook mixes - tree, parents, author and
+// committer idents, the message itself - PLUS random bytes: a seed built
+// from identity alone hands every commit from the same person the same id,
+// collapsing distinct work into one Change on push. Hashing goes through
+// `git hash-object --stdin` (guaranteed present in a git hook; `sha1sum`
+// isn't on macOS), and cut -c1-40 keeps the id shape stable even in
+// sha256-object-format repos.
 const changeIDHookScript = `#!/bin/sh
 # Installed by ` + "`runko doctor --install-hook`" + ` (docs/design.md §6.9, §11.5).
 # Appends a Change-Id trailer if the commit message doesn't already have one.
 if ! grep -q '^Change-Id: I[0-9a-f]\{40\}$' "$1"; then
-  id="I$(git var GIT_COMMITTER_IDENT | sha1sum | cut -c1-40)"
+  random=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')
+  [ -n "$random" ] || random="$$-$(date +%s)"
+  id="I$({
+    git write-tree 2>/dev/null
+    git rev-parse HEAD 2>/dev/null
+    git var GIT_AUTHOR_IDENT 2>/dev/null
+    git var GIT_COMMITTER_IDENT 2>/dev/null
+    cat "$1"
+    echo "$random"
+  } | git hash-object --stdin | cut -c1-40)"
   printf '\nChange-Id: %s\n' "$id" >> "$1"
 fi
 `
@@ -78,12 +95,33 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 			report.HasRemote = true
 			report.RemoteName = names[0]
 			if url, err := runGit(repoDir, "remote", "get-url", names[0]); err == nil {
-				report.RemoteURL = url
+				// Redacted at report-build time so --json can't leak an
+				// embedded smart-HTTP credential either (remote URLs carry
+				// user:pass here - Credential.GitUserPass's documented form).
+				report.RemoteURL = redactURLPassword(url)
 			}
 		}
 	}
 
 	return report, nil
+}
+
+// redactURLPassword replaces the password of a URL's user:pass@host
+// userinfo with "***". Non-URL remotes (scp-style ssh paths) pass through
+// unchanged - they don't embed passwords.
+func redactURLPassword(remote string) string {
+	u, err := url.Parse(remote)
+	if err != nil || u.User == nil {
+		return remote
+	}
+	if _, hasPassword := u.User.Password(); !hasPassword {
+		return remote
+	}
+	redacted := *u
+	redacted.User = url.UserPassword(u.User.Username(), "***")
+	// url.String() percent-encodes the literal password "***" as "%2A%2A%2A";
+	// unescape just that so humans read stars, not percent soup.
+	return strings.Replace(redacted.String(), "%2A%2A%2A", "***", 1)
 }
 
 func hooksDirectory(repoDir string) (string, error) {

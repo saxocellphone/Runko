@@ -686,8 +686,9 @@ func (q *Queries) UpdateChangeDescription(ctx context.Context, db DBTX, arg Upda
 
 const updateChangeHead = `-- name: UpdateChangeHead :one
 UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, base_sha = $5,
-    origin_workspace = CASE WHEN $6::text = '' THEN changes.origin_workspace ELSE $6::text END,
-    origin_branch = CASE WHEN $6::text = '' THEN changes.origin_branch ELSE $7::text END,
+    title = $6::text,
+    origin_workspace = CASE WHEN $7::text = '' THEN changes.origin_workspace ELSE $7::text END,
+    origin_branch = CASE WHEN $7::text = '' THEN changes.origin_branch ELSE $8::text END,
     state = CASE WHEN changes.state = 'abandoned' THEN 'open'::change_state ELSE changes.state END,
     updated_at = now()
 WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch
@@ -699,6 +700,7 @@ type UpdateChangeHeadParams struct {
 	GitRef            string    `json:"git_ref"`
 	AuthoredByActorID uuid.UUID `json:"authored_by_actor_id"`
 	BaseSha           string    `json:"base_sha"`
+	Title             string    `json:"title"`
 	OriginWorkspace   string    `json:"origin_workspace"`
 	OriginBranch      string    `json:"origin_branch"`
 }
@@ -713,6 +715,8 @@ type UpdateChangeHeadParams struct {
 // terminal. Origin provenance (§12.2 branch ↔ stack) moves with the head
 // when the push carries it, and is PRESERVED when it doesn't - a plain-git
 // amend of a workspace Change must not erase where the Change lives.
+// Title moves with the head too: an amend that rewords the commit subject
+// is the pusher renaming the Change.
 func (q *Queries) UpdateChangeHead(ctx context.Context, db DBTX, arg UpdateChangeHeadParams) (*Change, error) {
 	row := db.QueryRow(ctx, updateChangeHead,
 		arg.ID,
@@ -720,6 +724,7 @@ func (q *Queries) UpdateChangeHead(ctx context.Context, db DBTX, arg UpdateChang
 		arg.GitRef,
 		arg.AuthoredByActorID,
 		arg.BaseSha,
+		arg.Title,
 		arg.OriginWorkspace,
 		arg.OriginBranch,
 	)

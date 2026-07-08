@@ -208,3 +208,29 @@ func TestPushChangeOnEmptyRepoReturnsStructuredError(t *testing.T) {
 // end-to-end requires the not-yet-built server (see receive/doc.go's scope
 // note); PushChange's own responsibility - ensure a trailer, then push - is
 // covered by the two tests above.
+
+// TestCreateChangeIDsAreGloballyUnique pins the 2026-07-08 dogfood finding:
+// the seed was HEAD + staged path NAMES only, so two clones at the same
+// trunk tip touching the same file - different content, different messages
+// - minted the SAME Change-Id and fought over one Change identity on push.
+// Byte-identical repos and messages are the worst case: the random nonce in
+// the seed must still keep the ids distinct.
+func TestCreateChangeIDsAreGloballyUnique(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		repo := gitfixture.New(t)
+		configureIdentity(t, repo.Dir)
+		repo.WriteFile("README.md", "hi\n")
+		repo.Commit("initial")
+		repo.WriteFile("main.go", "package main\n")
+
+		id, err := CreateChange(repo.Dir, "identical message")
+		if err != nil {
+			t.Fatalf("CreateChange %d: %v", i, err)
+		}
+		if seen[id] {
+			t.Fatalf("clone %d minted the same Change-Id %s as another identical clone", i, id)
+		}
+		seen[id] = true
+	}
+}

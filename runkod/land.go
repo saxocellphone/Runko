@@ -3,10 +3,13 @@ package runkod
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os/exec"
 
 	"github.com/saxocellphone/runko/affected"
 	"github.com/saxocellphone/runko/core"
 	"github.com/saxocellphone/runko/index"
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/land"
 )
@@ -32,6 +35,41 @@ const maxLandRaceRetries = 5
 // tip against an empty string, not emptyTreeOID. A separate diffBase
 // (emptyTreeOID when base is "") is used only for gitDiffNamesOnly, which
 // needs a real git object to diff against.
+// refuseUnlandedParent is landChangeCore's stacked-ordering gate: a Change
+// whose recorded base is a commit trunk doesn't contain is stacked on
+// another pending Change (computeBaseSHA records the nearest pending
+// ancestor as the base, §7.4), and attemptLand would rebase only base..head
+// onto trunk - landing the child while silently DROPPING the parent's
+// content it was built on. Gerrit's rule applies: ancestors land first.
+// Returns nil when the Change is based directly on trunk (including the
+// ""-base bootstrap case).
+func (s *Server) refuseUnlandedParent(ctx context.Context, key string, change Change) *apiError {
+	if change.BaseSHA == "" {
+		return nil
+	}
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", change.BaseSHA, "refs/heads/"+s.TrunkRef)
+	cmd.Dir = s.RepoDir
+	if cmd.Run() == nil {
+		return nil // base is on trunk - not stacked (or the parent already landed)
+	}
+
+	suggestion := "land the parent change first, or rebase this change onto trunk and re-push"
+	if open, err := s.Store.ListChanges(ctx, "open"); err == nil {
+		for _, parent := range open {
+			if parent.HeadSHA == change.BaseSHA {
+				suggestion = fmt.Sprintf("land %s first, or rebase this change onto trunk and re-push", parent.ChangeKey)
+				break
+			}
+		}
+	}
+	return typedErr(http.StatusConflict, clierr.Error{
+		Code: "parent_change_not_landed", Field: "change",
+		Message:    fmt.Sprintf("change %s is stacked on a commit trunk does not have (base %s)", key, change.BaseSHA),
+		Suggestion: suggestion,
+		DocURL:     "docs/design.md#74-change",
+	})
+}
+
 func (s *Server) attemptLand(ctx context.Context, change Change) (land.Outcome, error) {
 	gstore := gitstore.New(s.RepoDir)
 

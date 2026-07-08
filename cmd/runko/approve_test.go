@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/saxocellphone/runko/checks"
@@ -89,5 +90,30 @@ func TestCmdChangeApproveRequiresFlags(t *testing.T) {
 	err := cmdChangeApprove([]string{"--change", "Ichg1"})
 	if err == nil {
 		t.Fatalf("expected an error when required flags are missing")
+	}
+}
+
+// TestApproveChangeForbiddenDecodesStructuredError pins the 2026-07-08
+// dogfood finding: the daemon's 403 self_approval_denied carried a clear
+// explanation, and the CLI printed bare "returned 403". Every non-2xx
+// status with a structured body must surface it (decodeAPIError), not just
+// 400.
+func TestApproveChangeForbiddenDecodesStructuredError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(clierr.Error{
+			Code: "self_approval_denied", Field: "approved_by",
+			Message: `"saxo" pushed this change and may not approve it`,
+		})
+	}))
+	defer server.Close()
+
+	_, err := ApproveChange(context.Background(), http.DefaultClient, server.URL, "sekret", "Ichg1", "group:commerce-eng", "saxo")
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "self_approval_denied" {
+		t.Fatalf("expected the structured 403 to surface, got %v", err)
+	}
+	if !strings.Contains(ce.Message, "may not approve") {
+		t.Fatalf("expected the daemon's explanation, got %q", ce.Message)
 	}
 }

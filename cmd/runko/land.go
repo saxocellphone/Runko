@@ -39,13 +39,6 @@ func LandChange(ctx context.Context, client *http.Client, baseURL, token, change
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusConflict {
-		var ce clierr.Error
-		if err := json.NewDecoder(resp.Body).Decode(&ce); err != nil {
-			return land.Outcome{}, fmt.Errorf("change land: decode error response: %w", err)
-		}
-		return land.Outcome{}, &ce
-	}
 	if resp.StatusCode == http.StatusNotFound {
 		return land.Outcome{}, &clierr.Error{
 			Code:       "not_found",
@@ -56,7 +49,7 @@ func LandChange(ctx context.Context, client *http.Client, baseURL, token, change
 		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return land.Outcome{}, fmt.Errorf("change land: %s returned %d", baseURL, resp.StatusCode)
+		return land.Outcome{}, decodeAPIError(resp, "change land")
 	}
 
 	var outcome land.Outcome

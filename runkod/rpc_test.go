@@ -259,14 +259,12 @@ func TestRPCStackDerivation(t *testing.T) {
 	if !resA.Accepted || !resB.Accepted {
 		t.Fatalf("seed pushes rejected: %+v / %+v", resA, resB)
 	}
-	// B's recorded base is merge-base(headB, trunk) = trunk tip, not A's
-	// head (prereceive's computeBaseSHA) - so hand the stack relation the
-	// bases the proto describes by pointing B's base at A's head directly.
-	// This mirrors how a stacked workflow records bases once change-per-
-	// commit pushes exist; the Store is the source for the derivation.
-	chB, _, _ := store.GetChange(ctx, resB.ChangeID)
-	if _, err := store.CreateOrUpdateChange(ctx, resB.ChangeID, headA, chB.HeadSHA, chB.GitRef, chB.Title, "", "", ""); err != nil {
-		t.Fatalf("re-base change B: %v", err)
+	// The receive path itself records the stack relation now: B's base is
+	// A's head (computeBaseSHA's nearest-pending-ancestor walk), not
+	// merge-base(headB, trunk). No hand-rewriting of the Store - this test
+	// exercises exactly what production pushes produce.
+	if chB, _, _ := store.GetChange(ctx, resB.ChangeID); chB.BaseSHA != headA {
+		t.Fatalf("B's recorded base: want A's head %s, got %s", headA, chB.BaseSHA)
 	}
 
 	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
@@ -292,6 +290,17 @@ func TestRPCStackDerivation(t *testing.T) {
 		if int(stack.Msg.Position) != wantPos {
 			t.Fatalf("position of %s: want %d, got %d", id, wantPos, stack.Msg.Position)
 		}
+	}
+
+	// A stacked Change's diff is exactly its own base..head delta: B shows
+	// only proj/b.txt, never A's proj/a.txt (pre-fix, B's trunk base made
+	// the diff span the whole stack).
+	diff, err := client.GetChangeDiff(ctx, connect.NewRequest(&runkov1.GetChangeDiffRequest{ChangeId: resB.ChangeID}))
+	if err != nil {
+		t.Fatalf("GetChangeDiff(B): %v", err)
+	}
+	if len(diff.Msg.Files) != 1 || diff.Msg.Files[0].GetPath() != "proj/b.txt" {
+		t.Fatalf("B's diff must be its own delta only: %+v", diff.Msg.Files)
 	}
 }
 

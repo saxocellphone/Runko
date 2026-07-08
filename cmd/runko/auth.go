@@ -71,7 +71,15 @@ func (c Credential) GitUserPass() (user, pass string) {
 	return "runko", c.Secret
 }
 
+// credentialPath honors XDG_CONFIG_HOME explicitly on EVERY platform, then
+// falls back to os.UserConfigDir(). Go's UserConfigDir ignores XDG on
+// macOS (~/Library/Application Support), which made the env var a silent
+// no-op there: the test sandbox leaked through to the real credential file,
+// and docs/cli-contract.md's "~/.config/runko/" promise only held on Linux.
 func credentialPath() (string, error) {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "runko", "credentials.json"), nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
