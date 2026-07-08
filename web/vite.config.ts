@@ -10,10 +10,10 @@ export default defineConfig({
     // apps/monorepo-platform/web-dev.yaml): a selectorless Service +
     // EndpointSlice point at this dev server on the LAN, so frontend
     // edits show up on save - no image build, no rollout. allowedHosts
-    // whitelists exactly that hostname (Vite blocks unknown Host headers
-    // against DNS rebinding). LAN-only by design: never expose a dev
-    // server through the public tunnel.
-    allowedHosts: ["runko-dev.k8s.home"],
+    // whitelists exactly these hostnames (Vite blocks unknown Host
+    // headers against DNS rebinding). The public tunnel host is an
+    // explicit owner decision - see web-dev.yaml in k8s-cluster.
+    allowedHosts: ["runko-dev.k8s.home", "runko-dev.victornazzaro.com"],
   },
   test: {
     environment: "node",
