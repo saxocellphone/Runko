@@ -24,7 +24,7 @@ func TestCreateOrUpdateChangeAgainstLivePostgres(t *testing.T) {
 
 	decision := Decision{Accepted: true, ChangeID: "Iabc123"}
 
-	created, err := CreateOrUpdateChange(ctx, db, q, fx.MonorepoID, fx.ActorID, decision, "base1", "head1", "refs/changes/1/head", "Add checkout retries")
+	created, err := CreateOrUpdateChange(ctx, db, q, fx.MonorepoID, fx.ActorID, decision, "base1", "head1", "refs/changes/1/head", "Add checkout retries", "", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (create): %v", err)
 	}
@@ -35,7 +35,7 @@ func TestCreateOrUpdateChangeAgainstLivePostgres(t *testing.T) {
 		t.Fatalf("expected a new Change to start open, got %v", created.State)
 	}
 
-	updated, err := CreateOrUpdateChange(ctx, db, q, fx.MonorepoID, fx.ActorID, decision, "base1", "head2", "refs/changes/1/head", "Add checkout retries")
+	updated, err := CreateOrUpdateChange(ctx, db, q, fx.MonorepoID, fx.ActorID, decision, "base1", "head2", "refs/changes/1/head", "Add checkout retries", "", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (update): %v", err)
 	}
@@ -61,7 +61,7 @@ func TestCreateOrUpdateChangeRejectsUnacceptedDecisionAgainstLivePostgres(t *tes
 	fx := dbtest.Seed(t, ctx, db, t.Name())
 	q := dbgen.New()
 
-	_, err := CreateOrUpdateChange(ctx, db, q, fx.MonorepoID, fx.ActorID, Decision{Accepted: false}, "base1", "head1", "refs/changes/1/head", "title")
+	_, err := CreateOrUpdateChange(ctx, db, q, fx.MonorepoID, fx.ActorID, Decision{Accepted: false}, "base1", "head1", "refs/changes/1/head", "title", "", "")
 	if err != ErrDecisionRejected {
 		t.Fatalf("expected ErrDecisionRejected, got %v", err)
 	}

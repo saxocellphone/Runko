@@ -188,3 +188,45 @@ export function railCells(layout: StackLayout, rowIndex: number): RailCell[] {
   }
   return cells;
 }
+
+// ---- §12.2 provenance: workspace branch ↔ stack ----
+
+// stackOrigin returns the workspace-branch provenance a stack was pushed
+// from: the first origin found walking from the root (base-most change)
+// up. Changes in one stack normally share a workspace (they were pushed
+// from its worktrees); branches may differ when the stack forks - per-row
+// branch labels handle that, this names the stack's home workspace.
+export function stackOrigin(
+  root: StackNode,
+): { workspace: string; branch: string } | undefined {
+  const queue: StackNode[] = [root];
+  while (queue.length > 0) {
+    const n = queue.shift()!;
+    if (n.change.originWorkspace) {
+      return { workspace: n.change.originWorkspace, branch: n.change.originBranch };
+    }
+    queue.push(...n.children);
+  }
+  return undefined;
+}
+
+// changesByOrigin groups changes by their workspace branch - the
+// workspaces page uses it to show each branch's in-flight stack next to
+// the branch itself. Keyed "<workspace>/<branch>" (both are single path
+// segments by construction, so "/" cannot collide); changes with no
+// provenance are omitted. Within a group, base-most change first (by
+// number when present, else stable input order).
+export function changesByOrigin(changes: ChangeSummary[]): Map<string, ChangeSummary[]> {
+  const groups = new Map<string, ChangeSummary[]>();
+  for (const c of changes) {
+    if (!c.originWorkspace) continue;
+    const key = `${c.originWorkspace}/${c.originBranch}`;
+    const group = groups.get(key) ?? [];
+    group.push(c);
+    groups.set(key, group);
+  }
+  for (const group of groups.values()) {
+    group.sort((a, b) => (a.number < b.number ? -1 : a.number > b.number ? 1 : 0));
+  }
+  return groups;
+}

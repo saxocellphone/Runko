@@ -57,7 +57,7 @@ func TestPostgresStoreCreateOrUpdateChangeAndGetChange(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()
 
-	created, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", "")
+	created, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", "", "", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (create): %v", err)
 	}
@@ -65,7 +65,7 @@ func TestPostgresStoreCreateOrUpdateChangeAndGetChange(t *testing.T) {
 		t.Fatalf("expected a new Change to start open, got %+v", created)
 	}
 
-	updated, err := store.CreateOrUpdateChange(ctx, "Iabc", "base2", "head2", "refs/changes/1/head", "title", "")
+	updated, err := store.CreateOrUpdateChange(ctx, "Iabc", "base2", "head2", "refs/changes/1/head", "title", "", "", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (update): %v", err)
 	}
@@ -92,7 +92,7 @@ func TestPostgresStoreCreateOrUpdateChangeAndGetChange(t *testing.T) {
 func TestPostgresStoreCheckRunUpsertReflectsLatestStatus(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()
-	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", ""); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", "", "", ""); err != nil {
 		t.Fatalf("CreateOrUpdateChange: %v", err)
 	}
 
@@ -123,7 +123,7 @@ func TestPostgresStoreCheckRunUpsertReflectsLatestStatus(t *testing.T) {
 func TestPostgresStoreApprovalRoundTrip(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()
-	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", ""); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", "", "", ""); err != nil {
 		t.Fatalf("CreateOrUpdateChange: %v", err)
 	}
 
@@ -159,7 +159,7 @@ func TestPostgresStoreApprovalRoundTrip(t *testing.T) {
 
 	// Re-approving after an amend re-binds the row to the new head (the
 	// PK is (change_id, owner_ref) - one row per owner, latest head wins).
-	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title", ""); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head2", "refs/changes/1/head", "title", "", "", ""); err != nil {
 		t.Fatalf("CreateOrUpdateChange (amend): %v", err)
 	}
 	if err := store.RecordApproval(ctx, "Iabc", "group:commerce-eng", "alice", "head2"); err != nil {
@@ -286,7 +286,7 @@ func TestPostgresStoreAttributionRoundTrip(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()
 
-	created, err := store.CreateOrUpdateChange(ctx, "Iattr", "base1", "head1", "refs/changes/2/head", "title", "alice")
+	created, err := store.CreateOrUpdateChange(ctx, "Iattr", "base1", "head1", "refs/changes/2/head", "title", "alice", "", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestPostgresStoreAttributionRoundTrip(t *testing.T) {
 	}
 
 	// Amend by a different principal: last pusher owns the head.
-	updated, err := store.CreateOrUpdateChange(ctx, "Iattr", "base1", "head2", "refs/changes/2/head", "title", "bob")
+	updated, err := store.CreateOrUpdateChange(ctx, "Iattr", "base1", "head2", "refs/changes/2/head", "title", "bob", "", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (amend): %v", err)
 	}
@@ -312,7 +312,7 @@ func TestPostgresStoreAttributionRoundTrip(t *testing.T) {
 	}
 
 	// Anonymous stays anonymous, both fields.
-	anon, err := store.CreateOrUpdateChange(ctx, "Ianon", "base1", "head1", "refs/changes/3/head", "title", "")
+	anon, err := store.CreateOrUpdateChange(ctx, "Ianon", "base1", "head1", "refs/changes/3/head", "title", "", "", "")
 	if err != nil {
 		t.Fatalf("CreateOrUpdateChange (anon): %v", err)
 	}
@@ -342,10 +342,10 @@ func TestPostgresStoreLifecycleAndRerunAttempts(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()
 
-	if _, err := store.CreateOrUpdateChange(ctx, "I1", "b", "h1", "r1", "t1", ""); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "I1", "b", "h1", "r1", "t1", "", "", ""); err != nil {
 		t.Fatalf("create I1: %v", err)
 	}
-	if _, err := store.CreateOrUpdateChange(ctx, "I2", "b", "h2", "r2", "t2", ""); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "I2", "b", "h2", "r2", "t2", "", "", ""); err != nil {
 		t.Fatalf("create I2: %v", err)
 	}
 
@@ -367,7 +367,7 @@ func TestPostgresStoreLifecycleAndRerunAttempts(t *testing.T) {
 	if abandoned, err := store.ListChanges(ctx, "abandoned"); err != nil || len(abandoned) != 1 || abandoned[0].ChangeKey != "I1" {
 		t.Fatalf("expected I1 abandoned, got %v (%v)", abandoned, err)
 	}
-	reopened, err := store.CreateOrUpdateChange(ctx, "I1", "b", "h3", "r1", "t1", "")
+	reopened, err := store.CreateOrUpdateChange(ctx, "I1", "b", "h3", "r1", "t1", "", "", "")
 	if err != nil || reopened.State != "open" {
 		t.Fatalf("expected re-push to reopen, got %+v (%v)", reopened, err)
 	}

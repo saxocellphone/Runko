@@ -31,6 +31,17 @@ type Change struct {
 	// head, which is also who self-approval must be checked against.
 	AuthoredBy string
 	LandedBy   string
+	// OriginWorkspace / OriginBranch are push provenance (§12.2's branch ↔
+	// stack mapping): the workspace branch this Change was pushed from,
+	// stamped by `runko change push` as git push options and validated
+	// against the workspace registry at receive time. Empty for plain-git
+	// pushers, the web create-project flow, and bot lanes - advisory
+	// metadata for grouping/display, never a merge gate. An amend that
+	// carries no options PRESERVES the existing origin (a plain-git amend
+	// of a workspace Change must not erase provenance); an amend that
+	// carries options moves it, matching AuthoredBy's last-pusher rule.
+	OriginWorkspace string
+	OriginBranch    string
 }
 
 // Approval is one recorded owner approval on a Change - the satisfied half
@@ -70,8 +81,10 @@ type WebhookDelivery struct {
 type Store interface {
 	// CreateOrUpdateChange mirrors receive.CreateOrUpdateChange's
 	// create-vs-update-by-change_key semantics (§7.4: "commits are
-	// versions of a Change, not the Change itself").
-	CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy string) (Change, error)
+	// versions of a Change, not the Change itself"). Empty origin
+	// workspace/branch on an update preserves the stored origin (see
+	// Change.OriginWorkspace).
+	CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy, originWorkspace, originBranch string) (Change, error)
 	GetChange(ctx context.Context, changeKey string) (Change, bool, error)
 
 	// ListChanges returns every Change in the given state, newest first;
@@ -198,7 +211,7 @@ func NewMemStore() *MemStore {
 	}
 }
 
-func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy string) (Change, error) {
+func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy, originWorkspace, originBranch string) (Change, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -211,6 +224,10 @@ func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA,
 		// creation-time base made §13.5's requires_revalidation a permanent
 		// dead end - the prescribed rebase+re-push never cleared it.
 		existing.BaseSHA = baseSHA
+		if originWorkspace != "" {
+			existing.OriginWorkspace = originWorkspace
+			existing.OriginBranch = originBranch
+		}
 		if existing.State == "abandoned" {
 			// Re-pushing an abandoned Change reopens it (§7.4; the webhook
 			// enum modeled change.reopened from day one). Landed stays
@@ -223,7 +240,8 @@ func (s *MemStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA,
 	change := Change{
 		ChangeKey: changeKey, State: "open",
 		BaseSHA: baseSHA, HeadSHA: headSHA, GitRef: gitRef, Title: title,
-		AuthoredBy: authoredBy,
+		AuthoredBy:      authoredBy,
+		OriginWorkspace: originWorkspace, OriginBranch: originBranch,
 	}
 	s.changes[changeKey] = change
 	return change, nil

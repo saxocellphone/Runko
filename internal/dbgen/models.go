@@ -364,6 +364,8 @@ type Change struct {
 	LandedAt          pgtype.Timestamptz `json:"landed_at"`
 	LandedSha         *string            `json:"landed_sha"`
 	LandedByActorID   pgtype.UUID        `json:"landed_by_actor_id"`
+	OriginWorkspace   string             `json:"origin_workspace"`
+	OriginBranch      string             `json:"origin_branch"`
 }
 
 type ChangeAffected struct {

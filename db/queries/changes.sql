@@ -1,9 +1,10 @@
 -- name: CreateChange :one
 INSERT INTO changes (
     monorepo_id, change_key, state, base_sha, head_sha, git_ref, title,
-    description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical
+    description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical,
+    origin_workspace, origin_branch
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 ) RETURNING *;
 
 -- name: GetChange :one
@@ -20,8 +21,12 @@ SELECT * FROM changes WHERE monorepo_id = $1 AND change_key = $2;
 -- time value made §13.5's requires_revalidation a permanent dead end.
 -- Re-pushing an abandoned Change reopens it (§7.4 - the change.reopened
 -- webhook event modeled this from day one); landed stays landed, it is
--- terminal.
+-- terminal. Origin provenance (§12.2 branch ↔ stack) moves with the head
+-- when the push carries it, and is PRESERVED when it doesn't - a plain-git
+-- amend of a workspace Change must not erase where the Change lives.
 UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, base_sha = $5,
+    origin_workspace = CASE WHEN sqlc.arg(origin_workspace)::text = '' THEN changes.origin_workspace ELSE sqlc.arg(origin_workspace)::text END,
+    origin_branch = CASE WHEN sqlc.arg(origin_workspace)::text = '' THEN changes.origin_branch ELSE sqlc.arg(origin_branch)::text END,
     state = CASE WHEN changes.state = 'abandoned' THEN 'open'::change_state ELSE changes.state END,
     updated_at = now()
 WHERE id = $1 RETURNING *;

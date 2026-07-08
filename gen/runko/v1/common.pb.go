@@ -946,11 +946,19 @@ type ChangeSummary struct {
 	// Interim attribution (§15.1 named-token principals, §28.3 stage 12c
 	// slice 2, in progress): Actor.id is the principal name; unset when
 	// pushed anonymously with the deploy token (eval profile).
-	AuthoredBy    *Actor `protobuf:"bytes,9,opt,name=authored_by,json=authoredBy,proto3" json:"authored_by,omitempty"`
-	Number        int64  `protobuf:"varint,10,opt,name=number,proto3" json:"number,omitempty"` // not yet served: monotonic change number (Postgres-only today)
-	Url           string `protobuf:"bytes,11,opt,name=url,proto3" json:"url,omitempty"`        // not yet served: canonical web URL, needs stage 13's URL scheme
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	AuthoredBy *Actor `protobuf:"bytes,9,opt,name=authored_by,json=authoredBy,proto3" json:"authored_by,omitempty"`
+	Number     int64  `protobuf:"varint,10,opt,name=number,proto3" json:"number,omitempty"` // not yet served: monotonic change number (Postgres-only today)
+	Url        string `protobuf:"bytes,11,opt,name=url,proto3" json:"url,omitempty"`        // not yet served: canonical web URL, needs stage 13's URL scheme
+	// Provenance: the workspace branch this Change was pushed from (§12.2's
+	// branch ↔ stack mapping - each workspace branch is expected to carry
+	// exactly one stack). Recorded from `runko change push`'s push options,
+	// validated against the workspace registry at receive time; empty for
+	// plain-git pushers, the web create-project flow, and bot lanes -
+	// advisory metadata, never a gate.
+	OriginWorkspace string `protobuf:"bytes,12,opt,name=origin_workspace,json=originWorkspace,proto3" json:"origin_workspace,omitempty"`
+	OriginBranch    string `protobuf:"bytes,13,opt,name=origin_branch,json=originBranch,proto3" json:"origin_branch,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ChangeSummary) Reset() {
@@ -1056,6 +1064,20 @@ func (x *ChangeSummary) GetNumber() int64 {
 func (x *ChangeSummary) GetUrl() string {
 	if x != nil {
 		return x.Url
+	}
+	return ""
+}
+
+func (x *ChangeSummary) GetOriginWorkspace() string {
+	if x != nil {
+		return x.OriginWorkspace
+	}
+	return ""
+}
+
+func (x *ChangeSummary) GetOriginBranch() string {
+	if x != nil {
+		return x.OriginBranch
 	}
 	return ""
 }
@@ -1426,7 +1448,7 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\bprojects\x18\x02 \x03(\v2\x18.runko.v1.ProjectSummaryR\bprojects\x12\x14\n" +
 	"\x05paths\x18\x03 \x03(\tR\x05paths\x127\n" +
 	"\freason_codes\x18\x04 \x03(\x0e2\x14.runko.v1.ReasonCodeR\vreasonCodes\x12%\n" +
-	"\x0erun_everything\x18\x05 \x01(\bR\rrunEverything\"\xce\x02\n" +
+	"\x0erun_everything\x18\x05 \x01(\bR\rrunEverything\"\x9e\x03\n" +
 	"\rChangeSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12+\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x15.runko.v1.ChangeStateR\x05state\x12\x19\n" +
@@ -1441,7 +1463,9 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"authoredBy\x12\x16\n" +
 	"\x06number\x18\n" +
 	" \x01(\x03R\x06number\x12\x10\n" +
-	"\x03url\x18\v \x01(\tR\x03url\"\xc4\x01\n" +
+	"\x03url\x18\v \x01(\tR\x03url\x12)\n" +
+	"\x10origin_workspace\x18\f \x01(\tR\x0foriginWorkspace\x12#\n" +
+	"\rorigin_branch\x18\r \x01(\tR\foriginBranch\"\xc4\x01\n" +
 	"\x11MergeRequirements\x12\x1b\n" +
 	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12+\n" +
 	"\x06owners\x18\x02 \x01(\v2\x13.runko.v1.OwnerGateR\x06owners\x12+\n" +

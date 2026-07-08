@@ -782,6 +782,36 @@ func TestEndToEndDaemonWorkspaces(t *testing.T) {
 	if !strings.Contains(string(content), "precious WIP") {
 		t.Fatalf("restored WIP content mismatch: %q", content)
 	}
+
+	// §12.2 branch ↔ stack provenance, across every real process boundary:
+	// `runko change push` from an attached worktree stamps its
+	// runko.workspace/runko.branch config as push options; receive-pack
+	// exposes them to the real hook; the hook forwards them beside the
+	// quarantine vars; the daemon validates against the registry and
+	// records them on the Change.
+	if err := os.WriteFile(filepath.Join(restored, "commerce/checkout/retries.go"), []byte("package main // tuned\n"), 0o644); err != nil {
+		t.Fatalf("write retries.go: %v", err)
+	}
+	mustRunko(restored, "change", "create", "-m", "checkout: tune retries")
+	pushOut := mustRunko(restored, "change", "push")
+	m = regexp.MustCompile(`(I[0-9a-f]{40})`).FindStringSubmatch(pushOut)
+	if m == nil {
+		t.Fatalf("no Change-Id in change push output:\n%s", pushOut)
+	}
+	chReq, _ := http.NewRequest(http.MethodGet, baseURL+"/api/changes/"+m[1], nil)
+	chReq.Header.Set("Authorization", "Bearer "+token)
+	chResp, err := http.DefaultClient.Do(chReq)
+	if err != nil || chResp.StatusCode != http.StatusOK {
+		t.Fatalf("get change: %v (%v)", err, chResp)
+	}
+	var ch struct{ OriginWorkspace, OriginBranch string }
+	if err := json.NewDecoder(chResp.Body).Decode(&ch); err != nil {
+		t.Fatalf("decode change: %v", err)
+	}
+	chResp.Body.Close()
+	if ch.OriginWorkspace != "payments-fix" || ch.OriginBranch != "head" {
+		t.Fatalf("expected origin payments-fix/head recorded on the Change, got %+v", ch)
+	}
 }
 
 // TestEndToEndDaemonSearchNotConfigured proves the real compiled daemon,

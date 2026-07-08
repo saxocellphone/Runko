@@ -340,6 +340,13 @@ const (
 	// (§15.1 interim registry): requireGitAuth set REMOTE_USER on the CGI
 	// env, the hook inherited it and forwards it here.
 	headerRemoteUser = "X-Runko-Remote-User"
+	// headerPushOption carries the push's `git push -o` options (one header
+	// value per option, in order) - receive-pack exposes them to the hook
+	// as GIT_PUSH_OPTION_COUNT/GIT_PUSH_OPTION_<n>, which the daemon
+	// reconstructs so the funnel sees exactly the env a local hook would
+	// (§12.2 provenance: `runko change push` sends workspace=<id> /
+	// workspace-branch=<name>).
+	headerPushOption = "X-Runko-Push-Option"
 )
 
 // handlePreReceive is the internal callback the installed pre-receive hook
@@ -366,6 +373,12 @@ func (s *Server) handlePreReceive(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := r.Header.Get(headerRemoteUser); v != "" {
 		extraEnv = append(extraEnv, "REMOTE_USER="+v)
+	}
+	if opts := r.Header.Values(headerPushOption); len(opts) > 0 {
+		extraEnv = append(extraEnv, fmt.Sprintf("GIT_PUSH_OPTION_COUNT=%d", len(opts)))
+		for i, opt := range opts {
+			extraEnv = append(extraEnv, fmt.Sprintf("GIT_PUSH_OPTION_%d=%s", i, opt))
+		}
 	}
 
 	results := s.Processor.ProcessBatch(r.Context(), updates, extraEnv)

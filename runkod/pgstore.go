@@ -85,13 +85,13 @@ func BootstrapPostgresStore(ctx context.Context, dsn, orgName, trunkRef string) 
 	}, nil
 }
 
-func (s *PostgresStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy string) (Change, error) {
+func (s *PostgresStore) CreateOrUpdateChange(ctx context.Context, changeKey, baseSHA, headSHA, gitRef, title, authoredBy, originWorkspace, originBranch string) (Change, error) {
 	authorID, err := s.actorIDFor(ctx, authoredBy)
 	if err != nil {
 		return Change{}, err
 	}
 	decision := receive.Decision{Accepted: true, ChangeID: changeKey}
-	c, err := receive.CreateOrUpdateChange(ctx, s.Pool, s.Queries, s.MonorepoID, authorID, decision, baseSHA, headSHA, gitRef, title)
+	c, err := receive.CreateOrUpdateChange(ctx, s.Pool, s.Queries, s.MonorepoID, authorID, decision, baseSHA, headSHA, gitRef, title, originWorkspace, originBranch)
 	if err != nil {
 		return Change{}, err
 	}
@@ -197,6 +197,7 @@ func (s *PostgresStore) hydrateChange(ctx context.Context, c *dbgen.Change) (Cha
 	ch := Change{
 		ChangeKey: c.ChangeKey, State: string(c.State),
 		BaseSHA: c.BaseSha, HeadSHA: c.HeadSha, GitRef: c.GitRef, Title: c.Title,
+		OriginWorkspace: c.OriginWorkspace, OriginBranch: c.OriginBranch,
 	}
 	if c.LandedSha != nil {
 		ch.LandedSHA = *c.LandedSha

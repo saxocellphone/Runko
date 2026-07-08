@@ -9,7 +9,7 @@ import { useRpc } from "../lib/useRpc";
 import { DiffView } from "../components/DiffView";
 import { MergeGates } from "../components/MergeGates";
 import { StackRail } from "../components/StackRail";
-import { AuthorChip, BackLink, ErrorNote, InfoTip, Spinner, StateBadge } from "../components/ui";
+import { AuthorChip, BackLink, ErrorNote, InfoTip, OriginChip, Spinner, StateBadge } from "../components/ui";
 
 export function ChangePage() {
   const { changeId = "" } = useParams();
@@ -83,6 +83,12 @@ export function ChangePage() {
             {change.id.slice(0, 13)}…
           </span>
           <AuthorChip author={change.authoredBy} />
+          {change.originWorkspace && (
+            <>
+              <OriginChip workspace={change.originWorkspace} branch={change.originBranch} />
+              <InfoTip text="The workspace branch this change was pushed from (§12.2): one workspace branch carries one stack. Recorded at push time from the worktree's own runko.workspace/runko.branch config, validated against the registry." />
+            </>
+          )}
           <span className="mono" title={`base ${change.baseSha}`}>
             base {shortSha(change.baseSha)}
           </span>

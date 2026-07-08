@@ -57,7 +57,7 @@ func TestPostgresApplyMigrationsFromEmptyDatabase(t *testing.T) {
 		t.Fatalf("BootstrapPostgresStore: %v", err)
 	}
 	defer store.Pool.Close()
-	if _, err := store.CreateOrUpdateChange(ctx, "Imig", "b", "h", "r", "t", "alice"); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "Imig", "b", "h", "r", "t", "alice", "", ""); err != nil {
 		t.Fatalf("CreateOrUpdateChange on migrated schema: %v", err)
 	}
 }

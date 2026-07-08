@@ -64,7 +64,22 @@ func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
 		}
 	}
 
-	if _, err := runGit(repoDir, "push", remote, "+HEAD:refs/for/"+trunk); err != nil {
+	// §12.2 provenance: a worktree attached via `runko workspace
+	// create/attach` carries runko.workspace/runko.branch in its git
+	// config - stamp them onto the push as push options so the funnel can
+	// record which workspace branch this Change (and so its stack) lives
+	// on. Plain clones have neither key and push exactly as before.
+	args := []string{"push"}
+	if ws, _ := runGit(repoDir, "config", "runko.workspace"); ws != "" {
+		args = append(args, "--push-option=workspace="+ws)
+		branch, _ := runGit(repoDir, "config", "runko.branch")
+		if branch == "" {
+			branch = "head"
+		}
+		args = append(args, "--push-option=workspace-branch="+branch)
+	}
+	args = append(args, remote, "+HEAD:refs/for/"+trunk)
+	if _, err := runGit(repoDir, args...); err != nil {
 		return "", fmt.Errorf("push to refs/for/%s: %w", trunk, err)
 	}
 	return id, nil

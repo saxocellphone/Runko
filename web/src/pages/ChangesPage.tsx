@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { changesClient } from "../api/client";
 import { ChangeState, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import { changeNumberLabel, shortChangeId } from "../lib/format";
-import { buildStackForest, layoutStack, stackHasFork, stackSize, type StackNode } from "../lib/stacks";
+import { buildStackForest, layoutStack, stackHasFork, stackOrigin, stackSize, type StackNode } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
 import { RailGraphRow, RailGraphTrunk } from "../components/RailGraph";
 import {
@@ -12,6 +12,7 @@ import {
   EmptyState,
   ErrorNote,
   MergeableChip,
+  OriginChip,
   ReviewChip,
   Spinner,
   StateBadge,
@@ -105,11 +106,17 @@ function StackCard({
 }) {
   const layout = layoutStack(root);
   const size = stackSize(root);
+  const origin = stackOrigin(root);
   return (
     <section className="card stack-card">
-      {size > 1 && (
+      {(size > 1 || origin) && (
         <header className="stack-card-head">
-          Stack · {size} changes{stackHasFork(root) ? " · forked" : ""}
+          <span>
+            {size > 1
+              ? `Stack · ${size} changes${stackHasFork(root) ? " · forked" : ""}`
+              : "Stack · 1 change"}
+          </span>
+          {origin && <OriginChip workspace={origin.workspace} branch={origin.branch} />}
         </header>
       )}
       {layout.rows.map(({ change: c }, i) => (
@@ -128,6 +135,9 @@ function StackCard({
               <span>{changeNumberLabel(c.number)}</span>
               <span className="mono">{shortChangeId(c.id)}</span>
               <AuthorChip author={c.authoredBy} />
+              {origin && c.originWorkspace && c.originBranch !== origin.branch && (
+                <OriginChip workspace={c.originWorkspace} branch={c.originBranch} branchOnly />
+              )}
             </span>
           </div>
           <span className="change-chips">

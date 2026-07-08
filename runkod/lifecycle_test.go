@@ -108,13 +108,13 @@ func TestAbandonReopenAndLandRefusal(t *testing.T) {
 func TestRepushReopensAbandonedChange(t *testing.T) {
 	store := NewMemStore()
 	ctx := context.Background()
-	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "b1", "h1", "refs/changes/1/head", "t", ""); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "b1", "h1", "refs/changes/1/head", "t", "", "", ""); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if _, err := store.MarkChangeAbandoned(ctx, "Iabc"); err != nil {
 		t.Fatalf("abandon: %v", err)
 	}
-	reopened, err := store.CreateOrUpdateChange(ctx, "Iabc", "b1", "h2", "refs/changes/1/head", "t", "")
+	reopened, err := store.CreateOrUpdateChange(ctx, "Iabc", "b1", "h2", "refs/changes/1/head", "t", "", "", "")
 	if err != nil {
 		t.Fatalf("re-push: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestRepushReopensAbandonedChange(t *testing.T) {
 func TestAbandonLandedChangeRefused(t *testing.T) {
 	store := NewMemStore()
 	ctx := context.Background()
-	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "b1", "h1", "refs/changes/1/head", "t", ""); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "b1", "h1", "refs/changes/1/head", "t", "", "", ""); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if _, err := store.MarkChangeLanded(ctx, "Iabc", "h1", ""); err != nil {

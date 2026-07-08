@@ -1428,3 +1428,75 @@ tr.hunk-head td {
 .login-link:hover {
   text-decoration: underline;
 }
+
+/* ---- §12.2 provenance: workspace branch ↔ stack ---- */
+
+/* OriginChip: names the workspace branch a change/stack was pushed from. */
+a.chip-origin {
+  color: var(--accent);
+  background: var(--accent-soft);
+  text-decoration: none;
+  font-size: 11px;
+}
+a.chip-origin:hover {
+  filter: brightness(1.08);
+}
+.stack-card-head .chip-origin {
+  margin-left: auto;
+}
+
+/* Workspaces page: each branch with its in-flight stack. */
+.ws-branch {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+}
+.ws-branch + .ws-branch {
+  border-top: 1px dashed var(--border);
+}
+.ws-branch-empty {
+  color: var(--text-3);
+  font-size: 11.5px;
+  padding-top: 2px;
+}
+.ws-branch-stack {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Mini stack rail: trunk at the bottom, like the changes inbox. */
+.ws-branch-stack li {
+  position: relative;
+  padding-left: 14px;
+}
+.ws-branch-stack li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.ws-branch-stack li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 13px;
+  bottom: -9px;
+  width: 1.5px;
+  background: var(--border);
+}
+.ws-branch-change {
+  color: var(--text-1);
+  text-decoration: none;
+  font-size: 12px;
+}
+.ws-branch-change:hover {
+  color: var(--accent);
+}

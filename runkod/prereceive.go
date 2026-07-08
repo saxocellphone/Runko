@@ -77,6 +77,11 @@ type verdict struct {
 	extraEnv     []string
 	author       string // pushing principal's name (REMOTE_USER); "" for the anonymous deploy token
 	evalErr      string // set on an I/O failure evaluating this ref (git diff/log failed)
+	// origin* is push provenance for magic-ref pushes (§12.2's branch ↔
+	// stack mapping): the workspace branch the pusher declared via push
+	// options, validated against the registry before acceptance.
+	originWorkspace string
+	originBranch    string
 }
 
 func (v verdict) accepted() bool { return v.evalErr == "" && (v.skip || v.decision.Accepted) }
@@ -197,6 +202,12 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		return verdict{update: u, skip: true}
 	}
 
+	author := remoteUser(extraEnv)
+	originWS, originBranch, originVerdict := p.resolveOrigin(ctx, u, extraEnv, author)
+	if originVerdict != nil {
+		return *originVerdict
+	}
+
 	changedPaths, files, err := p.diff(u.OldSHA, u.NewSHA, extraEnv)
 	if err != nil {
 		return verdict{update: u, evalErr: fmt.Sprintf("remote: could not inspect push: %v\n", err)}
@@ -211,7 +222,6 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		Files: files, ChangedPaths: changedPaths,
 		ChangeIDSeed: u.NewSHA,
 	}
-	author := remoteUser(extraEnv)
 	if pr := p.principalByName(author); pr != nil && pr.IsAgent {
 		// Stage 12c: the first wire-level feed for the AgentPolicy
 		// enforcement stage 6 built (§8.7). DiffBytes is the sum of changed
@@ -227,8 +237,81 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 	}
 	return verdict{
 		update: u, changedPaths: changedPaths, extraEnv: extraEnv, author: author,
+		originWorkspace: originWS, originBranch: originBranch,
 		decision: receive.Decide(req, p.Scanner),
 	}
+}
+
+// pushOptions reads the push options git receive-pack exposed to the
+// pre-receive hook (GIT_PUSH_OPTION_COUNT / GIT_PUSH_OPTION_<n>) out of the
+// forwarded env - the same transport quarantine vars and REMOTE_USER ride.
+func pushOptions(extraEnv []string) []string {
+	byIndex := map[string]string{}
+	for _, kv := range extraEnv {
+		rest, ok := strings.CutPrefix(kv, "GIT_PUSH_OPTION_")
+		if !ok {
+			continue
+		}
+		idx, val, ok := strings.Cut(rest, "=")
+		if !ok || idx == "COUNT" {
+			continue
+		}
+		byIndex[idx] = val
+	}
+	opts := make([]string, 0, len(byIndex))
+	for i := 0; ; i++ {
+		val, ok := byIndex[fmt.Sprintf("%d", i)]
+		if !ok {
+			break
+		}
+		opts = append(opts, val)
+	}
+	return opts
+}
+
+// resolveOrigin extracts and validates the §12.2 workspace-branch
+// provenance a magic-ref push may declare via push options
+// (`workspace=<id>`, `workspace-branch=<name>`; `runko change push` stamps
+// them from its worktree's own runko.workspace/runko.branch config).
+// Returns a rejection verdict when the declared workspace doesn't exist or
+// belongs to someone else - a wrong claim is a misconfigured worktree (or a
+// spoof), and recording it silently would pin the Change to the wrong stack
+// in every view; fail loud, same posture as snapshot pushes. No options is
+// fine: provenance is advisory, plain git stays a first-class pusher.
+func (p *Processor) resolveOrigin(ctx context.Context, u RefUpdate, extraEnv []string, author string) (wsID, branch string, rejection *verdict) {
+	for _, opt := range pushOptions(extraEnv) {
+		if v, ok := strings.CutPrefix(opt, "workspace="); ok {
+			wsID = v
+		}
+		if v, ok := strings.CutPrefix(opt, "workspace-branch="); ok {
+			branch = v
+		}
+	}
+	if wsID == "" {
+		return "", "", nil
+	}
+	if branch == "" {
+		branch = "head" // the §12.2 default branch
+	}
+	ws, registered, err := p.Store.GetWorkspace(ctx, wsID)
+	if err != nil {
+		return "", "", &verdict{update: u, evalErr: fmt.Sprintf("remote: workspace lookup failed: %v\n", err)}
+	}
+	if !registered {
+		return "", "", &verdict{update: u, decision: receive.Decision{
+			Accepted: false,
+			RejectionMessage: fmt.Sprintf("remote: this push declares workspace %q as its origin, but no such workspace is registered\nremote:   -> re-attach with `runko workspace attach <id>`, or unset runko.workspace in this worktree's git config\n",
+				wsID),
+		}}
+	}
+	if author != "" && ws.Owner != "" && author != ws.Owner {
+		return "", "", &verdict{update: u, decision: receive.Decision{
+			Accepted: false,
+			RejectionMessage: fmt.Sprintf("remote: workspace %q belongs to %s - a Change cannot claim someone else's workspace as its origin (§12.2)\nremote:   -> unset runko.workspace in this worktree's git config, or attach your own workspace\n",
+				wsID, ws.Owner),
+		}}
+	}
+	return wsID, branch, nil
 }
 
 func totalContentBytes(files []receive.FileContent) int64 {
@@ -371,7 +454,7 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 	}
 
 	base := p.computeBaseSHA(v.update, v.extraEnv)
-	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, changeRef, firstLine(d.CommitMessage), v.author)
+	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, changeRef, firstLine(d.CommitMessage), v.author, v.originWorkspace, v.originBranch)
 	if err != nil {
 		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
 	}

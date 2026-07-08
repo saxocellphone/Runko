@@ -104,6 +104,9 @@ const mkChange = (init: {
   author: typeof val;
   state?: ChangeState;
   landedSeed?: string;
+  // §12.2 provenance: the workspace branch this Change was pushed from
+  // (one branch carries one stack). Omitted = a workspace-less push.
+  origin?: { workspace: string; branch: string };
 }): ChangeSummary => {
   const id = changeId(init.seed);
   return create(ChangeSummarySchema, {
@@ -118,6 +121,8 @@ const mkChange = (init: {
     authoredBy: init.author,
     number: BigInt(init.number),
     url: "",
+    originWorkspace: init.origin?.workspace ?? "",
+    originBranch: init.origin?.branch ?? "",
   });
 };
 
@@ -125,6 +130,7 @@ const mkChange = (init: {
 // previous change's head (the derived relation GetChangeStack serves).
 export const stackBottom = mkChange({
   seed: "sku-validate-cart",
+  origin: { workspace: "sku-validation", branch: "head" },
   number: 342,
   title: "cart: validate SKU format at parse time",
   description:
@@ -138,6 +144,7 @@ export const stackBottom = mkChange({
 
 export const stackMiddle = mkChange({
   seed: "sku-reject-checkout",
+  origin: { workspace: "sku-validation", branch: "head" },
   number: 343,
   title: "checkout-api: reject invalid SKUs with a structured error",
   description:
@@ -150,6 +157,7 @@ export const stackMiddle = mkChange({
 
 export const stackTop = mkChange({
   seed: "sku-surface-storefront",
+  origin: { workspace: "sku-validation", branch: "head" },
   number: 344,
   title: "storefront: surface SKU errors inline at add-to-cart",
   description:
@@ -166,6 +174,7 @@ export const stackTop = mkChange({
 // linearized or duplicated prefix.
 export const stackFork = mkChange({
   seed: "sku-inline-cart-errors",
+  origin: { workspace: "sku-validation", branch: "inline-errors" },
   number: 346,
   title: "cart: surface SKU errors from the cart API instead",
   description:
@@ -178,6 +187,7 @@ export const stackFork = mkChange({
 
 export const soloChange = mkChange({
   seed: "authz-cache",
+  origin: { workspace: "authz-cache", branch: "head" },
   number: 341,
   title: "authz: cache group membership lookups (5m TTL)",
   description: "Membership checks were 40% of p99 on hot endpoints.",
@@ -188,6 +198,7 @@ export const soloChange = mkChange({
 
 export const agentChange = mkChange({
   seed: "bot-config-migrate",
+  origin: { workspace: "refactor-bot-cfg", branch: "head" },
   number: 345,
   title: "checkout-api: migrate config parsing to internal/config",
   description:

@@ -72,6 +72,10 @@ func EnableHTTPReceivePack(repoDir string) error {
 	for _, kv := range [][2]string{
 		{"http.receivepack", "true"},
 		{"uploadpack.allowFilter", "true"},
+		// Without this a `git push -o ...` client errors out with "the
+		// receiving end does not support push options" - runko change push
+		// uses options to carry §12.2 workspace-branch provenance.
+		{"receive.advertisePushOptions", "true"},
 	} {
 		cmd := exec.Command("git", "config", kv[0], kv[1])
 		cmd.Dir = repoDir

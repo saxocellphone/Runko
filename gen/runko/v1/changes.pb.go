@@ -463,8 +463,12 @@ func (x *GetChangeStackRequest) GetChangeId() string {
 
 type GetChangeStackResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Trunk-most first: changes[0] is the Change whose base is on trunk,
-	// each subsequent entry is stacked on the previous one's head. Always
+	// The requested Change's whole related tree: its trunk-most ancestor
+	// first, then every descendant in pre-order (each parent before its
+	// children, siblings deterministic). Stacks can FORK - e.g. two
+	// workspace branches (§12.2) building on one base - so this is a tree
+	// flattened to a list; clients rebuild the edges from the same
+	// B.base_sha == A.head_sha relation that defines the stack. Always
 	// contains at least the requested Change itself.
 	Changes []*ChangeSummary `protobuf:"bytes,1,rep,name=changes,proto3" json:"changes,omitempty"`
 	// Index of the requested Change within `changes`.

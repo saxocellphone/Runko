@@ -151,6 +151,14 @@ message ChangeSummary {
   Actor authored_by = 9;
   int64 number = 10;  // not yet served: monotonic change number (Postgres-only today)
   string url = 11;    // not yet served: canonical web URL, needs stage 13's URL scheme
+  // Provenance: the workspace branch this Change was pushed from (§12.2's
+  // branch ↔ stack mapping - each workspace branch is expected to carry
+  // exactly one stack). Recorded from `runko change push`'s push options,
+  // validated against the workspace registry at receive time; empty for
+  // plain-git pushers, the web create-project flow, and bot lanes -
+  // advisory metadata, never a gate.
+  string origin_workspace = 12;
+  string origin_branch = 13;
 }
 
 // The same structure surfaced to humans (Change page) and agents

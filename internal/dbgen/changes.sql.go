@@ -13,7 +13,7 @@ import (
 )
 
 const abandonChange = `-- name: AbandonChange :one
-UPDATE changes SET state = 'abandoned', updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id
+UPDATE changes SET state = 'abandoned', updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch
 `
 
 func (q *Queries) AbandonChange(ctx context.Context, db DBTX, id uuid.UUID) (*Change, error) {
@@ -39,6 +39,8 @@ func (q *Queries) AbandonChange(ctx context.Context, db DBTX, id uuid.UUID) (*Ch
 		&i.LandedAt,
 		&i.LandedSha,
 		&i.LandedByActorID,
+		&i.OriginWorkspace,
+		&i.OriginBranch,
 	)
 	return &i, err
 }
@@ -75,10 +77,11 @@ func (q *Queries) AddChangeAssistedBy(ctx context.Context, db DBTX, arg AddChang
 const createChange = `-- name: CreateChange :one
 INSERT INTO changes (
     monorepo_id, change_key, state, base_sha, head_sha, git_ref, title,
-    description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical
+    description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical,
+    origin_workspace, origin_branch
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-) RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+) RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch
 `
 
 type CreateChangeParams struct {
@@ -94,6 +97,8 @@ type CreateChangeParams struct {
 	AuthoredByActorID uuid.UUID   `json:"authored_by_actor_id"`
 	DependsOnChangeID pgtype.UUID `json:"depends_on_change_id"`
 	Mechanical        bool        `json:"mechanical"`
+	OriginWorkspace   string      `json:"origin_workspace"`
+	OriginBranch      string      `json:"origin_branch"`
 }
 
 func (q *Queries) CreateChange(ctx context.Context, db DBTX, arg CreateChangeParams) (*Change, error) {
@@ -110,6 +115,8 @@ func (q *Queries) CreateChange(ctx context.Context, db DBTX, arg CreateChangePar
 		arg.AuthoredByActorID,
 		arg.DependsOnChangeID,
 		arg.Mechanical,
+		arg.OriginWorkspace,
+		arg.OriginBranch,
 	)
 	var i Change
 	err := row.Scan(
@@ -132,6 +139,8 @@ func (q *Queries) CreateChange(ctx context.Context, db DBTX, arg CreateChangePar
 		&i.LandedAt,
 		&i.LandedSha,
 		&i.LandedByActorID,
+		&i.OriginWorkspace,
+		&i.OriginBranch,
 	)
 	return &i, err
 }
@@ -171,7 +180,7 @@ func (q *Queries) CreateChangeComment(ctx context.Context, db DBTX, arg CreateCh
 }
 
 const getChange = `-- name: GetChange :one
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id FROM changes WHERE id = $1
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch FROM changes WHERE id = $1
 `
 
 func (q *Queries) GetChange(ctx context.Context, db DBTX, id uuid.UUID) (*Change, error) {
@@ -197,6 +206,8 @@ func (q *Queries) GetChange(ctx context.Context, db DBTX, id uuid.UUID) (*Change
 		&i.LandedAt,
 		&i.LandedSha,
 		&i.LandedByActorID,
+		&i.OriginWorkspace,
+		&i.OriginBranch,
 	)
 	return &i, err
 }
@@ -226,7 +237,7 @@ func (q *Queries) GetChangeAffected(ctx context.Context, db DBTX, arg GetChangeA
 }
 
 const getChangeByKey = `-- name: GetChangeByKey :one
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id FROM changes WHERE monorepo_id = $1 AND change_key = $2
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch FROM changes WHERE monorepo_id = $1 AND change_key = $2
 `
 
 type GetChangeByKeyParams struct {
@@ -257,12 +268,14 @@ func (q *Queries) GetChangeByKey(ctx context.Context, db DBTX, arg GetChangeByKe
 		&i.LandedAt,
 		&i.LandedSha,
 		&i.LandedByActorID,
+		&i.OriginWorkspace,
+		&i.OriginBranch,
 	)
 	return &i, err
 }
 
 const landChange = `-- name: LandChange :one
-UPDATE changes SET state = 'landed', landed_at = now(), landed_sha = $2, landed_by_actor_id = $3, updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id
+UPDATE changes SET state = 'landed', landed_at = now(), landed_sha = $2, landed_by_actor_id = $3, updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch
 `
 
 type LandChangeParams struct {
@@ -294,12 +307,14 @@ func (q *Queries) LandChange(ctx context.Context, db DBTX, arg LandChangeParams)
 		&i.LandedAt,
 		&i.LandedSha,
 		&i.LandedByActorID,
+		&i.OriginWorkspace,
+		&i.OriginBranch,
 	)
 	return &i, err
 }
 
 const listAllChanges = `-- name: ListAllChanges :many
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id FROM changes WHERE monorepo_id = $1 ORDER BY number DESC
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch FROM changes WHERE monorepo_id = $1 ORDER BY number DESC
 `
 
 func (q *Queries) ListAllChanges(ctx context.Context, db DBTX, monorepoID uuid.UUID) ([]*Change, error) {
@@ -331,6 +346,8 @@ func (q *Queries) ListAllChanges(ctx context.Context, db DBTX, monorepoID uuid.U
 			&i.LandedAt,
 			&i.LandedSha,
 			&i.LandedByActorID,
+			&i.OriginWorkspace,
+			&i.OriginBranch,
 		); err != nil {
 			return nil, err
 		}
@@ -486,7 +503,7 @@ func (q *Queries) ListChangeOwnerRequirements(ctx context.Context, db DBTX, chan
 }
 
 const listChangesByState = `-- name: ListChangesByState :many
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id FROM changes WHERE monorepo_id = $1 AND state = $2 ORDER BY number DESC
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch FROM changes WHERE monorepo_id = $1 AND state = $2 ORDER BY number DESC
 `
 
 type ListChangesByStateParams struct {
@@ -523,6 +540,8 @@ func (q *Queries) ListChangesByState(ctx context.Context, db DBTX, arg ListChang
 			&i.LandedAt,
 			&i.LandedSha,
 			&i.LandedByActorID,
+			&i.OriginWorkspace,
+			&i.OriginBranch,
 		); err != nil {
 			return nil, err
 		}
@@ -535,7 +554,7 @@ func (q *Queries) ListChangesByState(ctx context.Context, db DBTX, arg ListChang
 }
 
 const listOpenChanges = `-- name: ListOpenChanges :many
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number DESC LIMIT $2 OFFSET $3
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number DESC LIMIT $2 OFFSET $3
 `
 
 type ListOpenChangesParams struct {
@@ -573,6 +592,8 @@ func (q *Queries) ListOpenChanges(ctx context.Context, db DBTX, arg ListOpenChan
 			&i.LandedAt,
 			&i.LandedSha,
 			&i.LandedByActorID,
+			&i.OriginWorkspace,
+			&i.OriginBranch,
 		); err != nil {
 			return nil, err
 		}
@@ -625,7 +646,7 @@ func (q *Queries) SetChangeOwnerRequirement(ctx context.Context, db DBTX, arg Se
 }
 
 const updateChangeDescription = `-- name: UpdateChangeDescription :one
-UPDATE changes SET description = $2, test_plan = $3, updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id
+UPDATE changes SET description = $2, test_plan = $3, updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch
 `
 
 type UpdateChangeDescriptionParams struct {
@@ -657,15 +678,19 @@ func (q *Queries) UpdateChangeDescription(ctx context.Context, db DBTX, arg Upda
 		&i.LandedAt,
 		&i.LandedSha,
 		&i.LandedByActorID,
+		&i.OriginWorkspace,
+		&i.OriginBranch,
 	)
 	return &i, err
 }
 
 const updateChangeHead = `-- name: UpdateChangeHead :one
 UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, base_sha = $5,
+    origin_workspace = CASE WHEN $6::text = '' THEN changes.origin_workspace ELSE $6::text END,
+    origin_branch = CASE WHEN $6::text = '' THEN changes.origin_branch ELSE $7::text END,
     state = CASE WHEN changes.state = 'abandoned' THEN 'open'::change_state ELSE changes.state END,
     updated_at = now()
-WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id
+WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch
 `
 
 type UpdateChangeHeadParams struct {
@@ -674,6 +699,8 @@ type UpdateChangeHeadParams struct {
 	GitRef            string    `json:"git_ref"`
 	AuthoredByActorID uuid.UUID `json:"authored_by_actor_id"`
 	BaseSha           string    `json:"base_sha"`
+	OriginWorkspace   string    `json:"origin_workspace"`
+	OriginBranch      string    `json:"origin_branch"`
 }
 
 // authored_by_actor_id moves with the head: the last pusher owns the
@@ -683,7 +710,9 @@ type UpdateChangeHeadParams struct {
 // time value made §13.5's requires_revalidation a permanent dead end.
 // Re-pushing an abandoned Change reopens it (§7.4 - the change.reopened
 // webhook event modeled this from day one); landed stays landed, it is
-// terminal.
+// terminal. Origin provenance (§12.2 branch ↔ stack) moves with the head
+// when the push carries it, and is PRESERVED when it doesn't - a plain-git
+// amend of a workspace Change must not erase where the Change lives.
 func (q *Queries) UpdateChangeHead(ctx context.Context, db DBTX, arg UpdateChangeHeadParams) (*Change, error) {
 	row := db.QueryRow(ctx, updateChangeHead,
 		arg.ID,
@@ -691,6 +720,8 @@ func (q *Queries) UpdateChangeHead(ctx context.Context, db DBTX, arg UpdateChang
 		arg.GitRef,
 		arg.AuthoredByActorID,
 		arg.BaseSha,
+		arg.OriginWorkspace,
+		arg.OriginBranch,
 	)
 	var i Change
 	err := row.Scan(
@@ -713,6 +744,8 @@ func (q *Queries) UpdateChangeHead(ctx context.Context, db DBTX, arg UpdateChang
 		&i.LandedAt,
 		&i.LandedSha,
 		&i.LandedByActorID,
+		&i.OriginWorkspace,
+		&i.OriginBranch,
 	)
 	return &i, err
 }

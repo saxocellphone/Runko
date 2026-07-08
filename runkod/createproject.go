@@ -104,7 +104,9 @@ func (s *Server) createProjectCore(ctx context.Context, intent project.Intent, p
 		return Change{}, internalErr(fmt.Errorf("write change ref: %w", err))
 	}
 
-	change, err := s.Store.CreateOrUpdateChange(ctx, changeID, baseSHA, string(rev), changeRef, title, authoredBy)
+	// No origin workspace: UI/RPC project creation is a workspace-less
+	// write path by design (§12.2 provenance is advisory, not required).
+	change, err := s.Store.CreateOrUpdateChange(ctx, changeID, baseSHA, string(rev), changeRef, title, authoredBy, "", "")
 	if err != nil {
 		return Change{}, internalErr(fmt.Errorf("record change: %w", err))
 	}

@@ -699,13 +699,15 @@ func (r *rpcServer) GetBlob(ctx context.Context, req *connect.Request[runkov1.Ge
 // contract for that).
 func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
 	out := &runkov1.ChangeSummary{
-		Id:        c.ChangeKey,
-		State:     protoChangeState(c.State),
-		BaseSha:   c.BaseSHA,
-		HeadSha:   c.HeadSHA,
-		GitRef:    c.GitRef,
-		Title:     c.Title,
-		LandedSha: c.LandedSHA,
+		Id:              c.ChangeKey,
+		State:           protoChangeState(c.State),
+		BaseSha:         c.BaseSHA,
+		HeadSha:         c.HeadSHA,
+		GitRef:          c.GitRef,
+		Title:           c.Title,
+		LandedSha:       c.LandedSHA,
+		OriginWorkspace: c.OriginWorkspace,
+		OriginBranch:    c.OriginBranch,
 	}
 	if c.AuthoredBy != "" {
 		t := runkov1.ActorType_ACTOR_TYPE_USER

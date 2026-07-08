@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -305,6 +306,15 @@ func cmdHook(args []string) {
 	// this hook as ordinary process environment.
 	if v := os.Getenv("REMOTE_USER"); v != "" {
 		req.Header.Set("X-Runko-Remote-User", v)
+	}
+	// Forward `git push -o` options the same way (§12.2 provenance:
+	// runko change push stamps workspace=<id>/workspace-branch=<name>):
+	// receive-pack exposes them to this hook process only, as
+	// GIT_PUSH_OPTION_COUNT + GIT_PUSH_OPTION_<n>.
+	if count, err := strconv.Atoi(os.Getenv("GIT_PUSH_OPTION_COUNT")); err == nil {
+		for i := 0; i < count; i++ {
+			req.Header.Add("X-Runko-Push-Option", os.Getenv(fmt.Sprintf("GIT_PUSH_OPTION_%d", i)))
+		}
 	}
 
 	resp, err := http.DefaultClient.Do(req)

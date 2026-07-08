@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { ChangeState, ChangeSummarySchema, type ChangeSummary } from "../gen/runko/v1/common_pb";
-import { buildStackForest, layoutStack, railCells, stackSize } from "./stacks";
+import { buildStackForest, changesByOrigin, layoutStack, railCells, stackOrigin, stackSize } from "./stacks";
 import { createFakeTransport } from "../api/fake/transport";
 import { createClient } from "@connectrpc/connect";
 import { ChangeService } from "../gen/runko/v1/changes_pb";
@@ -179,5 +179,47 @@ describe("fake RepoService", () => {
   it("404s unknown paths", async () => {
     await expect(repo().getTree({ path: "no/such/dir" })).rejects.toThrow(/not found/);
     await expect(repo().getBlob({ path: "no/such/file.go" })).rejects.toThrow(/not found/);
+  });
+});
+
+// §12.2 provenance: workspace branch ↔ stack.
+describe("stackOrigin / changesByOrigin", () => {
+  const withOrigin = (id: string, base: string, head: string, number: number, ws: string, branch: string) =>
+    create(ChangeSummarySchema, {
+      id,
+      state: ChangeState.OPEN,
+      baseSha: base,
+      headSha: head,
+      number: BigInt(number),
+      originWorkspace: ws,
+      originBranch: branch,
+    });
+
+  it("stackOrigin walks past provenance-less changes to name the stack's workspace", () => {
+    const [root] = buildStackForest([
+      c("bottom", "T", "A", 1), // plain-git push, no provenance
+      withOrigin("top", "A", "B", 2, "sku-validation", "head"),
+    ]);
+    expect(stackOrigin(root!)).toEqual({ workspace: "sku-validation", branch: "head" });
+  });
+
+  it("stackOrigin is undefined when nothing in the stack carries provenance", () => {
+    const [root] = buildStackForest([c("only", "T", "A", 1)]);
+    expect(stackOrigin(root!)).toBeUndefined();
+  });
+
+  it("changesByOrigin groups per workspace branch, base-most first, and omits the provenance-less", () => {
+    const groups = changesByOrigin([
+      withOrigin("fork", "A", "F", 4, "sku-validation", "inline-errors"),
+      withOrigin("top", "A", "B", 3, "sku-validation", "head"),
+      withOrigin("bottom", "T", "A", 1, "sku-validation", "head"),
+      c("plain", "T", "P", 2),
+    ]);
+    expect([...groups.keys()].sort()).toEqual([
+      "sku-validation/head",
+      "sku-validation/inline-errors",
+    ]);
+    expect(groups.get("sku-validation/head")!.map((x) => x.id)).toEqual(["bottom", "top"]);
+    expect(groups.get("sku-validation/inline-errors")!.map((x) => x.id)).toEqual(["fork"]);
   });
 });

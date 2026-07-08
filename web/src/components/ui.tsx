@@ -88,6 +88,51 @@ export function AuthorChip({ author }: { author: Actor | undefined }) {
   return <span>{actorLabel(author)}</span>;
 }
 
+// OriginChip names the workspace branch a Change (and so its stack) was
+// pushed from - §12.2's branch ↔ stack mapping made visible. Renders
+// nothing for Changes with no provenance (plain-git pushers, the web
+// create-project flow, bot lanes).
+export function OriginChip({
+  workspace,
+  branch,
+  branchOnly,
+}: {
+  workspace: string;
+  branch: string;
+  branchOnly?: boolean;
+}) {
+  if (!workspace) return null;
+  return (
+    <Link
+      className="chip chip-origin mono"
+      to="/workspaces"
+      title={`pushed from workspace ${workspace}, branch ${branch} - one workspace branch carries one stack (§12.2)`}
+    >
+      <WorkspaceGlyph />
+      {branchOnly ? branch : `${workspace} › ${branch}`}
+    </Link>
+  );
+}
+
+function WorkspaceGlyph() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <circle cx="4.5" cy="4.5" r="2.2" />
+      <circle cx="11.5" cy="11.5" r="2.2" />
+      <path d="M4.5 6.7v2.1a2.7 2.7 0 0 0 2.7 2.7h2.1" />
+    </svg>
+  );
+}
+
 export function ChecksChip({ requirements }: { requirements: MergeRequirements | undefined }) {
   const rollup = checksRollup(requirements);
   if (rollup === "none") return null;

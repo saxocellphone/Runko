@@ -32,7 +32,7 @@ func CreateOrUpdateChange(
 	monorepoID uuid.UUID,
 	authorActorID uuid.UUID,
 	decision Decision,
-	baseSHA, headSHA, gitRef, title string,
+	baseSHA, headSHA, gitRef, title, originWorkspace, originBranch string,
 ) (*dbgen.Change, error) {
 	if !decision.Accepted {
 		return nil, ErrDecisionRejected
@@ -50,6 +50,10 @@ func CreateOrUpdateChange(
 			GitRef:            gitRef,
 			AuthoredByActorID: authorActorID,
 			BaseSha:           baseSHA,
+			// Empty preserves the stored origin (the query's CASE): a
+			// plain-git amend of a workspace Change keeps its provenance.
+			OriginWorkspace: originWorkspace,
+			OriginBranch:    originBranch,
 		})
 	case errors.Is(err, pgx.ErrNoRows):
 		// Expected: no existing Change with this Change-Id yet - fall through to create.
@@ -66,6 +70,8 @@ func CreateOrUpdateChange(
 		GitRef:            gitRef,
 		Title:             title,
 		AuthoredByActorID: authorActorID,
+		OriginWorkspace:   originWorkspace,
+		OriginBranch:      originBranch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("receive: create change: %w", err)

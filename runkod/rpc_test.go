@@ -265,7 +265,7 @@ func TestRPCStackDerivation(t *testing.T) {
 	// This mirrors how a stacked workflow records bases once change-per-
 	// commit pushes exist; the Store is the source for the derivation.
 	chB, _, _ := store.GetChange(ctx, resB.ChangeID)
-	if _, err := store.CreateOrUpdateChange(ctx, resB.ChangeID, headA, chB.HeadSHA, chB.GitRef, chB.Title, ""); err != nil {
+	if _, err := store.CreateOrUpdateChange(ctx, resB.ChangeID, headA, chB.HeadSHA, chB.GitRef, chB.Title, "", "", ""); err != nil {
 		t.Fatalf("re-base change B: %v", err)
 	}
 
