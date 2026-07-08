@@ -196,6 +196,20 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		}
 		return p.evaluateSnapshot(ctx, u, wsID, extraEnv)
 	}
+	if strings.HasPrefix(u.Ref, "refs/changes/") {
+		// Server-owned namespace (§14.4.4): the daemon writes
+		// refs/changes/<id>/head itself on every accepted push (commit()),
+		// and the Store's head_sha is keyed to it. A client writing here
+		// directly desynchronizes git from the Store - checkout-by-Change
+		// and diffs silently follow the wrong commit (2026-07-08
+		// clean-slate dogfood finding: §14.10.3's tag permissiveness was
+		// covering this namespace too).
+		return verdict{update: u, decision: receive.Decision{
+			Accepted: false,
+			RejectionMessage: fmt.Sprintf("remote: %s is server-owned - change refs are written by runkod, never pushed\nremote:   -> push your commit to refs/for/%s instead\n",
+				u.Ref, p.TrunkRef),
+		}}
+	}
 	isTrunkPush := u.Ref == "refs/heads/"+p.TrunkRef
 	_, isMagicRef := receive.ParseMagicRef(u.Ref)
 	if !isTrunkPush && !isMagicRef {
@@ -664,9 +678,18 @@ const stackWalkLimit = 100
 func (p *Processor) nearestPendingChangeBase(ctx context.Context, newSHA, changeID string, extraEnv []string) (string, bool) {
 	out, err := p.runGit(extraEnv, "rev-list", "--first-parent", fmt.Sprintf("--max-count=%d", stackWalkLimit),
 		newSHA+"~1", "^refs/heads/"+p.TrunkRef)
+	if err != nil {
+		// An UNBORN trunk makes `^refs/heads/<trunk>` a hard git error, not
+		// an empty exclusion - retry with no exclusion, or every
+		// pre-first-land Change silently gets base "" and stacking (plus
+		// every base-scoped diff/affected/owners computation) breaks
+		// exactly while a fresh monorepo bootstraps (2026-07-08 clean-slate
+		// dogfood finding). seriesMembers has the same fallback.
+		out, err = p.runGit(extraEnv, "rev-list", "--first-parent", fmt.Sprintf("--max-count=%d", stackWalkLimit), newSHA+"~1")
+	}
 	if err != nil || out == "" {
-		// Unborn trunk, root commit, or ancestry already on trunk - no
-		// pending ancestors to consider.
+		// Root commit, or ancestry already entirely on trunk - no pending
+		// ancestors to consider.
 		return "", false
 	}
 	for _, sha := range strings.Split(out, "\n") {

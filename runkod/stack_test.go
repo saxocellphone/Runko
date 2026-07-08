@@ -355,3 +355,112 @@ func TestSeriesPushSkipsLandedMembers(t *testing.T) {
 		t.Fatalf("open member should update: %+v", afterB)
 	}
 }
+
+// TestStackedBaseOnUnbornTrunk pins the 2026-07-08 clean-slate finding: on
+// a fresh monorepo (trunk unborn - the ONLY state a §6.9-closed trunk can
+// bootstrap from), `^refs/heads/<trunk>` is a hard git error, and the base
+// walk used to abort - every pre-first-land Change got base "", stacks
+// never derived, diffs/affected spanned the whole scaffold, and land
+// ordering never fired.
+func TestStackedBaseOnUnbornTrunk(t *testing.T) {
+	bare := newBareRepo(t)
+	store := NewMemStore()
+	p := newTestProcessor(bare, store)
+	ctx := context.Background()
+
+	repo := gitfixture.New(t)
+	repo.WriteFile("proj/PROJECT.yaml", "schema: project/v1\nname: alpha\ntype: library\n")
+	repo.Commit("change A - first ever\n\nChange-Id: " + stackIDA)
+	_, headA := pushCommit(t, repo, bare, "refs/for/main")
+	if res := p.Process(ctx, RefUpdate{OldSHA: zeroOID, NewSHA: headA, Ref: "refs/for/main"}, nil); !res.Accepted {
+		t.Fatalf("push A on unborn trunk: %+v", res)
+	}
+	repo.WriteFile("proj/b.txt", "feature B\n")
+	repo.Commit("change B\n\nChange-Id: " + stackIDB)
+	_, headB := pushCommit(t, repo, bare, "refs/for/main")
+	if res := p.Process(ctx, RefUpdate{OldSHA: headA, NewSHA: headB, Ref: "refs/for/main"}, nil); !res.Accepted {
+		t.Fatalf("push B on unborn trunk: %+v", res)
+	}
+
+	chA, _, _ := store.GetChange(ctx, stackIDA)
+	chB, _, _ := store.GetChange(ctx, stackIDB)
+	if chA.BaseSHA != "" {
+		t.Fatalf("A is the repo's first change: want base \"\", got %q", chA.BaseSHA)
+	}
+	if chB.BaseSHA != headA {
+		t.Fatalf("B's base on unborn trunk: want A's head %s, got %q", headA, chB.BaseSHA)
+	}
+
+	chain, _ := stackForChange([]Change{chA, chB}, chB)
+	if len(chain) != 2 || chain[0].ChangeKey != stackIDA {
+		t.Fatalf("stack derivation on unborn trunk: %+v", chain)
+	}
+
+	// Land ordering fires pre-first-land too: B refuses until A lands.
+	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, AllowUnpolicedLand: true}
+	if _, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil); apiErr == nil || apiErr.Err.Code != "parent_change_not_landed" {
+		t.Fatalf("landing B before A on unborn trunk: want parent_change_not_landed, got %+v", apiErr)
+	}
+	if dec, apiErr := srv.landChangeCore(ctx, stackIDA, chA, nil, nil); apiErr != nil || !dec.Landed {
+		t.Fatalf("bootstrap land of A: %+v %+v", dec, apiErr)
+	}
+	chB, _, _ = store.GetChange(ctx, stackIDB)
+	if dec, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil); apiErr != nil || !dec.Landed {
+		t.Fatalf("landing B after A: %+v %+v", dec, apiErr)
+	}
+}
+
+// TestSeriesPushOnUnbornTrunk: one push carrying the repo's first-ever
+// stack - both Changes recorded, bases chained from "" upward.
+func TestSeriesPushOnUnbornTrunk(t *testing.T) {
+	bare := newBareRepo(t)
+	store := NewMemStore()
+	p := newTestProcessor(bare, store)
+	ctx := context.Background()
+
+	repo := gitfixture.New(t)
+	repo.WriteFile("proj/PROJECT.yaml", "schema: project/v1\nname: alpha\ntype: library\n")
+	headA := repo.Commit("change A\n\nChange-Id: " + stackIDA)
+	repo.WriteFile("proj/b.txt", "b\n")
+	repo.Commit("change B\n\nChange-Id: " + stackIDB)
+	_, headB := pushCommit(t, repo, bare, "refs/for/main")
+
+	if res := p.Process(ctx, RefUpdate{OldSHA: zeroOID, NewSHA: headB, Ref: "refs/for/main"}, nil); !res.Accepted {
+		t.Fatalf("series push on unborn trunk: %+v", res)
+	}
+	chA, okA, _ := store.GetChange(ctx, stackIDA)
+	chB, okB, _ := store.GetChange(ctx, stackIDB)
+	if !okA || !okB {
+		t.Fatalf("series members missing: A=%v B=%v", okA, okB)
+	}
+	if chA.BaseSHA != "" || chA.HeadSHA != headA || chB.BaseSHA != headA || chB.HeadSHA != headB {
+		t.Fatalf("unborn-trunk series chain: A(base=%q head=%s) B(base=%q head=%s)", chA.BaseSHA, chA.HeadSHA, chB.BaseSHA, chB.HeadSHA)
+	}
+}
+
+// TestClientPushToChangeRefsNamespaceIsRejected pins the server-owned
+// namespace (§14.4.4): refs/changes/<id>/head is written by the daemon on
+// every accepted push, and the Store's head_sha is keyed to it - a client
+// writing it directly desynchronizes git from the Store. §14.10.3's
+// "everything else is accepted" permissiveness must not cover it.
+func TestClientPushToChangeRefsNamespaceIsRejected(t *testing.T) {
+	bare := newBareRepo(t)
+	store := NewMemStore()
+	p, _, _, headA, _ := pushStackedPair(t, bare, store)
+	ctx := context.Background()
+
+	res := p.Process(ctx, RefUpdate{OldSHA: zeroOID, NewSHA: headA, Ref: "refs/changes/" + stackIDA + "/head"}, nil)
+	if res.Accepted {
+		t.Fatal("client push to refs/changes/* must be rejected")
+	}
+	if !strings.Contains(res.Message, "server-owned") || !strings.Contains(res.Message, "refs/for/main") {
+		t.Fatalf("rejection should explain the namespace and the right path: %q", res.Message)
+	}
+
+	// Tags stay §14.10.3-permissive - the guard is scoped, not a general
+	// tightening.
+	tag := p.Process(ctx, RefUpdate{OldSHA: zeroOID, NewSHA: headA, Ref: "refs/tags/v1"}, nil)
+	if !tag.Accepted {
+		t.Fatalf("tag pushes must stay accepted: %+v", tag)
+	}
+}
