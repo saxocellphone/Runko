@@ -24,7 +24,7 @@ func TestLandChangeSuccessDecodesOutcome(t *testing.T) {
 	}))
 	defer server.Close()
 
-	outcome, err := LandChange(context.Background(), http.DefaultClient, server.URL, "sekret", "Ichg1")
+	outcome, err := LandChange(context.Background(), http.DefaultClient, server.URL, "sekret", "Ichg1", false)
 	if err != nil {
 		t.Fatalf("LandChange: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestLandChangeConflictDecodesStructuredError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := LandChange(context.Background(), http.DefaultClient, server.URL, "sekret", "Ichg1")
+	_, err := LandChange(context.Background(), http.DefaultClient, server.URL, "sekret", "Ichg1", false)
 	if err == nil {
 		t.Fatalf("expected an error on 409")
 	}
@@ -61,7 +61,7 @@ func TestLandChangeNotFoundIsStructuredError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := LandChange(context.Background(), http.DefaultClient, server.URL, "sekret", "no-such-change")
+	_, err := LandChange(context.Background(), http.DefaultClient, server.URL, "sekret", "no-such-change", false)
 	var ce *clierr.Error
 	if !errors.As(err, &ce) {
 		t.Fatalf("expected a *clierr.Error, got %T: %v", err, err)

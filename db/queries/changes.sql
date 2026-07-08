@@ -38,7 +38,9 @@ WHERE id = $1 RETURNING *;
 UPDATE changes SET description = $2, test_plan = $3, updated_at = now() WHERE id = $1 RETURNING *;
 
 -- name: LandChange :one
-UPDATE changes SET state = 'landed', landed_at = now(), landed_sha = $2, landed_by_actor_id = $3, updated_at = now() WHERE id = $1 RETURNING *;
+UPDATE changes SET state = 'landed', landed_at = now(), landed_sha = $2, landed_by_actor_id = $3,
+    landed_forced = sqlc.arg(landed_forced)::boolean, updated_at = now()
+WHERE id = $1 RETURNING *;
 
 -- name: ListOpenChanges :many
 SELECT * FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number DESC LIMIT $2 OFFSET $3;

@@ -27,6 +27,10 @@ type Principal struct {
 	Name    string
 	Token   string
 	IsAgent bool
+	// Admin marks an operator-grade principal: may force-land (§13.5's
+	// gate override, 2026-07-08). Never combinable with IsAgent at the
+	// enforcement site - agents may not force regardless of flags.
+	Admin bool
 	// Policy is enforced at receive time when IsAgent (§8.7) - for both
 	// change pushes and workspace snapshots. Ignored for human principals.
 	Policy receive.AgentPolicy

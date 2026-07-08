@@ -17,6 +17,7 @@ package runkod
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -96,7 +97,7 @@ func (f *smFixture) toAbandoned() {
 func (f *smFixture) toLanded() {
 	f.t.Helper()
 	f.greenAndApprove()
-	dec, apiErr := f.srv.landChangeCore(context.Background(), smChangeID, f.change(), nil, nil)
+	dec, apiErr := f.srv.landChangeCore(context.Background(), smChangeID, f.change(), nil, nil, false)
 	if apiErr != nil || !dec.Landed {
 		f.t.Fatalf("land during setup: %+v, %+v", dec, apiErr)
 	}
@@ -186,7 +187,7 @@ func TestChangeStateMachine(t *testing.T) {
 				_, apiErr := f.srv.abandonChangeCore(ctx, smChangeID, nil)
 				code = codeOf(apiErr)
 			case "land", "land_blocked":
-				dec, apiErr := f.srv.landChangeCore(ctx, smChangeID, before, nil, nil)
+				dec, apiErr := f.srv.landChangeCore(ctx, smChangeID, before, nil, nil, false)
 				code = codeOf(apiErr)
 				if code == "" && !dec.Landed {
 					t.Fatalf("land neither errored nor landed: %+v", dec)
@@ -262,5 +263,93 @@ func TestReopenedChangeDoesNotInheritAbandonedEraApprovals(t *testing.T) {
 		if a.HeadSHA == head {
 			t.Fatalf("an abandoned-era approval leaked into the reopened change: %+v", a)
 		}
+	}
+}
+
+// TestForceLandOverride pins the §13.5 admin override (2026-07-08, "add a
+// force approve/merge option so owner can merge changes"): WHO may force
+// (deploy token + admin humans; never agents, never bot lanes, never
+// non-admin humans), WHAT it bypasses (owner/check gates), what it NEVER
+// bypasses (terminal states, stacked-parent ordering - integrity, not
+// policy), and that the override is durably audited (landed_forced).
+func TestForceLandOverride(t *testing.T) {
+	admin := &Principal{Name: "boss", Token: "t1", Admin: true}
+	human := &Principal{Name: "pleb", Token: "t2"}
+	agentAdmin := &Principal{Name: "bot", Token: "t3", IsAgent: true, Admin: true}
+	lane := &BotLane{Name: "bumper", Token: "t4"}
+
+	t.Run("deploy token forces past both gates and is audited", func(t *testing.T) {
+		f := newSMFixture(t) // owner + required check, neither satisfied
+		dec, apiErr := f.srv.landChangeCore(context.Background(), smChangeID, f.change(), nil, nil, true)
+		if apiErr != nil || !dec.Landed || !dec.Forced {
+			t.Fatalf("force by deploy token: %+v, %+v", dec, apiErr)
+		}
+		if got := f.change(); !got.LandedForced || got.State != "landed" {
+			t.Fatalf("landed_forced audit bit not recorded: %+v", got)
+		}
+	})
+
+	t.Run("admin principal forces and is attributed", func(t *testing.T) {
+		f := newSMFixture(t)
+		dec, apiErr := f.srv.landChangeCore(context.Background(), smChangeID, f.change(), nil, admin, true)
+		if apiErr != nil || !dec.Landed || !dec.Forced {
+			t.Fatalf("force by admin: %+v, %+v", dec, apiErr)
+		}
+		if got := f.change(); got.LandedBy != "boss" || !got.LandedForced {
+			t.Fatalf("attribution: %+v", got)
+		}
+	})
+
+	t.Run("non-admin, agent, and bot lane are all refused", func(t *testing.T) {
+		f := newSMFixture(t)
+		for name, tc := range map[string]struct {
+			principal *Principal
+			lane      *BotLane
+		}{"non-admin human": {human, nil}, "agent even with admin flag": {agentAdmin, nil}, "bot lane": {nil, lane}} {
+			_, apiErr := f.srv.landChangeCore(context.Background(), smChangeID, f.change(), tc.lane, tc.principal, true)
+			if apiErr == nil || apiErr.Err.Code != "force_denied" || apiErr.Status != http.StatusForbidden {
+				t.Fatalf("%s: want 403 force_denied, got %+v", name, apiErr)
+			}
+		}
+		if got := f.change(); got.State != "open" {
+			t.Fatalf("refused forces must not move state: %+v", got)
+		}
+	})
+
+	t.Run("force never bypasses terminal states", func(t *testing.T) {
+		f := newSMFixture(t)
+		f.toAbandoned()
+		if _, apiErr := f.srv.landChangeCore(context.Background(), smChangeID, f.change(), nil, admin, true); apiErr == nil || apiErr.Err.Code != "invalid_state" {
+			t.Fatalf("force on abandoned: want invalid_state, got %+v", apiErr)
+		}
+	})
+
+	t.Run("a force that bypassed nothing is an ordinary land", func(t *testing.T) {
+		f := newSMFixture(t)
+		f.greenAndApprove()
+		dec, apiErr := f.srv.landChangeCore(context.Background(), smChangeID, f.change(), nil, admin, true)
+		if apiErr != nil || !dec.Landed || dec.Forced {
+			t.Fatalf("green force: %+v, %+v", dec, apiErr)
+		}
+		if got := f.change(); got.LandedForced {
+			t.Fatalf("nothing was bypassed - landed_forced must stay false: %+v", got)
+		}
+	})
+}
+
+// TestForceLandNeverBypassesStackOrdering: the parent guard is integrity,
+// not policy - forcing a child onto trunk without its parent's content
+// would corrupt the tree, so even admins are refused.
+func TestForceLandNeverBypassesStackOrdering(t *testing.T) {
+	bare := newBareRepo(t)
+	store := NewMemStore()
+	_, _, _, _, _ = pushStackedPair(t, bare, store)
+	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, AllowUnpolicedLand: true}
+	admin := &Principal{Name: "boss", Token: "t1", Admin: true}
+
+	chB, _, _ := store.GetChange(context.Background(), stackIDB)
+	_, apiErr := srv.landChangeCore(context.Background(), stackIDB, chB, nil, admin, true)
+	if apiErr == nil || apiErr.Err.Code != "parent_change_not_landed" {
+		t.Fatalf("force must not skip stack ordering: %+v", apiErr)
 	}
 }

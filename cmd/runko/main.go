@@ -396,6 +396,7 @@ func cmdChangeLand(args []string) error {
 	runkodURL := fs.String("runkod-url", "", "runkod base URL, e.g. http://localhost:8080")
 	token := fs.String("token", "", "deploy token")
 	changeID := fs.String("change", "", "Change-Id to land")
+	force := fs.Bool("force", false, "admin override (docs/design.md 13.5): bypass owner/check gates and revalidation; audited as landed_forced")
 	jsonOut := fs.Bool("json", false, "emit the land.Outcome as JSON instead of a human summary")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -407,7 +408,7 @@ func cmdChangeLand(args []string) error {
 	if err != nil {
 		return err
 	}
-	outcome, err := LandChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *changeID)
+	outcome, err := LandChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *changeID, *force)
 	if err != nil {
 		return err
 	}
@@ -415,7 +416,11 @@ func cmdChangeLand(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(outcome)
 	}
 	if outcome.Landed {
-		fmt.Printf("landed %s at %s\n", *changeID, outcome.LandedSHA)
+		if *force {
+			fmt.Printf("FORCE-landed %s at %s (merge gates bypassed - audited as landed_forced)\n", *changeID, outcome.LandedSHA)
+		} else {
+			fmt.Printf("landed %s at %s\n", *changeID, outcome.LandedSHA)
+		}
 	} else {
 		fmt.Printf("not landed: %+v\n", outcome)
 	}

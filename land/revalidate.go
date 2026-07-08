@@ -13,6 +13,11 @@ const (
 	// RevalidationAlways is an org opt-in that disables the optimization
 	// entirely - every land re-runs checks.
 	RevalidationAlways RevalidationScope = "always"
+	// RevalidationNever skips the trunk-delta rule entirely - the admin
+	// force-land override (§13.5, 2026-07-08). Never an org default: it
+	// exists so an explicit, audited override lands NOW; everything else
+	// uses the intersection rule.
+	RevalidationNever RevalidationScope = "never"
 )
 
 // NeedsRevalidation implements §13.5's optimistic-land rule as a pure
@@ -26,6 +31,9 @@ const (
 // RevalidationAlways always requires it; the empty RevalidationScope behaves
 // as RevalidationAffectedIntersection (the default).
 func NeedsRevalidation(scope RevalidationScope, changeAffected, trunkDelta affected.Result) bool {
+	if scope == RevalidationNever {
+		return false
+	}
 	if scope == RevalidationAlways {
 		return true
 	}

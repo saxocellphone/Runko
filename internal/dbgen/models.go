@@ -366,6 +366,7 @@ type Change struct {
 	LandedByActorID   pgtype.UUID        `json:"landed_by_actor_id"`
 	OriginWorkspace   string             `json:"origin_workspace"`
 	OriginBranch      string             `json:"origin_branch"`
+	LandedForced      bool               `json:"landed_forced"`
 }
 
 type ChangeAffected struct {

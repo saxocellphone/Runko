@@ -16,6 +16,7 @@ import (
 
 	"github.com/saxocellphone/runko/checks"
 	"github.com/saxocellphone/runko/internal/clierr"
+	"github.com/saxocellphone/runko/land"
 )
 
 // apiError pairs a failure with the HTTP status the REST surface reports it
@@ -182,6 +183,51 @@ type landDecision struct {
 	RequiresRevalidation bool
 	Conflicts            []string
 	RaceRetryExhausted   bool
+	// Forced echoes that this land bypassed the merge gates via the admin
+	// override; the durable audit bit is Change.LandedForced.
+	Forced bool
+}
+
+// authorizeForceLand gates the §13.5 force override: the anonymous deploy
+// token (the documented v1 operator credential) and admin-flagged human
+// principals may force; agents may NEVER (hard rule, same class as
+// agent-approval denial) and neither may bot lanes (their entire design is
+// scoped auto-land under their own checks - an ungated lane is exactly
+// what §14.10.2 refuses to model).
+// forceActor names the force-land caller for the audit log line.
+func forceActor(principal *Principal) string {
+	if principal == nil {
+		return "the anonymous deploy token"
+	}
+	return fmt.Sprintf("admin principal %q", principal.Name)
+}
+
+func authorizeForceLand(principal *Principal, lane *BotLane) *apiError {
+	if lane != nil {
+		return typedErr(http.StatusForbidden, clierr.Error{
+			Code: "force_denied", Field: "force",
+			Message:    fmt.Sprintf("bot lane %q may not force-land - lanes land only under their own required checks (§14.10.2)", lane.Name),
+			Suggestion: "use an admin principal for manual overrides",
+		})
+	}
+	if principal == nil {
+		return nil // anonymous deploy token: the operator credential (v1 boundary)
+	}
+	if principal.IsAgent {
+		return typedErr(http.StatusForbidden, clierr.Error{
+			Code: "force_denied", Field: "force",
+			Message:    fmt.Sprintf("%q is an agent principal - agents may never bypass merge gates (§8.7, §13.5)", principal.Name),
+			Suggestion: "a human admin must force-land",
+		})
+	}
+	if !principal.Admin {
+		return typedErr(http.StatusForbidden, clierr.Error{
+			Code: "force_denied", Field: "force",
+			Message:    fmt.Sprintf("%q is not an admin principal", principal.Name),
+			Suggestion: "an operator can grant it: --principal 'name=...;token=...;admin'",
+		})
+	}
+	return nil
 }
 
 // landChangeCore is POST .../land's decision core (§13.5, §28.3 stage 11b):
@@ -189,7 +235,12 @@ type landDecision struct {
 // merge-requirements gate (the exact same Mergeable bool the caller's
 // merge-requirements view reports, per-principal), and the land attempt
 // itself with landed-state recording, webhook, and Zoekt trigger.
-func (s *Server) landChangeCore(ctx context.Context, key string, change Change, lane *BotLane, principal *Principal) (landDecision, *apiError) {
+func (s *Server) landChangeCore(ctx context.Context, key string, change Change, lane *BotLane, principal *Principal, force bool) (landDecision, *apiError) {
+	if force {
+		if apiErr := authorizeForceLand(principal, lane); apiErr != nil {
+			return landDecision{}, apiErr
+		}
+	}
 	if change.State == "landed" {
 		// Idempotent: a client retrying a land request after a dropped
 		// response (or simply asking again) should see the same success,
@@ -241,16 +292,30 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 		return landDecision{}, internalErr(err)
 	}
 	if !mr.Mergeable {
-		return landDecision{}, typedErr(http.StatusConflict, clierr.Error{
-			Code:       "not_mergeable",
-			Field:      "change",
-			Message:    fmt.Sprintf("change %s is not mergeable yet", key),
-			Suggestion: strings.Join(mr.Blockers, "; "),
-			DocURL:     "docs/design.md#136-merge-gates-and-landing",
-		})
+		if !force {
+			return landDecision{}, typedErr(http.StatusConflict, clierr.Error{
+				Code:       "not_mergeable",
+				Field:      "change",
+				Message:    fmt.Sprintf("change %s is not mergeable yet", key),
+				Suggestion: strings.Join(mr.Blockers, "; "),
+				DocURL:     "docs/design.md#136-merge-gates-and-landing",
+			})
+		}
+		// The override is loud by design: every bypassed blocker is named
+		// in the log, and the Change carries the durable landed_forced bit.
+		log.Printf("runkod: FORCE land %s by %s - bypassing blockers: %s",
+			key, forceActor(principal), strings.Join(mr.Blockers, "; "))
 	}
 
-	outcome, err := s.attemptLand(ctx, change)
+	scope := land.RevalidationAffectedIntersection
+	if force {
+		// Force means "land NOW": the trunk-delta revalidation rule is a
+		// gate too, and requires_revalidation would send the admin into
+		// the rebase loop the override exists to skip. Conflicts still
+		// fail - a conflicting tree cannot be forced into existence.
+		scope = land.RevalidationNever
+	}
+	outcome, err := s.attemptLand(ctx, change, scope)
 	if err != nil {
 		return landDecision{}, plainErr(http.StatusInternalServerError, fmt.Sprintf("land: %v", err))
 	}
@@ -266,7 +331,8 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 		} else if lane != nil {
 			landedBy = lane.Name
 		}
-		if _, err := s.Store.MarkChangeLanded(ctx, key, outcome.LandedSHA, landedBy); err != nil {
+		forced := force && !mr.Mergeable // a force that bypassed nothing is an ordinary land
+		if _, err := s.Store.MarkChangeLanded(ctx, key, outcome.LandedSHA, landedBy, forced); err != nil {
 			return landDecision{}, plainErr(http.StatusInternalServerError, fmt.Sprintf("land: record landed state: %v", err))
 		}
 		if lane != nil {
@@ -276,7 +342,7 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 		if s.Processor != nil {
 			s.Processor.ZoektIndexWorker.Trigger()
 		}
-		return landDecision{Landed: true, LandedSHA: outcome.LandedSHA}, nil
+		return landDecision{Landed: true, LandedSHA: outcome.LandedSHA, Forced: forced}, nil
 	case outcome.RequiresRevalidation:
 		return landDecision{RequiresRevalidation: true}, nil
 	case len(outcome.Conflicts) > 0:

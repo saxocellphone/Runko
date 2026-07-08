@@ -95,3 +95,9 @@ These refuse the *event*, not the state — the Change stays where it was:
   gate but adds the lane's own required checks.
 - Approve attribution: named principals approve as themselves
   (`approved_by_mismatch` otherwise).
+- Force land (§13.5 admin override): `force: true` skips gate rows 1-2 and
+  the revalidation rule for admin principals and the deploy token (403
+  `force_denied` for everyone else, agents and bot lanes always). It is an
+  authorization carve-out on the **land** event, not a new transition:
+  terminal states, stacked-parent ordering, and conflicts still refuse, and
+  the Change durably records `landed_forced`.

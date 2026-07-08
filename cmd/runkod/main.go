@@ -95,7 +95,7 @@ func cmdServe(args []string) error {
 	var botLanes botLaneFlag
 	fs.Var(&botLanes, "bot-lane", "path-scoped auto-land grant (§14.10.2), repeatable: 'name=<n>;token=<t>;paths=<glob,glob>;checks=<check,check>' [RUNKO_BOT_LANES, '|'-separated]")
 	var principals principalFlag
-	fs.Var(&principals, "principal", "named-token identity (§15.1 interim), repeatable: 'name=<n>;token=<t>[;agent]' - agent principals get the default §8.7 agent policy enforced at receive [RUNKO_PRINCIPALS, '|'-separated]")
+	fs.Var(&principals, "principal", "named-token identity (§15.1 interim), repeatable: 'name=<n>;token=<t>[;agent][;admin]' - agent principals get the default §8.7 agent policy enforced at receive; admin principals may force-land (§13.5) [RUNKO_PRINCIPALS, '|'-separated]")
 	searchURL := fs.String("search-url", envString("SEARCH_URL", ""), "zoekt-webserver base URL for search_code (§8.3); absent -> search_code returns a structured 'not configured' error, never a git-grep fallback (§8.2) [RUNKO_SEARCH_URL]")
 	zoektIndexDir := fs.String("zoekt-index-dir", envString("ZOEKT_INDEX_DIR", ""), "directory zoekt-git-index writes shards into (required to enable indexing on trunk advance) [RUNKO_ZOEKT_INDEX_DIR]")
 	zoektIndexBin := fs.String("zoekt-index-bin", envString("ZOEKT_INDEX_BIN", "zoekt-git-index"), "zoekt-git-index binary (path or PATH-resolved name) [RUNKO_ZOEKT_INDEX_BIN]")
@@ -408,8 +408,10 @@ func parsePrincipal(v string) (runkod.Principal, error) {
 		case key == "agent" && (!hasVal || val == "true"):
 			principal.IsAgent = true
 			principal.Policy = receive.DefaultAgentPolicy()
+		case key == "admin" && (!hasVal || val == "true"):
+			principal.Admin = true
 		default:
-			return principal, fmt.Errorf("principal: unknown key %q (want name=, token=, agent)", kv)
+			return principal, fmt.Errorf("principal: unknown key %q (want name=, token=, agent, admin)", kv)
 		}
 	}
 	if principal.Name == "" || principal.Token == "" {

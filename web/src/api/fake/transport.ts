@@ -404,26 +404,34 @@ export function createFakeTransport(): Transport {
         const c = mustChange(state, req.changeId);
         if (c.state === ChangeState.LANDED) {
           // Idempotent replay, matching runkod's land endpoint.
-          return create(LandChangeResponseSchema, { landed: true, landedSha: c.landedSha });
+          return create(LandChangeResponseSchema, { landed: true, landedSha: c.landedSha, forced: c.landedForced });
         }
         if (c.state === ChangeState.ABANDONED) {
           throw new ConnectError("change is abandoned", Code.FailedPrecondition);
         }
         const r = mustRequirements(state, req.changeId);
+        let forced = false;
         if (!r.mergeable) {
-          throw new ConnectError(
-            `change is not mergeable: ${r.blockers.join("; ")}`,
-            Code.FailedPrecondition,
-          );
+          // Mirrors runkod's landChangeCore: force is the admin override
+          // (design.md 13.5); the demo scene has no principals, so it
+          // plays the anonymous-operator role and always allows it.
+          if (!req.force) {
+            throw new ConnectError(
+              `change is not mergeable: ${r.blockers.join("; ")}`,
+              Code.FailedPrecondition,
+            );
+          }
+          forced = true;
         }
         c.state = ChangeState.LANDED;
+        c.landedForced = forced;
         c.landedSha = fakeSha(c.id + "-landed");
         const pending = state.pendingProjects.get(c.id);
         if (pending) {
           state.projects.push(pending);
           state.pendingProjects.delete(c.id);
         }
-        return create(LandChangeResponseSchema, { landed: true, landedSha: c.landedSha });
+        return create(LandChangeResponseSchema, { landed: true, landedSha: c.landedSha, forced });
       },
 
       async abandonChange(req) {

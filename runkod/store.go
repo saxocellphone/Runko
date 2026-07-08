@@ -31,6 +31,9 @@ type Change struct {
 	// head, which is also who self-approval must be checked against.
 	AuthoredBy string
 	LandedBy   string
+	// LandedForced is the durable audit bit for the admin force-land
+	// override (§13.5): true when the owner/check gates were bypassed.
+	LandedForced bool
 	// OriginWorkspace / OriginBranch are push provenance (§12.2's branch ↔
 	// stack mapping): the workspace branch this Change was pushed from,
 	// stamped by `runko change push` as git push options and validated
@@ -101,7 +104,7 @@ type Store interface {
 	// stage 11b): state -> "landed", landedSHA recorded as-is (may differ
 	// from HeadSHA - see Change.LandedSHA's doc comment). landedBy is the
 	// landing principal's name, "" for the anonymous deploy token.
-	MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string) (Change, error)
+	MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string, forced bool) (Change, error)
 
 	// RecordApproval records that ownerRef's approval requirement on
 	// changeKey is satisfied for headSHA specifically (§13.5, decided
@@ -293,7 +296,7 @@ func (s *MemStore) MarkChangeAbandoned(ctx context.Context, changeKey string) (C
 	return c, nil
 }
 
-func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string) (Change, error) {
+func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string, forced bool) (Change, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.changes[changeKey]
@@ -303,6 +306,7 @@ func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA, l
 	c.State = "landed"
 	c.LandedSHA = landedSHA
 	c.LandedBy = landedBy
+	c.LandedForced = forced
 	s.changes[changeKey] = c
 	return c, nil
 }

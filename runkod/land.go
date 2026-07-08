@@ -70,7 +70,7 @@ func (s *Server) refuseUnlandedParent(ctx context.Context, key string, change Ch
 	})
 }
 
-func (s *Server) attemptLand(ctx context.Context, change Change) (land.Outcome, error) {
+func (s *Server) attemptLand(ctx context.Context, change Change, scope land.RevalidationScope) (land.Outcome, error) {
 	gstore := gitstore.New(s.RepoDir)
 
 	base := change.BaseSHA
@@ -109,7 +109,7 @@ func (s *Server) attemptLand(ctx context.Context, change Change) (land.Outcome, 
 		meta := core.CommitMeta{Message: change.Title + "\n\nChange-Id: " + change.ChangeKey + "\n"}
 
 		outcome, err := land.Land(gstore, s.RepoDir, s.TrunkRef, base, change.HeadSHA,
-			land.RevalidationAffectedIntersection, changeAffected, projects, opts, meta)
+			scope, changeAffected, projects, opts, meta)
 		if err != nil {
 			return land.Outcome{}, err
 		}

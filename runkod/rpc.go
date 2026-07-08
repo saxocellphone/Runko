@@ -326,7 +326,7 @@ func (r *rpcServer) LandChange(ctx context.Context, req *connect.Request[runkov1
 		return nil, err
 	}
 	auth := req.Header().Get("Authorization")
-	decision, apiErr := r.s.landChangeCore(ctx, key, change, r.s.laneForAuthHeader(auth), r.s.principalForAuthHeader(auth))
+	decision, apiErr := r.s.landChangeCore(ctx, key, change, r.s.laneForAuthHeader(auth), r.s.principalForAuthHeader(auth), req.Msg.Force)
 	if apiErr != nil {
 		return nil, connectErr(apiErr)
 	}
@@ -336,6 +336,7 @@ func (r *rpcServer) LandChange(ctx context.Context, req *connect.Request[runkov1
 	return connect.NewResponse(&runkov1.LandChangeResponse{
 		Landed:               decision.Landed,
 		LandedSha:            decision.LandedSHA,
+		Forced:               decision.Forced,
 		RequiresRevalidation: decision.RequiresRevalidation,
 		Conflicts:            decision.Conflicts,
 		RaceRetry:            decision.RaceRetryExhausted,
@@ -711,6 +712,7 @@ func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
 		GitRef:          c.GitRef,
 		Title:           c.Title,
 		LandedSha:       c.LandedSHA,
+		LandedForced:    c.LandedForced,
 		OriginWorkspace: c.OriginWorkspace,
 		OriginBranch:    c.OriginBranch,
 	}

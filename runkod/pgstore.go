@@ -219,6 +219,7 @@ func (s *PostgresStore) hydrateChange(ctx context.Context, c *dbgen.Change) (Cha
 		ChangeKey: c.ChangeKey, State: string(c.State),
 		BaseSHA: c.BaseSha, HeadSHA: c.HeadSha, GitRef: c.GitRef, Title: c.Title,
 		OriginWorkspace: c.OriginWorkspace, OriginBranch: c.OriginBranch,
+		LandedForced: c.LandedForced,
 	}
 	if c.LandedSha != nil {
 		ch.LandedSHA = *c.LandedSha
@@ -239,7 +240,7 @@ func (s *PostgresStore) hydrateChange(ctx context.Context, c *dbgen.Change) (Cha
 // db/queries/changes.sql back in stage 2 - this stage is the first caller,
 // but the query was already there waiting, since the schema always modeled
 // landing as a first-class Change state transition.
-func (s *PostgresStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string) (Change, error) {
+func (s *PostgresStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA, landedBy string, forced bool) (Change, error) {
 	id, err := s.resolveChangeID(ctx, changeKey)
 	if err != nil {
 		return Change{}, err
@@ -252,7 +253,7 @@ func (s *PostgresStore) MarkChangeLanded(ctx context.Context, changeKey, landedS
 		}
 		landedByID = pgtype.UUID{Bytes: actorID, Valid: true}
 	}
-	c, err := s.Queries.LandChange(ctx, s.Pool, dbgen.LandChangeParams{ID: id, LandedSha: &landedSHA, LandedByActorID: landedByID})
+	c, err := s.Queries.LandChange(ctx, s.Pool, dbgen.LandChangeParams{ID: id, LandedSha: &landedSHA, LandedByActorID: landedByID, LandedForced: forced})
 	if err != nil {
 		return Change{}, err
 	}

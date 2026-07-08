@@ -964,7 +964,15 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "change not found", http.StatusNotFound)
 		return
 	}
-	decision, apiErr := s.landChangeCore(r.Context(), key, change, s.laneFor(r), s.principalFor(r))
+	// Optional body: {"force": true} is the §13.5 admin override. The
+	// historical body-less POST stays valid (force defaults to false).
+	var body struct {
+		Force bool `json:"force"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body) // empty/absent body is fine
+	}
+	decision, apiErr := s.landChangeCore(r.Context(), key, change, s.laneFor(r), s.principalFor(r), body.Force)
 	if apiErr != nil {
 		writeAPIError(w, apiErr)
 		return
@@ -972,7 +980,7 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case decision.Landed:
-		writeJSON(w, http.StatusOK, landResponse{Landed: true, LandedSHA: decision.LandedSHA})
+		writeJSON(w, http.StatusOK, landResponse{Landed: true, LandedSHA: decision.LandedSHA, Forced: decision.Forced})
 	case decision.RequiresRevalidation:
 		writeJSON(w, http.StatusConflict, &clierr.Error{
 			Code:       "requires_revalidation",
@@ -1008,6 +1016,9 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 type landResponse struct {
 	Landed    bool
 	LandedSHA string
+	// Forced marks a land that bypassed the merge gates via the admin
+	// override (§13.5) - also durable on the Change as landed_forced.
+	Forced bool `json:",omitempty"`
 }
 
 // enqueueLandedWebhook mirrors Processor.computeAffectedAndEnqueue's

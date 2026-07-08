@@ -159,6 +159,9 @@ message ChangeSummary {
   // advisory metadata, never a gate.
   string origin_workspace = 12;
   string origin_branch = 13;
+  // True when the change was landed via the admin force override (§13.5) -
+  // the durable audit bit, straight from the changes.landed_forced column.
+  bool landed_forced = 14;
 }
 
 // The same structure surfaced to humans (Change page) and agents

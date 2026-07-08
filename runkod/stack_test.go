@@ -121,7 +121,7 @@ func TestStackedChildCannotLandBeforeParent(t *testing.T) {
 	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, AllowUnpolicedLand: true}
 
 	chB, _, _ := store.GetChange(ctx, stackIDB)
-	if _, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil); apiErr == nil {
+	if _, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil, false); apiErr == nil {
 		t.Fatal("landing the child before the parent must be refused")
 	} else {
 		if apiErr.Status != http.StatusConflict || apiErr.Err.Code != "parent_change_not_landed" {
@@ -133,12 +133,12 @@ func TestStackedChildCannotLandBeforeParent(t *testing.T) {
 	}
 
 	chA, _, _ := store.GetChange(ctx, stackIDA)
-	if dec, apiErr := srv.landChangeCore(ctx, stackIDA, chA, nil, nil); apiErr != nil || !dec.Landed {
+	if dec, apiErr := srv.landChangeCore(ctx, stackIDA, chA, nil, nil, false); apiErr != nil || !dec.Landed {
 		t.Fatalf("landing the parent: %+v, %+v", dec, apiErr)
 	}
 
 	chB, _, _ = store.GetChange(ctx, stackIDB)
-	if dec, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil); apiErr != nil || !dec.Landed {
+	if dec, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil, false); apiErr != nil || !dec.Landed {
 		t.Fatalf("landing the child after the parent: %+v, %+v", dec, apiErr)
 	}
 }
@@ -330,7 +330,7 @@ func TestSeriesPushSkipsLandedMembers(t *testing.T) {
 
 	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, AllowUnpolicedLand: true}
 	chA, _, _ := store.GetChange(ctx, stackIDA)
-	if dec, apiErr := srv.landChangeCore(ctx, stackIDA, chA, nil, nil); apiErr != nil || !dec.Landed {
+	if dec, apiErr := srv.landChangeCore(ctx, stackIDA, chA, nil, nil, false); apiErr != nil || !dec.Landed {
 		t.Fatalf("land A: %+v %+v", dec, apiErr)
 	}
 	landedA, _, _ := store.GetChange(ctx, stackIDA)
@@ -398,14 +398,14 @@ func TestStackedBaseOnUnbornTrunk(t *testing.T) {
 
 	// Land ordering fires pre-first-land too: B refuses until A lands.
 	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, AllowUnpolicedLand: true}
-	if _, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil); apiErr == nil || apiErr.Err.Code != "parent_change_not_landed" {
+	if _, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil, false); apiErr == nil || apiErr.Err.Code != "parent_change_not_landed" {
 		t.Fatalf("landing B before A on unborn trunk: want parent_change_not_landed, got %+v", apiErr)
 	}
-	if dec, apiErr := srv.landChangeCore(ctx, stackIDA, chA, nil, nil); apiErr != nil || !dec.Landed {
+	if dec, apiErr := srv.landChangeCore(ctx, stackIDA, chA, nil, nil, false); apiErr != nil || !dec.Landed {
 		t.Fatalf("bootstrap land of A: %+v %+v", dec, apiErr)
 	}
 	chB, _, _ = store.GetChange(ctx, stackIDB)
-	if dec, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil); apiErr != nil || !dec.Landed {
+	if dec, apiErr := srv.landChangeCore(ctx, stackIDB, chB, nil, nil, false); apiErr != nil || !dec.Landed {
 		t.Fatalf("landing B after A: %+v %+v", dec, apiErr)
 	}
 }

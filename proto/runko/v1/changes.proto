@@ -158,6 +158,12 @@ message ApproveChangeRequest {
 
 message LandChangeRequest {
   string change_id = 1;
+  // Admin override (§13.5, added 2026-07-08): skip the owner/check gates
+  // and the revalidation rule. Only admin-capable principals (and the
+  // anonymous deploy token, the documented v1 operator credential) may set
+  // this; agents and bot lanes may never. Integrity guards still apply -
+  // conflicts, stacked-parent ordering, terminal states.
+  bool force = 2;
 }
 
 message LandChangeResponse {
@@ -166,6 +172,9 @@ message LandChangeResponse {
   bool requires_revalidation = 3;
   repeated string conflicts = 4;
   bool race_retry = 5;
+  // True when this land bypassed gates via LandChangeRequest.force -
+  // echoed for display; the durable audit bit is ChangeSummary.landed_forced.
+  bool forced = 6;
 }
 
 message AbandonChangeRequest {

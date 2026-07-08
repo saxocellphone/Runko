@@ -999,8 +999,14 @@ func (x *ApproveChangeRequest) GetApprovedBy() string {
 }
 
 type LandChangeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ChangeId      string                 `protobuf:"bytes,1,opt,name=change_id,json=changeId,proto3" json:"change_id,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	ChangeId string                 `protobuf:"bytes,1,opt,name=change_id,json=changeId,proto3" json:"change_id,omitempty"`
+	// Admin override (§13.5, added 2026-07-08): skip the owner/check gates
+	// and the revalidation rule. Only admin-capable principals (and the
+	// anonymous deploy token, the documented v1 operator credential) may set
+	// this; agents and bot lanes may never. Integrity guards still apply -
+	// conflicts, stacked-parent ordering, terminal states.
+	Force         bool `protobuf:"varint,2,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1042,6 +1048,13 @@ func (x *LandChangeRequest) GetChangeId() string {
 	return ""
 }
 
+func (x *LandChangeRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
 type LandChangeResponse struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	Landed               bool                   `protobuf:"varint,1,opt,name=landed,proto3" json:"landed,omitempty"`
@@ -1049,8 +1062,11 @@ type LandChangeResponse struct {
 	RequiresRevalidation bool                   `protobuf:"varint,3,opt,name=requires_revalidation,json=requiresRevalidation,proto3" json:"requires_revalidation,omitempty"`
 	Conflicts            []string               `protobuf:"bytes,4,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
 	RaceRetry            bool                   `protobuf:"varint,5,opt,name=race_retry,json=raceRetry,proto3" json:"race_retry,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// True when this land bypassed gates via LandChangeRequest.force -
+	// echoed for display; the durable audit bit is ChangeSummary.landed_forced.
+	Forced        bool `protobuf:"varint,6,opt,name=forced,proto3" json:"forced,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LandChangeResponse) Reset() {
@@ -1114,6 +1130,13 @@ func (x *LandChangeResponse) GetConflicts() []string {
 func (x *LandChangeResponse) GetRaceRetry() bool {
 	if x != nil {
 		return x.RaceRetry
+	}
+	return false
+}
+
+func (x *LandChangeResponse) GetForced() bool {
+	if x != nil {
+		return x.Forced
 	}
 	return false
 }
@@ -1551,9 +1574,10 @@ const file_runko_v1_changes_proto_rawDesc = "" +
 	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12\x1b\n" +
 	"\towner_ref\x18\x02 \x01(\tR\bownerRef\x12\x1f\n" +
 	"\vapproved_by\x18\x03 \x01(\tR\n" +
-	"approvedBy\"0\n" +
+	"approvedBy\"F\n" +
 	"\x11LandChangeRequest\x12\x1b\n" +
-	"\tchange_id\x18\x01 \x01(\tR\bchangeId\"\xbd\x01\n" +
+	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12\x14\n" +
+	"\x05force\x18\x02 \x01(\bR\x05force\"\xd5\x01\n" +
 	"\x12LandChangeResponse\x12\x16\n" +
 	"\x06landed\x18\x01 \x01(\bR\x06landed\x12\x1d\n" +
 	"\n" +
@@ -1561,7 +1585,8 @@ const file_runko_v1_changes_proto_rawDesc = "" +
 	"\x15requires_revalidation\x18\x03 \x01(\bR\x14requiresRevalidation\x12\x1c\n" +
 	"\tconflicts\x18\x04 \x03(\tR\tconflicts\x12\x1d\n" +
 	"\n" +
-	"race_retry\x18\x05 \x01(\bR\traceRetry\"K\n" +
+	"race_retry\x18\x05 \x01(\bR\traceRetry\x12\x16\n" +
+	"\x06forced\x18\x06 \x01(\bR\x06forced\"K\n" +
 	"\x14AbandonChangeRequest\x12\x1b\n" +
 	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"O\n" +

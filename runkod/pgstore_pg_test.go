@@ -303,12 +303,15 @@ func TestPostgresStoreAttributionRoundTrip(t *testing.T) {
 		t.Fatalf("expected AuthoredBy to move to bob on amend, got %q", updated.AuthoredBy)
 	}
 
-	landed, err := store.MarkChangeLanded(ctx, "Iattr", "head2", "carol")
+	landed, err := store.MarkChangeLanded(ctx, "Iattr", "head2", "carol", true)
 	if err != nil {
 		t.Fatalf("MarkChangeLanded: %v", err)
 	}
 	if landed.LandedBy != "carol" || landed.State != "landed" {
 		t.Fatalf("expected landed by carol, got %+v", landed)
+	}
+	if !landed.LandedForced {
+		t.Fatalf("expected landed_forced audit bit to persist and read back, got %+v", landed)
 	}
 
 	// Anonymous stays anonymous, both fields.
@@ -319,12 +322,15 @@ func TestPostgresStoreAttributionRoundTrip(t *testing.T) {
 	if anon.AuthoredBy != "" {
 		t.Fatalf("expected anonymous AuthoredBy to read back empty, got %q", anon.AuthoredBy)
 	}
-	if _, err := store.MarkChangeLanded(ctx, "Ianon", "head1", ""); err != nil {
+	if _, err := store.MarkChangeLanded(ctx, "Ianon", "head1", "", false); err != nil {
 		t.Fatalf("MarkChangeLanded (anon): %v", err)
 	}
 	got, ok, err := store.GetChange(ctx, "Ianon")
 	if err != nil || !ok {
 		t.Fatalf("GetChange: ok=%v err=%v", ok, err)
+	}
+	if got.LandedForced {
+		t.Fatalf("expected an ordinary land to read back landed_forced=false, got %+v", got)
 	}
 	if got.LandedBy != "" {
 		t.Fatalf("expected anonymous LandedBy to read back empty, got %q", got.LandedBy)
@@ -373,7 +379,7 @@ func TestPostgresStoreLifecycleAndRerunAttempts(t *testing.T) {
 	}
 
 	// Landed is terminal.
-	if _, err := store.MarkChangeLanded(ctx, "I2", "h2", ""); err != nil {
+	if _, err := store.MarkChangeLanded(ctx, "I2", "h2", "", false); err != nil {
 		t.Fatalf("land I2: %v", err)
 	}
 	if _, err := store.MarkChangeAbandoned(ctx, "I2"); err == nil {

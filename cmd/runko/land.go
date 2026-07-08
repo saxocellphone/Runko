@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -25,13 +26,23 @@ import (
 // repo with no server involved), this genuinely needs a live control plane
 // - the one this session's runkod IS, unlike auth/workspace/mcp which still
 // have none to talk to.
-func LandChange(ctx context.Context, client *http.Client, baseURL, token, changeID string) (land.Outcome, error) {
+func LandChange(ctx context.Context, client *http.Client, baseURL, token, changeID string, force bool) (land.Outcome, error) {
 	url := strings.TrimSuffix(baseURL, "/") + "/api/changes/" + changeID + "/land"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	var reqBody io.Reader
+	if force {
+		// The §13.5 admin override: bypasses owner/check gates and the
+		// revalidation rule server-side, audited as landed_forced. The
+		// daemon authorizes it (admin principals + the deploy token only).
+		reqBody = strings.NewReader(`{"force": true}`)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, reqBody)
 	if err != nil {
 		return land.Outcome{}, fmt.Errorf("change land: build request: %w", err)
 	}
 	req.Header.Set("Authorization", authHeaderValue(token))
+	if force {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {

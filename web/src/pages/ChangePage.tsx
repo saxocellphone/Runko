@@ -172,6 +172,27 @@ export function ChangePage() {
                 >
                   Land
                 </button>
+                {!requirements?.mergeable && (
+                  <button
+                    className="btn btn-danger"
+                    disabled={busy}
+                    title="Admin override (design.md 13.5): bypasses owner/check gates, audited as landed_forced. The server refuses non-admin callers."
+                    onClick={() => {
+                      const blockers = requirements?.blockers.join("\n") ?? "";
+                      if (
+                        window.confirm(
+                          `Force land, bypassing merge gates?\n\nBlockers being overridden:\n${blockers}\n\nThis is audited (landed_forced) and only admins may do it.`,
+                        )
+                      ) {
+                        void act(async () => {
+                          setLandResult(await changesClient.landChange({ changeId, force: true }));
+                        });
+                      }
+                    }}
+                  >
+                    Force land
+                  </button>
+                )}
                 <button
                   className="btn btn-danger"
                   disabled={busy}
