@@ -435,3 +435,24 @@ func TestWorkspaceBranchParallelWork(t *testing.T) {
 		t.Fatalf("snapshot from head worktree: ref=%q err=%v", ref, err)
 	}
 }
+
+// A relative --dir must resolve against the CALLER's cwd, not the shared
+// clone: `git -C <clone> worktree add <dir>` resolves relative dirs against
+// the clone, which silently nested the worktree inside it (found live -
+// every earlier test passed absolute paths).
+func TestWorkspaceCreateRelativeDirLandsInCallerCwd(t *testing.T) {
+	srv, _ := startWorkspaceServer(t)
+	root := t.TempDir()
+	t.Chdir(root)
+
+	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"rel-dir", "alice", []string{"checkout-api"}, "mono", "rel-dir"); err != nil {
+		t.Fatalf("WorkspaceCreate: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "rel-dir", "commerce/checkout/main.go")); err != nil {
+		t.Fatalf("worktree should be at <cwd>/rel-dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "mono", "rel-dir")); !os.IsNotExist(err) {
+		t.Fatalf("worktree must NOT be nested inside the shared clone")
+	}
+}

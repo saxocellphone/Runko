@@ -67,6 +67,11 @@ schemas are.
 | `runko workspace list` | `[]WorkspaceInfo` - needs a live runkod |
 | `runko workspace attach` | `WorkspaceInfo` - needs a live runkod |
 | `runko workspace snapshot` | `{"ref"}` - local git only (pushes to the worktree's workspace branch ref, `refs/workspaces/<id>/<branch>`; `head` is the default) |
+| `runko auth login` | prints where the credential was stored; validates via `GET /api/whoami` first. Stores `{url, name?, secret}` at `~/.config/runko/credentials.json` (0600): with `--name` the secret is a principal password (sent as HTTP Basic - required for signed-up principals, whose passwords are hashed server-side), without it a bearer token. Every command taking `--runkod-url`/`--token` falls back to this stored credential |
+| `runko auth status` | who the stored credential resolves to (live `whoami` round-trip) |
+| `runko auth logout` | deletes the stored credential |
+| `runko change create` | `{"change_id"}` - local git only: commits ALL working-tree changes as one commit carrying a fresh `Change-Id` trailer (§7.4); no auto-push - `change push` stays the explicit submit step |
+| `runko change requirements` | `checks.MergeRequirements` - the §13.5 gates; `--change` defaults to HEAD's `Change-Id` trailer, needs a live runkod |
 | `runko workspace branch` | `{"ref"}` - local git only (forks a parallel line: switches this worktree's snapshot target to `refs/workspaces/<id>/<name>` and snapshots the fork point, §12.2) |
 | `runko workspace update-base` | `{"base_revision"}` - needs a live runkod (records the new base in the registry) |
 | `runko-ci affected` | `affected.Result` (always JSON - no human mode exists for this command; it is CI-facing by design) |

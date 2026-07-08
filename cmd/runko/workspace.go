@@ -60,7 +60,7 @@ func apiJSON(ctx context.Context, client *http.Client, method, urlStr, token str
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", authHeaderValue(token))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -95,9 +95,27 @@ func composeRemoteURL(runkodURL, token, repoPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse --runkod-url: %w", err)
 	}
-	u.User = url.UserPassword("runko", token)
+	user, pass := gitUserPass(token)
+	u.User = url.UserPassword(user, pass)
 	u.Path = strings.TrimSuffix(u.Path, "/") + "/" + repoPath + "/"
 	return u.String(), nil
+}
+
+// absWorkspacePaths pins dir and cloneDir to the CALLER's cwd before any
+// git subprocess runs elsewhere: `git -C <cloneDir> worktree add <dir>`
+// resolves a relative dir against cloneDir, so the default relative --dir
+// silently landed the worktree INSIDE the shared clone (found live; every
+// test passed absolute paths).
+func absWorkspacePaths(cloneDir, dir string) (string, string, error) {
+	absClone, err := filepath.Abs(cloneDir)
+	if err != nil {
+		return "", "", err
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", "", err
+	}
+	return absClone, absDir, nil
 }
 
 // ensureSharedClone makes sure cloneDir holds the one blobless clone every
@@ -170,8 +188,12 @@ func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, w
 
 // WorkspaceCreate registers the workspace and materializes its worktree.
 func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token, name, owner string, projects []string, cloneDir, dir string) (WorkspaceInfo, error) {
+	cloneDir, dir, err := absWorkspacePaths(cloneDir, dir)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
 	var info WorkspaceInfo
-	err := apiJSON(ctx, client, http.MethodPost, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces", token,
+	err = apiJSON(ctx, client, http.MethodPost, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces", token,
 		map[string]interface{}{"name": name, "owner": owner, "projects": projects}, &info)
 	if err != nil {
 		return WorkspaceInfo{}, err
@@ -193,8 +215,12 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 // row and snapshot ref - the §12.2 "attach from anywhere" contract: delete
 // the directory (or lose the laptop) and nothing durable is lost.
 func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token, id, branch, cloneDir, dir string) (WorkspaceInfo, error) {
+	cloneDir, dir, err := absWorkspacePaths(cloneDir, dir)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
 	var info WorkspaceInfo
-	err := apiJSON(ctx, client, http.MethodGet, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces/"+id, token, nil, &info)
+	err = apiJSON(ctx, client, http.MethodGet, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces/"+id, token, nil, &info)
 	if err != nil {
 		if ce := (*clierr.Error)(nil); asClierr(err, &ce) && ce.Code == "not_found" {
 			return WorkspaceInfo{}, &clierr.Error{

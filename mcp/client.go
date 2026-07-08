@@ -56,7 +56,13 @@ func (c *Client) get(ctx context.Context, path string, out interface{}) error {
 	if err != nil {
 		return &Error{Code: "validation_failed", Message: err.Error()}
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	// Token may be a raw bearer token or a pre-rendered header value
+	// ("Bearer x"/"Basic y") from `runko auth login` - pass headers through.
+	if strings.HasPrefix(c.Token, "Bearer ") || strings.HasPrefix(c.Token, "Basic ") {
+		req.Header.Set("Authorization", c.Token)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return &Error{Code: "backend_unavailable", Message: fmt.Sprintf("contact runkod: %v", err), Retryable: true}

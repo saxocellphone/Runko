@@ -6,7 +6,8 @@
 // a live control plane - and, unlike auth/workspace/mcp below, has one to
 // talk to as of this session: runkod. Still stubbed because no live
 // control plane is reachable in this sandbox to round-trip against: auth
-// login, workspace create/attach, change create/requirements, mcp serve.
+// login, workspace create/attach, change create/requirements, mcp serve -
+// all since implemented; auth login (2026-07-08) closed the list.
 //
 // Exit codes (docs/cli-contract.md, added in the §8.3 CLI-first audit):
 // 0 success, 1 a recognized command failed (structured error printed to
@@ -17,6 +18,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,8 +64,7 @@ func main() {
 	case "mcp":
 		err = cmdMCP(os.Args[2:])
 	case "auth":
-		fmt.Fprintf(os.Stderr, "runko %s: requires a live control plane - not implemented yet (docs/design.md §17.1, §19.2)\n", os.Args[1])
-		os.Exit(1)
+		err = cmdAuth(os.Args[2:])
 	case "-h", "--help", "help":
 		printUsage()
 		return
@@ -106,8 +107,10 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace update-base --runkod-url <url> --token <t> [--dir .]   fetch + rebase onto trunk tip [--json]
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: six read-only tools (§8.3, §17.4)
 
-not yet implemented (need a live control plane, §19.2):
-  auth login, change create/requirements
+  auth login --runkod-url <url> [--name <you>] [--token <t>]   store a credential; every command below then needs no flags
+  auth status | auth logout                                   who am I / forget the credential
+  change create -m <msg> [--dir .]                            commit WIP as one Change (with its Change-Id) [--json]
+  change requirements [--change <Id>] [--dir .]               the §13.5 gates for a Change (default: HEAD's) [--json]
 
 exit codes: 0 success, 1 command failed, 2 usage error (docs/cli-contract.md)`)
 }
@@ -203,12 +206,13 @@ func cmdProjectList(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *runkodURL == "" || *token == "" {
-		return fmt.Errorf("project list: --runkod-url and --token are required")
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
 	}
 	var projects []index.IndexedProject
 	if err := apiJSON(context.Background(), http.DefaultClient, http.MethodGet,
-		strings.TrimRight(*runkodURL, "/")+"/api/projects", *token, nil, &projects); err != nil {
+		strings.TrimRight(cred.URL, "/")+"/api/projects", cred.AuthHeader(), nil, &projects); err != nil {
 		return err
 	}
 	if *jsonOut {
@@ -226,11 +230,15 @@ func cmdProjectList(args []string) error {
 }
 
 func cmdChange(args []string) error {
-	valid := map[string]bool{"push": true, "land": true, "approve": true, "list": true, "abandon": true, "rerun-check": true}
+	valid := map[string]bool{"create": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "rerun-check": true}
 	if len(args) < 1 || !valid[args[0]] {
-		return usageError("usage: runko change push|land|approve|list|abandon|rerun-check ... (see docs/cli-contract.md)")
+		return usageError("usage: runko change create|push|requirements|land|approve|list|abandon|rerun-check ... (see docs/cli-contract.md)")
 	}
 	switch args[0] {
+	case "create":
+		return cmdChangeCreate(args[1:])
+	case "requirements":
+		return cmdChangeRequirements(args[1:])
 	case "land":
 		return cmdChangeLand(args[1:])
 	case "approve":
@@ -268,6 +276,113 @@ func cmdChange(args []string) error {
 // cmdChangeLand implements `runko change land` (§13.5, §28.3 stage 11b) -
 // unlike push/project create/agents-md, this genuinely needs a live runkod
 // instance to talk to (see LandChange's doc comment in land.go).
+func cmdChangeCreate(args []string) error {
+	fs := flag.NewFlagSet("change create", flag.ExitOnError)
+	msg := fs.String("m", "", "change message (required)")
+	dir := fs.String("dir", ".", "repository directory")
+	jsonOut := fs.Bool("json", false, "emit {change_id} as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	id, err := CreateChange(*dir, *msg)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"change_id": id})
+	}
+	fmt.Printf("created change %s\n  -> runko change push   # submit it for review\n", id)
+	return nil
+}
+
+func cmdChangeRequirements(args []string) error {
+	fs := flag.NewFlagSet("change requirements", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL")
+	token := fs.String("token", "", "deploy token")
+	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
+	jsonOut := fs.Bool("json", false, "emit the merge requirements as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	id := *changeID
+	if id == "" {
+		var err error
+		if id, err = headChangeID(*dir); err != nil {
+			return err
+		}
+	}
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
+	}
+	reqs, err := ChangeRequirements(context.Background(), http.DefaultClient, cred, id)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(reqs)
+	}
+	printRequirements(id, reqs)
+	return nil
+}
+
+func cmdAuth(args []string) error {
+	if len(args) < 1 {
+		return usageError("usage: runko auth login|status|logout ...")
+	}
+	ctx := context.Background()
+	switch args[0] {
+	case "login":
+		fs := flag.NewFlagSet("auth login", flag.ExitOnError)
+		runkodURL := fs.String("runkod-url", "", "runkod base URL (required)")
+		name := fs.String("name", "", "principal name (empty = anonymous bearer token)")
+		token := fs.String("token", "", "token/password (prompted on stdin when omitted)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *runkodURL == "" {
+			return fmt.Errorf("auth login: --runkod-url is required")
+		}
+		_, err := AuthLogin(ctx, http.DefaultClient, *runkodURL, *name, *token, bufio.NewReader(os.Stdin), os.Stdout)
+		return err
+
+	case "status":
+		cred, found, err := loadCredential()
+		if err != nil {
+			return err
+		}
+		if !found {
+			fmt.Println("not logged in (runko auth login --runkod-url <url>)")
+			return nil
+		}
+		who, anonymous, err := whoami(ctx, http.DefaultClient, cred)
+		if err != nil {
+			return err
+		}
+		if anonymous {
+			fmt.Printf("%s: logged in anonymously (deploy token)\n", cred.URL)
+		} else {
+			fmt.Printf("%s: logged in as %s\n", cred.URL, who)
+		}
+		return nil
+
+	case "logout":
+		path, err := credentialPath()
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		fmt.Println("logged out")
+		return nil
+
+	default:
+		return usageError("usage: runko auth login|status|logout ...")
+	}
+}
+
 func cmdChangeLand(args []string) error {
 	fs := flag.NewFlagSet("change land", flag.ExitOnError)
 	runkodURL := fs.String("runkod-url", "", "runkod base URL, e.g. http://localhost:8080")
@@ -277,11 +392,14 @@ func cmdChangeLand(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *runkodURL == "" || *token == "" || *changeID == "" {
-		return fmt.Errorf("change land: --runkod-url, --token, and --change are required")
+	if *changeID == "" {
+		return fmt.Errorf("change land: --change is required")
 	}
-
-	outcome, err := LandChange(context.Background(), http.DefaultClient, *runkodURL, *token, *changeID)
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
+	}
+	outcome, err := LandChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *changeID)
 	if err != nil {
 		return err
 	}
@@ -311,11 +429,16 @@ func cmdChangeApprove(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *runkodURL == "" || *token == "" || *changeID == "" || *ownerRef == "" || *by == "" {
-		return fmt.Errorf("change approve: --runkod-url, --token, --change, --owner, and --by are required")
+	if *changeID == "" || *ownerRef == "" {
+		return fmt.Errorf("change approve: --change and --owner are required")
 	}
-
-	reqs, err := ApproveChange(context.Background(), http.DefaultClient, *runkodURL, *token, *changeID, *ownerRef, *by)
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
+	}
+	// --by stays optional for a signed-in principal: the server derives
+	// the approver from the credential (and rejects a mismatch).
+	reqs, err := ApproveChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *changeID, *ownerRef, *by)
 	if err != nil {
 		return err
 	}
@@ -343,14 +466,15 @@ func cmdChangeList(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *runkodURL == "" || *token == "" {
-		return fmt.Errorf("change list: --runkod-url and --token are required")
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
 	}
 	filter := *state
 	if filter == "all" {
 		filter = ""
 	}
-	list, err := ListChanges(context.Background(), http.DefaultClient, *runkodURL, *token, filter)
+	list, err := ListChanges(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), filter)
 	if err != nil {
 		return err
 	}
@@ -377,10 +501,14 @@ func cmdChangeAbandon(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *runkodURL == "" || *token == "" || *changeID == "" {
-		return fmt.Errorf("change abandon: --runkod-url, --token, and --change are required")
+	if *changeID == "" {
+		return fmt.Errorf("change abandon: --change is required")
 	}
-	change, err := AbandonChange(context.Background(), http.DefaultClient, *runkodURL, *token, *changeID)
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
+	}
+	change, err := AbandonChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *changeID)
 	if err != nil {
 		return err
 	}
@@ -401,10 +529,14 @@ func cmdChangeRerunCheck(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *runkodURL == "" || *token == "" || *changeID == "" || *name == "" {
-		return fmt.Errorf("change rerun-check: --runkod-url, --token, --change, and --name are required")
+	if *changeID == "" || *name == "" {
+		return fmt.Errorf("change rerun-check: --change and --name are required")
 	}
-	reqs, err := RerunCheck(context.Background(), http.DefaultClient, *runkodURL, *token, *changeID, *name)
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
+	}
+	reqs, err := RerunCheck(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *changeID, *name)
 	if err != nil {
 		return err
 	}
@@ -451,8 +583,12 @@ func cmdWorkspace(args []string) error {
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		if *runkodURL == "" || *token == "" || *name == "" || *by == "" || len(projects) == 0 {
-			return fmt.Errorf("workspace create: --runkod-url, --token, --name, --by, and at least one --project are required")
+		if *name == "" || *by == "" || len(projects) == 0 {
+			return fmt.Errorf("workspace create: --name, --by, and at least one --project are required")
+		}
+		cred, err := resolveCredential(*runkodURL, *token)
+		if err != nil {
+			return err
 		}
 		if *cloneDir == "" {
 			*cloneDir = "mono"
@@ -460,7 +596,7 @@ func cmdWorkspace(args []string) error {
 		if *dir == "" {
 			*dir = *name
 		}
-		info, err := WorkspaceCreate(ctx, http.DefaultClient, *runkodURL, *token, *name, *by, projects, *cloneDir, *dir)
+		info, err := WorkspaceCreate(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), *name, *by, projects, *cloneDir, *dir)
 		if err != nil {
 			return err
 		}
@@ -478,10 +614,11 @@ func cmdWorkspace(args []string) error {
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		if *runkodURL == "" || *token == "" {
-			return fmt.Errorf("workspace list: --runkod-url and --token are required")
+		cred, err := resolveCredential(*runkodURL, *token)
+		if err != nil {
+			return err
 		}
-		list, err := WorkspaceList(ctx, http.DefaultClient, *runkodURL, *token)
+		list, err := WorkspaceList(ctx, http.DefaultClient, cred.URL, cred.AuthHeader())
 		if err != nil {
 			return err
 		}
@@ -520,8 +657,12 @@ func cmdWorkspace(args []string) error {
 		if id == "" {
 			id = fs.Arg(0)
 		}
-		if *runkodURL == "" || *token == "" || id == "" {
-			return fmt.Errorf("workspace attach: --runkod-url, --token, and a workspace id are required")
+		if id == "" {
+			return fmt.Errorf("workspace attach: a workspace id is required")
+		}
+		cred, err := resolveCredential(*runkodURL, *token)
+		if err != nil {
+			return err
 		}
 		if *cloneDir == "" {
 			*cloneDir = "mono"
@@ -535,7 +676,7 @@ func cmdWorkspace(args []string) error {
 				*dir = id + "-" + *branch
 			}
 		}
-		info, err := WorkspaceAttach(ctx, http.DefaultClient, *runkodURL, *token, id, *branch, *cloneDir, *dir)
+		info, err := WorkspaceAttach(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id, *branch, *cloneDir, *dir)
 		if err != nil {
 			return err
 		}
@@ -600,10 +741,11 @@ func cmdWorkspace(args []string) error {
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		if *runkodURL == "" || *token == "" {
-			return fmt.Errorf("workspace update-base: --runkod-url and --token are required")
+		cred, err := resolveCredential(*runkodURL, *token)
+		if err != nil {
+			return err
 		}
-		newBase, err := WorkspaceUpdateBase(ctx, http.DefaultClient, *runkodURL, *token, *dir)
+		newBase, err := WorkspaceUpdateBase(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), *dir)
 		if err != nil {
 			return err
 		}
@@ -661,10 +803,11 @@ func cmdMCP(args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	if *runkodURL == "" || *token == "" {
-		return fmt.Errorf("mcp serve: --runkod-url and --token are required")
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
 	}
-	srv := &mcp.Server{Client: &mcp.Client{BaseURL: *runkodURL, Token: *token}}
+	srv := &mcp.Server{Client: &mcp.Client{BaseURL: cred.URL, Token: cred.AuthHeader()}}
 	return srv.Serve(context.Background(), os.Stdin, os.Stdout)
 }
 

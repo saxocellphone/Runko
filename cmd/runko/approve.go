@@ -28,7 +28,7 @@ func ApproveChange(ctx context.Context, client *http.Client, baseURL, token, cha
 	if err != nil {
 		return checks.MergeRequirements{}, fmt.Errorf("change approve: build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", authHeaderValue(token))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)

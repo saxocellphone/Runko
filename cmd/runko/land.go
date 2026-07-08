@@ -31,7 +31,7 @@ func LandChange(ctx context.Context, client *http.Client, baseURL, token, change
 	if err != nil {
 		return land.Outcome{}, fmt.Errorf("change land: build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", authHeaderValue(token))
 
 	resp, err := client.Do(req)
 	if err != nil {
