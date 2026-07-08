@@ -3,7 +3,7 @@ import { projectsClient } from "../api/client";
 import { projectTypeLabel } from "../lib/format";
 import { Visibility } from "../gen/runko/v1/common_pb";
 import { useRpc } from "../lib/useRpc";
-import { ErrorNote, Spinner } from "../components/ui";
+import { BackLink, ErrorNote, Spinner } from "../components/ui";
 
 export function ProjectPage() {
   // Project names contain slashes (commerce/cart), so the route is a splat.
@@ -14,13 +14,15 @@ export function ProjectPage() {
     `project-${name}`,
   );
 
-  if (loading) return <div className="page"><Spinner /></div>;
-  if (error) return <div className="page"><ErrorNote error={error} /></div>;
+  const back = <BackLink to="/projects">Projects</BackLink>;
+  if (loading) return <div className="page">{back}<Spinner /></div>;
+  if (error) return <div className="page">{back}<ErrorNote error={error} /></div>;
   const p = data?.project;
   if (!p) return null;
 
   return (
     <div className="page">
+      {back}
       <header className="page-header">
         <h1 className="page-title">{p.name}</h1>
         <p className="page-sub">

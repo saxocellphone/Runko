@@ -916,6 +916,29 @@ tr.hunk-head td {
   align-self: flex-start;
 }
 
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 550;
+  margin-bottom: 12px;
+}
+.back-link:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* In-place path links (diff headers, search hits) keep their context's
+   text color until hovered. */
+.path-link {
+  color: inherit;
+}
+.path-link:hover {
+  color: var(--accent);
+}
+
 /* -------------------------------------------------------------- browser */
 
 .browse-layout {

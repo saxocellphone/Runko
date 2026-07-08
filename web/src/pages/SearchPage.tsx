@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { searchClient, projectsClient } from "../api/client";
 import { useRpc } from "../lib/useRpc";
 import { EmptyState, ErrorNote, Spinner } from "../components/ui";
@@ -57,8 +58,15 @@ export function SearchPage() {
           {results.data.hits.map((h, i) => (
             <div className="hit" key={`${h.path}:${h.line}:${i}`}>
               <div className="hit-path">
-                {h.path}:{h.line}
-                {h.projectId && <span className="chip" style={{ marginLeft: 8 }}>{h.projectId}</span>}
+                <Link className="path-link" to={`/browse/${h.path}`}>
+                  {h.path}
+                </Link>
+                :{h.line}
+                {h.projectId && (
+                  <Link className="chip" style={{ marginLeft: 8 }} to={`/projects/${h.projectId}`}>
+                    {h.projectId}
+                  </Link>
+                )}
               </div>
               <div className="hit-preview">
                 <Highlighted text={h.preview} needle={query} />

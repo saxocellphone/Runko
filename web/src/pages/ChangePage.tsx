@@ -9,7 +9,7 @@ import { useRpc } from "../lib/useRpc";
 import { DiffView } from "../components/DiffView";
 import { MergeGates } from "../components/MergeGates";
 import { StackRail } from "../components/StackRail";
-import { AuthorChip, ErrorNote, Spinner, StateBadge } from "../components/ui";
+import { AuthorChip, BackLink, ErrorNote, Spinner, StateBadge } from "../components/ui";
 
 export function ChangePage() {
   const { changeId = "" } = useParams();
@@ -61,8 +61,9 @@ export function ChangePage() {
     }
   };
 
-  if (loading) return <div className="page"><Spinner /></div>;
-  if (error) return <div className="page"><ErrorNote error={error} /></div>;
+  const back = <BackLink to="/changes">Changes</BackLink>;
+  if (loading) return <div className="page">{back}<Spinner /></div>;
+  if (error) return <div className="page">{back}<ErrorNote error={error} /></div>;
   if (!data) return null;
 
   const { change, stack, diff, requirements, requirementsById } = data;
@@ -70,6 +71,7 @@ export function ChangePage() {
 
   return (
     <div className="page">
+      {back}
       <header className="change-header">
         <h1>
           {change.title}

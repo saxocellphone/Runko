@@ -1,7 +1,33 @@
 import type { ConnectError } from "@connectrpc/connect";
+import { Link } from "react-router-dom";
 import { ChangeState, type Actor, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import { actorLabel, changeStateLabel, isAgent } from "../lib/format";
 import { checksRollup, dotStatus, reviewRollup } from "../lib/status";
+
+// Detail pages render this above their header so there's always a visible
+// way back to the list they came from (browser-back also works; this is
+// the discoverable affordance).
+export function BackLink({ to, children }: { to: string; children: React.ReactNode }) {
+  return (
+    <Link className="back-link" to={to}>
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <line x1="13" y1="8" x2="3" y2="8" />
+        <polyline points="7.5,3.5 3,8 7.5,12.5" />
+      </svg>
+      {children}
+    </Link>
+  );
+}
 
 export function Spinner() {
   return <div className="spinner" aria-label="loading" />;

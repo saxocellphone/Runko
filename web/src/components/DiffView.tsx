@@ -41,7 +41,18 @@ function FileDiffCard({ file }: { file: FileDiff }) {
         <span className="chevron">{collapsed ? "▶" : "▼"}</span>
         <span className="file-path">
           {file.oldPath && <span className="file-old-path">{file.oldPath}</span>}
-          {file.path}
+          {file.status === FileDiffStatus.DELETED ? (
+            file.path
+          ) : (
+            <Link
+              className="path-link"
+              to={`/browse/${file.path}`}
+              title="open in the repo browser"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {file.path}
+            </Link>
+          )}
         </span>
         {chip && <span className={`chip ${chip.cls}`}>{chip.label}</span>}
         <span className="spacer" />

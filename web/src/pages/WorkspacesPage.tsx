@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { workspacesClient } from "../api/client";
 import { WorkspaceStatus } from "../gen/runko/v1/common_pb";
 import { shortSha } from "../lib/format";
@@ -50,9 +51,9 @@ export function WorkspacesPage() {
                   <td>
                     <span className="chip-row">
                       {w.projectAffinity.map((p) => (
-                        <span className="chip" key={p}>
+                        <Link className="chip" key={p} to={`/projects/${p}`}>
                           {p}
-                        </span>
+                        </Link>
                       ))}
                     </span>
                   </td>
