@@ -35,7 +35,13 @@ type Principal struct {
 // header (constant-time token match, like laneFor). Nil means the caller
 // authenticated some other way (deploy token, bot lane) or not at all.
 func (s *Server) principalFor(r *http.Request) *Principal {
-	auth := r.Header.Get("Authorization")
+	return s.principalForAuthHeader(r.Header.Get("Authorization"))
+}
+
+// principalForAuthHeader is principalFor over a raw Authorization header
+// value - the Connect RPC surface (rpc.go) carries headers on
+// connect.Request rather than *http.Request.
+func (s *Server) principalForAuthHeader(auth string) *Principal {
 	for i := range s.Principals {
 		want := "Bearer " + s.Principals[i].Token
 		if subtle.ConstantTimeCompare([]byte(auth), []byte(want)) == 1 {

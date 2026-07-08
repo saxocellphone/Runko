@@ -6,6 +6,7 @@
 package runkod
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -106,6 +107,65 @@ func (s *Server) resolveProjectPaths(rev core.Revision, names []string) (paths [
 	return paths, unknown, nil
 }
 
+// createWorkspaceCore is POST /api/workspaces' decision core, shared with
+// the Connect CreateWorkspace RPC (rpc.go) - see actions.go on the pattern.
+func (s *Server) createWorkspaceCore(ctx context.Context, name, owner string, projects []string) (Workspace, *apiError) {
+	if !workspaceIDPattern.MatchString(name) {
+		return Workspace{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "invalid_workspace_name", Field: "name",
+			Message:    fmt.Sprintf("%q is not a valid workspace name", name),
+			Suggestion: "use letters, digits, dots, dashes, underscores; start with a letter or digit",
+		})
+	}
+	if owner == "" || len(projects) == 0 {
+		return Workspace{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "missing_field", Field: "projects",
+			Message:    "owner and at least one project are required",
+			Suggestion: "runko workspace create --name <n> --by <you> --project <p> --runkod-url <url> --token <t>",
+		})
+	}
+
+	gstore := gitstore.New(s.RepoDir)
+	base, err := gstore.ResolveRef("refs/heads/" + s.TrunkRef)
+	if err != nil {
+		return Workspace{}, typedErr(http.StatusConflict, clierr.Error{
+			Code: "trunk_unborn", Field: "monorepo",
+			Message:    fmt.Sprintf("trunk %s has no commits yet - a workspace needs a base revision", s.TrunkRef),
+			Suggestion: "land the monorepo's first change, then create the workspace",
+		})
+	}
+
+	paths, unknown, err := s.resolveProjectPaths(base, projects)
+	if err != nil {
+		return Workspace{}, &apiError{Status: http.StatusInternalServerError, Err: clierr.Error{Message: err.Error()}}
+	}
+	if len(unknown) > 0 {
+		return Workspace{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "unknown_project", Field: "projects",
+			Message:    fmt.Sprintf("no such project(s): %s", strings.Join(unknown, ", ")),
+			Suggestion: "runko project list --runkod-url <url> --token <t>  # see the names indexed at trunk",
+		})
+	}
+
+	ws := Workspace{
+		ID: name, Owner: owner,
+		BaseRevision:    string(base),
+		ProjectAffinity: append([]string{}, projects...),
+		WriteAllowlist:  paths,
+		SnapshotRef:     "refs/workspaces/" + name + "/head",
+		Status:          "active",
+	}
+	created, err := s.Store.CreateWorkspace(ctx, ws)
+	if err != nil {
+		return Workspace{}, typedErr(http.StatusConflict, clierr.Error{
+			Code: "workspace_exists", Field: "name",
+			Message:    fmt.Sprintf("workspace %q already exists", name),
+			Suggestion: "pick another name, or `runko workspace attach " + name + "` to resume it",
+		})
+	}
+	return created, nil
+}
+
 func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req createWorkspaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -114,63 +174,9 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if !workspaceIDPattern.MatchString(req.Name) {
-		writeJSON(w, http.StatusBadRequest, clierr.Error{
-			Code: "invalid_workspace_name", Field: "name",
-			Message:    fmt.Sprintf("%q is not a valid workspace name", req.Name),
-			Suggestion: "use letters, digits, dots, dashes, underscores; start with a letter or digit",
-		})
-		return
-	}
-	if req.Owner == "" || len(req.Projects) == 0 {
-		writeJSON(w, http.StatusBadRequest, clierr.Error{
-			Code: "missing_field", Field: "projects",
-			Message:    "owner and at least one project are required",
-			Suggestion: "runko workspace create --name <n> --by <you> --project <p> --runkod-url <url> --token <t>",
-		})
-		return
-	}
-
-	gstore := gitstore.New(s.RepoDir)
-	base, err := gstore.ResolveRef("refs/heads/" + s.TrunkRef)
-	if err != nil {
-		writeJSON(w, http.StatusConflict, clierr.Error{
-			Code: "trunk_unborn", Field: "monorepo",
-			Message:    fmt.Sprintf("trunk %s has no commits yet - a workspace needs a base revision", s.TrunkRef),
-			Suggestion: "land the monorepo's first change, then create the workspace",
-		})
-		return
-	}
-
-	paths, unknown, err := s.resolveProjectPaths(base, req.Projects)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if len(unknown) > 0 {
-		writeJSON(w, http.StatusBadRequest, clierr.Error{
-			Code: "unknown_project", Field: "projects",
-			Message:    fmt.Sprintf("no such project(s): %s", strings.Join(unknown, ", ")),
-			Suggestion: "runko project list --runkod-url <url> --token <t>  # see the names indexed at trunk",
-		})
-		return
-	}
-
-	ws := Workspace{
-		ID: req.Name, Owner: req.Owner,
-		BaseRevision:    string(base),
-		ProjectAffinity: append([]string{}, req.Projects...),
-		WriteAllowlist:  paths,
-		SnapshotRef:     "refs/workspaces/" + req.Name + "/head",
-		Status:          "active",
-	}
-	created, err := s.Store.CreateWorkspace(r.Context(), ws)
-	if err != nil {
-		writeJSON(w, http.StatusConflict, clierr.Error{
-			Code: "workspace_exists", Field: "name",
-			Message:    fmt.Sprintf("workspace %q already exists", req.Name),
-			Suggestion: "pick another name, or `runko workspace attach " + req.Name + "` to resume it",
-		})
+	created, apiErr := s.createWorkspaceCore(r.Context(), req.Name, req.Owner, req.Projects)
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
 		return
 	}
 	writeJSON(w, http.StatusCreated, s.workspaceResponse(created))
@@ -198,32 +204,44 @@ func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.workspaceResponse(ws))
 }
 
-// handleUpdateWorkspaceBase records a client-side update-base (fetch +
+// updateWorkspaceBaseCore records a client-side update-base (fetch +
 // rebase, §12.3's "sync base" row) in the registry. The revision must exist
 // in the repo - the registry never points at a base the server can't see.
+func (s *Server) updateWorkspaceBaseCore(ctx context.Context, id, baseRevision string) (Workspace, *apiError) {
+	if baseRevision == "" {
+		return Workspace{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "missing_field", Field: "base_revision",
+			Message: "base_revision is required",
+		})
+	}
+	if _, err := gitstore.New(s.RepoDir).ResolveRef(baseRevision + "^{commit}"); err != nil {
+		return Workspace{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "unknown_revision", Field: "base_revision",
+			Message:    fmt.Sprintf("%q is not a commit this monorepo knows", baseRevision),
+			Suggestion: "push or land first, then update the base",
+		})
+	}
+	ws, err := s.Store.UpdateWorkspaceBase(ctx, id, baseRevision)
+	if err != nil {
+		return Workspace{}, plainErr(http.StatusNotFound, "workspace not found")
+	}
+	return ws, nil
+}
+
 func (s *Server) handleUpdateWorkspaceBase(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
 	var req struct {
 		BaseRevision string `json:"base_revision"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.BaseRevision == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, clierr.Error{
 			Code: "missing_field", Field: "base_revision",
 			Message: "base_revision is required",
 		})
 		return
 	}
-	if _, err := gitstore.New(s.RepoDir).ResolveRef(req.BaseRevision + "^{commit}"); err != nil {
-		writeJSON(w, http.StatusBadRequest, clierr.Error{
-			Code: "unknown_revision", Field: "base_revision",
-			Message:    fmt.Sprintf("%q is not a commit this monorepo knows", req.BaseRevision),
-			Suggestion: "push or land first, then update the base",
-		})
-		return
-	}
-	ws, err := s.Store.UpdateWorkspaceBase(r.Context(), id, req.BaseRevision)
-	if err != nil {
-		http.Error(w, "workspace not found", http.StatusNotFound)
+	ws, apiErr := s.updateWorkspaceBaseCore(r.Context(), r.PathValue("id"), req.BaseRevision)
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, ws)

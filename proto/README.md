@@ -14,19 +14,22 @@ decided - see "Open questions" before treating any of this as final.
   (committed; `cd web && npm run gen` regenerates via `@bufbuild/buf` +
   local `protoc-gen-es`), and `buf lint` runs clean against this
   directory. Field numbers are therefore wire-frozen now, as
-  `common.proto`'s header warns. **Still no server implementation** - the
-  web UI runs on an in-memory fake transport until runkod mounts
-  connect-go handlers (see web/README.md).
+  `common.proto`'s header warns.
+- **Served since 2026-07-07** (stage 13's server half): runkod mounts
+  connect-go handlers for all six services on its existing `net/http` mux
+  (`runkod/rpc.go`; Go stubs committed at `gen/runko/v1`, regenerate with
+  `buf generate` per `buf.gen.yaml`'s header). Every RPC wraps the same
+  decision cores the REST handlers use (`runkod/actions.go`), and errors
+  carry `ErrorDetail` as a Connect error detail per item 4 below. The web
+  UI talks to it via `VITE_RUNKO_URL`/`VITE_RUNKO_TOKEN`; the fake
+  transport remains mounted at `/demo` (see web/README.md).
 - `GetChangeStack` + `GetChangeDiff` (and the FileDiff/DiffHunk/DiffLine
   shapes) were added to `changes.proto` for the stacked-diff view - the
   original draft had no way to render a diff at all. Their REST
   equivalents don't exist yet either; the fake transport documents the
   intended semantics.
-- **Not yet recorded in `docs/design.md`** as a committed architecture
-  decision. `docs/design.md` §9.1/§17.4 currently say "REST/gRPC (same
-  capabilities as MCP)" - this draft is one concrete proposal for that,
-  not the ratified one. Before real implementation, promote the decisions
-  below into `docs/design.md` per the repo's spec-before-code rule.
+- **Recorded in `docs/design.md`** (§17.4 + the 2026-07-07 changelog rows)
+  as a committed architecture decision: Connect on both halves.
 - Existing clients (`runko`/`runko-ci` CLI, `runko mcp serve`) keep using
   `runkod`'s REST API (`runkod/api.go`) unchanged. This draft does not
   propose replacing that surface - only adding the web frontend's contract
@@ -114,17 +117,20 @@ surface rather than today's partial one.
 
 ## Next steps (for whoever picks this up)
 
-1. ~~Confirm or reject the Connect recommendation~~ **Confirmed on the
-   client side** (2026-07-07): `web/` is built on Connect-ES
-   (`@connectrpc/connect-web`) against these protos. The server half is
-   now committed-by-consumption: runkod should mount connect-go handlers
-   (stage 13's remaining half); a different server stack would strand a
-   working frontend.
-2. ~~Install buf, run buf lint / buf generate~~ Done - `buf lint` clean,
-   TS generation real and committed (`web/src/gen`). Go generation
-   (`buf.gen.yaml` here) still unexercised.
-3. Record the confirmed decision in `docs/design.md` (§9.1/§17.4) before
-   wiring a real server - this directory is the proposal, not the record.
-4. Implement `GetChangeStack`/`GetChangeDiff` server-side (added for the
-   stacked diff view; semantics documented on the RPCs and exercised by
-   `web/src/api/fake/transport.ts` + its vitest suite).
+All four original items closed 2026-07-07 with stage 13's server half:
+
+1. ~~Confirm or reject the Connect recommendation~~ **Confirmed on both
+   halves**: `web/` on Connect-ES, runkod on connect-go (`runkod/rpc.go`).
+2. ~~Install buf, run buf lint / buf generate~~ Done for TS
+   (`web/src/gen`) and Go (`gen/runko/v1`, local plugins - see
+   `buf.gen.yaml`'s header for the regenerate incantation).
+3. ~~Record the confirmed decision in `docs/design.md`~~ Done (§17.4 +
+   changelog).
+4. ~~Implement `GetChangeStack`/`GetChangeDiff` server-side~~ Done
+   (`runkod/rpc.go`, `runkod/diff.go`), plus `RepoService` tree/blob
+   (`runkod/repo.go`).
+
+Still open: write-tool RPCs as the MCP catalog's deferred-v1.x tools
+graduate, server-side pagination when a real list outgrows one response,
+and request-metadata-derived identity for `approved_by` once real AuthN
+(§15.1) lands.

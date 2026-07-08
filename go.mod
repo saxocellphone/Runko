@@ -3,9 +3,11 @@ module github.com/saxocellphone/runko
 go 1.25.0
 
 require (
+	connectrpc.com/connect v1.20.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 

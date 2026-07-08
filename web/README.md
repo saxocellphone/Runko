@@ -27,15 +27,27 @@ single violet accent, light + dark themes.
 
 ## Transport: real vs. demo
 
-`src/api/client.ts` picks the transport at startup:
+`src/api/client.ts` picks the transport once per page load:
 
-- `VITE_RUNKO_URL=http://host:port npm run dev` — Connect protocol against
-  a runkod serving connect-go handlers. **No such server exists yet** (the
-  proto is a draft; server-side wiring is the other half of stage 13).
-- unset — an in-memory fake transport (`src/api/fake/`) serving a coherent
-  demo scene through the same generated types, with real mutation
-  semantics (approve/land/rerun/abandon) so every flow is exercisable.
-  The sidebar shows a "Demo data" badge in this mode.
+- **`/demo/*`** — always the in-memory fake transport (`src/api/fake/`),
+  regardless of configuration: a coherent demo scene through the same
+  generated types, with real mutation semantics (approve/land/rerun/
+  abandon) so every flow is exercisable. `main.tsx` mounts the app under
+  the `/demo` basename, so in-app navigation stays inside the demo; the
+  sidebar badge cross-links back to the live app.
+- **everywhere else with `VITE_RUNKO_URL=http://host:port`** — Connect
+  protocol against runkod's connect-go handlers (`runkod/rpc.go`, stage
+  13's server half). `VITE_RUNKO_TOKEN=<deploy token>` rides as the same
+  `Authorization: Bearer` header every other client sends; the daemon's
+  RPC routes answer CORS preflights, so the Vite dev server (or any
+  origin) can talk to it directly.
+- **everywhere else, unset** — the fake transport serves the root app
+  too, with the "Demo data — set VITE_RUNKO_URL" badge.
+
+`scripts/fullstack.mjs` drives the whole stack in headless Chromium
+(inbox → change page → approve → land → projects/browse/workspaces →
+/demo isolation) against a seeded runkod; see its header for the exact
+setup it expects.
 
 ## Commands
 

@@ -119,6 +119,10 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /api/workspaces/{id}/base", s.requireAuth(s.handleUpdateWorkspaceBase))
 	mux.HandleFunc("GET /api/sparse-patterns", s.requireAuth(s.handleSparsePatterns))
 
+	// The Connect RPC surface for the web frontend (proto/runko/v1, §17.4;
+	// rpc.go) - same Store, same cores, same token, one more transport.
+	s.mountRPC(mux)
+
 	return mux, nil
 }
 
@@ -347,33 +351,15 @@ func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAbandonChange serves POST /api/changes/{key}/abandon (§7.4's third
-// state, settable for the first time in stage 12c-③). Idempotent on an
-// already-abandoned Change; refuses a landed one (terminal - trunk already
-// has the code). No webhook: the envelope schema's event enum has no
-// abandoned event (docs/spec/webhooks), and the schema is the contract -
-// widening it is a spec change, not a side effect of this endpoint.
+// state, settable for the first time in stage 12c-③). No webhook: the
+// envelope schema's event enum has no abandoned event (docs/spec/webhooks),
+// and the schema is the contract - widening it is a spec change, not a side
+// effect of this endpoint.
 func (s *Server) handleAbandonChange(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
-	_, ok, err := s.Store.GetChange(r.Context(), key)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	change, apiErr := s.abandonChangeCore(r.Context(), r.PathValue("key"), s.principalFor(r))
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
 		return
-	}
-	if !ok {
-		http.Error(w, "change not found", http.StatusNotFound)
-		return
-	}
-	change, err := s.Store.MarkChangeAbandoned(r.Context(), key)
-	if err != nil {
-		writeJSON(w, http.StatusConflict, clierr.Error{
-			Code: "invalid_state", Field: "change",
-			Message:    err.Error(),
-			Suggestion: "a landed change cannot be abandoned; revert it with a new change instead",
-		})
-		return
-	}
-	if principal := s.principalFor(r); principal != nil {
-		log.Printf("runkod: change %s abandoned by %q", key, principal.Name)
 	}
 	writeJSON(w, http.StatusOK, change)
 }
@@ -396,48 +382,9 @@ func (s *Server) handleRerunCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "change not found", http.StatusNotFound)
 		return
 	}
-
-	// Only checks that actually gate this Change can be rerun - a rerun of
-	// an unknown name would queue a run nothing will ever report against.
-	result, indexed, err := s.computeAffected(change)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	required := mergeCheckNames(requiredCheckNames(result, indexed), s.GlobalRequiredChecks)
-	isRequired := false
-	for _, n := range required {
-		if n == name {
-			isRequired = true
-			break
-		}
-	}
-	if !isRequired {
-		suggestion := "this change requires no checks at all"
-		if len(required) > 0 {
-			suggestion = "required checks for this change: " + strings.Join(required, ", ")
-		}
-		writeJSON(w, http.StatusBadRequest, clierr.Error{
-			Code: "unknown_check", Field: "name",
-			Message:    fmt.Sprintf("%q is not a required check for change %s", name, key),
-			Suggestion: suggestion,
-		})
-		return
-	}
-
-	requestedBy := ""
-	if principal := s.principalFor(r); principal != nil {
-		requestedBy = principal.Name
-	}
-	if _, err := s.Store.RerunCheck(r.Context(), key, name, requestedBy); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.enqueueRerunWebhook(r.Context(), change, name, requestedBy)
-
-	reqs, err := s.mergeRequirements(r.Context(), key, change, s.laneFor(r))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	reqs, apiErr := s.rerunCheckCore(r.Context(), key, change, name, s.principalFor(r), s.laneFor(r))
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, reqs)
@@ -818,95 +765,9 @@ func (s *Server) handleApproveChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Attribution (§15.1 interim principals, stage 12c): a named principal
-	// approves as itself - the client-asserted approved_by is only trusted
-	// from the anonymous deploy token (the documented v1 eval boundary).
-	principal := s.principalFor(r)
-	if principal != nil {
-		if principal.IsAgent {
-			// §13.5's gate table: "Agent-only approval: No" - a hard rule,
-			// not policy. An agent's review can inform; it cannot satisfy
-			// the human-owner gate.
-			writeJSON(w, http.StatusForbidden, clierr.Error{
-				Code:       "agent_approval_denied",
-				Field:      "approved_by",
-				Message:    fmt.Sprintf("%q is an agent principal - agents cannot approve changes (§13.5)", principal.Name),
-				Suggestion: "a human owner must approve; agents may run checks and request review",
-			})
-			return
-		}
-		if req.ApprovedBy != "" && req.ApprovedBy != principal.Name {
-			writeJSON(w, http.StatusBadRequest, clierr.Error{
-				Code: "approved_by_mismatch", Field: "approved_by",
-				Message:    fmt.Sprintf("authenticated as %q but approved_by says %q", principal.Name, req.ApprovedBy),
-				Suggestion: "drop approved_by - your token already says who you are",
-			})
-			return
-		}
-		req.ApprovedBy = principal.Name
-	}
-	if req.OwnerRef == "" || req.ApprovedBy == "" {
-		writeJSON(w, http.StatusBadRequest, clierr.Error{
-			Code: "missing_field", Field: "owner_ref",
-			Message:    "both owner_ref and approved_by are required",
-			Suggestion: `POST {"owner_ref": "group:...", "approved_by": "<you>"}`,
-		})
-		return
-	}
-
-	// §8.7's "no self-approval", enforceable now that Changes record who
-	// pushed their current head. This also catches an honest deploy-token
-	// caller naming the author in approved_by; a DISHONEST anonymous
-	// caller can still lie, which is exactly the boundary the named-token
-	// registry exists to retire.
-	if change.AuthoredBy != "" && req.ApprovedBy == change.AuthoredBy {
-		writeJSON(w, http.StatusForbidden, clierr.Error{
-			Code:       "self_approval_denied",
-			Field:      "approved_by",
-			Message:    fmt.Sprintf("%q pushed this change's current head and cannot approve it (§8.7)", req.ApprovedBy),
-			Suggestion: "another required owner must approve",
-		})
-		return
-	}
-
-	result, indexed, err := s.computeAffected(change)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	owners, err := s.ownerRequirements(r.Context(), key, change.HeadSHA, result, indexed)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	isRequired := false
-	var requiredRefs []string
-	for _, o := range owners {
-		requiredRefs = append(requiredRefs, o.OwnerRef)
-		if o.OwnerRef == req.OwnerRef {
-			isRequired = true
-		}
-	}
-	if !isRequired {
-		suggestion := "this change has no owner requirements at all - nothing to approve"
-		if len(requiredRefs) > 0 {
-			suggestion = "required owners for this change: " + strings.Join(requiredRefs, ", ")
-		}
-		writeJSON(w, http.StatusBadRequest, clierr.Error{
-			Code: "not_a_required_owner", Field: "owner_ref",
-			Message:    fmt.Sprintf("%q is not a required owner for change %s", req.OwnerRef, key),
-			Suggestion: suggestion,
-		})
-		return
-	}
-
-	if err := s.Store.RecordApproval(r.Context(), key, req.OwnerRef, req.ApprovedBy, change.HeadSHA); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	reqs, err := s.mergeRequirements(r.Context(), key, change, nil)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	reqs, apiErr := s.approveChangeCore(r.Context(), key, change, req.OwnerRef, req.ApprovedBy, s.principalFor(r))
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, reqs)
@@ -1041,94 +902,16 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "change not found", http.StatusNotFound)
 		return
 	}
-	if change.State == "landed" {
-		// Idempotent: a client retrying a land request after a dropped
-		// response (or simply asking again) should see the same success,
-		// not a confusing "not mergeable"/re-attempt error.
-		writeJSON(w, http.StatusOK, landResponse{Landed: true, LandedSHA: change.LandedSHA})
-		return
-	}
-	if change.State == "abandoned" {
-		// Stage 12c-③: abandoned became reachable, so land must refuse it
-		// - gates are computed from the tree and would otherwise happily
-		// pass an abandoned Change straight onto trunk.
-		writeJSON(w, http.StatusConflict, &clierr.Error{
-			Code: "invalid_state", Field: "change",
-			Message:    fmt.Sprintf("change %s is abandoned", key),
-			Suggestion: "an abandoned change cannot land; push it again to reopen it",
-		})
-		return
-	}
-
-	lane := s.laneFor(r)
-	if lane != nil {
-		// §14.10.2: the lane may land ONLY Changes fully inside its path
-		// allowlist. Refused before gating - an out-of-scope Change is not
-		// "not mergeable yet", it is something this principal may never
-		// land, however green it is.
-		result, _, err := s.computeAffected(change)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if outside := lane.pathsOutsideAllowlist(result.Paths); len(outside) > 0 {
-			writeJSON(w, http.StatusForbidden, &clierr.Error{
-				Code:       "bot_lane_path_denied",
-				Field:      "change",
-				Message:    fmt.Sprintf("bot lane %q may not land changes touching: %s", lane.Name, strings.Join(outside, ", ")),
-				Suggestion: "this change needs the normal owner/check gate - request a human land",
-				DocURL:     "docs/design.md#14102-gitops-writers--the-bot-lane",
-			})
-			return
-		}
-	}
-
-	mr, err := s.mergeRequirements(r.Context(), key, change, lane)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if !mr.Mergeable {
-		writeJSON(w, http.StatusConflict, &clierr.Error{
-			Code:       "not_mergeable",
-			Field:      "change",
-			Message:    fmt.Sprintf("change %s is not mergeable yet", key),
-			Suggestion: strings.Join(mr.Blockers, "; "),
-			DocURL:     "docs/design.md#136-merge-gates-and-landing",
-		})
-		return
-	}
-
-	outcome, err := s.attemptLand(r.Context(), change)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("land: %v", err), http.StatusInternalServerError)
+	decision, apiErr := s.landChangeCore(r.Context(), key, change, s.laneFor(r), s.principalFor(r))
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
 		return
 	}
 
 	switch {
-	case outcome.Landed:
-		// §7.5 attribution via §15.1's interim principals (stage 12c): a
-		// named principal or bot lane lands under its own name; the
-		// anonymous deploy token stays anonymous ("").
-		landedBy := ""
-		if principal := s.principalFor(r); principal != nil {
-			landedBy = principal.Name
-		} else if lane != nil {
-			landedBy = lane.Name
-		}
-		if _, err := s.Store.MarkChangeLanded(r.Context(), key, outcome.LandedSHA, landedBy); err != nil {
-			http.Error(w, fmt.Sprintf("land: record landed state: %v", err), http.StatusInternalServerError)
-			return
-		}
-		if lane != nil {
-			log.Printf("runkod: change %s landed via bot lane %q", key, lane.Name)
-		}
-		s.enqueueLandedWebhook(r.Context(), change, outcome.LandedSHA)
-		if s.Processor != nil {
-			s.Processor.ZoektIndexWorker.Trigger()
-		}
-		writeJSON(w, http.StatusOK, landResponse{Landed: true, LandedSHA: outcome.LandedSHA})
-	case outcome.RequiresRevalidation:
+	case decision.Landed:
+		writeJSON(w, http.StatusOK, landResponse{Landed: true, LandedSHA: decision.LandedSHA})
+	case decision.RequiresRevalidation:
 		writeJSON(w, http.StatusConflict, &clierr.Error{
 			Code:       "requires_revalidation",
 			Field:      "change",
@@ -1136,11 +919,11 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 			Suggestion: "re-run required checks against current trunk, then retry land",
 			DocURL:     "docs/design.md#135-optimistic-revalidation",
 		})
-	case len(outcome.Conflicts) > 0:
+	case len(decision.Conflicts) > 0:
 		writeJSON(w, http.StatusConflict, &clierr.Error{
 			Code:       "merge_conflict",
 			Field:      "change",
-			Message:    fmt.Sprintf("rebase produced conflicts in: %s", strings.Join(outcome.Conflicts, ", ")),
+			Message:    fmt.Sprintf("rebase produced conflicts in: %s", strings.Join(decision.Conflicts, ", ")),
 			Suggestion: "rebase locally, resolve conflicts, and push an updated Change",
 			DocURL:     "docs/design.md#134-rebase-based-landing",
 		})

@@ -43,7 +43,12 @@ type BotLane struct {
 // main deploy token (or an unauthenticated request - requireAuth rejects
 // those before any handler runs).
 func (s *Server) laneFor(r *http.Request) *BotLane {
-	auth := r.Header.Get("Authorization")
+	return s.laneForAuthHeader(r.Header.Get("Authorization"))
+}
+
+// laneForAuthHeader is laneFor over a raw Authorization header value, for
+// the Connect RPC surface (rpc.go).
+func (s *Server) laneForAuthHeader(auth string) *BotLane {
 	for i := range s.BotLanes {
 		want := "Bearer " + s.BotLanes[i].Token
 		if subtle.ConstantTimeCompare([]byte(auth), []byte(want)) == 1 {
