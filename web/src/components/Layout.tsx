@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { usingDemoData } from "../api/client";
+import { onDemoRoute, usingDemoData } from "../api/client";
 
 const nav = [
   { to: "/changes", label: "Changes", icon: ChangesIcon },
   { to: "/browse", label: "Browse", icon: BrowseIcon },
   { to: "/projects", label: "Projects", icon: ProjectsIcon },
+  { to: "/graph", label: "Graph", icon: GraphIcon },
   { to: "/workspaces", label: "Workspaces", icon: WorkspacesIcon },
   { to: "/search", label: "Search", icon: SearchIcon },
 ];
@@ -33,9 +34,17 @@ export function Layout() {
           </NavLink>
         ))}
         <div className="sidebar-foot">
-          {usingDemoData && (
+          {onDemoRoute ? (
+            <div className="demo-badge">
+              Demo data — <a href="/changes">exit demo</a>
+            </div>
+          ) : usingDemoData ? (
             <div className="demo-badge">
               Demo data — set VITE_RUNKO_URL to connect to a runkod
+            </div>
+          ) : (
+            <div className="demo-badge">
+              Live — <a href="/demo/changes">view demo</a>
             </div>
           )}
           <button
@@ -98,6 +107,18 @@ function ProjectsIcon() {
   return (
     <svg {...iconProps} aria-hidden>
       <path d="M2 4.5c0-.8.7-1.5 1.5-1.5h3l1.5 2h4.5c.8 0 1.5.7 1.5 1.5v6c0 .8-.7 1.5-1.5 1.5h-9C2.7 14 2 13.3 2 12.5v-8z" />
+    </svg>
+  );
+}
+
+function GraphIcon() {
+  return (
+    <svg {...iconProps} aria-hidden>
+      <circle cx="8" cy="3" r="1.8" />
+      <circle cx="4" cy="13" r="1.8" />
+      <circle cx="12" cy="13" r="1.8" />
+      <line x1="7" y1="4.6" x2="4.8" y2="11.4" />
+      <line x1="9" y1="4.6" x2="11.2" y2="11.4" />
     </svg>
   );
 }

@@ -25,8 +25,11 @@ export function ProjectPage() {
       {back}
       <header className="page-header">
         <h1 className="page-title">{p.name}</h1>
-        <p className="page-sub">
+        <p className="page-sub chip-row">
           <span className="chip">{projectTypeLabel(p.type)}</span>
+          <Link className="chip chip-violet" to={`/graph?focus=${encodeURIComponent(p.name)}`}>
+            view in dependency graph
+          </Link>
         </p>
       </header>
 
