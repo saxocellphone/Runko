@@ -244,9 +244,10 @@ function planProject(state: FakeState, intent: CreateProjectIntent | undefined) 
   if (!name) {
     throw new ConnectError("invalid_intent: name is required", Code.InvalidArgument);
   }
-  if (!/^[a-z0-9][a-z0-9._/-]*$/i.test(name)) {
+  if (!/^[a-z][a-z0-9-]{1,62}$/.test(name)) {
+    // Same rule and message as project.Validate server-side.
     throw new ConnectError(
-      `invalid_intent: name ${JSON.stringify(name)} may only contain letters, digits, ".", "_", "-" and "/"`,
+      "invalid_format: name must match ^[a-z][a-z0-9-]{1,62}$ (use lowercase letters, digits, and hyphens only)",
       Code.InvalidArgument,
     );
   }

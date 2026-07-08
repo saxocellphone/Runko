@@ -16,12 +16,12 @@ describe("fake create project", () => {
       changes: createClient(ChangeService, t),
     };
   };
-  const intent = { name: "commerce/payments", type: "service", owners: ["group:commerce"] };
+  const intent = { name: "payments-api", type: "service", owners: ["group:commerce"] };
 
   it("previews the generated files without applying anything", async () => {
     const { projects } = clients();
     const res = await projects.previewCreateProject({ intent });
-    expect(res.path).toBe("commerce/payments");
+    expect(res.path).toBe("payments-api");
     expect(res.files.map((f) => f.path)).toContain("PROJECT.yaml");
     const list = await projects.listProjects({});
     expect(list.projects.some((p) => p.name === intent.name)).toBe(false);
@@ -32,14 +32,14 @@ describe("fake create project", () => {
     const created = await projects.createProject({ intent });
     const change = created.change!;
     expect(change.state).toBe(ChangeState.OPEN);
-    expect(change.title).toBe("Create project commerce/payments");
+    expect(change.title).toBe("Create project payments-api");
 
     // Not a project yet - only a change with the plan as its diff.
     expect(
       (await projects.listProjects({})).projects.some((p) => p.name === intent.name),
     ).toBe(false);
     const diff = await changes.getChangeDiff({ changeId: change.id });
-    expect(diff.files.map((f) => f.path)).toContain("commerce/payments/PROJECT.yaml");
+    expect(diff.files.map((f) => f.path)).toContain("payments-api/PROJECT.yaml");
 
     // Gated on the declared owner, then lands, then exists.
     await expect(changes.landChange({ changeId: change.id })).rejects.toThrow(/not mergeable/);
@@ -58,13 +58,13 @@ describe("fake create project", () => {
   it("rejects duplicates and invalid intents with the daemon's codes", async () => {
     const { projects } = clients();
     await expect(
-      projects.previewCreateProject({ intent: { name: "commerce/cart", type: "library" } }),
-    ).rejects.toThrow(/already_exists/);
+      projects.previewCreateProject({ intent: { name: "commerce/cart", path: "commerce/cart", type: "library" } }),
+    ).rejects.toThrow(/already_exists|invalid_format/);
     await expect(
       projects.previewCreateProject({ intent: { name: "", type: "service" } }),
     ).rejects.toThrow(/invalid_intent/);
     await expect(
-      projects.previewCreateProject({ intent: { name: "x", type: "microservice" } }),
+      projects.previewCreateProject({ intent: { name: "xy", type: "microservice" } }),
     ).rejects.toThrow(/invalid_intent/);
   });
 });

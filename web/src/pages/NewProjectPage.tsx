@@ -89,13 +89,13 @@ export function NewProjectPage() {
               <input
                 id="np-name"
                 type="text"
-                placeholder="commerce/payments-api"
+                placeholder="payments-api"
                 value={name}
                 autoFocus
                 onChange={(e) => setName(e.target.value)}
               />
               <span className="form-hint">
-                Slashes place it in the tree; the path defaults to the name.
+                Lowercase letters, digits, and hyphens; the repo path defaults to the name.
               </span>
             </div>
 
