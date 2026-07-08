@@ -129,6 +129,14 @@ func cmdDoctor(args []string) error {
 		if err := InstallChangeIDHook(*repoDir); err != nil {
 			return err
 		}
+		// A jj workspace gets its Change-Id identity from the trailer
+		// template, not the hook (jj runs no git hooks) - one flag sets up
+		// whichever worlds are present; colocated repos get both.
+		if isJJWorkspace(*repoDir) {
+			if err := SetupJJChangeIDs(*repoDir); err != nil {
+				return err
+			}
+		}
 	}
 
 	report, err := RunDoctor(*repoDir, *trunk)

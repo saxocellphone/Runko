@@ -197,3 +197,161 @@ func TestStackDerivationIgnoresLandedParents(t *testing.T) {
 		t.Fatalf("open stack: want [Ic1 Ichild]@1, got %+v @%d", chain, pos)
 	}
 }
+
+const stackIDC = "Icdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+
+// TestSeriesPushCreatesEveryChangeInTheStack pins Gerrit-style series
+// receive (§7.4, decided 2026-07-08 with the jj-first client direction):
+// ONE push of a 3-commit stack creates all three Changes, bases chained
+// bottom-up.
+func TestSeriesPushCreatesEveryChangeInTheStack(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("proj/PROJECT.yaml", "schema: project/v1\nname: alpha\ntype: library\n")
+	trunkTip := repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	store := NewMemStore()
+	p := newTestProcessor(bare, store)
+	ctx := context.Background()
+
+	repo.WriteFile("proj/a.txt", "a\n")
+	headA := repo.Commit("change A\n\nChange-Id: " + stackIDA)
+	repo.WriteFile("proj/b.txt", "b\n")
+	headB := repo.Commit("change B\n\nChange-Id: " + stackIDB)
+	repo.WriteFile("proj/c.txt", "c\n")
+	repo.Commit("change C\n\nChange-Id: " + stackIDC)
+	_, headC := pushCommit(t, repo, bare, "refs/for/main")
+
+	res := p.Process(ctx, RefUpdate{OldSHA: zeroOID, NewSHA: headC, Ref: "refs/for/main"}, nil)
+	if !res.Accepted || res.ChangeID != stackIDC {
+		t.Fatalf("series push: %+v", res)
+	}
+
+	for _, want := range []struct{ id, head, base string }{
+		{stackIDA, headA, trunkTip},
+		{stackIDB, headB, headA},
+		{stackIDC, headC, headB},
+	} {
+		ch, ok, _ := store.GetChange(ctx, want.id)
+		if !ok {
+			t.Fatalf("series member %s has no Change row", want.id)
+		}
+		if ch.HeadSHA != want.head || ch.BaseSHA != want.base {
+			t.Fatalf("%s: want head %s base %s, got head %s base %s", want.id, want.head, want.base, ch.HeadSHA, ch.BaseSHA)
+		}
+		if _, err := gitfixtureRunGit(bare, "rev-parse", "--verify", "refs/changes/"+want.id+"/head"); err != nil {
+			t.Fatalf("%s: no stable per-change ref: %v", want.id, err)
+		}
+	}
+}
+
+// TestSeriesRepushAfterRootAmendRestacksEveryChange is THE evolve workflow
+// (jj's auto-rebase + one push; plain git's rebase + one push): amend the
+// ROOT of a pushed 3-stack, rebase descendants locally, push the tip once
+// - every member's head and base must move together, and the derived stack
+// must stay A -> B -> C throughout.
+func TestSeriesRepushAfterRootAmendRestacksEveryChange(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("proj/PROJECT.yaml", "schema: project/v1\nname: alpha\ntype: library\n")
+	repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	store := NewMemStore()
+	p := newTestProcessor(bare, store)
+	ctx := context.Background()
+
+	repo.WriteFile("proj/a.txt", "a v1\n")
+	repo.Commit("change A\n\nChange-Id: " + stackIDA)
+	repo.WriteFile("proj/b.txt", "b\n")
+	repo.Commit("change B\n\nChange-Id: " + stackIDB)
+	repo.WriteFile("proj/c.txt", "c\n")
+	repo.Commit("change C\n\nChange-Id: " + stackIDC)
+	_, tip1 := pushCommit(t, repo, bare, "refs/for/main")
+	if res := p.Process(ctx, RefUpdate{OldSHA: zeroOID, NewSHA: tip1, Ref: "refs/for/main"}, nil); !res.Accepted {
+		t.Fatalf("initial series push: %+v", res)
+	}
+	oldA, _, _ := store.GetChange(ctx, stackIDA)
+
+	// Amend the root and restack descendants - what jj does implicitly on
+	// `jj edit`+change, and what plain git does with one interactive
+	// rebase. GIT_SEQUENCE_EDITOR rewrites the todo to edit the root.
+	if _, err := gitfixtureRunGit(repo.Dir, "-c", "user.name=Test", "-c", "user.email=test@runko.dev",
+		"-c", "sequence.editor=sed -i 1s/pick/edit/", "rebase", "-i", "HEAD~3"); err != nil {
+		t.Fatalf("start rebase at root: %v", err)
+	}
+	repo.WriteFile("proj/a.txt", "a v2 - edited at the root\n")
+	for _, args := range [][]string{
+		{"add", "proj/a.txt"},
+		{"-c", "user.name=Test", "-c", "user.email=test@runko.dev", "commit", "--amend", "--no-edit"},
+		{"-c", "user.name=Test", "-c", "user.email=test@runko.dev", "rebase", "--continue"},
+	} {
+		if _, err := gitfixtureRunGit(repo.Dir, args...); err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+	}
+
+	_, tip2 := pushCommit(t, repo, bare, "refs/for/main")
+	if tip2 == tip1 {
+		t.Fatal("rebase should have rewritten the tip")
+	}
+	if res := p.Process(ctx, RefUpdate{OldSHA: tip1, NewSHA: tip2, Ref: "refs/for/main"}, nil); !res.Accepted {
+		t.Fatalf("restack push: %+v", res)
+	}
+
+	newA, _, _ := store.GetChange(ctx, stackIDA)
+	newB, _, _ := store.GetChange(ctx, stackIDB)
+	newC, _, _ := store.GetChange(ctx, stackIDC)
+	if newA.HeadSHA == oldA.HeadSHA {
+		t.Fatal("root Change's head did not move with the amend")
+	}
+	if newB.BaseSHA != newA.HeadSHA || newC.BaseSHA != newB.HeadSHA || newC.HeadSHA != tip2 {
+		t.Fatalf("stack not re-chained: A.head=%s B.base=%s B.head=%s C.base=%s C.head=%s tip=%s",
+			newA.HeadSHA, newB.BaseSHA, newB.HeadSHA, newC.BaseSHA, newC.HeadSHA, tip2)
+	}
+
+	// The derived stack view holds through the whole cycle.
+	chain, pos := stackForChange([]Change{newA, newB, newC}, newB)
+	if len(chain) != 3 || chain[0].ChangeKey != stackIDA || chain[2].ChangeKey != stackIDC || pos != 1 {
+		t.Fatalf("derived stack after restack: %+v @%d", chain, pos)
+	}
+}
+
+// TestSeriesPushSkipsLandedMembers: pushing a stack whose lower member
+// already landed must not resurrect or mutate the landed row (landed is
+// terminal) - the still-open upper member updates, the landed one is
+// untouched history context.
+func TestSeriesPushSkipsLandedMembers(t *testing.T) {
+	bare := newBareRepo(t)
+	store := NewMemStore()
+	p, repo, _, _, _ := pushStackedPair(t, bare, store)
+	ctx := context.Background()
+
+	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, AllowUnpolicedLand: true}
+	chA, _, _ := store.GetChange(ctx, stackIDA)
+	if dec, apiErr := srv.landChangeCore(ctx, stackIDA, chA, nil, nil); apiErr != nil || !dec.Landed {
+		t.Fatalf("land A: %+v %+v", dec, apiErr)
+	}
+	landedA, _, _ := store.GetChange(ctx, stackIDA)
+
+	// Amend B (still parented on A's pre-land commit) and push: the series
+	// walk sees A's commit, finds its Change landed, and skips it.
+	repo.WriteFile("proj/b.txt", "b amended after A landed\n")
+	repo.Run("add proj/b.txt")
+	repo.Run("commit --amend --no-edit")
+	chB, _, _ := store.GetChange(ctx, stackIDB)
+	_, newB := pushCommit(t, repo, bare, "refs/for/main")
+	if res := p.Process(ctx, RefUpdate{OldSHA: chB.HeadSHA, NewSHA: newB, Ref: "refs/for/main"}, nil); !res.Accepted {
+		t.Fatalf("push B after A landed: %+v", res)
+	}
+
+	afterA, _, _ := store.GetChange(ctx, stackIDA)
+	if afterA.State != "landed" || afterA.HeadSHA != landedA.HeadSHA {
+		t.Fatalf("landed member mutated by series push: %+v -> %+v", landedA, afterA)
+	}
+	afterB, _, _ := store.GetChange(ctx, stackIDB)
+	if afterB.HeadSHA != newB {
+		t.Fatalf("open member should update: %+v", afterB)
+	}
+}

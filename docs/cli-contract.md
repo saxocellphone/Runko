@@ -53,10 +53,10 @@ schemas are.
 
 | Command | `--json` output |
 |---|---|
-| `runko doctor` | `DoctorReport` (`RepoDir`, `TrunkRef`, `HasRemote`, `RemoteName`, `RemoteURL`, `HasChangeIDHook`, `HooksDir`, `GitVersion`, `GitVersionOK`, `GitVersionError`) |
+| `runko doctor` | `DoctorReport` (`RepoDir`, `TrunkRef`, `HasRemote`, `RemoteName`, `RemoteURL`, `HasChangeIDHook`, `HooksDir`, `GitVersion`, `GitVersionOK`, `GitVersionError`, `IsJJWorkspace`, `JJChangeIDsWired`). In a jj workspace, `--install-hook` also sets `templates.commit_trailers` so Change-Id trailers derive from jj change ids (refuses to clobber a foreign trailers template: `jj_trailers_conflict`) |
 | `runko project create` | `{"name", "path", "rev"}` |
 | `runko project list` | `[]index.IndexedProject` (`Name`, `Path`, `Type`, `Capabilities`, `DeclaredDependencies`, `Visibility`, `Owners` `[{Ref, Source}]`, `RequiredChecks`) - needs a live runkod (`GET /api/projects`, the trunk-tip project index per §10.3), see §28.3 stage 12 |
-| `runko change push` | `{"change_id", "ref"}` |
+| `runko change push` | `{"change_id", "ref"}`. Refuses when the tip is already on the remote trunk (`already_on_trunk`). In a jj workspace (colocated; `.jj` at the repo top level): the tip comes from jj's working copy (an empty, undescribed `@` is skipped in favor of `@-`), a missing trailer is a structured error (`jj_change_ids_not_configured` - the CLI never amends behind jj's back), and the push is by commit SHA since git HEAD is detached in colocated repos. One push updates EVERY Change in the pushed stack (series receive, §7.4) - after reworking the root of a stack, jj auto-rebases descendants and a single `change push` restacks the server |
 | `runko change land` | `land.Outcome` (`Landed`, `LandedSHA`, `RequiresRevalidation`, `Conflicts`, `RaceRetry`) - needs a live runkod (`--runkod-url`/`--token`), unlike every other command in this table, see §13.5/§28.3 stage 11b |
 | `runko change approve` | `MergeRequirements` (the same nested `{change_id, owners, checks, mergeable, blockers}` shape `GET .../merge-requirements` reports, per `docs/spec/mcp-tools/common.schema.json`) - needs a live runkod, see §13.5/§28.3 stage 11c |
 | `runko change list` | `[]ChangeInfo` (`ChangeKey`, `State`, `BaseSHA`, `HeadSHA`, `GitRef`, `Title`, `LandedSHA`, `AuthoredBy`, `LandedBy`) - needs a live runkod (`GET /api/changes?state=`; `--state all` lists every state), see §28.3 stage 12c |

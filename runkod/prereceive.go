@@ -447,44 +447,156 @@ func rejectionMessage(v verdict) string {
 	return "remote: rejected because another ref in this push was rejected\n"
 }
 
-// commit persists an accepted verdict's Change and enqueues its webhook -
-// only called once ProcessBatch has confirmed the WHOLE push is accepted.
+// commit persists an accepted verdict's Changes and enqueues their
+// webhooks - only called once ProcessBatch has confirmed the WHOLE push is
+// accepted. One push can carry a whole STACK (§7.4): every commit between
+// trunk and the pushed tip that carries a Change-Id trailer is a series
+// member and gets its Change created/updated, Gerrit's series semantics.
+// This is what makes the jj/evolve workflow one push instead of N: amend
+// near the root, let the client auto-rebase descendants (jj does this
+// implicitly; git needs one `rebase`), push the tip once - every member's
+// head and base move together, bottom-up, so each member's base resolves
+// to its freshly-updated parent.
 func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 	if v.evalErr != "" {
 		return RefResult{Ref: v.update.Ref, Accepted: false, Message: v.evalErr}
 	}
 	d := v.decision
 
-	// A stable per-Change ref, independent of whatever rotating ref the
-	// client pushed to: refs/for/<trunk> is a single ref every Change (and
-	// every amend of THIS Change - PushChange force-pushes it, see
-	// cmd/runko/change.go) overwrites in turn. Without this, an accepted
-	// Change's commit becomes unreachable - and thus GC-eligible - the
-	// moment a later push moves refs/for/<trunk> on, which breaks both
-	// "commits are versions of a Change" (§7.4, the Change row would point
-	// at a dangling SHA) and runko-ci checkout's need to fetch a specific
-	// Change by a stable path (§14.4.4).
-	changeRef := "refs/changes/" + d.ChangeID + "/head"
-	if _, err := p.runGit(v.extraEnv, "update-ref", changeRef, v.update.NewSHA); err != nil {
-		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change ref: %v\n", err)}
-	}
+	members := p.seriesMembers(ctx, v, d)
+	var tip Change
+	var msg strings.Builder
+	for _, m := range members {
+		// A stable per-Change ref, independent of whatever rotating ref the
+		// client pushed to: refs/for/<trunk> is a single ref every Change
+		// (and every amend of THIS Change - PushChange force-pushes it, see
+		// cmd/runko/change.go) overwrites in turn. Without this, an accepted
+		// Change's commit becomes unreachable - and thus GC-eligible - the
+		// moment a later push moves refs/for/<trunk> on, which breaks both
+		// "commits are versions of a Change" (§7.4, the Change row would
+		// point at a dangling SHA) and runko-ci checkout's need to fetch a
+		// specific Change by a stable path (§14.4.4).
+		changeRef := "refs/changes/" + m.changeID + "/head"
+		if _, err := p.runGit(v.extraEnv, "update-ref", changeRef, m.sha); err != nil {
+			return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change ref: %v\n", err)}
+		}
 
-	base := p.computeBaseSHA(ctx, v.update, d.ChangeID, v.extraEnv)
-	change, err := p.Store.CreateOrUpdateChange(ctx, d.ChangeID, base, v.update.NewSHA, changeRef, firstLine(d.CommitMessage), v.author, v.originWorkspace, v.originBranch)
-	if err != nil {
-		return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
-	}
+		base := p.computeBaseSHA(ctx, RefUpdate{OldSHA: v.update.OldSHA, NewSHA: m.sha, Ref: v.update.Ref}, m.changeID, v.extraEnv)
+		change, err := p.Store.CreateOrUpdateChange(ctx, m.changeID, base, m.sha, changeRef, m.title, v.author, v.originWorkspace, v.originBranch)
+		if err != nil {
+			return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
+		}
 
-	p.computeAffectedAndEnqueue(ctx, change, v.changedPaths, v.extraEnv)
+		p.computeAffectedAndEnqueue(ctx, change, m.changedPaths, v.extraEnv)
+
+		if m.sha == v.update.NewSHA {
+			tip = change
+		} else {
+			fmt.Fprintf(&msg, "remote: %s -> %s (series)\n", change.ChangeKey, changeRef)
+		}
+	}
 
 	if v.update.Ref == "refs/heads/"+p.TrunkRef {
 		p.ZoektIndexWorker.Trigger()
 	}
 
+	fmt.Fprintf(&msg, "remote: %s -> %s\n", tip.ChangeKey, v.update.Ref)
 	return RefResult{
-		Ref: v.update.Ref, Accepted: true, ChangeID: change.ChangeKey,
-		Message: fmt.Sprintf("remote: %s -> %s\n", change.ChangeKey, v.update.Ref),
+		Ref: v.update.Ref, Accepted: true, ChangeID: tip.ChangeKey,
+		Message: msg.String(),
 	}
+}
+
+// seriesMember is one Change-bearing commit in a pushed stack.
+type seriesMember struct {
+	sha, changeID, title string
+	changedPaths         []string
+}
+
+// seriesMembers resolves the pushed commit's series, BOTTOM-UP (trunk-most
+// first, tip last - the order that lets each member's base computation find
+// its parent's freshly-written row). Rules, matching the single-Change
+// receive semantics that predate series processing:
+//   - only first-parent ancestors between trunk and the tip participate;
+//   - a commit with no Change-Id trailer folds into the nearest descendant
+//     that has one (its content is part of that Change's delta, never its
+//     own Change);
+//   - one Change-Id spanning several commits (the grow pattern) is one
+//     Change whose head is its TOPMOST commit;
+//   - a member whose Change already LANDED is skipped as history context -
+//     re-submitting landed work is only an error when the TIP itself is
+//     landed, which evaluate() already rejected;
+//   - the tip is always a member (its trailer may have been minted
+//     server-side by EnsureChangeID, so its id comes from the Decision).
+//
+// A direct trunk push (only reachable when §6.9's rejection is somehow
+// bypassed) and any walk failure degrade to the tip alone - exactly the
+// pre-series behavior.
+func (p *Processor) seriesMembers(ctx context.Context, v verdict, d receive.Decision) []seriesMember {
+	u := v.update
+	tipOnly := []seriesMember{{sha: u.NewSHA, changeID: d.ChangeID, title: firstLine(d.CommitMessage), changedPaths: v.changedPaths}}
+	if u.Ref == "refs/heads/"+p.TrunkRef {
+		return tipOnly
+	}
+	out, err := p.runGit(v.extraEnv, "rev-list", "--first-parent", fmt.Sprintf("--max-count=%d", stackWalkLimit),
+		u.NewSHA, "^refs/heads/"+p.TrunkRef)
+	if err != nil {
+		// Unborn trunk: the whole ancestry is the series candidate set.
+		out, err = p.runGit(v.extraEnv, "rev-list", "--first-parent", fmt.Sprintf("--max-count=%d", stackWalkLimit), u.NewSHA)
+	}
+	if err != nil || out == "" {
+		return tipOnly
+	}
+
+	seen := map[string]bool{}
+	var topDown []seriesMember // near -> far; first occurrence of an id is that Change's head
+	for _, sha := range strings.Split(out, "\n") {
+		msg, err := p.commitMessage(sha, v.extraEnv)
+		if err != nil {
+			return tipOnly
+		}
+		id, ok := receive.ParseChangeID(msg)
+		if sha == u.NewSHA {
+			id, ok = d.ChangeID, true
+		}
+		if !ok || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if sha != u.NewSHA {
+			if existing, known, err := p.Store.GetChange(ctx, id); err != nil || (known && existing.State == "landed") {
+				continue
+			}
+		}
+		topDown = append(topDown, seriesMember{sha: sha, changeID: id, title: firstLine(msg)})
+	}
+
+	members := make([]seriesMember, 0, len(topDown))
+	for i := len(topDown) - 1; i >= 0; i-- {
+		m := topDown[i]
+		if m.sha == u.NewSHA {
+			m.changedPaths = v.changedPaths
+		} else {
+			m.changedPaths = p.commitOwnPaths(m.sha, v.extraEnv)
+		}
+		members = append(members, m)
+	}
+	return members
+}
+
+// commitOwnPaths is the changed-path set of one commit against its first
+// parent (the empty tree for a root commit) - a series member's own delta
+// for affected computation and webhooks.
+func (p *Processor) commitOwnPaths(sha string, extraEnv []string) []string {
+	parent := sha + "^"
+	if _, err := p.runGit(extraEnv, "rev-parse", "--verify", "-q", sha+"^"); err != nil {
+		parent = emptyTreeOID
+	}
+	out, err := p.runGit(extraEnv, "diff", "--name-only", parent, sha)
+	if err != nil || out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
 }
 
 // computeBaseSHA resolves Change.BaseSHA: for a direct trunk-ref push, the

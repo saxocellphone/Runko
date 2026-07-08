@@ -52,6 +52,12 @@ The authoritative table — `TestChangeStateMachine` executes it cell by cell.
 "—" means the event cannot address that state (a Change that doesn't exist
 yet only answers 404 / fresh-create).
 
+One push can carry a whole stack (series receive, §7.4, decided 2026-07-08
+with the jj-first client direction): the **push** row below then applies to
+*each* Change-bearing commit in the series independently — open members
+amend, abandoned members reopen, landed members are skipped as history
+context (only a landed **tip** rejects the push).
+
 | event \ state       | *(none)*        | open | abandoned | landed |
 |---------------------|-----------------|------|-----------|--------|
 | **push** (accepted funnel, same Change-Id) | create → **open**; base = merge-base(head, trunk) or nearest pending ancestor Change's commit (stacked, §7.4) | amend → **open**: head/base/title/authored_by move with the push; approvals reset by head binding (§13.5); origin workspace/branch preserved when the push carries none | reopen → **open** (`change.reopened`) | **rejected at receive**: "landed is terminal", start a fresh Change |

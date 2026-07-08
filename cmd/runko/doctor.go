@@ -54,6 +54,13 @@ type DoctorReport struct {
 	GitVersion      string
 	GitVersionOK    bool
 	GitVersionError string // set when git --version itself couldn't be parsed
+	// jj-first client (§7.4, decided 2026-07-08): a colocated jj workspace
+	// is the intended daily driver - amend anywhere in a stack, jj
+	// auto-rebases descendants, one push updates every Change (the funnel's
+	// series processing). Identity comes from jj's trailer template, not
+	// the commit-msg hook.
+	IsJJWorkspace    bool
+	JJChangeIDsWired bool
 }
 
 // RunDoctor inspects repoDir and returns a DoctorReport. It never fails hard
@@ -88,6 +95,11 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 	} else {
 		report.GitVersion = v.String()
 		report.GitVersionOK = !v.Less(gitversion.Minimum)
+	}
+
+	if isJJWorkspace(repoDir) {
+		report.IsJJWorkspace = true
+		report.JJChangeIDsWired = jjTrailerConfigured(repoDir)
 	}
 
 	if remotes, err := runGit(repoDir, "remote"); err == nil {
@@ -187,9 +199,23 @@ func PrintCheatSheet(w io.Writer, report DoctorReport) {
 	} else {
 		fmt.Fprintln(w, "  commit-msg hook: NOT installed - run `runko doctor --install-hook`")
 	}
+	if report.IsJJWorkspace {
+		if report.JJChangeIDsWired {
+			fmt.Fprintln(w, "  jj workspace:    detected; Change-Id trailers derive from jj change ids")
+		} else {
+			fmt.Fprintln(w, "  jj workspace:    detected, but Change-Ids are NOT wired - run `runko doctor --install-hook`")
+		}
+	}
 	fmt.Fprintln(w)
+	if report.IsJJWorkspace {
+		fmt.Fprintln(w, "The jj loop (amend anywhere, descendants auto-rebase, one push updates the whole stack):")
+		fmt.Fprintln(w, "  jj commit -m \"...\"                          # stack up work; each commit is a Change")
+		fmt.Fprintln(w, "  jj edit <rev>  /  jj squash                 # rework ANY change in the stack - jj restacks the rest")
+		fmt.Fprintln(w, "  runko change push                           # one push; every Change in the stack updates")
+		fmt.Fprintln(w)
+	}
 	fmt.Fprintln(w, "Three commands that matter:")
-	fmt.Fprintln(w, "  runko change push                          # push HEAD for review")
+	fmt.Fprintln(w, "  runko change push                          # push your stack's tip for review")
 	fmt.Fprintln(w, "  runko change requirements                  # owners + checks outstanding")
 	fmt.Fprintf(w, "  git push origin HEAD:refs/for/%s          # same as `runko change push`, no CLI required\n", report.TrunkRef)
 }

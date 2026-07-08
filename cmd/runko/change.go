@@ -39,24 +39,38 @@ func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
 			DocURL:     "docs/design.md#67-empty-states-and-education",
 		}
 	}
-	if _, err := runGit(repoDir, "symbolic-ref", "-q", "HEAD"); err != nil {
-		return "", &clierr.Error{
-			Code:       "detached_head",
-			Field:      "repo",
-			Message:    "HEAD is not on a branch (detached HEAD)",
-			Suggestion: "check out a branch first, e.g. `git checkout -b my-branch`",
-			DocURL:     "docs/design.md#69-the-closed-trunk-moment-human-git-ux",
+	// jj mode (§7.4, jj.go): the tip is resolved from jj's working copy,
+	// not git HEAD - a colocated jj repo keeps git HEAD detached by
+	// design, so the detached-HEAD guard is a plain-git concern only.
+	jj := isJJWorkspace(repoDir)
+	var headSHA string
+	if jj {
+		var err error
+		headSHA, err = jjTipCommit(repoDir)
+		if err != nil {
+			return "", err
 		}
-	}
+	} else {
+		if _, err := runGit(repoDir, "symbolic-ref", "-q", "HEAD"); err != nil {
+			return "", &clierr.Error{
+				Code:       "detached_head",
+				Field:      "repo",
+				Message:    "HEAD is not on a branch (detached HEAD)",
+				Suggestion: "check out a branch first, e.g. `git checkout -b my-branch`",
+				DocURL:     "docs/design.md#69-the-closed-trunk-moment-human-git-ux",
+			}
+		}
 
-	headSHA, err := runGit(repoDir, "rev-parse", "HEAD")
-	if err != nil {
-		return "", &clierr.Error{
-			Code:       "no_commits",
-			Field:      "repo",
-			Message:    "HEAD has no commits yet - nothing to push",
-			Suggestion: "run `runko project create` or make a commit first",
-			DocURL:     "docs/design.md#67-empty-states-and-education",
+		var err error
+		headSHA, err = runGit(repoDir, "rev-parse", "HEAD")
+		if err != nil {
+			return "", &clierr.Error{
+				Code:       "no_commits",
+				Field:      "repo",
+				Message:    "HEAD has no commits yet - nothing to push",
+				Suggestion: "run `runko project create` or make a commit first",
+				DocURL:     "docs/design.md#67-empty-states-and-education",
+			}
 		}
 	}
 
@@ -88,13 +102,24 @@ func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
 		}
 	}
 
-	msg, err := runGit(repoDir, "log", "-1", "--format=%B")
+	msg, err := runGit(repoDir, "log", "-1", "--format=%B", headSHA)
 	if err != nil {
-		return "", fmt.Errorf("read HEAD commit message: %w", err)
+		return "", fmt.Errorf("read tip commit message: %w", err)
 	}
 
 	id, newMsg := receive.EnsureChangeID(msg, headSHA)
 	if newMsg != msg {
+		if jj {
+			// Never amend behind jj's back: identity must come from jj's
+			// own change id via the trailer template, or every rewrite
+			// would mint a fresh Change (§7.4).
+			return "", &clierr.Error{
+				Code:       "jj_change_ids_not_configured",
+				Field:      "jj",
+				Message:    "this jj workspace does not derive Change-Id trailers, so pushed commits have no stable identity",
+				Suggestion: "run `runko doctor --install-hook` once in this repo, then `jj describe` (any no-op rewrite) to stamp existing commits",
+			}
+		}
 		if _, err := runGit(repoDir, "commit", "--amend", "-m", newMsg); err != nil {
 			return "", fmt.Errorf("amend commit with Change-Id trailer: %w", err)
 		}
@@ -126,7 +151,11 @@ func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
 		}
 		args = append(args, "--push-option=workspace-branch="+branch)
 	}
-	args = append(args, remote, "+HEAD:refs/for/"+trunk)
+	source := "HEAD"
+	if jj {
+		source = headSHA // git HEAD is meaningless in a colocated jj repo
+	}
+	args = append(args, remote, "+"+source+":refs/for/"+trunk)
 	if _, err := runGit(repoDir, args...); err != nil {
 		return "", fmt.Errorf("push to refs/for/%s: %w", trunk, err)
 	}
