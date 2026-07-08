@@ -1,17 +1,22 @@
 import { useState } from "react";
-import type { MergeRequirements } from "../gen/runko/v1/common_pb";
+import { ChangeState, type MergeRequirements } from "../gen/runko/v1/common_pb";
 
 // The §13.5 merge gates, rendered the way GET merge-requirements reports
 // them: required owners (satisfied/outstanding) and required checks
 // (passing/failing/pending), plus the plain-language blockers. Approve and
 // rerun act through the callbacks; the caller refreshes from the response.
+// For a landed/abandoned change the card is a historical record: the
+// banner says so and every action control disappears - "Ready to land" on
+// a change that already landed is a lie.
 export function MergeGates({
   requirements,
+  state,
   busy,
   onApprove,
   onRerun,
 }: {
   requirements: MergeRequirements;
+  state: ChangeState;
   busy: boolean;
   onApprove: (ownerRef: string, approvedBy: string) => void;
   onRerun: (checkName: string) => void;
@@ -21,14 +26,24 @@ export function MergeGates({
   const checks = requirements.checks;
   const hasOwners = (owners?.required.length ?? 0) > 0;
   const hasChecks = (checks?.required.length ?? 0) > 0;
+  const open = state === ChangeState.OPEN;
+
+  const banner =
+    state === ChangeState.LANDED ? (
+      <div className="mergeable-banner mergeable-landed">✓ Landed</div>
+    ) : state === ChangeState.ABANDONED ? (
+      <div className="mergeable-banner mergeable-off">
+        Abandoned — merge gates no longer apply
+      </div>
+    ) : requirements.mergeable ? (
+      <div className="mergeable-banner mergeable-yes">✓ Ready to land</div>
+    ) : (
+      <div className="mergeable-banner mergeable-no">Blocked from landing</div>
+    );
 
   return (
     <div>
-      <div
-        className={`mergeable-banner ${requirements.mergeable ? "mergeable-yes" : "mergeable-no"}`}
-      >
-        {requirements.mergeable ? "✓ Ready to land" : "Blocked from landing"}
-      </div>
+      {banner}
 
       {hasOwners && (
         <div className="gate-section">
@@ -41,7 +56,7 @@ export function MergeGates({
                   {satisfied ? "✓" : "○"}
                 </span>
                 <span className="gate-name mono">{o}</span>
-                {!satisfied && (
+                {!satisfied && open && (
                   <button
                     className="btn btn-sm"
                     disabled={busy}
@@ -53,7 +68,7 @@ export function MergeGates({
               </div>
             );
           })}
-          {owners!.outstanding.length > 0 && (
+          {open && owners!.outstanding.length > 0 && (
             <div className="approve-as">
               <input
                 type="text"
@@ -84,7 +99,7 @@ export function MergeGates({
                 <span className="gate-name mono" title={name}>
                   {name}
                 </span>
-                {failing && (
+                {failing && open && (
                   <button className="btn btn-sm" disabled={busy} onClick={() => onRerun(name)}>
                     Rerun
                   </button>
@@ -99,7 +114,7 @@ export function MergeGates({
         <p className="gate-title">No policy resolved for this change.</p>
       )}
 
-      {requirements.blockers.length > 0 && (
+      {open && requirements.blockers.length > 0 && (
         <div className="gate-section">
           <p className="gate-title">Blockers</p>
           {requirements.blockers.map((b) => (

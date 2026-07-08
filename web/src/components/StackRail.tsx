@@ -25,7 +25,7 @@ export function StackRail({
           className={`rail-item${c.id === currentId ? " current" : ""}`}
         >
           <span className="rail rail-up rail-down">
-            <StatusDot requirements={requirementsById.get(c.id)} />
+            <StatusDot requirements={requirementsById.get(c.id)} state={c.state} />
           </span>
           <span className="rail-item-body">
             <div className="rail-item-title">{c.title}</div>

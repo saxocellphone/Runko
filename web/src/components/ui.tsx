@@ -45,7 +45,16 @@ export function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="empty">{children}</div>;
 }
 
-export function StatusDot({ requirements }: { requirements: MergeRequirements | undefined }) {
+export function StatusDot({
+  requirements,
+  state = ChangeState.OPEN,
+}: {
+  requirements: MergeRequirements | undefined;
+  state?: ChangeState;
+}) {
+  // A closed change's dot reflects its state, not a stale gate readout.
+  if (state === ChangeState.LANDED) return <span className="dot dot-landed" title="landed" />;
+  if (state === ChangeState.ABANDONED) return <span className="dot" title="abandoned" />;
   const status = dotStatus(requirements);
   const label = {
     ready: "ready to land",

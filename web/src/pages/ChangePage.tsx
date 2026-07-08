@@ -134,6 +134,7 @@ export function ChangePage() {
               <h2>Merge requirements</h2>
               <MergeGates
                 requirements={requirements}
+                state={change.state}
                 busy={busy}
                 onApprove={(ownerRef, approvedBy) =>
                   act(() => changesClient.approveChange({ changeId, ownerRef, approvedBy }))

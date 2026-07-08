@@ -291,6 +291,10 @@ a:hover {
 .dot-review {
   background: var(--accent);
 }
+.dot-landed {
+  background: var(--accent);
+  opacity: 0.6;
+}
 @keyframes pulse {
   50% {
     opacity: 0.35;
@@ -684,6 +688,14 @@ a:hover {
 .mergeable-no {
   color: var(--amber);
   background: var(--amber-soft);
+}
+.mergeable-landed {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.mergeable-off {
+  color: var(--text-2);
+  background: var(--surface-3);
 }
 
 .approve-as {
