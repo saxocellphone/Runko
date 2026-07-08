@@ -3,11 +3,14 @@
 # hygiene). Build context is web/ - src/gen is committed, so no buf or
 # proto access is needed at build time.
 #
-# VITE_RUNKO_URL is a BUILD-time var (Vite inlines it): leave it empty for
-# demo mode (in-memory fake transport, labeled in the sidebar); set it to
-# the runkod origin once the Connect server half exists. Same-origin
-# deployments (path-routed ingress) will set it to "" plus relative
-# routing when that lands.
+# VITE_RUNKO_URL is a BUILD-time var (Vite inlines it): empty = demo mode
+# everywhere (in-memory fake transport, labeled in the sidebar); "/" =
+# same-origin live (the path-routed-ingress deployment - release-images
+# passes this); an absolute URL = a specific runkod origin. The demo
+# scene stays mounted at /demo in every mode. NEVER pass VITE_RUNKO_TOKEN
+# to an image build: Vite would inline the deploy token into the public
+# bundle - tokens are entered per-browser at runtime (see
+# src/api/client.ts).
 FROM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./

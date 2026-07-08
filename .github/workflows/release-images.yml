@@ -25,9 +25,17 @@ jobs:
           - name: runkod
             context: .
             dockerfile: Dockerfile
+            build_args: ""
           - name: web
             context: web
             dockerfile: web/Dockerfile
+            # "/" = same-origin: the cluster ingress path-routes
+            # /runko.v1.* to runkod and everything else to this image, so
+            # the deployed UI is LIVE by default (the demo stays at
+            # /demo). NEVER add VITE_RUNKO_TOKEN here - Vite inlines it
+            # into the public bundle; tokens are per-browser at runtime.
+            build_args: |
+              VITE_RUNKO_URL=/
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +51,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
+          build-args: ${{ matrix.build_args }}
           push: true
           tags: |
             ghcr.io/saxocellphone/runko/${{ matrix.name }}:latest
