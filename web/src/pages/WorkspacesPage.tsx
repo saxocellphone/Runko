@@ -45,8 +45,8 @@ export function WorkspacesPage() {
                   <InfoTip text="Which projects this workspace may write to. Writes from an agent are required to stay inside this set - it's enforced server-side at push time, not just a client-side hint." />
                 </th>
                 <th>
-                  Snapshot ref
-                  <InfoTip text="The Git ref (refs/workspaces/<id>/head) this workspace's WIP is durably pushed to. Registry rows here are metadata only - the actual content always lives in Git, never only in this database." />
+                  Branches
+                  <InfoTip text="Parallel lines of work inside this one workspace: each is a Git ref (refs/workspaces/<id>/<branch>) WIP is durably pushed to; 'head' is the default. Registry rows here are metadata only - the branch list is read from the refs, and content always lives in Git." />
                 </th>
                 <th>Status</th>
               </tr>
@@ -66,7 +66,16 @@ export function WorkspacesPage() {
                       ))}
                     </span>
                   </td>
-                  <td className="mono">{w.snapshotRef}</td>
+                  <td>
+                    <span className="chip-row">
+                      {w.branches.length === 0 && <span className="chip">none yet</span>}
+                      {w.branches.map((b) => (
+                        <span className="chip mono" key={b}>
+                          {b}
+                        </span>
+                      ))}
+                    </span>
+                  </td>
                   <td>
                     <span
                       className={`chip ${w.status === WorkspaceStatus.ACTIVE ? "chip-green" : ""}`}

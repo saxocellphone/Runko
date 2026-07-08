@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -34,6 +35,7 @@ type WorkspaceInfo struct {
 	SparsePatterns  []string
 	RepoPath        string
 	TrunkRef        string
+	Branches        []string
 }
 
 // snapshotSubjectPrefix marks a commit as a workspace snapshot - snapshots
@@ -120,16 +122,29 @@ func ensureSharedClone(cloneDir, remoteURL string) error {
 // materializeWorktree adds a worktree for the workspace at dir, checked out
 // at startPoint under the workspace's sparse cone, and stamps the worktree
 // config so snapshot/update-base know which workspace they're in.
-func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint string) error {
+func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, wsBranch string) error {
 	// A previously-deleted workspace directory leaves stale worktree
 	// metadata behind; prune first so attach-after-laptop-loss just works.
 	if _, err := runGit(cloneDir, "worktree", "prune"); err != nil {
 		return err
 	}
-	branch := "ws/" + info.ID
+	// Per-branch local branch name: git refuses one branch checked out in
+	// two worktrees, and parallel work IS two worktrees on two branches of
+	// the same workspace (§12.2 workspace branches).
+	branch := "ws/" + info.ID + "/" + wsBranch
 	// -B: (re)set the branch to startPoint - on attach, that's the snapshot
 	// tip, which IS the restore semantic (§12.2's cloud-primary identity).
 	if _, err := runGit(cloneDir, "worktree", "add", "--no-checkout", "-B", branch, dir, startPoint); err != nil {
+		if strings.Contains(err.Error(), "already used by worktree") {
+			// Single-writer per branch (§12.2): the branch is materialized
+			// in another worktree on this machine. Concurrent same-branch
+			// editing stays explicit (--shared, future), never accidental.
+			return &clierr.Error{
+				Code: "branch_in_use", Field: "branch",
+				Message:    fmt.Sprintf("workspace branch %q is already attached in another worktree on this machine", wsBranch),
+				Suggestion: "work there, or fork a parallel line with `runko workspace branch <name>`",
+			}
+		}
 		return fmt.Errorf("worktree add: %w", err)
 	}
 	if len(info.SparsePatterns) > 0 {
@@ -144,6 +159,7 @@ func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint st
 	for k, v := range map[string]string{
 		"runko.workspace": info.ID,
 		"runko.trunk":     info.TrunkRef,
+		"runko.branch":    wsBranch,
 	} {
 		if _, err := runGit(dir, "config", "--worktree", k, v); err != nil {
 			return err
@@ -167,7 +183,7 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 	if err := ensureSharedClone(cloneDir, remoteURL); err != nil {
 		return WorkspaceInfo{}, err
 	}
-	if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision); err != nil {
+	if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision, "head"); err != nil {
 		return WorkspaceInfo{}, err
 	}
 	return info, nil
@@ -176,7 +192,7 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 // WorkspaceAttach restores a workspace on this machine from its registry
 // row and snapshot ref - the §12.2 "attach from anywhere" contract: delete
 // the directory (or lose the laptop) and nothing durable is lost.
-func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token, id, cloneDir, dir string) (WorkspaceInfo, error) {
+func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token, id, branch, cloneDir, dir string) (WorkspaceInfo, error) {
 	var info WorkspaceInfo
 	err := apiJSON(ctx, client, http.MethodGet, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces/"+id, token, nil, &info)
 	if err != nil {
@@ -197,15 +213,19 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 		return WorkspaceInfo{}, err
 	}
 
-	// Prefer the snapshot tip; a workspace that never snapshotted restores
-	// at its base revision.
+	// Prefer the branch's snapshot tip; a branch that never snapshotted
+	// restores at the workspace's base revision.
+	if branch == "" {
+		branch = "head"
+	}
+	snapshotRef := "refs/workspaces/" + id + "/" + branch
 	startPoint := info.BaseRevision
-	if _, err := runGit(cloneDir, "fetch", "origin", "+"+info.SnapshotRef+":"+info.SnapshotRef); err == nil {
-		if sha, err := runGit(cloneDir, "rev-parse", info.SnapshotRef); err == nil {
+	if _, err := runGit(cloneDir, "fetch", "origin", "+"+snapshotRef+":"+snapshotRef); err == nil {
+		if sha, err := runGit(cloneDir, "rev-parse", snapshotRef); err == nil {
 			startPoint = sha
 		}
 	}
-	if err := materializeWorktree(cloneDir, dir, info, startPoint); err != nil {
+	if err := materializeWorktree(cloneDir, dir, info, startPoint, branch); err != nil {
 		return WorkspaceInfo{}, err
 	}
 	return info, nil
@@ -262,7 +282,11 @@ func WorkspaceSnapshot(dir, message string) (ref string, err error) {
 		}
 	}
 
-	ref = "refs/workspaces/" + id + "/head"
+	branch, _ := runGit(dir, "config", "--worktree", "runko.branch")
+	if branch == "" {
+		branch = "head" // worktrees from before workspace branches existed
+	}
+	ref = "refs/workspaces/" + id + "/" + branch
 	// Force: amends rewrite the tip, and the snapshot ref's history is
 	// exactly "latest durable WIP" (§12.2), not an append-only log.
 	if _, err := runGit(dir, "push", "origin", "+HEAD:"+ref); err != nil {
@@ -270,6 +294,43 @@ func WorkspaceSnapshot(dir, message string) (ref string, err error) {
 	}
 	return ref, nil
 }
+
+// WorkspaceBranch starts a parallel line of work in this worktree
+// (§12.2 workspace branches): switch to a fresh local branch (WIP rides
+// along - git carries uncommitted changes across checkout -b), point the
+// worktree's snapshot target at refs/workspaces/<id>/<name>, and snapshot
+// immediately so the fork point is durable from second zero. Parallel in
+// the full sense comes from attaching the other branch into a second
+// worktree: `runko workspace attach <id> --branch head --dir <elsewhere>`.
+func WorkspaceBranch(dir, name string) (ref string, err error) {
+	id, err := runGit(dir, "config", "--worktree", "runko.workspace")
+	if err != nil || id == "" {
+		return "", &clierr.Error{
+			Code: "not_a_workspace", Field: "dir",
+			Message:    fmt.Sprintf("%s is not a runko workspace worktree", dir),
+			Suggestion: "run inside a directory created by `runko workspace create` or `attach`",
+		}
+	}
+	if !workspaceBranchPattern.MatchString(name) {
+		return "", &clierr.Error{
+			Code: "invalid_branch_name", Field: "name",
+			Message:    fmt.Sprintf("%q is not a valid workspace branch name", name),
+			Suggestion: "one segment: letters, digits, dots, dashes, underscores; start with a letter or digit",
+		}
+	}
+	if _, err := runGit(dir, "checkout", "-b", "ws/"+id+"/"+name); err != nil {
+		return "", fmt.Errorf("switch to branch %s: %w", name, err)
+	}
+	if _, err := runGit(dir, "config", "--worktree", "runko.branch", name); err != nil {
+		return "", err
+	}
+	return WorkspaceSnapshot(dir, "fork "+name)
+}
+
+// workspaceBranchPattern mirrors runkod's receive-side rule (workspace.go's
+// workspaceIDPattern): the daemon would reject anything else anyway, this
+// just names the problem before a network round-trip (§6.5).
+var workspaceBranchPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 // WorkspaceUpdateBase is §12.3's "sync base" row: fetch trunk, rebase the
 // workspace onto its tip, and record the new base in the registry. On

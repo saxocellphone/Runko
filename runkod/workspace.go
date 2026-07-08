@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
@@ -55,6 +56,45 @@ func SnapshotRefWorkspaceID(ref string) (string, bool) {
 	return id, true
 }
 
+// SnapshotRefParts splits refs/workspaces/<id>/<branch> into its id and
+// branch. A workspace supports N parallel lines of work as sibling branch
+// refs ("head" is the default every workspace starts with, §12.2); branch
+// names are one path segment with the same conservative charset as
+// workspace ids, so validBranch=false for refs/workspaces/x/a/b - the
+// receive funnel rejects those rather than leaving the namespace ambiguous.
+func SnapshotRefParts(ref string) (id, branch string, validBranch bool) {
+	rest, found := strings.CutPrefix(ref, "refs/workspaces/")
+	if !found {
+		return "", "", false
+	}
+	id, branch, found = strings.Cut(rest, "/")
+	if !found || id == "" {
+		return "", "", false
+	}
+	return id, branch, !strings.Contains(branch, "/") && workspaceIDPattern.MatchString(branch)
+}
+
+// workspaceBranches derives a workspace's branch list from its refs at
+// read time - refs are the truth, the registry stays metadata-only
+// (§12.2), the same stance that has project existence derive from trunk
+// (§10.3). A workspace that never snapshotted has no refs and therefore
+// no branches yet; that is accurate, not a bug.
+func (s *Server) workspaceBranches(id string) []string {
+	out, err := exec.Command("git", "--git-dir", s.RepoDir, "for-each-ref",
+		"--format=%(refname)", "refs/workspaces/"+id+"/").Output()
+	if err != nil {
+		return nil
+	}
+	var branches []string
+	for _, ref := range strings.Fields(string(out)) {
+		if refID, branch, ok := SnapshotRefParts(ref); ok && refID == id {
+			branches = append(branches, branch)
+		}
+	}
+	sort.Strings(branches)
+	return branches
+}
+
 // createWorkspaceRequest is POST /api/workspaces' body.
 type createWorkspaceRequest struct {
 	Name     string   `json:"name"`
@@ -71,6 +111,9 @@ type workspaceResponse struct {
 	SparsePatterns []string
 	RepoPath       string
 	TrunkRef       string // what `workspace update-base` fetches
+	// Branches are the workspace's parallel lines of work, derived from
+	// refs/workspaces/<id>/* at read time (§12.2) - never stored.
+	Branches []string
 }
 
 func (s *Server) workspaceResponse(ws Workspace) workspaceResponse {
@@ -79,6 +122,7 @@ func (s *Server) workspaceResponse(ws Workspace) workspaceResponse {
 		SparsePatterns: ws.WriteAllowlist,
 		RepoPath:       RepoMountName(s.RepoDir),
 		TrunkRef:       s.TrunkRef,
+		Branches:       s.workspaceBranches(ws.ID),
 	}
 }
 

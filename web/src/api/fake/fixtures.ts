@@ -685,6 +685,7 @@ const workspace = (init: {
   affinity: string[];
   writeAllowlist?: string[];
   status?: WorkspaceStatus;
+  branches?: string[];
 }): WorkspaceSummary =>
   create(WorkspaceSummarySchema, {
     id: init.id,
@@ -694,6 +695,9 @@ const workspace = (init: {
     writeAllowlist: init.writeAllowlist ?? [],
     snapshotRef: `refs/workspaces/${init.id}/head`,
     status: init.status ?? WorkspaceStatus.ACTIVE,
+    // Parallel lines of work (§12.2 workspace branches) - derived from
+    // refs/workspaces/<id>/* on the real daemon.
+    branches: init.branches ?? ["head"],
   });
 
 export const workspaces: WorkspaceSummary[] = [
@@ -701,6 +705,8 @@ export const workspaces: WorkspaceSummary[] = [
     id: "sku-validation",
     owner: "val",
     affinity: ["commerce/cart", "commerce/checkout-api", "web/storefront"],
+    // Two parallel lines in one workspace (§12.2 workspace branches).
+    branches: ["head", "inline-errors"],
   }),
   workspace({
     id: "authz-cache",

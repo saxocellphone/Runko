@@ -179,6 +179,16 @@ func (p *Processor) Process(ctx context.Context, u RefUpdate, extraEnv []string)
 // tracks for tag-namespace governance.
 func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string) verdict {
 	if wsID, isSnapshot := SnapshotRefWorkspaceID(u.Ref); isSnapshot {
+		// Branch segment must be one conservative path segment (§12.2's
+		// workspace-branches rule) - rejecting refs/workspaces/x/a/b here
+		// keeps the namespace unambiguous instead of leaving nested refs
+		// half-supported.
+		if _, _, validBranch := SnapshotRefParts(u.Ref); !validBranch {
+			return verdict{update: u, isSnapshot: true, decision: receive.Decision{
+				Accepted:         false,
+				RejectionMessage: fmt.Sprintf("remote: %q is not a valid snapshot ref - workspace branches are refs/workspaces/<id>/<branch>, one segment of letters, digits, dots, dashes, underscores (\"head\" is the default)\n", u.Ref),
+			}}
+		}
 		return p.evaluateSnapshot(ctx, u, wsID, extraEnv)
 	}
 	isTrunkPush := u.Ref == "refs/heads/"+p.TrunkRef

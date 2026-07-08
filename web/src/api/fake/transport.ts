@@ -571,6 +571,9 @@ export function createFakeTransport(): Transport {
           writeAllowlist: [],
           snapshotRef: `refs/workspaces/${req.name}/head`,
           status: WorkspaceStatus.ACTIVE,
+          // No refs until the first snapshot - so no branches yet, exactly
+          // like the real daemon's derived-from-refs answer.
+          branches: [],
         });
         state.workspaces.set(w.id, w);
         return create(CreateWorkspaceResponseSchema, { workspace: w });

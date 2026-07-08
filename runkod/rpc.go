@@ -552,7 +552,7 @@ func (r *rpcServer) CreateWorkspace(ctx context.Context, req *connect.Request[ru
 	if apiErr != nil {
 		return nil, connectErr(apiErr)
 	}
-	return connect.NewResponse(&runkov1.CreateWorkspaceResponse{Workspace: protoWorkspace(ws)}), nil
+	return connect.NewResponse(&runkov1.CreateWorkspaceResponse{Workspace: r.s.protoWorkspace(ws)}), nil
 }
 
 func (r *rpcServer) ListWorkspaces(ctx context.Context, req *connect.Request[runkov1.ListWorkspacesRequest]) (*connect.Response[runkov1.ListWorkspacesResponse], error) {
@@ -562,7 +562,7 @@ func (r *rpcServer) ListWorkspaces(ctx context.Context, req *connect.Request[run
 	}
 	out := make([]*runkov1.WorkspaceSummary, len(list))
 	for i, ws := range list {
-		out[i] = protoWorkspace(ws)
+		out[i] = r.s.protoWorkspace(ws)
 	}
 	return connect.NewResponse(&runkov1.ListWorkspacesResponse{Workspaces: out}), nil
 }
@@ -575,7 +575,7 @@ func (r *rpcServer) GetWorkspace(ctx context.Context, req *connect.Request[runko
 	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace not found: %s", req.Msg.Id))
 	}
-	return connect.NewResponse(&runkov1.GetWorkspaceResponse{Workspace: protoWorkspace(ws)}), nil
+	return connect.NewResponse(&runkov1.GetWorkspaceResponse{Workspace: r.s.protoWorkspace(ws)}), nil
 }
 
 func (r *rpcServer) UpdateWorkspaceBase(ctx context.Context, req *connect.Request[runkov1.UpdateWorkspaceBaseRequest]) (*connect.Response[runkov1.UpdateWorkspaceBaseResponse], error) {
@@ -583,7 +583,7 @@ func (r *rpcServer) UpdateWorkspaceBase(ctx context.Context, req *connect.Reques
 	if apiErr != nil {
 		return nil, connectErr(apiErr)
 	}
-	return connect.NewResponse(&runkov1.UpdateWorkspaceBaseResponse{Workspace: protoWorkspace(ws)}), nil
+	return connect.NewResponse(&runkov1.UpdateWorkspaceBaseResponse{Workspace: r.s.protoWorkspace(ws)}), nil
 }
 
 // ---- SearchService ----
@@ -921,7 +921,7 @@ func protoFileDiff(f fileDiff, indexed []index.IndexedProject) *runkov1.FileDiff
 	}
 }
 
-func protoWorkspace(ws Workspace) *runkov1.WorkspaceSummary {
+func (s *Server) protoWorkspace(ws Workspace) *runkov1.WorkspaceSummary {
 	status := runkov1.WorkspaceStatus_WORKSPACE_STATUS_UNSPECIFIED
 	switch ws.Status {
 	case "active":
@@ -939,5 +939,6 @@ func protoWorkspace(ws Workspace) *runkov1.WorkspaceSummary {
 		WriteAllowlist:  ws.WriteAllowlist,
 		SnapshotRef:     ws.SnapshotRef,
 		Status:          status,
+		Branches:        s.workspaceBranches(ws.ID),
 	}
 }

@@ -101,8 +101,8 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   change rerun-check --change <id> --name <check> --runkod-url <url> --token <t>   request a check re-run (§14.4.2) [--json]
   workspace create --name <n> --project <p>... --by <who> --runkod-url <url> --token <t>   worktree + sparse cone + registry row (§12.3) [--json]
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
-  workspace attach <id> --runkod-url <url> --token <t>       restore a workspace from its snapshot ref [--json]
-  workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/head [--json]
+  workspace attach <id> --runkod-url <url> --token <t> [--branch <b>]   restore a workspace branch from its snapshot ref [--json]
+  workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir .]                           fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
   workspace update-base --runkod-url <url> --token <t> [--dir .]   fetch + rebase onto trunk tip [--json]
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: six read-only tools (§8.3, §17.4)
 
@@ -432,7 +432,7 @@ func (s *stringSliceFlag) Set(v string) error {
 // mechanics; this is flag parsing and output shaping only.
 func cmdWorkspace(args []string) error {
 	if len(args) < 1 {
-		return usageError("usage: runko workspace create|list|attach|snapshot|update-base ...")
+		return usageError("usage: runko workspace create|list|attach|snapshot|branch|update-base ...")
 	}
 	sub, rest := args[0], args[1:]
 	ctx := context.Background()
@@ -490,7 +490,11 @@ func cmdWorkspace(args []string) error {
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		for _, ws := range list {
-			fmt.Fprintf(tw, "%s\t%s\tbase %s\t%s\n", ws.ID, ws.Status, short(ws.BaseRevision), strings.Join(ws.ProjectAffinity, ","))
+			branches := strings.Join(ws.Branches, ",")
+			if branches == "" {
+				branches = "-"
+			}
+			fmt.Fprintf(tw, "%s\t%s\tbase %s\t%s\tbranches: %s\n", ws.ID, ws.Status, short(ws.BaseRevision), strings.Join(ws.ProjectAffinity, ","), branches)
 		}
 		return tw.Flush()
 
@@ -500,6 +504,7 @@ func cmdWorkspace(args []string) error {
 		token := fs.String("token", "", "deploy token")
 		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory")
 		dir := fs.String("dir", "", "worktree directory for this workspace")
+		branch := fs.String("branch", "head", "workspace branch to restore (parallel lines of work, §12.2)")
 		jsonOut := fs.Bool("json", false, "emit the workspace as JSON")
 		// The documented form is id-first (`workspace attach <id> --runkod-url
 		// ...`), but stdlib flag stops parsing at the first positional - pop
@@ -522,9 +527,15 @@ func cmdWorkspace(args []string) error {
 			*cloneDir = "mono"
 		}
 		if *dir == "" {
-			*dir = id
+			// Two branches of one workspace are two worktrees - they can't
+			// share the default directory.
+			if *branch == "head" {
+				*dir = id
+			} else {
+				*dir = id + "-" + *branch
+			}
 		}
-		info, err := WorkspaceAttach(ctx, http.DefaultClient, *runkodURL, *token, id, *cloneDir, *dir)
+		info, err := WorkspaceAttach(ctx, http.DefaultClient, *runkodURL, *token, id, *branch, *cloneDir, *dir)
 		if err != nil {
 			return err
 		}
@@ -552,6 +563,34 @@ func cmdWorkspace(args []string) error {
 		fmt.Printf("snapshot pushed to %s\n", ref)
 		return nil
 
+	case "branch":
+		fs := flag.NewFlagSet("workspace branch", flag.ExitOnError)
+		dir := fs.String("dir", ".", "workspace worktree directory")
+		jsonOut := fs.Bool("json", false, "emit {ref} as JSON")
+		// id-first parsing, same trap and same fix as attach above.
+		var name string
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			name, rest = rest[0], rest[1:]
+		}
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		if name == "" {
+			name = fs.Arg(0)
+		}
+		if name == "" {
+			return usageError("usage: runko workspace branch <name> [--dir .]")
+		}
+		ref, err := WorkspaceBranch(*dir, name)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"ref": ref})
+		}
+		fmt.Printf("branched: snapshots from here go to %s\n", ref)
+		return nil
+
 	case "update-base":
 		fs := flag.NewFlagSet("workspace update-base", flag.ExitOnError)
 		runkodURL := fs.String("runkod-url", "", "runkod base URL")
@@ -575,7 +614,7 @@ func cmdWorkspace(args []string) error {
 		return nil
 
 	default:
-		return usageError("usage: runko workspace create|list|attach|snapshot|update-base ...")
+		return usageError("usage: runko workspace create|list|attach|snapshot|branch|update-base ...")
 	}
 }
 

@@ -198,6 +198,10 @@ message WorkspaceSummary {
   string base_revision = 3;
   repeated string project_affinity = 4;
   repeated string write_allowlist = 5;  // §8.7 agent scoping; path prefixes
-  string snapshot_ref = 6;              // refs/workspaces/<id>/head
+  string snapshot_ref = 6;              // refs/workspaces/<id>/head (the default branch)
   WorkspaceStatus status = 7;
+  // Parallel lines of work: refs/workspaces/<id>/<branch>, derived from
+  // the refs at read time (§12.2 workspace branches) - never stored in
+  // the registry. Empty until the first snapshot lands a ref.
+  repeated string branches = 8;
 }

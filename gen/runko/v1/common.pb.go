@@ -1282,10 +1282,14 @@ type WorkspaceSummary struct {
 	BaseRevision    string                 `protobuf:"bytes,3,opt,name=base_revision,json=baseRevision,proto3" json:"base_revision,omitempty"`
 	ProjectAffinity []string               `protobuf:"bytes,4,rep,name=project_affinity,json=projectAffinity,proto3" json:"project_affinity,omitempty"`
 	WriteAllowlist  []string               `protobuf:"bytes,5,rep,name=write_allowlist,json=writeAllowlist,proto3" json:"write_allowlist,omitempty"` // §8.7 agent scoping; path prefixes
-	SnapshotRef     string                 `protobuf:"bytes,6,opt,name=snapshot_ref,json=snapshotRef,proto3" json:"snapshot_ref,omitempty"`          // refs/workspaces/<id>/head
+	SnapshotRef     string                 `protobuf:"bytes,6,opt,name=snapshot_ref,json=snapshotRef,proto3" json:"snapshot_ref,omitempty"`          // refs/workspaces/<id>/head (the default branch)
 	Status          WorkspaceStatus        `protobuf:"varint,7,opt,name=status,proto3,enum=runko.v1.WorkspaceStatus" json:"status,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Parallel lines of work: refs/workspaces/<id>/<branch>, derived from
+	// the refs at read time (§12.2 workspace branches) - never stored in
+	// the registry. Empty until the first snapshot lands a ref.
+	Branches      []string `protobuf:"bytes,8,rep,name=branches,proto3" json:"branches,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WorkspaceSummary) Reset() {
@@ -1367,6 +1371,13 @@ func (x *WorkspaceSummary) GetStatus() WorkspaceStatus {
 	return WorkspaceStatus_WORKSPACE_STATUS_UNSPECIFIED
 }
 
+func (x *WorkspaceSummary) GetBranches() []string {
+	if x != nil {
+		return x.Branches
+	}
+	return nil
+}
+
 var File_runko_v1_common_proto protoreflect.FileDescriptor
 
 const file_runko_v1_common_proto_rawDesc = "" +
@@ -1445,7 +1456,7 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\brequired\x18\x01 \x03(\tR\brequired\x12\x18\n" +
 	"\apassing\x18\x02 \x03(\tR\apassing\x12\x18\n" +
 	"\afailing\x18\x03 \x03(\tR\afailing\x12\x18\n" +
-	"\apending\x18\x04 \x03(\tR\apending\"\x87\x02\n" +
+	"\apending\x18\x04 \x03(\tR\apending\"\xa3\x02\n" +
 	"\x10WorkspaceSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05owner\x18\x02 \x01(\tR\x05owner\x12#\n" +
@@ -1453,7 +1464,8 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\x10project_affinity\x18\x04 \x03(\tR\x0fprojectAffinity\x12'\n" +
 	"\x0fwrite_allowlist\x18\x05 \x03(\tR\x0ewriteAllowlist\x12!\n" +
 	"\fsnapshot_ref\x18\x06 \x01(\tR\vsnapshotRef\x121\n" +
-	"\x06status\x18\a \x01(\x0e2\x19.runko.v1.WorkspaceStatusR\x06status*h\n" +
+	"\x06status\x18\a \x01(\x0e2\x19.runko.v1.WorkspaceStatusR\x06status\x12\x1a\n" +
+	"\bbranches\x18\b \x03(\tR\bbranches*h\n" +
 	"\tActorType\x12\x1a\n" +
 	"\x16ACTOR_TYPE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fACTOR_TYPE_USER\x10\x01\x12\x14\n" +

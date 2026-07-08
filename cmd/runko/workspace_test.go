@@ -130,7 +130,7 @@ func TestWorkspaceCreateSnapshotAttachRoundTrip(t *testing.T) {
 	}
 	restored := filepath.Join(root, "payments-fix-restored")
 	if _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", cloneDir, restored); err != nil {
+		"payments-fix", "head", cloneDir, restored); err != nil {
 		t.Fatalf("WorkspaceAttach: %v", err)
 	}
 	content, err := os.ReadFile(filepath.Join(restored, "commerce/checkout/wip.go"))
@@ -248,7 +248,7 @@ func TestWorkspaceSnapshotOutsideWorkspaceIsStructuredError(t *testing.T) {
 func TestWorkspaceAttachUnknownIsStructuredError(t *testing.T) {
 	srv, _ := startWorkspaceServer(t)
 	_, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"ghost", filepath.Join(t.TempDir(), "mono"), filepath.Join(t.TempDir(), "ghost"))
+		"ghost", "head", filepath.Join(t.TempDir(), "mono"), filepath.Join(t.TempDir(), "ghost"))
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "not_found" {
 		t.Fatalf("expected not_found, got %T: %v", err, err)
@@ -350,5 +350,88 @@ func TestProjectListShowsTrunkIndexedProjects(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected project list to mention %q, got: %q", want, out)
 		}
+	}
+}
+
+// One workspace, parallel work (§12.2 workspace branches): fork a branch in
+// place, snapshot both lines to sibling refs, then attach each branch into
+// its own worktree and confirm they coexist with diverged content - the
+// same shared object store underneath.
+func TestWorkspaceBranchParallelWork(t *testing.T) {
+	srv, bare := startWorkspaceServer(t)
+	root := t.TempDir()
+	cloneDir := filepath.Join(root, "mono")
+	wsDir := filepath.Join(root, "payments-fix")
+
+	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "alice", []string{"checkout-api"}, cloneDir, wsDir); err != nil {
+		t.Fatalf("WorkspaceCreate: %v", err)
+	}
+
+	// Line one on the default branch.
+	writeFile(t, wsDir, "commerce/checkout/approach-a.go", "package main // approach A\n")
+	if ref, err := WorkspaceSnapshot(wsDir, ""); err != nil || ref != "refs/workspaces/payments-fix/head" {
+		t.Fatalf("snapshot head: ref=%q err=%v", ref, err)
+	}
+
+	// Fork: same worktree switches to a parallel line; the fork point is
+	// durable immediately.
+	ref, err := WorkspaceBranch(wsDir, "approach-b")
+	if err != nil {
+		t.Fatalf("WorkspaceBranch: %v", err)
+	}
+	if ref != "refs/workspaces/payments-fix/approach-b" {
+		t.Fatalf("branch ref: %q", ref)
+	}
+	writeFile(t, wsDir, "commerce/checkout/approach-b.go", "package main // approach B\n")
+	if _, err := WorkspaceSnapshot(wsDir, ""); err != nil {
+		t.Fatalf("snapshot approach-b: %v", err)
+	}
+
+	// Both lines are durable, and diverged.
+	headSHA := mustGit(t, bare, "rev-parse", "refs/workspaces/payments-fix/head")
+	branchSHA := mustGit(t, bare, "rev-parse", "refs/workspaces/payments-fix/approach-b")
+	if headSHA == branchSHA {
+		t.Fatalf("branches should have diverged")
+	}
+
+	// Invalid branch names are refused client-side with the §6.5 shape.
+	var ce *clierr.Error
+	if _, err := WorkspaceBranch(wsDir, "a/b"); !errors.As(err, &ce) || ce.Code != "invalid_branch_name" {
+		t.Fatalf("expected invalid_branch_name, got %v", err)
+	}
+
+	// Parallel in full: attach BOTH branches of the one workspace into
+	// separate worktrees off the same clone - possible only because local
+	// branches are ws/<id>/<branch>, not one shared ws/<id>.
+	dirHead := filepath.Join(root, "payments-fix-line-a")
+	if _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "head", cloneDir, dirHead); err != nil {
+		t.Fatalf("attach head: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dirHead, "commerce/checkout/approach-b.go")); !os.IsNotExist(err) {
+		t.Fatalf("head worktree must NOT contain the parallel branch's file")
+	}
+	// The original worktree IS the approach-b line now.
+	if _, err := os.Stat(filepath.Join(wsDir, "commerce/checkout/approach-b.go")); err != nil {
+		t.Fatalf("approach-b worktree missing its own file: %v", err)
+	}
+
+	// Attaching a branch that's already materialized in a local worktree is
+	// the single-writer rule (§12.2) - refused with the structured shape,
+	// never a raw git exit 128.
+	if _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "approach-b", cloneDir, filepath.Join(root, "dup")); !errors.As(err, &ce) || ce.Code != "branch_in_use" {
+		t.Fatalf("expected branch_in_use, got %v", err)
+	}
+
+	// Snapshots from each worktree go to their OWN refs.
+	writeFile(t, wsDir, "commerce/checkout/approach-b.go", "package main // approach B v2\n")
+	if ref, err := WorkspaceSnapshot(wsDir, ""); err != nil || ref != "refs/workspaces/payments-fix/approach-b" {
+		t.Fatalf("snapshot from branch worktree: ref=%q err=%v", ref, err)
+	}
+	writeFile(t, dirHead, "commerce/checkout/approach-a.go", "package main // approach A v2\n")
+	if ref, err := WorkspaceSnapshot(dirHead, ""); err != nil || ref != "refs/workspaces/payments-fix/head" {
+		t.Fatalf("snapshot from head worktree: ref=%q err=%v", ref, err)
 	}
 }

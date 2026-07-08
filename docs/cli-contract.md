@@ -66,7 +66,8 @@ schemas are.
 | `runko workspace create` | `WorkspaceInfo` (`ID`, `Owner`, `BaseRevision`, `ProjectAffinity`, `WriteAllowlist`, `SnapshotRef`, `Status`, `SparsePatterns`, `RepoPath`, `TrunkRef`) - needs a live runkod, see §12.3/§28.3 stage 12b |
 | `runko workspace list` | `[]WorkspaceInfo` - needs a live runkod |
 | `runko workspace attach` | `WorkspaceInfo` - needs a live runkod |
-| `runko workspace snapshot` | `{"ref"}` - local git only (pushes to the workspace's snapshot ref via the existing remote) |
+| `runko workspace snapshot` | `{"ref"}` - local git only (pushes to the worktree's workspace branch ref, `refs/workspaces/<id>/<branch>`; `head` is the default) |
+| `runko workspace branch` | `{"ref"}` - local git only (forks a parallel line: switches this worktree's snapshot target to `refs/workspaces/<id>/<name>` and snapshots the fork point, §12.2) |
 | `runko workspace update-base` | `{"base_revision"}` - needs a live runkod (records the new base in the registry) |
 | `runko-ci affected` | `affected.Result` (always JSON - no human mode exists for this command; it is CI-facing by design) |
 | `runko-ci checkout` | `{"rev", "dest"}` |
