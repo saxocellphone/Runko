@@ -27,6 +27,8 @@
   --diff-del-bg: #ffebe9;
   --diff-del-gutter: #ffd7d5;
   --mark-bg: #fff3c2;
+  --graph-node-bg: #ffffff;
+  --graph-node-border: #c6c6d0;
   --shadow: 0 1px 2px rgba(20, 20, 30, 0.05);
   --font: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
@@ -56,6 +58,8 @@
   --diff-del-bg: #2d1a1c;
   --diff-del-gutter: #46282b;
   --mark-bg: #4a3f14;
+  --graph-node-bg: #33333f;
+  --graph-node-border: #4a4a58;
   --shadow: none;
 }
 
@@ -1190,8 +1194,8 @@ tr.hunk-head td {
   cursor: pointer;
 }
 .graph-node rect {
-  fill: var(--surface-2);
-  stroke: var(--border-strong);
+  fill: var(--graph-node-bg);
+  stroke: var(--graph-node-border);
   stroke-width: 1.2;
 }
 .graph-node:hover rect {
