@@ -60,3 +60,9 @@ check-web:
 # (NOT this repo's original sandbox - see CLAUDE.md).
 check-compose:
 	./scripts/compose-smoke.sh
+
+# Edge-case suite over the compose stack (docs/smoke-plan.md): the
+# invariants that only mean something through the full real transport.
+# Runs after check-compose in CI; separate stack + volumes.
+check-compose-edges:
+	./scripts/compose-edgecases.sh

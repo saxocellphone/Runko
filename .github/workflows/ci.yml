@@ -91,3 +91,11 @@ jobs:
 
       - name: compose eval loop, timed (§16.4)
         run: make check-compose
+
+      # The invariants that only mean something through the full transport
+      # (docs/smoke-plan.md): §6.9 trunk closure, real gitleaks, agent
+      # policy at receive, amend gate-resets, §13.5 revalidation, workspace
+      # owner-only push, restart durability, /metrics, MCP. Runs on the
+      # image layers the timed loop just built, against a fresh stack.
+      - name: compose edge cases (docs/smoke-plan.md)
+        run: make check-compose-edges
