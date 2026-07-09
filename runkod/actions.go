@@ -224,7 +224,7 @@ func authorizeForceLand(principal *Principal, lane *BotLane) *apiError {
 		return typedErr(http.StatusForbidden, clierr.Error{
 			Code: "force_denied", Field: "force",
 			Message:    fmt.Sprintf("%q is not an admin principal", principal.Name),
-			Suggestion: "an operator can grant it: --principal 'name=...;token=...;admin'",
+			Suggestion: "org admins may force-land in their org; an operator can also grant a config principal: --principal 'name=...;token=...;admin'",
 		})
 	}
 	return nil

@@ -198,3 +198,50 @@ func newApproveTestServerWithPrincipals(t *testing.T, principals ...Principal) (
 	}
 	return httptest.NewServer(handler), bare, changeID, store
 }
+
+// TestStoredOrgAdminMayForceLand pins the migration-findings #24 fix: a
+// store-backed account's org role must survive into the synthesized
+// principal, so an org ADMIN can force-land (and unfreeze the mirror) in
+// their own org - previously the role was fetched for the membership
+// check and dropped, leaving Principal.Admin false for everyone and
+// force-land operator-only.
+func TestStoredOrgAdminMayForceLand(t *testing.T) {
+	store := NewMemStore()
+	ctx := context.Background()
+	for name, pw := range map[string]string{"alice": "alicepw123", "bob": "bobpw1234"} {
+		hash, err := hashCredential(pw)
+		if err != nil {
+			t.Fatalf("hash: %v", err)
+		}
+		if err := store.CreatePrincipal(ctx, name, hash); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	if err := store.EnsureOrg(ctx, "acme"); err != nil {
+		t.Fatalf("ensure org: %v", err)
+	}
+	if err := store.UpsertOrgMember(ctx, "acme", "alice", "admin"); err != nil {
+		t.Fatalf("alice membership: %v", err)
+	}
+	if err := store.UpsertOrgMember(ctx, "acme", "bob", "member"); err != nil {
+		t.Fatalf("bob membership: %v", err)
+	}
+
+	s := &Server{OrgName: "acme", Directory: store, Store: NewMemStore()}
+
+	admin := s.callerForBasic("alice", "alicepw123")
+	if !admin.ok || admin.principal == nil || !admin.principal.Admin {
+		t.Fatalf("org admin should resolve to an admin principal, got %+v", admin)
+	}
+	if apiErr := authorizeForceLand(admin.principal, nil); apiErr != nil {
+		t.Fatalf("org admin should be allowed to force-land, got %v", apiErr)
+	}
+
+	member := s.callerForBasic("bob", "bobpw1234")
+	if !member.ok || member.principal == nil || member.principal.Admin {
+		t.Fatalf("plain member must NOT resolve to an admin principal, got %+v", member)
+	}
+	if apiErr := authorizeForceLand(member.principal, nil); apiErr == nil {
+		t.Fatalf("plain member must not force-land")
+	}
+}

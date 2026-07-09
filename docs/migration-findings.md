@@ -177,13 +177,16 @@ planning; entries marked `[observed]` happened during execution.
     or the deployment guide must include the ingress-side fix
     (proxy-body-size/buffering tuning for the git mount).
 
-24. **[observed, R5 dry run] Org-admin (signup role) cannot force-land.**
-    `{"force": true}` from the org's creator returned `force_denied`
-    ("not an admin principal") - only operator `--principal '…;admin'`
-    entries and the deploy token may force. Correct per §13.5's letter,
-    but it means the import bootstrap requires operator access even for
-    the org's own admin. → §18.3's sanctioned bootstrap-land should be
-    grantable to the org admin performing the import.
+24. **[observed, R5 dry run; CLOSED 2026-07-09] Org-admin (signup role)
+    could not force-land.** `{"force": true}` from the org's creator
+    returned `force_denied` ("not an admin principal") - the auth layer
+    fetched the account's org role for the membership check and then
+    DROPPED it, synthesizing every store-backed account as a non-admin
+    principal; only operator `--principal '…;admin'` entries and the
+    deploy token could force. Fixed: the org role now survives into the
+    synthesized principal (`Admin: role == "admin"`), so an org's own
+    admin can force-land and unfreeze the mirror in their org
+    (runkod/auth.go, TestStoredOrgAdminMayForceLand).
 
 25. **[observed, R5 dry run] Prod permits unpoliced lands.** The import
     change (zero required checks, zero owners - its history predates any
@@ -261,6 +264,16 @@ planning; entries marked `[observed]` happened during execution.
     envelope fields consumed for CI scoping must be present on EVERY
     event type that can trigger CI, and the contract tests should assert
     it per event type.
+
+32. **[observed, re-carve landing] change.updated delivery ids are not
+    unique per emission, so the bridge dedups a same-head re-push into
+    nothing.** DeliveryID was `<change>@<head>`; re-pushing an unchanged
+    series member (the documented way to re-trigger CI with a full
+    payload) emits the exact id the bridge already saw at the first push
+    and gets silently dropped as a retry - combined with #31 this made a
+    stuck check UNRECOVERABLE without force-land. Fixed: change.updated
+    ids now carry an emission timestamp (the rerun-id pattern), so outbox
+    RETRIES of one emission still dedup while distinct emissions dispatch.
 
 ## Distilled §18.3 requirements (running)
 

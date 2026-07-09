@@ -127,9 +127,17 @@ func (s *Server) callerForBasic(user, pass string) caller {
 			if s.credCache.hit(user, pass) || verifyCredential(pass, sp.CredentialHash) {
 				s.credCache.remember(user, pass)
 				if s.OrgName != "" && s.Directory != nil {
-					if _, member, err := s.Directory.OrgMemberRole(context.Background(), s.OrgName, sp.Name); err != nil || !member {
+					role, member, err := s.Directory.OrgMemberRole(context.Background(), s.OrgName, sp.Name)
+					if err != nil || !member {
 						return caller{deniedOrg: true}
 					}
+					// The org role must survive into the synthesized
+					// principal: authorizeForceLand (and mirror unfreeze)
+					// gate on Principal.Admin, and dropping the role here
+					// meant an org's own admin could not force-land in
+					// their org - only config operator principals could
+					// (migration-findings #24, closed 2026-07-09).
+					return caller{ok: true, principal: &Principal{Name: sp.Name, Stored: true, Admin: role == "admin"}}
 				}
 				return caller{ok: true, principal: &Principal{Name: sp.Name, Stored: true}}
 			}

@@ -811,10 +811,15 @@ func (p *Processor) computeAffectedAndEnqueue(ctx context.Context, change Change
 	// gate on anything.
 	env := checks.WebhookEnvelope{
 		SpecVersion: "1",
-		DeliveryID:  change.ChangeKey + "@" + change.HeadSHA,
-		Type:        "change.updated",
-		OccurredAt:  p.now(),
-		OrgID:       p.OrgName,
+		// Unique per EMISSION, not per (change, head): a same-head re-push
+		// is the documented way to re-trigger CI with a full payload, and
+		// consumers dedup on this id - a reused id gets silently dropped
+		// as an outbox retry (migration-findings #32). Outbox retries of
+		// one emission re-deliver the same payload, so they still dedup.
+		DeliveryID: change.ChangeKey + "@" + change.HeadSHA + "@" + p.now().UTC().Format(time.RFC3339Nano),
+		Type:       "change.updated",
+		OccurredAt: p.now(),
+		OrgID:      p.OrgName,
 		Change: checks.WebhookChange{
 			ID: change.ChangeKey, State: change.State,
 			BaseSHA: change.BaseSHA, HeadSHA: change.HeadSHA, GitRef: change.GitRef,
