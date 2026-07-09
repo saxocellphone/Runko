@@ -59,46 +59,26 @@
 <main>
   <div class="wrap">
     <h1>How Runko is designed</h1>
-    <p class="lede">Eight principles, in plain terms. Every feature either follows from one of these or doesn't get built.</p>
+    <p class="lede">Four pillars. Every feature follows from one of these.</p>
 
     <div class="principle">
-      <h2><span class="n">01</span>Git is the only storage.</h2>
-      <p>Your code lives in a normal Git repository — no custom database of file contents, no virtual filesystem. If you ever want out, <code>git clone</code> is the exit, and it always works.</p>
+      <h2><span class="n">01</span>One monorepo that feels small.</h2>
+      <p>All your code lives in one Git repository, but nobody has to carry all of it. You check out just your slice — the rest stays on the server until you need it. Projects and ownership are small files in the tree, so the repo describes itself.</p>
     </div>
 
     <div class="principle">
-      <h2><span class="n">02</span>The tree is the truth.</h2>
-      <p>Who owns what, and which checks a project needs, are written in small files inside the repository itself. The server keeps a database, but it's only an index — you can delete it and rebuild everything from the code.</p>
+      <h2><span class="n">02</span>Trunk-based development, enforced.</h2>
+      <p>There is one branch that matters, and nobody pushes to it directly — not even admins. Every change goes through the same gate: owner approval, required checks, a secret scan. If trunk moved while you waited, Runko only re-runs the checks your change could actually have broken.</p>
     </div>
 
     <div class="principle">
-      <h2><span class="n">03</span>Nobody pushes to trunk.</h2>
-      <p>Every change — from a person, a bot, or an AI agent — goes through the same single gate: review, required checks, owner approval, and a secret scan. There is no side door.</p>
+      <h2><span class="n">03</span>Agents are first-class users.</h2>
+      <p>AI agents use the same CLI and APIs people do — but the server holds them to tighter rules: no approving their own work, no touching paths outside their assignment, hard caps on change size. Enforced server-side, never by trusting the agent.</p>
     </div>
 
     <div class="principle">
-      <h2><span class="n">04</span>A change is an idea, not a commit.</h2>
-      <p>Each change has a stable identity that survives rewriting, rebasing, and amending. You can rework the bottom of a stack and every change above it follows along — one push updates them all.</p>
-    </div>
-
-    <div class="principle">
-      <h2><span class="n">05</span>Only re-test what could have broken.</h2>
-      <p>When trunk moves while your change waits, Runko checks whether the new commits touch anything your change depends on. If they can't affect you, you land without re-running checks. When in doubt, it re-runs — it never guesses in your favor.</p>
-    </div>
-
-    <div class="principle">
-      <h2><span class="n">06</span>Agents are users with tighter rules.</h2>
-      <p>AI agents use the same commands and APIs people do, but the server holds them to stricter limits: no approving their own work, no touching paths outside their assignment, caps on how much they can change at once. Enforced on the server — never by trusting the agent.</p>
-    </div>
-
-    <div class="principle">
-      <h2><span class="n">07</span>Start with three fields, opt into the rest.</h2>
-      <p>A new project needs a name, a type, and an owner. Build files, CI wiring, and everything else are generated or added later when you actually want them — never a wall of required YAML.</p>
-    </div>
-
-    <div class="principle">
-      <h2><span class="n">08</span>Don't rebuild what already works.</h2>
-      <p>Runko never runs your CI, manages your servers, or replaces your editor. It owns change identity, ownership, and the merge gate — and mirrors your repository to GitHub, GitLab, or any Git host you already trust.</p>
+      <h2><span class="n">04</span>Built for jj, works with git.</h2>
+      <p><a href="https://jj-vcs.github.io/jj/">Jujutsu</a> is the primary client. Every change has a stable identity that survives rebasing and amending, so you can rework the bottom of a stack and everything above it follows — one push updates the whole stack. Plain <code>git</code> works too; you just do the rebasing yourself.</p>
     </div>
 
   </div>
