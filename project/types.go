@@ -7,10 +7,12 @@ import "fmt"
 type Intent struct {
 	Name         string
 	Type         string
-	TemplateID   string   // optional; empty -> the type's default template
+	Language     string   // optional; empty -> the default (Go) template set; echoed into the manifest verbatim
+	TemplateID   string   // optional; empty -> the (type, language) default template
 	Path         string   // optional; empty -> derived from Name
 	Owners       []string // optional; empty -> inherited (§7.3)
 	Capabilities []string // optional; nil -> template defaults
+	NoTemplate   bool     // escape hatch (§10.4): PROJECT.yaml + README only, Language recorded as-is
 }
 
 // FileWrite is one file a Plan will write, relative to the project root.
@@ -40,6 +42,7 @@ type Manifest struct {
 	Schema           string                 `yaml:"schema"`
 	Name             string                 `yaml:"name"`
 	Type             string                 `yaml:"type"`
+	Language         string                 `yaml:"language,omitempty"`
 	Owners           []string               `yaml:"owners,omitempty"`
 	Capabilities     []string               `yaml:"capabilities,omitempty"`
 	CapabilityConfig map[string]interface{} `yaml:"capability_config,omitempty"`

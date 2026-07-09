@@ -1,0 +1,13 @@
+schema: project/v1
+name: checkout-api
+type: library
+language: python
+owners:
+    - group:commerce-eng
+capabilities:
+    - build
+capability_config:
+    build:
+        engine: bazel
+        target_patterns:
+            - //checkout-api/...

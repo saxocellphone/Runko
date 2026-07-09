@@ -21,13 +21,31 @@ func PlanCreate(intent Intent, templates TemplateSet) (Plan, []ValidationError) 
 		return Plan{}, errs
 	}
 
-	tmpl, ok := templates.Get(intent.TemplateID)
-	if !ok {
-		tmpl, ok = templates.DefaultForType(intent.Type)
+	lang := intent.Language
+	if lang == "" {
+		lang = DefaultLanguage
+	}
+
+	var tmpl Template
+	switch {
+	case intent.NoTemplate:
+		// Escape hatch (§10.4): manifest + README only, no source scaffold.
+		// The build capability still defaults on - the generated BUILD.bazel
+		// filegroup is language-agnostic.
+		tmpl = Template{
+			Name:                "no template",
+			DefaultCapabilities: []string{"build"},
+			Files:               func(i Intent) []FileWrite { return []FileWrite{readmeFile(i)} },
+		}
+	case intent.TemplateID != "":
+		tmpl, _ = templates.Get(intent.TemplateID) // existence checked by Validate
+	default:
+		var ok bool
+		tmpl, ok = templates.DefaultFor(intent.Type, lang)
 		if !ok {
 			return Plan{}, []ValidationError{{
 				Code: "no_default_template", Field: "type",
-				Message: fmt.Sprintf("no default template registered for type %q", intent.Type),
+				Message: fmt.Sprintf("no default template registered for type %q, language %q", intent.Type, lang),
 			}}
 		}
 	}
@@ -48,9 +66,13 @@ func PlanCreate(intent Intent, templates TemplateSet) (Plan, []ValidationError) 
 	}
 
 	manifest := Manifest{
-		Schema:           "project/v1",
-		Name:             intent.Name,
-		Type:             intent.Type,
+		Schema: "project/v1",
+		Name:   intent.Name,
+		Type:   intent.Type,
+		// Echoed verbatim, never default-filled (§10.4): an intent that
+		// omitted language leaves the key off disk, so pre-multi-language
+		// manifests stay byte-identical.
+		Language:         intent.Language,
 		Owners:           intent.Owners,
 		Capabilities:     capabilities,
 		CapabilityConfig: capabilityConfig,
