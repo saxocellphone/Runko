@@ -4,6 +4,7 @@ import {
   currentOrg,
   liveUnauthenticated,
   markPublicBrowse,
+  pathOrg,
   probePublicOrg,
   publicBrowse,
 } from "./api/client";
@@ -84,9 +85,12 @@ function AppRoutes() {
   return (
     <Routes>
       <Route element={<Layout />}>
+        {/* An org's own URL (/<org>) is its code page for everyone -
+            GitHub semantics; the bare root app keeps the signed-in
+            user's changes inbox as home. */}
         <Route
           index
-          element={<Navigate to={publicBrowse ? "/browse" : "/changes"} replace />}
+          element={<Navigate to={pathOrg || publicBrowse ? "/browse" : "/changes"} replace />}
         />
         <Route path="/changes" element={<ChangesPage />} />
         <Route path="/changes/:changeId" element={<ChangePage />} />
