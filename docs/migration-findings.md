@@ -90,24 +90,31 @@ planning; entries marked `[observed]` happened during execution.
     tip parity. → import tool needs an explicit "adopt existing mirror at
     SHA" verb instead of relying on the coincidence.
 
-12. **[verified-in-code] Mirror was default-org-only.** `NewOrgServer`
-    wires no MirrorWorker; self-hosting in a dedicated org required the
-    `--org-mirror` slice. → org settings (the tree, eventually — §9.4)
-    should own mirror config, not daemon flags.
+12. **[closed by R1] Mirror was default-org-only.** `NewOrgServer` wired
+    no MirrorWorker; self-hosting in a dedicated org required building
+    repeatable `--org-mirror 'org=…;remote=…'` / `RUNKO_ORG_MIRRORS`
+    (worker per org over the org's repo + org-scoped cursor Store;
+    `/o/<org>/api/mirror/*` light up once `Server.Mirror` is set).
+    → remaining: org settings (the tree, eventually — §9.4) should own
+    mirror config, not daemon flags.
 
-13. **[verified-in-code] Webhook envelopes never populated
+13. **[closed by R1, partially] Webhook envelopes never populated
     `org_id`/`monorepo_id`/`checks_expected`**, and only
     `change.updated`/`change.landed`/`change.check_rerun_requested` are
     actually emitted (opened/reopened are dead enum values). A multi-org
     daemon with one `--webhook-url` gives consumers no way to scope events.
-    → stamp org identity (done in slice R1) and either populate
-    `checks_expected` or drop it from the schema.
+    → org_id now stamped (org NAME — consumers want the /o/<name> path
+    segment); remaining: populate `checks_expected` or drop it from the
+    schema, and per-org webhook targets.
 
-14. **[verified-in-code] No native CI plugin exists (§14.7 gap).** GitHub
-    Actions cannot trigger on `refs/changes/*`; a hand-built
-    webhook→repository_dispatch bridge with idempotency and mirror-lag
-    retry is required. → productize as the reference GitHub plugin;
-    §18.3's "CI shadow period" depends on it.
+14. **[closed by R2/R3] No native CI plugin exists (§14.7 gap).** GitHub
+    Actions cannot trigger on `refs/changes/*`; `cmd/runko-bridge`
+    (HMAC-verified envelope → repository_dispatch, 2xx only after
+    GitHub's 204 so the outbox re-drives failures, bounded delivery-id
+    dedup) + `.github/workflows/runko-checks.yml` (mirror-lag fetch retry,
+    report-check post-backs) are the reference implementation.
+    → productize as the packaged GitHub plugin; §18.3's "CI shadow
+    period" depends on it.
 
 15. **[verified-in-code] Webhook-vs-mirror ordering race.** The change
     webhook can fire before the 3s-debounced mirror push makes
