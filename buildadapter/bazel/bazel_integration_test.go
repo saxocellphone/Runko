@@ -1,11 +1,13 @@
 //go:build bazel_integration
 
 // This file only builds with `go test -tags bazel_integration`. It requires
-// a real `bazel` binary and a minimal WORKSPACE/BUILD fixture, neither of
-// which exist in this sandbox (no Bazel install here - see CLAUDE.md); it
-// exists so a real Bazel install (a dev machine, CI with the tag enabled)
-// can verify the rdeps recipe against the genuine engine, not just the
-// scripted fake in bazel_test.go.
+// a real `bazel` binary on PATH; it exists so a real Bazel install (a dev
+// machine, the CI bazel job) can verify the rdeps recipe against the genuine
+// engine, not just the scripted fake in bazel_test.go. The fixture is an
+// empty MODULE.bazel (bzlmod workspace boundary - Bazel 8 dropped WORKSPACE
+// evaluation) plus the repo's own .bazelversion copied in, since bazelisk
+// resolves the version from the FIXTURE's cwd and would otherwise download
+// "latest" and break hermeticity.
 package bazel
 
 import (
@@ -19,7 +21,10 @@ import (
 
 func TestQueryAgainstRealBazel(t *testing.T) {
 	dir := t.TempDir()
-	mustWrite(t, filepath.Join(dir, "WORKSPACE"), "")
+	mustWrite(t, filepath.Join(dir, "MODULE.bazel"), "")
+	if pin, err := os.ReadFile("../../.bazelversion"); err == nil {
+		mustWrite(t, filepath.Join(dir, ".bazelversion"), string(pin))
+	}
 	mustWrite(t, filepath.Join(dir, "commerce", "checkout", "BUILD"), `
 filegroup(name = "srcs", srcs = ["main.go"])
 `)
