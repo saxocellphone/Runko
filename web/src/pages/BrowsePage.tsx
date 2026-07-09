@@ -23,12 +23,31 @@ import { EmptyState, ErrorNote, Spinner, StateBadge } from "../components/ui";
 // URL state: /browse/<path>, ?view=dir marks directory paths (tree,
 // breadcrumbs, and listing rows all stamp it), ?view=blame selects the
 // file's blame mode.
+// usePaneOpen persists a pane's open/collapsed state per browser.
+function usePaneOpen(key: string): [boolean, () => void] {
+  const [open, setOpen] = useState(() => window.localStorage.getItem(key) !== "0");
+  const toggle = () =>
+    setOpen((o) => {
+      window.localStorage.setItem(key, o ? "0" : "1");
+      return !o;
+    });
+  return [open, toggle];
+}
+
 export function BrowsePage() {
   const params = useParams();
   const [search] = useSearchParams();
   const selected = params["*"] ?? "";
   const view = search.get("view") ?? "";
   const isDir = selected === "" || view === "dir";
+  const [treeOpen, toggleTree] = usePaneOpen("runko-browse-tree");
+  const [contentOpen, toggleContent] = usePaneOpen("runko-browse-content");
+
+  const contentTitle = isDir
+    ? selected === ""
+      ? "Contents — repo root"
+      : `Contents — ${selected}/`
+    : (selected.split("/").pop() ?? selected);
 
   return (
     <div className="page">
@@ -38,18 +57,60 @@ export function BrowsePage() {
           The monorepo at trunk tip. Every path carries the changes that made it.
         </p>
       </header>
-      <div className="browse-layout">
-        <section className="card tree-panel">
-          <TreeLevel path="" depth={0} selected={selected} />
-        </section>
+      <div className={`browse-layout${treeOpen ? "" : " tree-collapsed"}`}>
+        {treeOpen ? (
+          <section className="card tree-panel">
+            <div className="tree-head">
+              <span>Files</span>
+              <button
+                className="pane-toggle"
+                aria-label="Hide file tree"
+                title="Hide file tree"
+                onClick={toggleTree}
+              >
+                <ChevronIcon dir="left" />
+              </button>
+            </div>
+            <TreeLevel path="" depth={0} selected={selected} />
+          </section>
+        ) : (
+          <button
+            className="card tree-rail"
+            aria-label="Show file tree"
+            title="Show file tree"
+            onClick={toggleTree}
+          >
+            <ChevronIcon dir="right" />
+            <span className="tree-rail-label">Files</span>
+          </button>
+        )}
         <div className="browse-main">
           <Breadcrumbs path={selected} isDir={isDir} />
           <section className="card content-panel">
-            {isDir ? (
-              <DirListing path={selected} />
-            ) : (
-              <FileContent path={selected} blame={view === "blame"} />
-            )}
+            <header className="content-head">
+              <span className="file-path" title={selected}>
+                {contentTitle}
+              </span>
+              <span className="spacer" />
+              {!isDir && contentOpen && <FileModeToggle path={selected} blame={view === "blame"} />}
+              <button
+                className="pane-toggle"
+                aria-label={contentOpen ? "Collapse this pane" : "Expand this pane"}
+                title={contentOpen ? "Collapse" : "Expand"}
+                aria-expanded={contentOpen}
+                onClick={toggleContent}
+              >
+                <ChevronIcon dir={contentOpen ? "up" : "down"} />
+              </button>
+            </header>
+            {contentOpen &&
+              (isDir ? (
+                <DirListing path={selected} />
+              ) : view === "blame" ? (
+                <BlameView path={selected} />
+              ) : (
+                <CodeView path={selected} />
+              ))}
           </section>
           <section className="card history-panel">
             <header className="history-head">
@@ -66,6 +127,49 @@ export function BrowsePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// FileModeToggle is the Code/Blame segmented control, hoisted into the
+// content pane's header so the header survives collapsing the body.
+function FileModeToggle({ path, blame }: { path: string; blame: boolean }) {
+  const navigate = useNavigate();
+  const setMode = (m: "code" | "blame") =>
+    navigate(`/browse/${path}${m === "blame" ? "?view=blame" : ""}`, { replace: true });
+  return (
+    <div className="seg" role="tablist" aria-label="File view">
+      {(["code", "blame"] as const).map((m) => (
+        <button
+          key={m}
+          role="tab"
+          aria-selected={blame === (m === "blame")}
+          className={`seg-btn${blame === (m === "blame") ? " active" : ""}`}
+          onClick={() => setMode(m)}
+        >
+          {m === "code" ? "Code" : "Blame"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ChevronIcon({ dir }: { dir: "left" | "right" | "up" | "down" }) {
+  const rotate = { left: 90, right: -90, up: 180, down: 0 }[dir];
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ transform: `rotate(${rotate}deg)` }}
+      aria-hidden
+    >
+      <path d="M4 6l4 4 4-4" />
+    </svg>
   );
 }
 
@@ -227,46 +331,7 @@ function DirListing({ path }: { path: string }) {
   );
 }
 
-// ---- file content: code with a Code/Blame segmented toggle ------------
-
-function FileContent({ path, blame }: { path: string; blame: boolean }) {
-  const navigate = useNavigate();
-  const setMode = (m: "code" | "blame") =>
-    navigate(`/browse/${path}${m === "blame" ? "?view=blame" : ""}`, { replace: true });
-  return (
-    <div>
-      <header className="file-panel-head">
-        <FileMetaChips path={path} />
-        <span className="spacer" />
-        <div className="seg" role="tablist" aria-label="File view">
-          {(["code", "blame"] as const).map((m) => (
-            <button
-              key={m}
-              role="tab"
-              aria-selected={blame === (m === "blame")}
-              className={`seg-btn${blame === (m === "blame") ? " active" : ""}`}
-              onClick={() => setMode(m)}
-            >
-              {m === "code" ? "Code" : "Blame"}
-            </button>
-          ))}
-        </div>
-      </header>
-      {blame ? <BlameView path={path} /> : <CodeView path={path} />}
-    </div>
-  );
-}
-
-// FileMetaChips shows size/project/rev for the file - fetched once via
-// getBlob's metadata by CodeView; kept tiny here to avoid a second fetch:
-// the chips render inside CodeView/BlameView instead when data arrives.
-function FileMetaChips({ path }: { path: string }) {
-  return (
-    <span className="file-path" title={path}>
-      {path.split("/").pop()}
-    </span>
-  );
-}
+// ---- file content ------------------------------------------------------
 
 function CodeView({ path }: { path: string }) {
   const { data, error, loading } = useRpc(() => repoClient.getBlob({ path }), `blob-${path}`);
