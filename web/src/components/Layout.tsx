@@ -100,6 +100,11 @@ function OrgSwitcher() {
   // org-scoped: the listing is exactly this account's memberships.
   const known = orgs.some((o) => o.name === currentOrg);
 
+  // One org and you're in it: nothing to switch, no selector (org
+  // creation lives on the sign-up form). It appears when a second
+  // membership does.
+  if (orgs.length === 0 || (orgs.length === 1 && known)) return null;
+
   const onChange = async (value: string) => {
     if (value === "__new__") {
       const name = window.prompt("New org name (lowercase letters, digits, dashes):");
