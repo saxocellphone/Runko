@@ -206,6 +206,22 @@ planning; entries marked `[observed]` happened during execution.
   `runko-ci checkout --change`.
 - Org lifecycle: archive/delete; org-settings-owned mirror config.
 
+## Cutover record (R7, 2026-07-09)
+
+Executed in ~6 minutes of wall clock against the production instance:
+org `runko` created; full history pushed (`refs/for/main`, postBuffer
+workaround per #23) as one Change; head_sha byte-equal to the freeze tip
+`9eddc2d…` (#10 confirmed in production); landed onto the unborn trunk;
+the mirror **silently adopted** the same-tip GitHub repo (#11 confirmed —
+cursor at the freeze tip, never frozen) and pushed `refs/changes/*`
+outbound. The first gated change (the R4 manifests) then ran the entire
+§14.4 Mode C chain for real: push → webhook → bridge →
+repository_dispatch → four checks reported back → mergeable → landed
+through the gate (NO force) → mirrored to GitHub main within seconds.
+`--insecure-allow-unpoliced-land` removed immediately after (#25 closed);
+future org imports bootstrap via the operator principal's force-land
+(#18/#24 - still the sanctioned path, now that default-deny is back on).
+
 ## Open verification items
 
 - Bazel-refinement smoke asserts engine health only until PROJECT.yaml

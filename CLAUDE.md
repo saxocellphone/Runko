@@ -2,6 +2,30 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## THIS REPO IS SELF-HOSTED ON RUNKO (cutover 2026-07-09)
+
+The source of record is the `runko` org on the production deployment:
+`origin` = `https://…runko.victornazzaro.com/o/runko/repo.git`; the GitHub
+remote is named `github` and is the OUTBOUND MIRROR — **never push to it**
+(a direct push would freeze the mirror on divergence). The flow:
+
+- `git push origin HEAD:refs/for/main` (or `runko change push`) creates/updates
+  a Change; direct pushes to `main` are rejected (§6.9). For stable Change
+  identity across amends, install the hook (`runko doctor --install-hook`) or
+  work in a jj colocated repo — trailer-less pushes get a server-minted id
+  per push.
+- Required checks come from the tree: root `PROJECT.yaml` declares
+  `platform-check`/`platform-race`/`platform-db` (= `make check`/`check-race`/
+  `check-db`), `web/PROJECT.yaml` declares `web-check`. GitHub Actions runs
+  them via the webhook→`runko-bridge`→`repository_dispatch` chain
+  (`.github/workflows/runko-checks.yml`) and reports back; land with
+  `runko change land` or `POST /o/runko/api/changes/<id>/land` once green.
+  Landing mirrors to GitHub `main` automatically, which still triggers the
+  old `ci.yml` (post-land safety net) and `release-images`.
+- Default-deny is ON (no unpoliced lands). The `operator` principal (admin)
+  exists for force-land/mirror-unfreeze; agents can never force.
+- The migration record lives in `docs/migration-findings.md`.
+
 ## Repository status
 
 Implementation has started, following the session DAG in `docs/design.md` §28.3. The design spec (~1900 lines) lives at `docs/design.md` (moved from the original `spec.md` per its own standing rule, §28.2 item 6) — read the relevant section(s) cited below before editing; the spec is deliberately decided (not a discussion doc) so implementation should be transcription of a decision, not a fresh design exercise.
