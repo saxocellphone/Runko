@@ -103,8 +103,12 @@ func TestGitleaksScannerAgainstRealBinary(t *testing.T) {
 		t.Skip("gitleaks not installed - skipping real-binary test")
 	}
 	scanner := GitleaksScanner{}
+	// The key is assembled at runtime so this test file's own committed
+	// content never pattern-matches a scanner (the self-host import push
+	// scans the whole tip tree - docs/migration-findings.md #22); the
+	// scanned FileContent still carries the full realistic pattern.
 	findings, err := scanner.Scan([]receive.FileContent{
-		{Path: "config.py", Content: []byte("aws_secret_access_key = \"AKIAABCDEFGHIJKLMNOP\"\n")},
+		{Path: "config.py", Content: []byte("aws_secret_access_key = \"AKIA" + "ABCDEFGHIJKLMNOP\"\n")},
 	})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)

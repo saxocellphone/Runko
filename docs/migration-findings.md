@@ -153,6 +153,21 @@ planning; entries marked `[observed]` happened during execution.
     narrow the server's required-check set. Recorded as the standing
     §14.5.4 gap.
 
+22. **[observed, R5 dry run] The import push trips the secret scanner on
+    the repo's own test fixtures.** Prod gitleaks rejected the full-history
+    push at `scripts/compose-edgecases.sh:132` — the E4 smoke fixture's
+    deliberately realistic AWS key literal (realistic BECAUSE gitleaks
+    allowlists the well-known example keys). The funnel scans the pushed
+    tip's materialized tree, so any contiguous secret-shaped literal in
+    committed content blocks import. Fixed by assembling fixtures at
+    runtime (`"AKIA" + suffix`), which keeps the E2E test's pushed content
+    realistic while the committed tree never pattern-matches.
+    → §18.3's `import plan` MUST pre-flight the tip tree with the same
+    scanner the funnel runs and report hits BEFORE the freeze window; and
+    import needs a sanctioned per-path scan-allowlist story (a repo
+    `.gitleaks.toml` the server honors, or an audited skip) for repos
+    whose fixtures can't be rewritten.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,

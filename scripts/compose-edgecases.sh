@@ -129,7 +129,13 @@ git push -q origin v0.0.1-smoke || fail "E3: tag push must be accepted (document
 
 step "E4: real gitleaks rejects a pushed secret before durability"
 git checkout -q -b leak
-printf 'aws_key = "AKIAQ7RANDOM9KEYXY12"\ngithub_pat = "ghp_%s"\n' \
+# Both secrets are assembled at runtime so THIS script's own tree never
+# pattern-matches a scanner - the pushed config.py still carries the full
+# realistic patterns E4 needs. Discovered the hard way: the self-host
+# import push (docs/migration-findings.md #22) was rejected by prod's
+# gitleaks because the contiguous AKIA literal used to live on this line.
+printf 'aws_key = "AKIA%s"\ngithub_pat = "ghp_%s"\n' \
+  "Q7RANDOM9KEYXY12" \
   "abcdefghijklmnopqrstuvwxyz0123456789" > "$PROJECT_DIR/config.py"
 git add -A && git commit -q -m "add config"
 expect_fail "secret push" git push origin +HEAD:refs/for/main
