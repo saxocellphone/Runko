@@ -168,6 +168,33 @@ planning; entries marked `[observed]` happened during execution.
     `.gitleaks.toml` the server honors, or an audited skip) for repos
     whose fixtures can't be rewritten.
 
+23. **[observed, R5 dry run] Large smart-HTTP pushes flake through
+    ingress-nginx with chunked transfer encoding.** The ~tens-of-MB
+    full-history pack failed mid-transfer (HTTP 400, "unexpected
+    disconnect while reading sideband") on one attempt and succeeded with
+    `git -c http.postBuffer=157286400 push` (fixed Content-Length instead
+    of chunked). → import docs must prescribe the postBuffer workaround
+    or the deployment guide must include the ingress-side fix
+    (proxy-body-size/buffering tuning for the git mount).
+
+24. **[observed, R5 dry run] Org-admin (signup role) cannot force-land.**
+    `{"force": true}` from the org's creator returned `force_denied`
+    ("not an admin principal") - only operator `--principal '…;admin'`
+    entries and the deploy token may force. Correct per §13.5's letter,
+    but it means the import bootstrap requires operator access even for
+    the org's own admin. → §18.3's sanctioned bootstrap-land should be
+    grantable to the org admin performing the import.
+
+25. **[observed, R5 dry run] Prod permits unpoliced lands.** The import
+    change (zero required checks, zero owners - its history predates any
+    manifests) landed WITHOUT force, meaning the deployment runs with
+    `--insecure-allow-unpoliced-land` (or its env). Convenient for the
+    bootstrap, but it means the default-deny gate is off for every org
+    on the instance. → R6 must drop the flag once the manifests land
+    (they provide real policy); the import runbook then relies on the
+    admin force-land instead. Confirmed live: with the flag on, findings
+    #18/#24's force-land path was not even needed.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
@@ -183,4 +210,10 @@ planning; entries marked `[observed]` happened during execution.
 
 - Bazel-refinement smoke asserts engine health only until PROJECT.yaml
   manifests land (R4); revisit the assertion afterward.
-- R5 scratch-org dry run to confirm findings 9-11 and 18 live.
+- ~~R5 scratch-org dry run to confirm findings 9-11 and 18 live.~~
+  **Done 2026-07-08** against prod org `runko-dry`: full history (one
+  Change, `I147c12ef…`), tip-SHA parity byte-equal
+  (`e94f4394…` == local main), trunk born at parity via plain land
+  (see #25 - force-land wasn't needed because unpoliced lands are on).
+  Mirror adopt/freeze rehearsal deferred to R6 (needs `--org-mirror`
+  deployed); the semantics are e2e-tested in TestEndToEndDaemonOrgs.
