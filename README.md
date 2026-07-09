@@ -11,11 +11,14 @@ Runko develops on Runko. The source of record is a public instance —
 
 - **Code**: <https://runko.victornazzaro.com/runko>
 - **Changes**: <https://runko.victornazzaro.com/runko/changes>
-- **Clone**: `git clone https://runko.victornazzaro.com/o/runko/repo.git`
+- **Playground**: <https://runko.victornazzaro.com/demo/> — the UI on sample data, entirely in your browser
+- **Clone**: `git clone https://runko.victornazzaro.com/o/runko/repo.git` (or this mirror)
 
 This GitHub repository is the read-only mirror of that instance, updated
 automatically on every landing (including `refs/changes/*`, so any change's
 exact commit is fetchable here too).
+
+![Reviewing a change on the public instance: diff, stack, and merge gates](docs/images/change-review.png)
 
 Git is the only storage substrate — Postgres holds a rebuildable index of
 trunk, never a second source of truth. The full design is in
@@ -62,6 +65,20 @@ web/                web UI (React + TypeScript + Vite + Connect-ES)
 cli/runko/          human/agent-facing CLI
 cli/runko-ci/       CI-facing CLI
 ```
+
+## Running your own
+
+```bash
+git clone https://github.com/saxocellphone/Runko.git && cd Runko
+docker compose up
+```
+
+That brings up the control plane (runkod + Postgres) at
+`http://localhost:8080` with two eval users, `alice` and `bob` — clone
+through it, push a change to `refs/for/main` as one, approve as the other,
+land it. `scripts/compose-smoke.sh` drives that loop end to end; CI times
+it on every landing. The web UI runs separately for now:
+`cd web && VITE_RUNKO_URL=http://localhost:8080 npm install && npm run dev`.
 
 ## Building and testing
 

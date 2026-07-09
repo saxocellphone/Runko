@@ -8,6 +8,7 @@ import {
   isOperator,
   onDemoRoute,
   pathOrg,
+  probeSearchAvailable,
   publicBrowse,
   signedIn,
   signOut,
@@ -29,6 +30,11 @@ export function Layout() {
   const [theme, setTheme] = useState<string>(
     () => document.documentElement.dataset.theme ?? "light",
   );
+  // Hide Search when this org's backend answers 503 (no Zoekt wired).
+  const [searchOk, setSearchOk] = useState(true);
+  useEffect(() => {
+    void probeSearchAvailable().then(setSearchOk);
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("runko-theme", theme);
@@ -45,7 +51,12 @@ export function Layout() {
         {nav
           // Anonymous read-only browsing (§15.2): workspaces and settings
           // are not on the public allowlist - hide what would only 401.
-          .filter(({ to }) => !publicBrowse || (to !== "/workspaces" && to !== "/settings"))
+          // Search hides when the org has no search backend wired.
+          .filter(({ to }) => {
+            if (publicBrowse && (to === "/workspaces" || to === "/settings")) return false;
+            if (to === "/search" && !searchOk) return false;
+            return true;
+          })
           .map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} className="nav-link">
             <Icon />

@@ -93,6 +93,22 @@ export async function probePublicOrg(org: string): Promise<boolean> {
   }
 }
 
+/** Whether this org's code search backend is wired up (Zoekt is optional
+ * per-instance plumbing; without it the search endpoint answers 503
+ * search_not_configured). Layout hides the Search nav on false - a
+ * visibly broken surface is worse than a hidden one. Errors report true:
+ * a network blip must not hide navigation. */
+export async function probeSearchAvailable(): Promise<boolean> {
+  if (usingDemoData) return true;
+  try {
+    const base = currentOrg ? new URL(`o/${currentOrg}/`, baseUrl) : new URL(baseUrl!);
+    const res = await fetch(new URL("api/search?q=%2E", base), { headers: authHeaders() });
+    return res.status !== 503;
+  } catch {
+    return true;
+  }
+}
+
 /** Navigate to org's own URL (/<org> - the shareable, GitHub-style entry;
  * a full navigation so the router remounts under the org basename). */
 export function browsePublicOrg(name: string): void {
