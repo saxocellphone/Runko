@@ -19,7 +19,7 @@ type Command struct {
 // TestCommandsMatchesCLIContract, which fails if the two ever drift.
 var Commands = []Command{
 	{"runko", "doctor [--install-hook] [--json]", "check remotes/hooks, print a cheat-sheet (§6.9)", "DoctorReport"},
-	{"runko", "project create --name <n> --type <t> [--owners a,b] [--json]", "create a project from an intent (§10.1)", `{"name","path","rev"}`},
+	{"runko", "project create --name <n> --type <t> [--lang l] [--no-template] [--owners a,b] [--json]", "create a project from an intent (§10.1); --lang: go|python|ts|rust|java|cpp, others need --no-template", `{"name","path","rev"}`},
 	{"runko", "project list --runkod-url <url> --token <t> [--json]", "list projects indexed at trunk (§10.3) - needs a live runkod", "[]IndexedProject"},
 	{"runko", "change push [--remote origin] [--trunk main] [--json]", "ensure a Change-Id trailer, push to refs/for/<trunk> (§11.5)", `{"change_id","ref"}`},
 	{"runko", "change land --change <id> --runkod-url <url> --token <t> [--json]", "land a mergeable change onto trunk (§13.5) - needs a live runkod", "land.Outcome"},

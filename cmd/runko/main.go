@@ -157,7 +157,7 @@ func cmdDoctor(args []string) error {
 
 func cmdProject(args []string) error {
 	if len(args) < 1 || (args[0] != "create" && args[0] != "list") {
-		return usageError("usage: runko project create --name <name> --type <type> [--owners a,b] [--path p] [--template t] [--capabilities c,d] | runko project list --runkod-url <url> --token <t>")
+		return usageError("usage: runko project create --name <name> --type <type> [--lang l] [--no-template] [--owners a,b] [--path p] [--template t] [--capabilities c,d] | runko project list --runkod-url <url> --token <t>")
 	}
 	if args[0] == "list" {
 		return cmdProjectList(args[1:])
@@ -166,6 +166,8 @@ func cmdProject(args []string) error {
 	repoDir := fs.String("repo", ".", "path to the local repo")
 	name := fs.String("name", "", "project name")
 	projectType := fs.String("type", "", "project type: library|service|app|job|other")
+	lang := fs.String("lang", "", "project language: go|python|ts|rust|java|cpp (default go); other values need --no-template")
+	noTemplate := fs.Bool("no-template", false, "skip template scaffolding: PROJECT.yaml + README only, --lang recorded verbatim")
 	owners := fs.String("owners", "", "comma-separated owner refs, e.g. group:commerce-eng")
 	path := fs.String("path", "", "project path (default: derived from name)")
 	template := fs.String("template", "", "template id (default: type's default template)")
@@ -186,6 +188,8 @@ func cmdProject(args []string) error {
 	intent := project.Intent{
 		Name:         *name,
 		Type:         *projectType,
+		Language:     *lang,
+		NoTemplate:   *noTemplate,
 		Path:         *path,
 		TemplateID:   *template,
 		Owners:       splitNonEmpty(*owners),

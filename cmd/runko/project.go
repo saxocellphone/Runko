@@ -21,7 +21,15 @@ func CreateProject(repoDir string, intent project.Intent) (rev string, err error
 
 	plan, errs := project.PlanCreate(intent, templates)
 	if len(errs) > 0 {
-		return "", fmt.Errorf("invalid intent: %v", errs)
+		// Surface the first validation error in the §6.5 structured shape
+		// (one error per field since the multi-language work), matching how
+		// the daemon's create-project flow reports the same failures.
+		e := errs[0]
+		msg := e.Message
+		if len(errs) > 1 {
+			msg = fmt.Sprintf("%s (and %d more)", msg, len(errs)-1)
+		}
+		return "", &clierr.Error{Code: e.Code, Field: e.Field, Message: msg, Suggestion: e.Suggestion}
 	}
 
 	base, err := resolveBaseOrEmpty(repoDir, store)

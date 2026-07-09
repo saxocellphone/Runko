@@ -197,3 +197,75 @@ func TestCreateProjectRefusesDuplicateName(t *testing.T) {
 		t.Fatalf("error must name the colliding project: %q", ce.Message)
 	}
 }
+
+// TestCreateProjectWithLangWritesLanguageSkeleton drives the multi-language
+// path end to end against a real repo: --lang python must scaffold main.py
+// and record the language verbatim in the on-disk PROJECT.yaml (§10.4).
+func TestCreateProjectWithLangWritesLanguageSkeleton(t *testing.T) {
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "# monorepo\n")
+	repo.Commit("initial")
+
+	if _, err := CreateProject(repo.Dir, project.Intent{
+		Name: "billing-worker", Type: "job", Language: "python",
+	}); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(repo.Dir, "billing-worker", "main.py")); err != nil {
+		t.Fatalf("expected main.py in the working tree: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(repo.Dir, "billing-worker", "PROJECT.yaml"))
+	if err != nil {
+		t.Fatalf("read PROJECT.yaml: %v", err)
+	}
+	if !strings.Contains(string(content), "language: python") {
+		t.Fatalf("expected 'language: python' recorded on disk, got:\n%s", content)
+	}
+}
+
+// TestCreateProjectUnsupportedLangRequiresNoTemplate pins the escape-hatch
+// pairing: an untemplated language is a loud unsupported_language error
+// without --no-template, and a manifest-only create with it (§10.4).
+func TestCreateProjectUnsupportedLangRequiresNoTemplate(t *testing.T) {
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "# monorepo\n")
+	repo.Commit("initial")
+
+	_, err := CreateProject(repo.Dir, project.Intent{
+		Name: "exotic-svc", Type: "service", Language: "haskell",
+	})
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "unsupported_language" || ce.Field != "language" {
+		t.Fatalf("expected a structured unsupported_language error, got: %v", err)
+	}
+	if !strings.Contains(ce.Suggestion, "--no-template") {
+		t.Fatalf("expected the suggestion to name --no-template, got: %q", ce.Suggestion)
+	}
+
+	if _, err := CreateProject(repo.Dir, project.Intent{
+		Name: "exotic-svc", Type: "service", Language: "haskell", NoTemplate: true,
+	}); err != nil {
+		t.Fatalf("CreateProject with NoTemplate: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(repo.Dir, "exotic-svc", "PROJECT.yaml"))
+	if err != nil {
+		t.Fatalf("read PROJECT.yaml: %v", err)
+	}
+	if !strings.Contains(string(content), "language: haskell") {
+		t.Fatalf("expected 'language: haskell' recorded verbatim, got:\n%s", content)
+	}
+	entries, err := os.ReadDir(filepath.Join(repo.Dir, "exotic-svc"))
+	if err != nil {
+		t.Fatalf("read project dir: %v", err)
+	}
+	for _, e := range entries {
+		switch e.Name() {
+		case "PROJECT.yaml", "README.md", "BUILD.bazel":
+		default:
+			t.Fatalf("no-template create must not scaffold %s", e.Name())
+		}
+	}
+}
