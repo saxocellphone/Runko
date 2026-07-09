@@ -82,6 +82,53 @@ jobs:
 
       - run: npm run check
 
+  # Bazel is this repo's BUILD GRAPH (docs/migration-findings.md, §14.5.4
+  # dogfood): bazel build //... must stay green and gazelle must not drift,
+  # so `runko-ci affected --engine bazel` keeps refining over a real graph.
+  # Tests are NOT run under bazel - `make check` in the check job stays the
+  # test truth.
+  bazel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: bazel-${{ github.workflow }}
+          repository-cache: true
+
+      - name: bazel build //... (graph must stay green)
+        run: bazel build //...
+
+      - name: gazelle drift check (BUILD files must match the source tree)
+        run: |
+          bazel run //:gazelle
+          git diff --exit-code -- '**/BUILD.bazel'
+
+      - name: real-bazel integration test (rdeps recipe vs the genuine engine)
+        run: go test -tags bazel_integration ./buildadapter/bazel/
+
+      # The dogfood payload: a synthetic Go-file change refined through the
+      # real graph. Asserts on .build_refinement only - the project-level
+      # Result correctly fail-closes (run_everything) until PROJECT.yaml
+      # manifests exist in this repo. Touches a GO file deliberately: the
+      # engine's file labels error on non-package files (docs/*.md) and
+      # escalate, per spec.
+      - name: runko-ci affected --engine bazel smoke
+        run: |
+          git config user.name ci && git config user.email ci@localhost
+          printf '\n// bazel-smoke\n' >> land/land.go
+          git commit -am bazel-smoke
+          go run ./cmd/runko-ci affected --base HEAD~1 --head HEAD \
+            --engine bazel --universe //... --engine-timeout 300s | tee affected.json
+          jq -e '.build_refinement.run_everything == false and (.build_refinement.targets | length > 0)' affected.json
+
   # The §16.4 measured eval loop (§28.3 stage 14): compose up -> create
   # project -> change -> land (twice - the second pass is the "edit" leg),
   # timed end to end against §3.3's < 15 min budget, gated by real policy
