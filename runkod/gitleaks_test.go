@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // scriptedGitleaks writes an executable shell script standing in for

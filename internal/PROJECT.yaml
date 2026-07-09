@@ -1,0 +1,12 @@
+# Shared internal packages (dbgen, gitstore, gitfixture, clierr,
+# gitversion, dbtest). Must stay at the module root for Go's internal/
+# visibility rule to keep them importable by platform/, runkod/, and cli/.
+# No ci.checks on purpose: every consumer declares a dependency on this
+# project, so a change here pulls in their checks via the affected
+# closure - dogfooding closure-derived gating (docs/design.md section 13.3).
+schema: project/v1
+name: internal
+type: library
+language: go
+dependencies:
+  - db

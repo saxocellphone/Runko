@@ -63,8 +63,8 @@ json_get() { # <json-on-stdin> via args: <python expr over j>
 
 step "build CLIs + fresh stack"
 BIN=$(mktemp -d)
-go build -o "$BIN/runko" ./cmd/runko
-go build -o "$BIN/runko-ci" ./cmd/runko-ci
+go build -o "$BIN/runko" ./cli/runko
+go build -o "$BIN/runko-ci" ./cli/runko-ci
 docker compose up -d --build
 for i in $(seq 1 120); do
   curl -fsS "$BASE_URL/readyz" >/dev/null 2>&1 && break

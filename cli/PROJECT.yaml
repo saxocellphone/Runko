@@ -1,0 +1,17 @@
+# The client binaries: runko (human/agent CLI) and runko-ci (CI-facing
+# CLI). Pure main packages over the platform libraries.
+schema: project/v1
+name: cli
+type: app
+language: go
+dependencies:
+  - platform
+  - internal
+ci:
+  checks:
+    - name: platform-check
+      command: make check
+    - name: platform-race
+      command: make check-race
+    - name: platform-db
+      command: make check-db

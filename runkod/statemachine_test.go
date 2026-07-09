@@ -21,8 +21,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/saxocellphone/runko/checks"
 	"github.com/saxocellphone/runko/internal/gitfixture"
+	"github.com/saxocellphone/runko/platform/checks"
 )
 
 const smChangeID = "Icccccccccccccccccccccccccccccccccccccccc"

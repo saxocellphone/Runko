@@ -3,8 +3,8 @@ package gitstore
 import (
 	"testing"
 
-	"github.com/saxocellphone/runko/core"
 	"github.com/saxocellphone/runko/internal/gitfixture"
+	"github.com/saxocellphone/runko/platform/core"
 )
 
 // TestExtraEnvIsForwardedToGit guards a real bug found building runkod

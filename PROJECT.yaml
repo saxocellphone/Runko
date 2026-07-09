@@ -1,7 +1,12 @@
+# Root glue project: owns only what no deeper PROJECT.yaml claims -
+# go.mod, Makefile, Dockerfile, MODULE.bazel, .github/, scripts/, and the
+# top-level docs. The Go/TS code all lives in real per-folder projects
+# (platform/, runkod/, cli/, internal/, db/, proto/, web/, docs/); this
+# manifest exists so repo-glue changes still resolve a merge policy
+# instead of falling to the fail-closed unowned-path default.
 schema: project/v1
-name: platform
-type: service
-language: go
+name: repo
+type: other
 ci:
   checks:
     - name: platform-check

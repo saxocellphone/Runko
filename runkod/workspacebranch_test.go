@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/saxocellphone/runko/internal/gitfixture"
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 func TestSnapshotRefParts(t *testing.T) {

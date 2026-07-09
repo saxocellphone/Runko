@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "agentsmd",
+    srcs = [
+        "doc.go",
+        "generate.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/platform/agentsmd",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "agentsmd_test",
+    srcs = ["generate_test.go"],
+    embed = [":agentsmd"],
+)

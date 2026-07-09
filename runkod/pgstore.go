@@ -15,9 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/saxocellphone/runko/checks"
 	"github.com/saxocellphone/runko/internal/dbgen"
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // PostgresStore is a Store backed by internal/dbgen - the durable

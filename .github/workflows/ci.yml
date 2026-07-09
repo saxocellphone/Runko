@@ -112,7 +112,7 @@ jobs:
           git diff --exit-code -- '**/BUILD.bazel'
 
       - name: real-bazel integration test (rdeps recipe vs the genuine engine)
-        run: go test -tags bazel_integration ./buildadapter/bazel/
+        run: go test -tags bazel_integration ./platform/buildadapter/bazel/
 
       # The dogfood payload: a synthetic Go-file change refined through the
       # real graph. Asserts on .build_refinement only - the project-level
@@ -123,9 +123,9 @@ jobs:
       - name: runko-ci affected --engine bazel smoke
         run: |
           git config user.name ci && git config user.email ci@localhost
-          printf '\n// bazel-smoke\n' >> land/land.go
+          printf '\n// bazel-smoke\n' >> platform/land/land.go
           git commit -am bazel-smoke
-          go run ./cmd/runko-ci affected --base HEAD~1 --head HEAD \
+          go run ./cli/runko-ci affected --base HEAD~1 --head HEAD \
             --engine bazel --universe //... --engine-timeout 300s | tee affected.json
           jq -e '.build_refinement.run_everything == false and (.build_refinement.targets | length > 0)' affected.json
 

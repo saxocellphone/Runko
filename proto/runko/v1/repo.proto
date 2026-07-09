@@ -4,7 +4,7 @@ package runko.v1;
 
 import "runko/v1/common.proto";
 
-option go_package = "github.com/saxocellphone/runko/gen/runko/v1;runkov1";
+option go_package = "github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1";
 
 // RepoService is the read-only tree/blob surface behind the web UI's
 // repository browser (§17.2, added for stage 13's explorer). Barebones on

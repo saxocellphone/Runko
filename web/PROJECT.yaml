@@ -2,6 +2,10 @@ schema: project/v1
 name: web
 type: app
 language: ts
+# The TS client types in src/gen are generated from proto/ - a proto
+# change must re-run web-check via the affected closure.
+dependencies:
+  - proto
 ci:
   checks:
     - name: web-check

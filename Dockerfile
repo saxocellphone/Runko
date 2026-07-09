@@ -9,10 +9,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/runkod ./cmd/runkod \
-    && CGO_ENABLED=0 go build -o /out/runko ./cmd/runko \
-    && CGO_ENABLED=0 go build -o /out/runko-ci ./cmd/runko-ci \
-    && CGO_ENABLED=0 go build -o /out/runko-bridge ./cmd/runko-bridge
+RUN CGO_ENABLED=0 go build -o /out/runkod ./runkod/cmd/runkod \
+    && CGO_ENABLED=0 go build -o /out/runko ./cli/runko \
+    && CGO_ENABLED=0 go build -o /out/runko-ci ./cli/runko-ci \
+    && CGO_ENABLED=0 go build -o /out/runko-bridge ./runkod/cmd/runko-bridge
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/zricethezav/gitleaks/v8@v8.21.2
 # zoekt-git-index: lets the daemon's ZoektIndexWorker (§28.3 stage 11)
 # index trunk on advance. Pinned to the SAME zoekt build the k8s

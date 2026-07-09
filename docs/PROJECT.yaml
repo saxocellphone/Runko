@@ -1,3 +1,10 @@
 schema: project/v1
 name: docs
 type: other
+# docs has no dependents and no owners (solo-dev: self-approval is
+# hard-denied), so without at least one declared check a docs-only change
+# would hit the default-deny "no merge policy" blocker and be unlandable.
+ci:
+  checks:
+    - name: platform-check
+      command: make check

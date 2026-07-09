@@ -122,7 +122,7 @@ All four original items closed 2026-07-07 with stage 13's server half:
 1. ~~Confirm or reject the Connect recommendation~~ **Confirmed on both
    halves**: `web/` on Connect-ES, runkod on connect-go (`runkod/rpc.go`).
 2. ~~Install buf, run buf lint / buf generate~~ Done for TS
-   (`web/src/gen`) and Go (`gen/runko/v1`, local plugins - see
+   (`web/src/gen`) and Go (`proto/gen/runko/v1`, local plugins - see
    `buf.gen.yaml`'s header for the regenerate incantation).
 3. ~~Record the confirmed decision in `docs/design.md`~~ Done (§17.4 +
    changelog).

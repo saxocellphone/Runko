@@ -7,8 +7,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	runkov1 "github.com/saxocellphone/runko/gen/runko/v1"
 	"github.com/saxocellphone/runko/internal/gitfixture"
+	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
 )
 
 // historyFixture builds a bare repo with three commits and one known

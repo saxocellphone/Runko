@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saxocellphone/runko/checks"
+	"github.com/saxocellphone/runko/platform/checks"
 )
 
 func TestMemStoreCreateOrUpdateChange(t *testing.T) {

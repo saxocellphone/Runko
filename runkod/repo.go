@@ -15,9 +15,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/saxocellphone/runko/core"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
+	"github.com/saxocellphone/runko/platform/core"
 )
 
 // blobContentCap bounds GetBlob's returned content (repo.proto: "oversized

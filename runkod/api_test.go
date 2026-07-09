@@ -11,12 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/saxocellphone/runko/affected"
-	"github.com/saxocellphone/runko/index"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
-	"github.com/saxocellphone/runko/receive"
-	"github.com/saxocellphone/runko/search"
+	"github.com/saxocellphone/runko/platform/affected"
+	"github.com/saxocellphone/runko/platform/index"
+	"github.com/saxocellphone/runko/platform/receive"
+	"github.com/saxocellphone/runko/platform/search"
 )
 
 // newTestServer creates a real bare repo with one seeded Change (via a real

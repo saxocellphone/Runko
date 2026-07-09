@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // newTestHub assembles a mem-mode hub the way cmd/runkod does: a default

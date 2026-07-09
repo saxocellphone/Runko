@@ -5,11 +5,12 @@
 #   go install connectrpc.com/connect/cmd/protoc-gen-connect-go
 #   go run github.com/bufbuild/buf/cmd/buf@latest generate
 #
-# Output is committed at ../gen (the internal/dbgen convention): consumers
-# and CI never need buf/protoc, only regeneration after a .proto edit does.
-# `out: ../gen` + paths=source_relative lands files at gen/runko/v1, which
+# Output is committed at gen/ beside this file (the internal/dbgen
+# convention): consumers and CI never need buf/protoc, only regeneration
+# after a .proto edit does.
+# `out: gen` + paths=source_relative lands files at proto/gen/runko/v1, which
 # is exactly what every file's go_package option
-# (github.com/saxocellphone/runko/gen/runko/v1) declares - the original
+# (github.com/saxocellphone/runko/proto/gen/runko/v1) declares - the original
 # draft's `out: ../gen/go` + remote plugins put them one directory off from
 # their own import path and needed network access to buf.build.
 #
@@ -24,8 +25,8 @@ inputs:
   - directory: .
 plugins:
   - local: protoc-gen-go
-    out: ../gen
+    out: gen
     opt: paths=source_relative
   - local: protoc-gen-connect-go
-    out: ../gen
+    out: gen
     opt: paths=source_relative

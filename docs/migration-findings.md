@@ -195,6 +195,52 @@ planning; entries marked `[observed]` happened during execution.
     admin force-land instead. Confirmed live: with the flag on, findings
     #18/#24's force-land path was not even needed.
 
+## Post-cutover findings (dogfood, 2026-07-09 re-carve)
+
+26. **[observed, first workflow-touching change] The mirror PAT needs the
+    `workflow` scope.** GitHub rejects any push containing a commit that
+    modifies `.github/workflows/*` unless the token has the Workflows
+    (read-write) permission — the mirror's `refs/changes/*` push failed
+    with `refusing to allow a Personal Access Token to create or update
+    workflow`, so the change ref never reached the mirror, every CI job's
+    fetch-retry loop timed out, and the checks reported failure. Worse:
+    landing such a change would strand `refs/heads/main` mirroring the
+    same way (retry-forever, not freeze). → §18.3's mirror setup docs and
+    `import plan` preflight must check token scopes against the mirror
+    target (a test push of a workflow-touching ref is the only reliable
+    probe on GitHub).
+
+27. **[observed, bridge logs] Webhook outbox is not org-scoped: every
+    envelope delivered once per org server.** `ListDueWebhookDeliveries`
+    has no org filter while the daemon runs one `OutboxWorker` per org on
+    the same Postgres pool (default + 2 orgs = 3 workers), so all three
+    picked up each due row concurrently — triple `repository_dispatch`,
+    and the bridge's delivery-id dedup raced (all three in flight before
+    any completed). GitHub's concurrency-cancel then killed two runs,
+    whose `if: always()` report steps posted **failure** for checks that
+    never ran (finding #28). → fix: org-scope the outbox query (each
+    worker drains only its org's rows); multi-replica deployments will
+    additionally need row claiming (`FOR UPDATE SKIP LOCKED`).
+
+28. **[observed, same incident] Cancelled Actions runs report check
+    failure.** `if: always()` runs the report-back step on cancellation
+    with `job.status == 'cancelled'`, which the success/failure ternary
+    maps to `failure` — a transient false-failing gate until the
+    surviving run overwrites it. → workflow templates must use
+    `if: success() || failure()` (excludes cancelled) on report steps;
+    §14.4's reference workflow should ship that way.
+
+29. **[executed] The coarse carve lasted one day — re-carve is a real
+    migration step, not a one-time event.** Folder-per-project meant
+    moving 16 top-level dirs, ~300 import-path rewrites, regenerated
+    protobuf descriptors (sed alone corrupts the rawDesc length prefix —
+    regeneration is mandatory), six package-relative test paths, and a
+    **two-phase landing dance**: `repository_dispatch` executes the
+    DEFAULT branch's workflow copy, so any workflow path reference had to
+    land + mirror BEFORE the restructure change could be gated. → §18.3
+    needs a `re-carve` story: manifest + folder moves as one audited
+    operation, with the CI-workflow coupling called out in the runbook.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,

@@ -1,0 +1,35 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "land",
+    srcs = [
+        "doc.go",
+        "git.go",
+        "land.go",
+        "rebase.go",
+        "revalidate.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/platform/land",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/gitversion",
+        "//platform/affected",
+        "//platform/core",
+    ],
+)
+
+go_test(
+    name = "land_test",
+    srcs = [
+        "land_test.go",
+        "rebase_test.go",
+        "revalidate_test.go",
+    ],
+    embed = [":land"],
+    deps = [
+        "//internal/gitfixture",
+        "//internal/gitstore",
+        "//platform/affected",
+        "//platform/core",
+    ],
+)

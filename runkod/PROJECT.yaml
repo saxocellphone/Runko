@@ -1,0 +1,20 @@
+# The write-path daemon (smart-HTTP git, pre-receive funnel, REST/Connect
+# APIs, webhook outbox, mirror worker) plus its binaries under cmd/
+# (runkod itself and the runko-bridge CI shim).
+schema: project/v1
+name: runkod
+type: service
+language: go
+dependencies:
+  - platform
+  - internal
+  - db
+  - proto
+ci:
+  checks:
+    - name: platform-check
+      command: make check
+    - name: platform-race
+      command: make check-race
+    - name: platform-db
+      command: make check-db

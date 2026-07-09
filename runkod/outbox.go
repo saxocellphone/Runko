@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/saxocellphone/runko/checks"
+	"github.com/saxocellphone/runko/platform/checks"
 )
 
 // OutboxWorker delivers due webhook deliveries (§14.4.1) to one configured

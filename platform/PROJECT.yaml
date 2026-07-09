@@ -1,0 +1,17 @@
+# The control-plane domain libraries (receive funnel, land engine,
+# affected computation, checks/merge requirements, tree indexer, project
+# templates, search, build adapters, MCP). Consumed by runkod and cli.
+schema: project/v1
+name: platform
+type: library
+language: go
+dependencies:
+  - internal
+ci:
+  checks:
+    - name: platform-check
+      command: make check
+    - name: platform-race
+      command: make check-race
+    - name: platform-db
+      command: make check-db

@@ -38,8 +38,8 @@ START=$(date +%s)
 
 echo "==> building CLIs"
 BIN=$(mktemp -d)
-go build -o "$BIN/runko" ./cmd/runko
-go build -o "$BIN/runko-ci" ./cmd/runko-ci
+go build -o "$BIN/runko" ./cli/runko
+go build -o "$BIN/runko-ci" ./cli/runko-ci
 
 echo "==> docker compose up"
 docker compose up -d --build

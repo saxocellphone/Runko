@@ -15,10 +15,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/saxocellphone/runko/core"
-	"github.com/saxocellphone/runko/index"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
+	"github.com/saxocellphone/runko/platform/core"
+	"github.com/saxocellphone/runko/platform/index"
 )
 
 // Workspace is one registry row - §12.2's model thinned to what Phase A

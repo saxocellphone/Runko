@@ -1,0 +1,67 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "runko_lib",
+    srcs = [
+        "approve.go",
+        "auth.go",
+        "change.go",
+        "changecreate.go",
+        "changelist.go",
+        "doctor.go",
+        "git.go",
+        "httperr.go",
+        "jj.go",
+        "land.go",
+        "main.go",
+        "org.go",
+        "project.go",
+        "workspace.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/cli/runko",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//internal/clierr",
+        "//internal/gitstore",
+        "//internal/gitversion",
+        "//platform/agentsmd",
+        "//platform/checks",
+        "//platform/core",
+        "//platform/index",
+        "//platform/land",
+        "//platform/mcp",
+        "//platform/project",
+        "//platform/receive",
+    ],
+)
+
+go_binary(
+    name = "runko",
+    embed = [":runko_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "runko_test",
+    srcs = [
+        "approve_test.go",
+        "auth_test.go",
+        "change_test.go",
+        "doctor_test.go",
+        "jj_test.go",
+        "land_test.go",
+        "main_test.go",
+        "project_test.go",
+        "workspace_test.go",
+    ],
+    embed = [":runko_lib"],
+    deps = [
+        "//internal/clierr",
+        "//internal/gitfixture",
+        "//platform/checks",
+        "//platform/land",
+        "//platform/project",
+        "//platform/receive",
+        "//runkod",
+    ],
+)

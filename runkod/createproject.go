@@ -19,11 +19,11 @@ import (
 	"path"
 	"time"
 
-	"github.com/saxocellphone/runko/core"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
-	"github.com/saxocellphone/runko/project"
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/core"
+	"github.com/saxocellphone/runko/platform/project"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // previewProjectCore runs PlanCreate without applying: the §10.1 preview

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package runko.v1;
 
-option go_package = "github.com/saxocellphone/runko/gen/runko/v1;runkov1";
+option go_package = "github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1";
 
 import "runko/v1/common.proto";
 

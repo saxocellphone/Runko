@@ -1,0 +1,36 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "index",
+    srcs = [
+        "doc.go",
+        "scan.go",
+        "sync.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/platform/index",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/dbgen",
+        "//platform/core",
+        "//platform/project",
+        "@com_github_google_uuid//:uuid",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
+)
+
+go_test(
+    name = "index_test",
+    srcs = [
+        "scan_test.go",
+        "sync_pg_test.go",
+    ],
+    embed = [":index"],
+    deps = [
+        "//internal/dbgen",
+        "//internal/dbtest",
+        "//internal/gitfixture",
+        "//internal/gitstore",
+        "//platform/core",
+        "@com_github_google_uuid//:uuid",
+    ],
+)

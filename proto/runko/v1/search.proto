@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package runko.v1;
 
-option go_package = "github.com/saxocellphone/runko/gen/runko/v1;runkov1";
+option go_package = "github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1";
 
 // SearchService mirrors the MCP search_code tool and runkod's GET
 // /api/search (§8.2, §11 Zoekt). See proto/README.md.

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saxocellphone/runko/mirror"
+	"github.com/saxocellphone/runko/platform/mirror"
 )
 
 func newMirrorFixture(t *testing.T) (*smFixture, *MirrorWorker, string) {

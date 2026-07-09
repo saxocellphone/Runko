@@ -5,7 +5,7 @@ package runkod
 import (
 	"net/http"
 
-	"github.com/saxocellphone/runko/affected"
+	"github.com/saxocellphone/runko/platform/affected"
 )
 
 // BotLane is one trusted bot's land grant (§14.10.2): "a trusted bot is an

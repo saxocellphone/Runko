@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // Principal is one named-token identity (docs/design.md §15.1's interim

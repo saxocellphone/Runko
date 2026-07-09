@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"os/exec"
 
-	"github.com/saxocellphone/runko/affected"
-	"github.com/saxocellphone/runko/core"
-	"github.com/saxocellphone/runko/index"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
-	"github.com/saxocellphone/runko/land"
+	"github.com/saxocellphone/runko/platform/affected"
+	"github.com/saxocellphone/runko/platform/core"
+	"github.com/saxocellphone/runko/platform/index"
+	"github.com/saxocellphone/runko/platform/land"
 )
 
 // maxLandRaceRetries bounds the caller-side retry loop land.Land's own doc

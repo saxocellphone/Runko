@@ -14,9 +14,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/saxocellphone/runko/checks"
 	"github.com/saxocellphone/runko/internal/clierr"
-	"github.com/saxocellphone/runko/land"
+	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/platform/land"
 )
 
 // apiError pairs a failure with the HTTP status the REST surface reports it

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/saxocellphone/runko/internal/gitfixture"
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // markerScanner flags any file containing "SECRET" - a deterministic stand-in

@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/saxocellphone/runko/internal/clierr"
-	"github.com/saxocellphone/runko/mirror"
+	"github.com/saxocellphone/runko/platform/mirror"
 )
 
 // mirrorRemoteName keys mirror_cursors rows. One mirror per daemon in M1;

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/saxocellphone/runko/checks"
+	"github.com/saxocellphone/runko/platform/checks"
 )
 
 // Change is runkod's in-daemon view of a Change - independent of

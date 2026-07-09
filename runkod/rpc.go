@@ -24,16 +24,16 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/saxocellphone/runko/affected"
-	"github.com/saxocellphone/runko/checks"
-	"github.com/saxocellphone/runko/core"
-	runkov1 "github.com/saxocellphone/runko/gen/runko/v1"
-	"github.com/saxocellphone/runko/gen/runko/v1/runkov1connect"
-	"github.com/saxocellphone/runko/index"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
-	"github.com/saxocellphone/runko/project"
-	"github.com/saxocellphone/runko/search"
+	"github.com/saxocellphone/runko/platform/affected"
+	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/platform/core"
+	"github.com/saxocellphone/runko/platform/index"
+	"github.com/saxocellphone/runko/platform/project"
+	"github.com/saxocellphone/runko/platform/search"
+	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
+	"github.com/saxocellphone/runko/proto/gen/runko/v1/runkov1connect"
 )
 
 // rpcServer implements all six runko.v1 service handler interfaces on one

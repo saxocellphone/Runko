@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/saxocellphone/runko/core"
+	"github.com/saxocellphone/runko/platform/core"
 )
 
 // Store is rooted at an existing git repository directory (the repo root for

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saxocellphone/runko/checks"
+	"github.com/saxocellphone/runko/platform/checks"
 )
 
 func TestOutboxWorkerDeliversToRealServer(t *testing.T) {

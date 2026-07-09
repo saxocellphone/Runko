@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saxocellphone/runko/checks"
 	"github.com/saxocellphone/runko/internal/dbtest"
+	"github.com/saxocellphone/runko/platform/checks"
 )
 
 // pgTestDSN resets the schema (via dbtest.Connect, same as every other

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/saxocellphone/runko/checks"
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // newPolicyGateServer is the configurable fixture for the stage-11c policy

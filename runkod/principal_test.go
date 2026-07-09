@@ -11,7 +11,7 @@ import (
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // newPrincipalTestServer is newApproveTestServer plus a principal registry

@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "search",
+    srcs = [
+        "doc.go",
+        "indexer.go",
+        "search.go",
+        "zoekt.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/platform/search",
+    visibility = ["//visibility:public"],
+    deps = ["//internal/clierr"],
+)
+
+go_test(
+    name = "search_test",
+    srcs = [
+        "indexer_test.go",
+        "zoekt_test.go",
+    ],
+    embed = [":search"],
+    deps = ["//internal/clierr"],
+)

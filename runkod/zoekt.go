@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/saxocellphone/runko/search"
+	"github.com/saxocellphone/runko/platform/search"
 )
 
 // ZoektIndexWorker debounces search.Indexer runs so a burst of trunk

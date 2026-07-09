@@ -29,7 +29,7 @@ migrate -database "$DATABASE_URL" -path db/migrations up
 
 `internal/dbtest` plus `*_pg_test.go` files (`index/sync_pg_test.go`,
 `receive/persist_pg_test.go`, `checks/persist_pg_test.go`,
-`runkod/pgstore_pg_test.go`, `cmd/runkod`'s restart test) exercise the
+`runkod/pgstore_pg_test.go`, `runkod/cmd/runkod`'s restart test) exercise the
 persistence wiring against a **real** database - not sqlc's schema analyzer.
 `go test ./...` / `make check` skip them (no Postgres in this sandbox); to
 run them for real:

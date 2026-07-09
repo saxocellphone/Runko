@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saxocellphone/runko/checks"
+	"github.com/saxocellphone/runko/platform/checks"
 )
 
 // Stage 12c-③ surface tests: list/abandon/rerun + check staleness. All run

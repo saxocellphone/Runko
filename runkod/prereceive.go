@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/saxocellphone/runko/affected"
-	"github.com/saxocellphone/runko/checks"
-	"github.com/saxocellphone/runko/core"
-	"github.com/saxocellphone/runko/index"
 	"github.com/saxocellphone/runko/internal/gitstore"
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/affected"
+	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/platform/core"
+	"github.com/saxocellphone/runko/platform/index"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // zeroOID is the all-zeros object id git's pre-receive hook uses in the

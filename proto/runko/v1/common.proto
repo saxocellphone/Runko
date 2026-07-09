@@ -13,7 +13,7 @@ syntax = "proto3";
 // renumbering is a breaking change even when renaming is not.
 package runko.v1;
 
-option go_package = "github.com/saxocellphone/runko/gen/runko/v1;runkov1";
+option go_package = "github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1";
 
 // ErrorDetail mirrors common.schema.json#/$defs/Error and internal/clierr
 // (§6.5): the structured error every Runko surface returns. It rides as an

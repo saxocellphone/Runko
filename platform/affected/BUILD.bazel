@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "affected",
+    srcs = [
+        "compute.go",
+        "doc.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/platform/affected",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "affected_test",
+    srcs = ["compute_test.go"],
+    embed = [":affected"],
+)

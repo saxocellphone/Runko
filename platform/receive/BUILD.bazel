@@ -1,0 +1,39 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "receive",
+    srcs = [
+        "changeid.go",
+        "doc.go",
+        "funnel.go",
+        "magicref.go",
+        "persist.go",
+        "policy.go",
+        "rejection.go",
+        "secretscan.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/platform/receive",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/dbgen",
+        "//platform/affected",
+        "@com_github_google_uuid//:uuid",
+        "@com_github_jackc_pgx_v5//:pgx",
+    ],
+)
+
+go_test(
+    name = "receive_test",
+    srcs = [
+        "changeid_test.go",
+        "funnel_test.go",
+        "magicref_test.go",
+        "persist_pg_test.go",
+        "policy_test.go",
+    ],
+    embed = [":receive"],
+    deps = [
+        "//internal/dbgen",
+        "//internal/dbtest",
+    ],
+)

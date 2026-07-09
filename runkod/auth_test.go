@@ -10,8 +10,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	runkov1 "github.com/saxocellphone/runko/gen/runko/v1"
-	"github.com/saxocellphone/runko/gen/runko/v1/runkov1connect"
+	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
+	"github.com/saxocellphone/runko/proto/gen/runko/v1/runkov1connect"
 )
 
 func basicHeader(user, pass string) string {

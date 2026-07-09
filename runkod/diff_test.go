@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/saxocellphone/runko/internal/gitfixture"
-	"github.com/saxocellphone/runko/receive"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // TestParseUnifiedDiffHunkMath pins the parser's line-number accounting on a

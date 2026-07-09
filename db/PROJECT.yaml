@@ -1,0 +1,7 @@
+# Postgres schema source: migrations (embedded by package db) and sqlc
+# named queries. internal/ (dbgen) declares a dependency on this project,
+# so schema changes gate on every Go consumer's checks via the affected
+# closure; no ci.checks needed here.
+schema: project/v1
+name: db
+type: library

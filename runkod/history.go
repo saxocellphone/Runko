@@ -17,8 +17,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/saxocellphone/runko/core"
 	"github.com/saxocellphone/runko/internal/clierr"
+	"github.com/saxocellphone/runko/platform/core"
 )
 
 // blameLineCap bounds how much of a file gets blamed - blame is O(history)

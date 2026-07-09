@@ -22,17 +22,22 @@ docs/spec/          # generated-type source of truth: PROJECT.yaml schema, MCP t
 db/migrations/      # Postgres DDL; db/queries/ sqlc named queries; internal/dbgen generated from both
 internal/gitfixture/# git-fixture test harness — use this, never mock git
 internal/gitstore/  # core.MonorepoStore impl (shells out to git plumbing)
-index/              # tree indexer: PROJECT.yaml/OWNERS -> rebuildable Postgres project index
-receive/            # magic-ref + Change-Id + policy + secret scan
-land/               # rebase-land + optimistic revalidation
-affected/           # pure function: paths/deps -> affected projects
-checks/             # Checks API, merge requirements, check-set policies
-project/            # intent -> files pipeline, templates, preview
-mcp/                # MCP server, generated from docs/spec/mcp-tools/catalog.json
-core/               # shared interfaces (MonorepoStore, etc.)
-cmd/runko/          # human/agent CLI
-cmd/runko-ci/       # CI-facing CLI
+platform/index/     # tree indexer: PROJECT.yaml/OWNERS -> rebuildable Postgres project index
+platform/receive/   # magic-ref + Change-Id + policy + secret scan
+platform/land/      # rebase-land + optimistic revalidation
+platform/affected/  # pure function: paths/deps -> affected projects
+platform/checks/    # Checks API, merge requirements, check-set policies
+platform/project/   # intent -> files pipeline, templates, preview
+platform/mcp/       # MCP server, generated from docs/spec/mcp-tools/catalog.json
+platform/core/      # shared interfaces (MonorepoStore, etc.)
+runkod/             # write-path daemon (+ its binaries under runkod/cmd/)
+cli/runko/          # human/agent CLI
+cli/runko-ci/       # CI-facing CLI
 ```
+
+Every folder with a `PROJECT.yaml` is itself a Runko project (this repo is
+self-hosted); `dependencies:` edges in those manifests drive affected/CI
+scoping — keep them true when adding cross-project imports.
 
 ## Rules
 
