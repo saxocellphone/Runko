@@ -72,8 +72,8 @@
     </div>
 
     <div class="principle">
-      <h2><span class="n">03</span>Agents are first-class users.</h2>
-      <p>AI agents use the same CLI and APIs people do — but the server holds them to tighter rules: no approving their own work, no touching paths outside their assignment, hard caps on change size. Enforced server-side, never by trusting the agent.</p>
+      <h2><span class="n">03</span>Agents work in parallel, safely.</h2>
+      <p>Run several coding agents on the same repo at once. One command gives each its own workspace — a checkout of just its slice, all sharing one clone underneath — no <code>git worktree</code> juggling. Work-in-progress snapshots to the server as it goes, so a killed agent loses nothing. And the server keeps every agent in its lane: no writing outside its assigned paths, no approving its own work.</p>
     </div>
 
     <div class="principle">
