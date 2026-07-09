@@ -250,7 +250,8 @@
         "path": { "type": "string", "description": "Optional; auto-derived from name/org convention if omitted." },
         "owners": { "type": "array", "items": { "$ref": "#/$defs/OwnerRef" }, "description": "Optional; defaults to creator's primary group (§6.3)." },
         "capabilities": { "type": "array", "items": { "$ref": "#/$defs/Capability" } },
-        "no_template": { "type": "boolean", "default": false, "description": "Escape hatch (§10.4): skip template scaffolding - PROJECT.yaml + README only, language recorded as-is. Mutually exclusive with template_id." }
+        "no_template": { "type": "boolean", "default": false, "description": "Escape hatch (§10.4): skip template scaffolding - PROJECT.yaml + README only, language recorded as-is. Mutually exclusive with template_id." },
+        "build_engine": { "type": "string", "enum": ["bazel", "vite", "none"], "description": "Optional; absent -> the language default (ts -> vite, else bazel; §14.5.5). bazel emits BUILD.bazel + the capability_config.build binding; vite emits a generated package.json + vite.config.ts with NO build capability (territory scaffold, not an engine); none scaffolds nothing. vite/none plus an explicit 'build' capability is a structured invalid_combination error." }
       },
       "description": "L0-only intent (§10.1, §8.5) - the only shape agents or the create wizard ever need to produce."
     },

@@ -39,6 +39,7 @@ message CreateProjectIntent {
   string path = 5;            // empty -> derived from name
   string language = 6;        // empty -> the default (Go) templates; recorded in PROJECT.yaml verbatim, never default-filled (§10.4)
   bool no_template = 7;       // escape hatch (§10.4): PROJECT.yaml + README only, any well-formed language recorded as-is
+  string build_engine = 8;    // bazel|vite|none; empty -> language default (ts -> vite, else bazel; §14.5.5)
 }
 
 message PreviewCreateProjectRequest {

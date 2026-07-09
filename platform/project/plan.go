@@ -60,6 +60,32 @@ func PlanCreate(intent Intent, templates TemplateSet) (Plan, []ValidationError) 
 		capabilities = tmpl.DefaultCapabilities
 	}
 
+	// Build-engine resolution (§14.5.5): explicit intent wins; an explicit
+	// `build` capability forces bazel (the only engine with a binding -
+	// Validate already rejected vite/none alongside it); otherwise the
+	// language default (ts -> vite, else bazel; no-template stays bazel).
+	engine := intent.BuildEngine
+	if engine == "" {
+		if intent.Capabilities != nil && hasCapability(intent.Capabilities, "build") {
+			engine = BuildEngineBazel
+		} else {
+			engine = DefaultBuildEngine(tmpl.Language, intent.NoTemplate)
+		}
+	}
+	switch engine {
+	case BuildEngineBazel:
+		// An explicit bazel request implies the binding even when explicit
+		// capabilities narrowed the template defaults away from it.
+		if intent.BuildEngine == BuildEngineBazel && !hasCapability(capabilities, "build") {
+			capabilities = append(append([]string{}, capabilities...), "build")
+		}
+	default:
+		// vite/none territories carry no build binding: drop the DEFAULTED
+		// capability (explicit `build` + vite/none was rejected by Validate,
+		// so anything left here came from template defaults).
+		capabilities = withoutCapability(capabilities, "build")
+	}
+
 	var capabilityConfig map[string]interface{}
 	if hasCapability(capabilities, "build") {
 		capabilityConfig = map[string]interface{}{"build": buildCapabilityConfig(path)}
@@ -88,6 +114,9 @@ func PlanCreate(intent Intent, templates TemplateSet) (Plan, []ValidationError) 
 	files = append(files, tmpl.Files(intent)...)
 	if hasCapability(capabilities, "build") {
 		files = append(files, buildCapabilityFiles(path)...)
+	}
+	if engine == BuildEngineVite {
+		files = append(files, viteScaffoldFiles(intent.Name)...)
 	}
 
 	return Plan{Path: path, EffectiveManifest: manifest, Files: files}, nil

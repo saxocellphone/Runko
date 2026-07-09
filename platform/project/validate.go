@@ -93,6 +93,26 @@ func Validate(intent Intent, templates TemplateSet) []ValidationError {
 		})
 	}
 
+	switch intent.BuildEngine {
+	case "", BuildEngineBazel, BuildEngineVite, BuildEngineNone:
+	default:
+		errs = append(errs, ValidationError{
+			Code: "unsupported_build_engine", Field: "build_engine",
+			Message:    fmt.Sprintf("unknown build engine %q; supported: %s", intent.BuildEngine, strings.Join(BuildEngines, ", ")),
+			Suggestion: "omit build_engine for the language default (ts -> vite, else bazel; docs/design.md §14.5.5)",
+		})
+	}
+	// The `build` capability declares a hermetic build-graph binding
+	// (§14.5.4); vite/none territories deliberately have none - a silent
+	// downgrade here would leave the capability lying about refinement.
+	if (intent.BuildEngine == BuildEngineVite || intent.BuildEngine == BuildEngineNone) && hasCapability(intent.Capabilities, "build") {
+		errs = append(errs, ValidationError{
+			Code: "invalid_combination", Field: "build_engine",
+			Message:    fmt.Sprintf("the build capability declares a qualifying build-graph binding (§14.5.4); %q is not a qualifying engine", intent.BuildEngine),
+			Suggestion: "use build_engine bazel, or drop the explicit build capability",
+		})
+	}
+
 	if intent.TemplateID != "" {
 		if t, ok := templates.Get(intent.TemplateID); !ok {
 			errs = append(errs, ValidationError{

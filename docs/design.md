@@ -1279,6 +1279,59 @@ Bazel and Buck2 qualify; Pants largely qualifies. **Task runners (Make, Turborep
 
 **Org-level mandate (opt-in, not platform law).** `require_build_binding: true` blocks merges for projects lacking a `build` capability — for orgs that want hermetic discipline enforced. The platform recommends the opinion; the org enacts it.
 
+#### 14.5.5 Multi-engine monorepos (decided 2026-07-09)
+
+One build graph per repo is a **non-goal**. Real monorepos mix territories —
+Go under Bazel, a web app under Vite, generated protobuf between them — and
+this repo itself runs that mix (Bazel for Go, Vite/npm for `web/`, buf at
+the seam) since the self-host re-carve. The design:
+
+1. **The declared layer is the universal floor and the only default
+   gate-grade layer.** PROJECT.yaml paths + `dependencies:` edges are
+   engine-independent and gate merges regardless of what builds each
+   territory (§13.3). Engines refine; they never replace.
+2. **Engines are per-territory, and sovereign there.** A project subtree
+   declares its engine via `capability_config.build` (§14.5.4). Engines
+   never invoke each other — no `genrule` wrapping `vite build`, no npm
+   script shelling into `bazel`. The platform routes checks to
+   territories; it never orchestrates builds across them.
+3. **The boundary-artifact rule.** A cross-engine dependency is expressed
+   as a declared `dependencies:` edge **plus committed generated artifacts
+   at the seam**, kept honest by a regenerate-and-diff CI check — never a
+   build-time invocation of one system by the other. Canonical example:
+   `proto/` generates committed Go (`proto/gen`, consumed by Bazel's
+   territory) and committed TS (`web/src/gen`, consumed by Vite's); the
+   `web → proto` edge re-runs web-check on proto changes. Neither build
+   system knows the other exists.
+4. **Non-qualifying build systems are territory scaffolds, not engines.**
+   §14.5.4's admission criteria stand: Vite/npm/Nx/Turborepo-class tooling
+   never gets an adapter or a `capability_config.build` binding. Their
+   territories ride the declared floor — which is precisely adequate,
+   because package-coarse territories are exactly where project-level
+   affected is already target-level. `project create` still scaffolds them
+   first-class (below); the distinction is refinement trust, not product
+   support.
+5. **Escalation scope (v1.x refinement).** An engine failure currently
+   escalates the whole `AffectedOutput` to run-everything; with multiple
+   territories, escalation should be scoped to the failing engine's
+   territory. Gating correctness is unaffected either way (the floor
+   gates); this is a CI-cost optimization.
+
+**Create-time build-system selection (amends §10.4's source-skeleton-only
+rule, 2026-07-09).** `project create` takes `build_engine`
+(`bazel | vite | none`), defaulting **by language**: `ts` → `vite`,
+everything else → `bazel` (`no_template` keeps its bazel default — the
+filegroup is language-agnostic). `bazel` emits the §14.5.4 golden path
+(BUILD.bazel + `capability_config.build` binding). `vite` emits the js
+territory's graph-node marker — a minimal generated `package.json` +
+`vite.config.ts` (the one sanctioned exception to "no package.json in
+built-ins": for a Vite territory that file IS the build declaration, the
+BUILD.bazel-equivalent) — and deliberately **no** `build` capability, per
+rule 4; combining `--build-engine vite` with an explicit `build`
+capability is a structured `invalid_combination` error, not a silent
+downgrade. `none` scaffolds nothing (hand-managed territories). Unknown
+values are a structured `unsupported_build_engine` naming the choices.
+
 ### 14.6 Plugins vs templates (delivery model)
 
 We ship **both**—they solve different problems:
@@ -1976,6 +2029,7 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-08 | **Per-org mirror + org-stamped envelopes + reference GitHub CI plugin** (§18.6, §14.4 Mode C — self-host slices R1-R3, docs/migration-findings.md #12-14): repeatable `--org-mirror 'org=…;remote=…[;username=…][;token=…]'`/`RUNKO_ORG_MIRRORS` gives hub orgs their own outbound MirrorWorker (org repo, org-scoped cursors; `/o/<org>/api/mirror/status\|unfreeze` light up unchanged; naming the default org is refused — that's `--mirror-remote`); webhook envelopes now carry `org_id` (the org NAME) on change.updated/landed/check_rerun_requested, since one daemon-wide `--webhook-url` fans every org's events into the same consumer; `cmd/runko-bridge` is the §14.4 Mode C reference plugin — HMAC-verified envelope → GitHub repository_dispatch, 2xx to the outbox only after GitHub's 204 (backoff re-drives failures; failed dispatches deliberately never enter the dedup set), org-filtered, shipped in the multi-binary image — paired with `.github/workflows/runko-checks.yml` (fetch-retry against mirror lag, `runko-ci report-check` post-backs under PROJECT.yaml's declared check names). E2E: the orgs test now runs the real daemon with `--org-mirror` against a local bare target and asserts land convergence |
 | 2026-07-09 | **Runko now hosts its own source (§18 stage-2 posture, executed)**: the repo's source of record is the production deployment's `runko` org; GitHub is the outbound mirror + CI runner. Cutover per docs/migration-findings.md: full history imported as ONE Change at byte-equal tip parity onto the unborn trunk, mirror silently adopted the same-tip GitHub repo, and the first gated change (the 4 PROJECT.yaml manifests: platform/web/docs/proto, checks-only gating — owners omitted per the solo-dev self-approval deadlock) ran the full webhook→bridge→repository_dispatch→report-check chain and landed through the §13.5 gate unforced. `--insecure-allow-unpoliced-land` removed post-cutover; default-deny is live. Dogfood begins: every future change to this repo lands through its own funnel |
 | 2026-07-09 | **Re-carve: folder-per-project + first live `dependencies:` edges** (user direction: "one folder per project; project relationships; platform is too coarse"). The coarse root catch-all manifest (path `""` owning every path) is replaced by 9 real projects — `repo` (root glue only: go.mod/Makefile/.github/scripts), `platform/` (the control-plane libraries: receive/land/affected/checks/index/project/search/mirror/mcp/buildadapter/agentsmd/core, all moved under one folder), `runkod/` (daemon + its binaries at runkod/cmd/), `cli/` (runko + runko-ci), `internal`, `db`, `proto` (now owning its generated Go at proto/gen/), `web`, `docs`. §13.3's declared-dependency closure goes live for the first time: `internal`, `db`, and `proto` declare no checks and are gated purely via reverse edges (their dependents' checks); `web` depends on `proto` so proto changes re-run web-check. Landing mechanics recorded in migration-findings #26-29 (mirror PAT workflow scope, non-org-scoped outbox triple-delivery, cancelled-run false failure reports, the default-branch-workflow two-phase dance) |
+| 2026-07-09 | **Multi-engine monorepos decided (§14.5.5) + create-time build-system selection** (user direction, prompted by "is Bazel right for the frontend?" — it isn't, and that's now spec): one build graph per repo is a non-goal — sovereign per-territory engines over the engine-independent declared floor, cross-engine deps expressed as declared edges + committed boundary artifacts (the proto/gen ↔ web/src/gen pattern this repo already runs), §14.5.4's admission criteria reaffirmed (Vite/Nx/Turbo never get adapters or `build` bindings — territory scaffolds, not engines). `project create` gains `build_engine` (`bazel\|vite\|none`), defaulting by language (`ts` → vite, else bazel): vite emits a generated package.json + vite.config.ts (the sanctioned exception to §10.4's no-package.json rule — for a Vite territory that IS the build declaration) with no `build` capability; explicit `build` capability + vite is a structured `invalid_combination`. Wired through Intent/CLI (`--build-engine`), the CreateProjectIntent schema + proto, and the web create form |
 
 ---
 

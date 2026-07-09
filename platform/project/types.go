@@ -13,6 +13,7 @@ type Intent struct {
 	Owners       []string // optional; empty -> inherited (§7.3)
 	Capabilities []string // optional; nil -> template defaults
 	NoTemplate   bool     // escape hatch (§10.4): PROJECT.yaml + README only, Language recorded as-is
+	BuildEngine  string   // optional; "" -> language default (ts -> vite, else bazel; §14.5.5): bazel | vite | none
 }
 
 // FileWrite is one file a Plan will write, relative to the project root.

@@ -22,6 +22,16 @@ const LANGUAGES = [
   ["__other__", "Other…"],
 ] as const;
 
+// Build scaffold (§14.5.5); "" defers to the language default (ts → Vite,
+// everything else → Bazel). Vite is a territory scaffold, not a build-graph
+// engine — a vite project carries no `build` capability binding.
+const BUILD_ENGINES = [
+  ["", "Default for language"],
+  ["bazel", "Bazel (BUILD.bazel + build binding)"],
+  ["vite", "Vite (package.json + vite.config.ts)"],
+  ["none", "None (no build scaffold)"],
+] as const;
+
 // The §10.1 create flow, kept deliberately small (anti-Boq, §2.3): name +
 // type is a complete request, owners optional, everything else generated -
 // the preview pane shows exactly the files that will be committed. Create
@@ -32,6 +42,7 @@ export function NewProjectPage() {
   const [name, setName] = useState("");
   const [type, setType] = useState<string>("service");
   const [langChoice, setLangChoice] = useState<string>("");
+  const [buildEngine, setBuildEngine] = useState<string>("");
   const [otherLang, setOtherLang] = useState("");
   const [ownersText, setOwnersText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,7 +51,7 @@ export function NewProjectPage() {
   const owners = ownersText.split(/[\s,]+/).filter(Boolean);
   const usingOther = langChoice === "__other__";
   const language = usingOther ? otherLang.trim() : langChoice;
-  const intent = { name: name.trim(), type, owners, language, noTemplate: usingOther };
+  const intent = { name: name.trim(), type, owners, language, noTemplate: usingOther, buildEngine };
   const debouncedKey = useDebounced(JSON.stringify(intent), 350);
 
   const [preview, setPreview] = useState<PreviewCreateProjectResponse | undefined>();
@@ -156,6 +167,21 @@ export function NewProjectPage() {
                   </span>
                 </>
               )}
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="np-build-engine">Build system</label>
+              <select
+                id="np-build-engine"
+                value={buildEngine}
+                onChange={(e) => setBuildEngine(e.target.value)}
+              >
+                {BUILD_ENGINES.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="form-field">
