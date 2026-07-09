@@ -115,7 +115,7 @@ export function LoginPage() {
         )}
         <p className="login-foot">
           Credentials stay in this browser. Just looking?{" "}
-          <a href="/demo/changes">Explore the demo</a> ·{" "}
+          <a href="/demo/changes">Try the playground</a> ·{" "}
           <a href="/landing/">What is Runko?</a>
         </p>
       </form>
