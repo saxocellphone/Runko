@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestReportCheckPostsSignedBearerRequest(t *testing.T) {
@@ -47,5 +49,60 @@ func TestReportCheckServerErrorSurfaced(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected an error for a 401 response")
+	}
+}
+
+// TestReportCheckRetriesTransient5xx pins migration-findings #33: the
+// daemon deploys as a single-replica Recreate pod, so every deploy is a
+// brief 503 window - a report that treats one 503 as final leaves the
+// check unreported forever. The POST is an upsert, so retrying is safe;
+// 4xx (the test above) stays fatal.
+func TestReportCheckRetriesTransient5xx(t *testing.T) {
+	oldBackoff := reportCheckBackoff
+	reportCheckBackoff = time.Millisecond
+	defer func() { reportCheckBackoff = oldBackoff }()
+
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	err := ReportCheck(context.Background(), server.Client(), server.URL, "tok", CheckRunReport{
+		Name: "unit", ExternalID: "job-1", Status: "completed", Conclusion: "success", Reporter: "gha",
+	})
+	if err != nil {
+		t.Fatalf("expected retries to succeed after transient 503s, got %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("expected exactly 3 attempts (503, 503, 200), got %d", got)
+	}
+}
+
+// A persistent 5xx still fails after the attempt budget.
+func TestReportCheckExhaustsRetryBudget(t *testing.T) {
+	oldBackoff := reportCheckBackoff
+	reportCheckBackoff = time.Millisecond
+	defer func() { reportCheckBackoff = oldBackoff }()
+
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	err := ReportCheck(context.Background(), server.Client(), server.URL, "tok", CheckRunReport{
+		Name: "unit", ExternalID: "job-1", Status: "queued", Reporter: "gha",
+	})
+	if err == nil {
+		t.Fatalf("expected an error after exhausting retries")
+	}
+	if got := atomic.LoadInt32(&calls); got != int32(reportCheckAttempts) {
+		t.Fatalf("expected %d attempts, got %d", reportCheckAttempts, got)
 	}
 }

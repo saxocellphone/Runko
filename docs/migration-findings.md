@@ -275,6 +275,24 @@ planning; entries marked `[observed]` happened during execution.
     ids now carry an emission timestamp (the rerun-id pattern), so outbox
     RETRIES of one emission still dedup while distinct emissions dispatch.
 
+33. **[observed, twice in one day] `report-check` treated one 5xx as
+    final; the daemon's deploy topology makes 5xx routine.** runkod ships
+    as a single-replica Recreate pod, so EVERY image rollout is a brief
+    503 window at the ingress - two changes' platform-db jobs reported
+    in_progress during one and died, leaving the checks "has not reported
+    yet" forever (GitHub red, Runko pending: the #30 invisibility class,
+    server-side flavor). Fixed: report-check retries transient failures
+    (connection errors, 5xx, 429) with exponential backoff - the POST is
+    an upsert keyed (change, head, name), so retries are safe; other 4xx
+    stay fatal. → the §14.6 reference CI plugin must ship with retries by
+    default, and the packaged workflow should treat report-check as
+    infrastructure, not a best-effort curl. Separately observed in the
+    same incident: a GitHub ruleset applied WITHOUT its bypass actor
+    froze the mirror mid-land (GH013 on the leased trunk push) - §18.6's
+    mirror docs must spell out that force-with-lease requires the bypass,
+    and mirror-freeze alerting (a /metrics gauge exists) belongs in the
+    ops floor.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
