@@ -134,6 +134,16 @@ func ensureSharedClone(cloneDir, remoteURL string) error {
 	if _, err := runGit(cloneDir, "config", "extensions.worktreeConfig", "true"); err != nil {
 		return err
 	}
+	// On a public_read org (§15.2), a credential-less read gets an
+	// anonymous 200 - git never sees the 401 that would make it send the
+	// URL-embedded credentials, and the anonymous advertisement HIDES
+	// refs/workspaces, which is exactly what this clone must fetch.
+	// proactiveAuth (git >= 2.46) sends the credentials up front; older
+	// gits ignore the unknown key and keep today's behavior (fine on
+	// private orgs, where the challenge fires).
+	if _, err := runGit(cloneDir, "config", "http.proactiveAuth", "basic"); err != nil {
+		return err
+	}
 	return nil
 }
 

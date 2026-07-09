@@ -28,6 +28,10 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+
+	"github.com/saxocellphone/runko/internal/gitstore"
+	"github.com/saxocellphone/runko/platform/core"
+	"github.com/saxocellphone/runko/platform/index"
 	"regexp"
 	"sort"
 	"strings"
@@ -84,6 +88,13 @@ type OrgSettings struct {
 	// GlobalRequiredChecks are required on EVERY change in this org
 	// (§14.9), merged with the daemon-level --global-required-checks.
 	GlobalRequiredChecks []string `json:"global_required_checks,omitempty"`
+	// PublicRead opts this org in to anonymous READ access (§15.2, decided
+	// 2026-07-09): git upload-pack, the REST GET allowlist, and the read
+	// RPCs - never writes, workspaces, settings, or members. Enabling it
+	// is refused while any trunk manifest declares visibility: restricted
+	// (restricted-read must hold at every surface or not at all, and
+	// anonymous fetch has no per-principal filtering until §12.3 Phase B).
+	PublicRead bool `json:"public_read,omitempty"`
 }
 
 // OrgMembership is one (org, role) pair for a principal. Roles: "admin"
@@ -712,6 +723,26 @@ func (h *OrgHub) handlePutOrgSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settings.GlobalRequiredChecks = checks
+	// public_read + visibility:restricted are mutually exclusive until
+	// §12.3 Phase B (per-principal filtered fetch) exists - fail closed at
+	// enable time rather than leaking a restricted project anonymously.
+	if settings.PublicRead {
+		repoDir := h.repoDirFor(orgName)
+		if orgName == h.DefaultOrgName && h.Default != nil {
+			repoDir = h.Default.RepoDir
+		}
+		if restricted, err := restrictedProjects(repoDir); err != nil {
+			writeAPIError(w, internalErr(err))
+			return
+		} else if len(restricted) > 0 {
+			writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+				Code: "restricted_projects_present", Field: "public_read",
+				Message:    fmt.Sprintf("public_read cannot be enabled while restricted projects exist: %s", strings.Join(restricted, ", ")),
+				Suggestion: "remove visibility: restricted from those manifests, or keep the org private (§15.2)",
+			}))
+			return
+		}
+	}
 	if err := h.Directory.UpdateOrgSettings(r.Context(), orgName, settings); err != nil {
 		writeAPIError(w, internalErr(err))
 		return
@@ -930,4 +961,28 @@ func (h *OrgHub) archiveHandler(archive bool) http.HandlerFunc {
 		h.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "archived": archive})
 	}
+}
+
+// restrictedProjects lists trunk-manifest projects declaring
+// visibility: restricted - the §15.2 public_read enable-time guard.
+// An unborn trunk has no manifests and nothing to restrict.
+func restrictedProjects(repoDir string) ([]string, error) {
+	gstore := gitstore.New(repoDir)
+	// ^{commit} forces real resolution: bare `rev-parse HEAD` on an unborn
+	// trunk echoes the literal name with exit 0 instead of failing.
+	rev, err := gstore.ResolveRef("HEAD^{commit}")
+	if err != nil {
+		return nil, nil
+	}
+	indexed, err := index.Scan(gstore, core.Revision(rev), nil)
+	if err != nil {
+		return nil, fmt.Errorf("scan projects: %w", err)
+	}
+	var restricted []string
+	for _, p := range indexed {
+		if p.Visibility == "restricted" {
+			restricted = append(restricted, p.Name)
+		}
+	}
+	return restricted, nil
 }

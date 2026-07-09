@@ -62,6 +62,28 @@ func (s *Server) mountRPC(mux *http.ServeMux) {
 	mount(runkov1connect.NewRepoServiceHandler(rpc))
 }
 
+// publicReadProcedures is the §15.2 anonymous-read allowlist for the
+// Connect surface: change/project/repo/search READS only. Workspace RPCs
+// (owner metadata + write allowlists), preview/create, and every mutating
+// procedure stay authenticated - anything not listed here behaves exactly
+// as before. Keyed by the full procedure path the router serves.
+var publicReadProcedures = map[string]bool{
+	"/runko.v1.ChangeService/GetChange":            true,
+	"/runko.v1.ChangeService/ListChanges":          true,
+	"/runko.v1.ChangeService/GetChangeStack":       true,
+	"/runko.v1.ChangeService/GetChangeDiff":        true,
+	"/runko.v1.ChangeService/GetAffected":          true,
+	"/runko.v1.ChangeService/GetMergeRequirements": true,
+	"/runko.v1.ProjectService/ListProjects":        true,
+	"/runko.v1.ProjectService/GetProject":          true,
+	"/runko.v1.ProjectService/WhoOwns":             true,
+	"/runko.v1.RepoService/GetTree":                true,
+	"/runko.v1.RepoService/GetBlob":                true,
+	"/runko.v1.RepoService/ListCommits":            true,
+	"/runko.v1.RepoService/BlameFile":              true,
+	"/runko.v1.SearchService/SearchCode":           true,
+}
+
 // rpcMiddleware is requireAuth's Connect-route sibling plus browser CORS.
 // Allow-Origin is deliberately "*": authentication rides in the
 // Authorization header (never cookies), so a cross-origin request without
@@ -101,6 +123,17 @@ func (s *Server) rpcMiddlewareOpts(next http.Handler, gated bool) http.Handler {
 			return
 		}
 		if !c.ok {
+			// §15.2 public_read: a request with NO credentials at all may
+			// call the read-procedure allowlist on an opted-in org.
+			// Presented-but-wrong credentials still 401 - never a silent
+			// downgrade to the anonymous view.
+			if r.Header.Get("Authorization") == "" && publicReadProcedures[r.URL.Path] && s.publicReadEnabled(r.Context()) {
+				if r.Body != nil {
+					r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
 			// A plain 401: connect clients map the bare HTTP status onto
 			// CodeUnauthenticated without a Connect-framed body.
 			http.Error(w, "unauthorized", http.StatusUnauthorized)

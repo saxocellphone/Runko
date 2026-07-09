@@ -1579,6 +1579,43 @@ Coding agents should call `get_merge_requirements` after CI runs rather than inv
 - Stage-0 multi-repo overlay (§18.1): per-source-repo read tokens, minimum scopes, **no write credentials at all**.  
 - Hard limit, stated in docs: Git object sharing means restricted-read is **access control, not isolation** — orgs needing hard confidentiality boundaries keep a separate repo (NG7).
 
+**Public read-only orgs (decided 2026-07-09).** An org may opt in to
+anonymous read access via the org setting `public_read: true` — the
+"open-source project hosted on Runko" posture, complementing the outbound
+mirror (§18.6, which remains the zero-config public view). Semantics,
+fail-closed by construction:
+
+- **Anonymous callers are read-only, allowlist-scoped, on every surface.**
+  Git: `upload-pack` only (clone/fetch; `receive-pack` still authenticates).
+  REST: an explicit GET allowlist (changes, merge requirements, affected,
+  projects, search) — never workspaces, settings, members, or mirror ops.
+  Connect: the read-RPC allowlist (change/project/repo/search reads) —
+  never workspace or write RPCs. Anything not allowlisted behaves exactly
+  as before: 401.
+- **Workspace snapshot refs are hidden from anonymous fetch**
+  (`uploadpack.hideRefs refs/workspaces`, injected per-request for
+  anonymous callers only) — snapshots are people's uncommitted WIP; the
+  same principle that keeps them off the outbound mirror. `refs/for/*`
+  (the rotating last-push ref) is hidden alongside; `refs/changes/*` stays
+  public — a change under review is public by design in a public org.
+- **`public_read` and `visibility: restricted` are mutually exclusive
+  until §12.3 Phase B exists**: enabling the setting is refused
+  (structured error) while any trunk manifest declares a restricted
+  project, because restricted-read must hold at every read surface or not
+  at all (above) and anonymous Git fetch has no per-principal filtering
+  yet. Fail closed, loudly.
+- Anonymous identity is nobody: no principal, no lane, no write
+  attribution paths reachable. The setting is org-scoped, stored in org
+  settings (tree-ownership caveat §9.4 applies as with global checks).
+- **Known sharp edge (documented, not fixable server-side):** on a public
+  org, a git client with URL-embedded credentials never receives the 401
+  challenge that makes it send them — reads silently get the anonymous
+  (WIP-hidden) view. Clients that need the authenticated advertisement
+  force it: `http.proactiveAuth = basic` (git ≥ 2.46; `runko workspace
+  create/attach` stamps it into every clone it makes) or
+  `http.extraHeader`. Writes are unaffected — receive-pack still
+  challenges.
+
 Self-host: single-tenant. Cloud: per-tenant Git + object isolation.
 
 ### 15.3 Threat notes (agent-amplified)
@@ -2030,6 +2067,7 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-09 | **Runko now hosts its own source (§18 stage-2 posture, executed)**: the repo's source of record is the production deployment's `runko` org; GitHub is the outbound mirror + CI runner. Cutover per docs/migration-findings.md: full history imported as ONE Change at byte-equal tip parity onto the unborn trunk, mirror silently adopted the same-tip GitHub repo, and the first gated change (the 4 PROJECT.yaml manifests: platform/web/docs/proto, checks-only gating — owners omitted per the solo-dev self-approval deadlock) ran the full webhook→bridge→repository_dispatch→report-check chain and landed through the §13.5 gate unforced. `--insecure-allow-unpoliced-land` removed post-cutover; default-deny is live. Dogfood begins: every future change to this repo lands through its own funnel |
 | 2026-07-09 | **Re-carve: folder-per-project + first live `dependencies:` edges** (user direction: "one folder per project; project relationships; platform is too coarse"). The coarse root catch-all manifest (path `""` owning every path) is replaced by 9 real projects — `repo` (root glue only: go.mod/Makefile/.github/scripts), `platform/` (the control-plane libraries: receive/land/affected/checks/index/project/search/mirror/mcp/buildadapter/agentsmd/core, all moved under one folder), `runkod/` (daemon + its binaries at runkod/cmd/), `cli/` (runko + runko-ci), `internal`, `db`, `proto` (now owning its generated Go at proto/gen/), `web`, `docs`. §13.3's declared-dependency closure goes live for the first time: `internal`, `db`, and `proto` declare no checks and are gated purely via reverse edges (their dependents' checks); `web` depends on `proto` so proto changes re-run web-check. Landing mechanics recorded in migration-findings #26-29 (mirror PAT workflow scope, non-org-scoped outbox triple-delivery, cancelled-run false failure reports, the default-branch-workflow two-phase dance) |
 | 2026-07-09 | **Multi-engine monorepos decided (§14.5.5) + create-time build-system selection** (user direction, prompted by "is Bazel right for the frontend?" — it isn't, and that's now spec): one build graph per repo is a non-goal — sovereign per-territory engines over the engine-independent declared floor, cross-engine deps expressed as declared edges + committed boundary artifacts (the proto/gen ↔ web/src/gen pattern this repo already runs), §14.5.4's admission criteria reaffirmed (Vite/Nx/Turbo never get adapters or `build` bindings — territory scaffolds, not engines). `project create` gains `build_engine` (`bazel\|vite\|none`), defaulting by language (`ts` → vite, else bazel): vite emits a generated package.json + vite.config.ts (the sanctioned exception to §10.4's no-package.json rule — for a Vite territory that IS the build declaration) with no `build` capability; explicit `build` capability + vite is a structured `invalid_combination`. Wired through Intent/CLI (`--build-engine`), the CreateProjectIntent schema + proto, and the web create form |
+| 2026-07-09 | **Public read-only orgs (§15.2, decided + built)**: org setting `public_read` opens anonymous READ access on every surface, allowlist-scoped and fail-closed — git `upload-pack` only (anonymous advertisement hides `refs/workspaces` and `refs/for` via per-request `GIT_CONFIG` injection; `refs/changes/*` stays public by design), an explicit REST GET allowlist, and the Connect read-procedure allowlist; presented-but-wrong credentials never downgrade to the anonymous view; enabling is refused while any trunk manifest declares `visibility: restricted` (no per-principal fetch filtering until §12.3 Phase B). Known sharp edge recorded: URL-embedded credentials never see a 401 on a public org, so reads get the anonymous view unless the client forces auth (`http.proactiveAuth`, stamped into workspace clones). E2E-tested over the real transport: anonymous clone flips with the setting, WIP refs hidden anonymously + visible authenticated, anonymous push refused |
 
 ---
 

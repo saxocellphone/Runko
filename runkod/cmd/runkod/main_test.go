@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -1461,5 +1462,135 @@ func TestEndToEndDaemonChangesRequireWorkspace(t *testing.T) {
 	}
 	if change.OriginWorkspace != "feature-ws" || change.State != "open" {
 		t.Fatalf("change should carry its workspace origin: %+v", change)
+	}
+}
+
+// TestEndToEndDaemonPublicReadOrg is §15.2's public_read over the real
+// transport: anonymous clone/fetch works ONLY after the org opts in, only
+// via upload-pack, with refs/for and refs/workspaces hidden from the
+// anonymous advertisement while refs/changes stays public; anonymous
+// pushes and non-allowlisted API reads keep failing.
+func TestEndToEndDaemonPublicReadOrg(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	addr := startDaemon(t, bin, repoDir, "deploy-tok", "--allow-signup", "--allow-org-create")
+
+	if status := orgAPI(t, "POST", addr+"/api/signup", "", "", "", map[string]string{
+		"name": "alice", "password": "alicepw123", "org": "monorepo", "org_mode": "join",
+	}, nil); status != http.StatusCreated {
+		t.Fatalf("signup: status %d", status)
+	}
+	var created struct {
+		GitURL string `json:"git_url"`
+	}
+	if status := orgAPI(t, "POST", addr+"/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "pub"}, &created); status != http.StatusCreated {
+		t.Fatalf("create org: status %d", status)
+	}
+
+	// Seed a change so refs/for/main and refs/changes/<id>/head exist.
+	work := t.TempDir()
+	authedRemote := strings.Replace(addr, "http://", "http://alice:alicepw123@", 1) + created.GitURL
+	anonRemote := addr + created.GitURL
+	if out, err := runGit(t, work, "clone", authedRemote, "."); err != nil {
+		t.Fatalf("clone: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(work, "hello.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	runGit(t, work, "add", "hello.txt")
+	if out, err := runGit(t, work, "commit", "-m", "pub: change\n\nChange-Id: Ibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	if out, err := runGit(t, work, "push", "origin", "HEAD:refs/for/main"); err != nil {
+		t.Fatalf("push: %v\n%s", err, out)
+	}
+
+	// anonGit disables the credential prompt so a 401 fails fast instead
+	// of hanging on a terminal ask.
+	anonGit := func(dir string, args ...string) (string, error) {
+		full := append([]string{"-c", "credential.helper="}, args...)
+		cmd := exec.Command("git", full...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/true")
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+		err := cmd.Run()
+		return out.String(), err
+	}
+
+	// Private by default: anonymous fetch refused.
+	if out, err := anonGit(t.TempDir(), "ls-remote", anonRemote); err == nil {
+		t.Fatalf("anonymous ls-remote on a private org must fail, got:\n%s", out)
+	}
+
+	// The org admin opts in.
+	if status := orgAPI(t, "PUT", addr+"/api/orgs/pub/settings", "alice", "alicepw123", "", map[string]any{"public_read": true}, nil); status != http.StatusOK {
+		t.Fatalf("enable public_read: status %d", status)
+	}
+
+	// Anonymous clone works now...
+	anonWork := t.TempDir()
+	if out, err := anonGit(anonWork, "clone", anonRemote, "."); err != nil {
+		t.Fatalf("anonymous clone of a public org: %v\n%s", err, out)
+	}
+	// ...and the advertisement hides WIP refs while keeping change refs.
+	out, err := anonGit(t.TempDir(), "ls-remote", anonRemote)
+	if err != nil {
+		t.Fatalf("anonymous ls-remote: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "refs/changes/Ibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/head") {
+		t.Fatalf("refs/changes must stay public, got:\n%s", out)
+	}
+	if strings.Contains(out, "refs/for/") || strings.Contains(out, "refs/workspaces/") {
+		t.Fatalf("refs/for and refs/workspaces must be hidden from anonymous fetch, got:\n%s", out)
+	}
+	// Plant a workspace snapshot ref directly in the served repo (the
+	// funnel path for snapshots is pinned elsewhere; this test needs only
+	// the REF to exist) and prove hideRefs is per-request: the authed
+	// advertisement shows it - workspace attach could not fetch snapshots
+	// otherwise - while the anonymous one (asserted above on the same
+	// pattern) does not.
+	changeSHA := strings.Fields(out)[0]
+	orgRepoDir := filepath.Join(filepath.Dir(repoDir), "orgs", "pub", "repo.git")
+	if out, err := runGit(t, orgRepoDir, "update-ref", "refs/workspaces/w1/head", changeSHA); err != nil {
+		t.Fatalf("plant workspace ref: %v\n%s", err, out)
+	}
+	if out, _ := runGit(t, orgRepoDir, "show-ref"); !strings.Contains(out, "refs/workspaces/w1/head") {
+		t.Fatalf("planted ref missing locally; show-ref:\n%s", out)
+	}
+	if out, err := anonGit(t.TempDir(), "ls-remote", anonRemote); err != nil || strings.Contains(out, "refs/workspaces/") {
+		t.Fatalf("anonymous ls-remote must hide the planted workspace ref: %v\n%s", err, out)
+	}
+	// A client with URL-embedded credentials never gets the 401 challenge
+	// on a public org (the anonymous 200 answers first), so git never
+	// sends them - it sees the anonymous view. Clients that need the
+	// authed view force the header (git >= 2.46: http.proactiveAuth=basic,
+	// which `runko workspace create/attach` stamps into its clones; this
+	// test uses http.extraHeader, which every modern git supports).
+	if out, err := runGit(t, t.TempDir(), "ls-remote", authedRemote); err != nil || strings.Contains(out, "refs/workspaces/") {
+		t.Fatalf("URL-cred ls-remote gets the anonymous view on a public org: %v\n%s", err, out)
+	}
+	basic := base64.StdEncoding.EncodeToString([]byte("alice:alicepw123"))
+	if out, err := runGit(t, t.TempDir(), "-c", "http.extraHeader=Authorization: Basic "+basic, "ls-remote", anonRemote); err != nil || !strings.Contains(out, "refs/workspaces/w1/head") {
+		t.Fatalf("an authenticated advertisement must still include workspace refs: %v\n%s", err, out)
+	}
+
+	// Anonymous pushes stay refused - upload-pack only.
+	if err := os.WriteFile(filepath.Join(anonWork, "evil.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	anonGit(anonWork, "add", "evil.txt")
+	anonGit(anonWork, "-c", "user.name=x", "-c", "user.email=x@x.dev", "commit", "-m", "evil")
+	if out, err := anonGit(anonWork, "push", "origin", "HEAD:refs/for/main"); err == nil {
+		t.Fatalf("anonymous push must be refused, got:\n%s", out)
+	}
+
+	// REST: allowlisted reads open, everything else closed.
+	if status := orgAPI(t, "GET", addr+"/o/pub/api/changes", "", "", "", nil, nil); status != http.StatusOK {
+		t.Fatalf("anonymous GET /api/changes on public org: status %d", status)
+	}
+	if status := orgAPI(t, "GET", addr+"/o/pub/api/workspaces", "", "", "", nil, nil); status != http.StatusUnauthorized {
+		t.Fatalf("anonymous GET /api/workspaces must stay 401, got %d", status)
 	}
 }

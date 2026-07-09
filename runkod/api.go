@@ -145,19 +145,19 @@ func (s *Server) Handler() (http.Handler, error) {
 
 	mux.HandleFunc("GET /api/mirror/status", s.requireAuth(s.handleMirrorStatus))
 	mux.HandleFunc("POST /api/mirror/unfreeze", s.requireAuth(s.handleMirrorUnfreeze))
-	mux.HandleFunc("GET /api/changes", s.requireAuth(s.handleListChanges))
-	mux.HandleFunc("GET /api/changes/{key}", s.requireAuth(s.handleGetChange))
+	mux.HandleFunc("GET /api/changes", s.requireReadAuth(s.handleListChanges))
+	mux.HandleFunc("GET /api/changes/{key}", s.requireReadAuth(s.handleGetChange))
 	mux.HandleFunc("POST /api/changes/{key}/abandon", s.requireAuth(s.handleAbandonChange))
 	mux.HandleFunc("POST /api/changes/{key}/checks/{name}/rerun", s.requireAuth(s.handleRerunCheck))
-	mux.HandleFunc("GET /api/changes/{key}/affected", s.requireAuth(s.handleGetAffected))
-	mux.HandleFunc("GET /api/changes/{key}/merge-requirements", s.requireAuth(s.handleGetMergeRequirements))
+	mux.HandleFunc("GET /api/changes/{key}/affected", s.requireReadAuth(s.handleGetAffected))
+	mux.HandleFunc("GET /api/changes/{key}/merge-requirements", s.requireReadAuth(s.handleGetMergeRequirements))
 	mux.HandleFunc("POST /api/changes/{key}/checks", s.requireAuth(s.handlePostCheck))
 	mux.HandleFunc("POST /api/changes/{key}/approve", s.requireAuth(s.handleApproveChange))
 	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
-	mux.HandleFunc("GET /api/search", s.requireAuth(s.handleSearch))
+	mux.HandleFunc("GET /api/search", s.requireReadAuth(s.handleSearch))
 
-	mux.HandleFunc("GET /api/projects", s.requireAuth(s.handleListProjects))
-	mux.HandleFunc("GET /api/affected", s.requireAuth(s.handleAffectedByPaths))
+	mux.HandleFunc("GET /api/projects", s.requireReadAuth(s.handleListProjects))
+	mux.HandleFunc("GET /api/affected", s.requireReadAuth(s.handleAffectedByPaths))
 
 	mux.HandleFunc("POST /api/workspaces", s.requireAuth(s.handleCreateWorkspace))
 	mux.HandleFunc("GET /api/workspaces", s.requireAuth(s.handleListWorkspaces))
@@ -312,6 +312,55 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// publicReadEnabled reports whether this org opted in to anonymous read
+// access (§15.2 public_read). Live per request like effectiveGlobalChecks;
+// no settings org, no directory, or a directory error all fail CLOSED
+// (private) - the opposite bias from effectiveGlobalChecks, where flag-level
+// checks still applying is the safe direction.
+func (s *Server) publicReadEnabled(ctx context.Context) bool {
+	if s.SettingsOrg == "" || s.Directory == nil {
+		return false
+	}
+	settings, err := s.Directory.GetOrgSettings(ctx, s.SettingsOrg)
+	if err != nil {
+		return false
+	}
+	return settings.PublicRead
+}
+
+// requireReadAuth is requireAuth for the §15.2 public-read allowlist: on a
+// public_read org, a request presenting NO credentials at all passes as the
+// anonymous read-only caller (every allowlisted route is method-qualified
+// GET, so anonymity never reaches a write handler). Presented-but-wrong
+// credentials still fail exactly as before - a typo'd token must surface as
+// 401/403, never silently downgrade to the anonymous view.
+func (s *Server) requireReadAuth(next http.HandlerFunc) http.HandlerFunc {
+	authed := s.requireAuth(next)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" && s.publicReadEnabled(r.Context()) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			}
+			next(w, r)
+			return
+		}
+		authed(w, r)
+	}
+}
+
+// isUploadPackRequest reports whether r is a smart-HTTP READ (clone/fetch):
+// the ref advertisement for upload-pack, or the upload-pack POST itself.
+// Everything else on the git mount - receive-pack in both phases, dumb-
+// protocol paths - stays authenticated even on a public_read org.
+func isUploadPackRequest(r *http.Request) bool {
+	if strings.HasSuffix(r.URL.Path, "/git-upload-pack") && r.Method == http.MethodPost {
+		return true
+	}
+	return strings.HasSuffix(r.URL.Path, "/info/refs") &&
+		r.Method == http.MethodGet &&
+		r.URL.Query().Get("service") == "git-upload-pack"
+}
+
 // tokenMatches reports whether the Authorization header carries ANY valid
 // credential - bearer (deploy token, bot lane, principal) or Basic
 // (principal name+password, or the deploy token as password). Identity
@@ -345,6 +394,25 @@ func (s *Server) requireGitAuth(git *cgi.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
 		if !ok {
+			// §15.2 public_read: anonymous clone/fetch on an opted-in org.
+			// upload-pack ONLY - a credential-less receive-pack attempt
+			// still 401s so git prompts for credentials. Workspace
+			// snapshot refs (people's uncommitted WIP) and the rotating
+			// refs/for tip are hidden from the anonymous advertisement;
+			// refs/changes/* stays public by design. The config is
+			// injected per-request via GIT_CONFIG_* env, so authenticated
+			// callers (workspace attach fetching its snapshot ref) are
+			// untouched.
+			if s.publicReadEnabled(r.Context()) && isUploadPackRequest(r) {
+				anon := *git // shallow copy; Env must not mutate the shared handler
+				anon.Env = append(append([]string{}, git.Env...),
+					"GIT_CONFIG_COUNT=2",
+					"GIT_CONFIG_KEY_0=uploadpack.hideRefs", "GIT_CONFIG_VALUE_0=refs/workspaces",
+					"GIT_CONFIG_KEY_1=uploadpack.hideRefs", "GIT_CONFIG_VALUE_1=refs/for",
+				)
+				anon.ServeHTTP(w, r)
+				return
+			}
 			w.Header().Set("WWW-Authenticate", `Basic realm="runko"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

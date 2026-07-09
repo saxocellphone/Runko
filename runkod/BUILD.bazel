@@ -78,6 +78,7 @@ go_test(
         "policy_gate_test.go",
         "prereceive_test.go",
         "principal_test.go",
+        "publicread_test.go",
         "rpc_test.go",
         "signup_test.go",
         "snapshot_test.go",
