@@ -1,113 +1,89 @@
 # Runko
 
-Runko is a **monorepo operating system layered on Git** — self-hostable, open source (Apache-2.0), aimed at engineering orgs of roughly 20–300 people.
+Runko is a self-hosted monorepo platform on plain Git: first-class projects
+inside one repository, change-based review (Gerrit-style `refs/for/` pushes),
+path ownership, affected-based CI scoping, and rebase-based landing with
+merge gates enforced server-side. Humans and coding agents use the same
+CLI/API surface; agents get stricter, server-enforced policy. Apache-2.0.
 
-> Make monorepo accessible: opinionated architecture, delightful low-ceremony UX, CitC-class workspaces, agent-native APIs, and excellent CI plug-in points — on Git, open source, and self-hostable.
+Runko develops on Runko. The source of record is a public instance —
+**browse the code, changes, and review history without an account**:
 
-## Three pillars
+- **Code**: <https://runko.victornazzaro.com/runko>
+- **Changes**: <https://runko.victornazzaro.com/runko/changes>
+- **Clone**: `git clone https://runko.victornazzaro.com/o/runko/repo.git`
 
-1. **One monorepo that feels small** — first-class Projects + CitC-class Workspaces (full-repo view, materialize only your slice).
-2. **Changes that land with confidence** — change-centric review, path ownership, trustworthy affected computation, deep CI integration (never our own runners).
-3. **Humans and coding agents as co-equal clients** — every flow has a GUI/CLI and a stable tool/API (MCP), with project-granular server-side enforcement for agents.
+This GitHub repository is the read-only mirror of that instance, updated
+automatically on every landing (including `refs/changes/*`, so any change's
+exact commit is fetchable here too).
 
-Git is the only substrate (no custom storage layer, ever); Postgres holds a **rebuildable index**, never a second source of truth. See [`docs/design.md`](docs/design.md) for the full design spec and the rationale behind every decision below.
+Git is the only storage substrate — Postgres holds a rebuildable index of
+trunk, never a second source of truth. The full design is in
+[`docs/design.md`](docs/design.md).
 
-## This repo runs on itself
+## How changes land here
 
-Since 2026-07-09, Runko's own source of record is a **production Runko
-deployment** — this GitHub repository is the outbound read-only mirror
-(`platform/mirror/`, `docs/mirror.md`). Every change to Runko lands through
-Runko's own funnel: push to `refs/for/main` → receive policy + secret scan →
-tree-declared required checks (run by GitHub Actions via the
-webhook → `runko-bridge` → `repository_dispatch` chain) → gated, rebase-based
-landing → automatic mirror back here, including `refs/changes/*` so every
-change's exact commit is publicly fetchable. Direct pushes to `main` do not
-exist anywhere; a PR merged on GitHub would freeze the mirror on divergence.
-The whole migration — Bazel adoption, history import at byte-equal tip
-parity, cutover, and every bug the dogfood surfaced — is recorded in
-[`docs/migration-findings.md`](docs/migration-findings.md) as requirements
-for the future `monorepo import` feature.
-
-The repo is also carved into Runko projects (one folder per project, nine
-manifests) with declared `dependencies:` edges driving affected computation:
-`internal/`, `db/`, and `proto/` declare no checks at all and are gated
-purely through the reverse-dependency closure.
+There are no direct pushes to `main` and no merged PRs, anywhere. A change
+is pushed to `refs/for/main`, passes receive policy and a secret scan,
+gets its required checks from the `PROJECT.yaml` manifests it affects
+(GitHub Actions runs them and reports back), and lands by rebase once the
+gates are green. The repo is carved into projects with declared
+`dependencies:` edges; some projects declare no checks at all and are
+gated through the reverse-dependency closure. The self-hosting migration
+and everything it surfaced is recorded in
+[`docs/migration-findings.md`](docs/migration-findings.md).
 
 ## Status
 
-Working end-to-end system, following the build plan in `docs/design.md` §28. Detailed per-stage progress is tracked in [`CLAUDE.md`](CLAUDE.md):
-
-- ✅ Pre-session-1 schema artifacts (`docs/spec/`)
-- ✅ Repo bootstrap + git-fixture test harness
-- ✅ Persistence (Postgres DDL + sqlc, CI-tested against a live `postgres:16`)
-- ✅ Project model (intent → files → commit), tree indexer + owners, affected computation
-- ✅ Receive funnel (Change-Id, magic-ref, agent policy, real gitleaks secret scan)
-- ✅ Land engine (rebase-based landing, optimistic revalidation)
-- ✅ Checks + merge requirements + webhook outbox
-- ✅ `runko` CLI (incl. `auth login`, workspaces, approve/land) + `runko-ci`
-- ✅ `runkod` daemon: smart-HTTP git serving, pre-receive wiring, REST + Connect/gRPC APIs, merge-policy gates, principals, bot lanes
-- ✅ Workspaces v0 (snapshot refs, sparse cones), Zoekt code search, `AGENTS.md` generator
-- ✅ MCP server (six read-only tools over the daemon's REST API)
-- ✅ Web UI (`web/`: React + Connect-ES, stacked-diff review, sign-in over principals)
-- ✅ Compose eval loop (`docker-compose.yml` + `scripts/compose-smoke.sh`, measured in CI against §3.3's budget)
-- ✅ Multi-org (`/o/<org>/`), org settings, per-org outbound mirror, Basic sign-in over principals
-- ✅ Self-hosting cutover: this repo lands through its own funnel (§18 stage-2 posture, executed)
-- ✅ Multi-engine monorepo support (§14.5.5): per-territory build systems over the declared floor; `project create --build-engine` with language defaults (ts → Vite, else Bazel)
-- ⬜ Dogfood hardening (ongoing — every live finding lands as a spec'd fix through the funnel)
-
-`docker compose up` brings up runkod + Postgres; the measured create → change → land loop runs in CI on every push (post-land safety net — pre-land gating happens on the Runko deployment).
+Working end-to-end and in daily use by its own development (which is the
+current test of record). The build plan and per-stage history live in
+`docs/design.md` §28 and [`CLAUDE.md`](CLAUDE.md). Implemented: the
+`runkod` daemon (smart-HTTP git, receive funnel, REST + Connect APIs,
+merge gates, multi-org, outbound mirror), the `runko`/`runko-ci` CLIs,
+workspaces (snapshot refs + sparse cones), affected computation with a
+Bazel build-graph adapter, code search (Zoekt), an MCP server, the web UI
+(review, code browser, search), public read-only orgs, and a measured
+docker-compose eval loop. Expect rough edges; hardening findings land as
+ordinary changes.
 
 ## Repository layout
 
 ```
 docs/design.md      the full design spec
-docs/spec/          pre-session-1 schema artifacts (PROJECT.yaml, MCP tool catalog, webhook/CheckRun schemas)
+docs/spec/          schema artifacts (PROJECT.yaml, MCP tool catalog, webhook/CheckRun schemas)
 db/                 Postgres DDL (db/migrations) and sqlc queries (db/queries)
-platform/core/      shared interfaces (MonorepoStore)
-internal/gitstore/  MonorepoStore implementation, shells out to git plumbing
-internal/gitfixture/ terse git-fixture test harness used throughout the test suite
-internal/dbgen/     generated by sqlc — do not hand-edit
-platform/project/   intent -> files pipeline, templates, preview
-platform/index/     tree indexer: PROJECT.yaml/OWNERS -> project index
-platform/affected/  pure function: paths/deps -> affected projects
-platform/receive/   magic-ref + Change-Id + agent policy + secret-scan seam
-platform/land/      rebase-based landing + optimistic revalidation
-platform/checks/    Checks API, merge requirements, webhook outbox
-platform/buildadapter/ build-graph adapter (Bazel first)
-platform/search/    Zoekt code-search integration (process, not library)
-platform/mirror/    outbound mirror to any git host (git protocol only; docs/mirror.md)
-platform/mcp/       MCP stdio server (six read-only tools)
-platform/agentsmd/  AGENTS.md generator for Runko-managed monorepos
-runkod/             write-path daemon: pre-receive processor, smart-HTTP, REST + Connect APIs
-runkod/cmd/runko-bridge/ webhook -> GitHub repository_dispatch shim (the reference CI plugin)
-proto/runko/v1/     Connect/gRPC schema (web ↔ runkod); proto/gen/ is its generated Go
+internal/           shared internals (gitstore, gitfixture test harness, sqlc output)
+platform/           control-plane libraries: receive, land, affected, checks,
+                    index, project templates, search, mirror, build adapters, MCP
+runkod/             the daemon: pre-receive processor, smart-HTTP, REST + Connect APIs
+runkod/cmd/         runkod and runko-bridge (webhook -> GitHub Actions shim) entrypoints
+proto/runko/v1/     Connect/gRPC schema (web <-> runkod); proto/gen/ is its generated Go
 web/                web UI (React + TypeScript + Vite + Connect-ES)
 cli/runko/          human/agent-facing CLI
 cli/runko-ci/       CI-facing CLI
-runkod/cmd/runkod/  daemon entrypoint
 ```
 
 ## Building and testing
 
 ```bash
-git clone <this repo>
-cd Runko
+git clone https://runko.victornazzaro.com/o/runko/repo.git runko
+cd runko
 make check     # fmt + vet + test, all packages
 ```
 
-Requires Go 1.25+ and a `git` binary on `PATH`. No other services are required to run the test suite — it uses throwaway local Git repositories, not a live database or network.
+Requires Go 1.25+ and `git` on `PATH`. The test suite needs no other
+services — it uses throwaway local Git repositories.
 
-Optional deeper suites (each needs its own toolchain): `make check-race`,
+Optional suites, each with its own toolchain: `make check-race`,
 `make check-db` (live Postgres), `make check-web` (Node ≥ 22),
-`make check-bazel` (Bazel graph + gazelle drift; the repo's tests never run
-under Bazel — `make check` stays the test truth), and
-`make check-compose` (Docker; the timed §16.4 eval loop).
+`make check-bazel` (build graph + gazelle drift; tests never run under
+Bazel), `make check-compose` (Docker; the timed end-to-end eval loop).
 
 ## Contributing
 
-This GitHub repo is a **mirror**: pull requests cannot be merged here (the
-mirror would freeze on divergence). Issues and discussion are welcome on
-GitHub; code changes land through the Runko deployment's review flow.
+Pull requests cannot be merged on GitHub — this repo is a mirror, and a
+divergent `main` would freeze it. Issues and discussion are welcome here;
+code changes go through review on the Runko instance.
 
 ## License
 
