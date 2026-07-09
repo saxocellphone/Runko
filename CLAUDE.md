@@ -16,16 +16,18 @@ remote is named `github` and is the OUTBOUND MIRROR — **never push to it**
   per push.
 - Required checks come from the tree (re-carved 2026-07-09 into
   folder-per-project manifests): `repo` (root glue), `platform/`, `runkod/`,
-  `cli/`, and `docs/` declare `platform-check`/`platform-race`/`platform-db`
-  (= `make check`/`check-race`/`check-db`; docs declares only the first),
-  `web/PROJECT.yaml` declares `web-check`; `internal/`, `db/`, and `proto/`
-  declare none and are gated via `dependencies:` edges (the affected
-  closure pulls in their dependents' checks). GitHub Actions runs checks
-  via the webhook→`runko-bridge`→`repository_dispatch` chain
+  and `cli/` declare `platform-check`/`platform-race`/`platform-db`/
+  `bazel-check` (= `make check`/`check-race`/`check-db`/`check-bazel`),
+  `docs/` declares only `platform-check`, `web/PROJECT.yaml` declares
+  `web-check`; `internal/`, `db/`, and `proto/` declare none and are gated
+  via `dependencies:` edges (the affected closure pulls in their
+  dependents' checks). GitHub Actions runs checks via the
+  webhook→`runko-bridge`→`repository_dispatch` chain
   (`.github/workflows/runko-checks.yml`) and reports back; land with
   `runko change land` or `POST /o/runko/api/changes/<id>/land` once green.
-  Landing mirrors to GitHub `main` automatically, which still triggers the
-  old `ci.yml` (post-land safety net) and `release-images`.
+  Landing mirrors to GitHub `main` automatically, which still triggers
+  `ci.yml` (post-land safety net — the only CI that builds the
+  actually-landed, post-rebase tree) and `release-images`.
 - Default-deny is ON (no unpoliced lands). The `operator` principal (admin)
   exists for force-land/mirror-unfreeze; agents can never force.
 - The migration record lives in `docs/migration-findings.md`.

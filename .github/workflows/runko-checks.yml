@@ -164,6 +164,69 @@ jobs:
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --reporter github-actions
 
+  # Bazel graph health as a pre-land gate (was ci.yml's post-land bazel
+  # job until 2026-07-09): build green, no gazelle drift, real-engine
+  # integration test, plus the affected-engine smoke - now asserting the
+  # PROJECT-level result too, since the re-carve manifests exist
+  # (closes docs/migration-findings.md's open verification item).
+  bazel-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: fetch the change ref (mirror-lag retry)
+        run: |
+          for i in $(seq 1 30); do
+            if git fetch origin "$GIT_REF" 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ]; then
+              git checkout -q FETCH_HEAD; break
+            fi
+            sleep 5
+          done
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      # Layout-agnostic runko-ci location: the checkout may predate or
+      # postdate the cmd/ -> cli/ restructure, and repository_dispatch
+      # always runs the DEFAULT branch's copy of this workflow.
+      - name: locate runko-ci
+        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: bazel-${{ github.workflow }}
+          repository-cache: true
+      - name: report in_progress
+        run: |
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name bazel-check --external-id "${{ github.run_id }}-bazel" \
+            --status in_progress --reporter github-actions
+      - run: make check-bazel
+      # The dogfood payload: a synthetic Go-file change refined through the
+      # real graph. Touches a GO file deliberately: the engine's file
+      # labels error on non-package files (docs/*.md) and escalate, per
+      # spec. Asserts both layers: the engine refinement AND the
+      # project-level result (platform must be matched, no fail-closed
+      # escalation) now that the manifests exist.
+      - name: runko-ci affected --engine bazel smoke
+        run: |
+          git config user.name ci && git config user.email ci@localhost
+          printf '\n// bazel-smoke\n' >> platform/land/land.go
+          git commit -am bazel-smoke
+          go run "$RUNKO_CI_PKG" affected --base HEAD~1 --head HEAD \
+            --engine bazel --universe //... --engine-timeout 300s | tee affected.json
+          jq -e '.build_refinement.run_everything == false and (.build_refinement.targets | length > 0)' affected.json
+          jq -e '.RunEverything == false and ([.Projects[].Name] | index("platform") != null)' affected.json
+          git reset --hard HEAD~1
+      - name: report result
+        # success() || failure() excludes CANCELLED - a cancelled run must not
+        # report check failure (docs/migration-findings.md #28).
+        if: success() || failure()
+        run: |
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name bazel-check --external-id "${{ github.run_id }}-bazel" \
+            --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
+            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --reporter github-actions
+
   # Only when the change's affected set includes the web project - the
   # platform jobs run regardless (the root project matches every path).
   web-check:

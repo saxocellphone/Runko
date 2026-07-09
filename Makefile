@@ -1,4 +1,4 @@
-.PHONY: check fmt vet test build check-db check-race check-web
+.PHONY: check fmt vet test build check-db check-race check-web check-bazel
 
 check: fmt vet test
 
@@ -53,6 +53,18 @@ check-db:
 # loop (§28.2 rule 3); CI runs this as its own job.
 check-web:
 	cd web && npm install --no-audit --no-fund && npm run check
+
+# Bazel graph health (docs/migration-findings.md, §14.5.4 dogfood): the
+# graph must build, gazelle must not drift, and the rdeps recipe must work
+# against the genuine engine. Tests are NOT run under bazel - `check` stays
+# the test truth. Declared as the tree's `bazel-check` (PROJECT.yaml
+# ci.checks on the Go projects), reported pre-land by runko-checks.yml.
+# Needs bazel/bazelisk on PATH (this sandbox: ~/.local/bin).
+check-bazel:
+	bazel build //...
+	bazel run //:gazelle
+	git diff --exit-code -- '**/BUILD.bazel'
+	go test -tags bazel_integration ./platform/buildadapter/bazel/
 
 # The §16.4 measured eval loop (docker compose v2 + go required): compose
 # up -> create -> change -> land, twice, timed against §3.3's budget. CI

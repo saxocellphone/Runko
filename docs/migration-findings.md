@@ -270,8 +270,13 @@ future org imports bootstrap via the operator principal's force-land
 
 ## Open verification items
 
-- Bazel-refinement smoke asserts engine health only until PROJECT.yaml
-  manifests land (R4); revisit the assertion afterward.
+- ~~Bazel-refinement smoke asserts engine health only until PROJECT.yaml
+  manifests land (R4); revisit the assertion afterward.~~ **Done
+  2026-07-09** with the re-carve: the smoke moved into runko-checks.yml
+  as the tree-declared `bazel-check` (pre-land; `make check-bazel`) and
+  now also asserts the PROJECT-level result (platform matched, no
+  fail-closed escalation); ci.yml shrank to the post-land safety net
+  (the only CI that builds the actually-landed, post-rebase tree).
 - ~~R5 scratch-org dry run to confirm findings 9-11 and 18 live.~~
   **Done 2026-07-08** against prod org `runko-dry`: full history (one
   Change, `I147c12ef…`), tip-SHA parity byte-equal
