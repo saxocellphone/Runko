@@ -1,0 +1,8 @@
+schema: project/v1
+name: web
+type: app
+language: ts
+ci:
+  checks:
+    - name: web-check
+      command: npm run check

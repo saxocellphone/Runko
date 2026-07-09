@@ -1,0 +1,12 @@
+schema: project/v1
+name: platform
+type: service
+language: go
+ci:
+  checks:
+    - name: platform-check
+      command: make check
+    - name: platform-race
+      command: make check-race
+    - name: platform-db
+      command: make check-db
