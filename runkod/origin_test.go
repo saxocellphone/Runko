@@ -232,3 +232,90 @@ func TestBootstrapPushExemptFromWorkspaceRequirement(t *testing.T) {
 		t.Fatalf("bootstrap push onto an unborn trunk must stay exempt, got %+v", result)
 	}
 }
+
+// TestOneStackPerWorkspaceBranch pins §12.2's branch ↔ stack mapping as an
+// invariant (2026-07-09): a workspace branch carries at most ONE stack.
+// Amends, restacks, and grows chain through the open changes and pass; an
+// unrelated trunk-based line claiming the same branch is refused (observed
+// live: two agents sharing one owner account made one branch render as two
+// disagreeing stacks). A parallel branch or a post-land fresh start stays
+// legal.
+func TestOneStackPerWorkspaceBranch(t *testing.T) {
+	p, store, repo, bare := originFixture(t)
+	ctx := context.Background()
+	claim := func(branch string) []string {
+		return []string{
+			"GIT_PUSH_OPTION_COUNT=2",
+			"GIT_PUSH_OPTION_0=workspace=checkout-fixes",
+			"GIT_PUSH_OPTION_1=workspace-branch=" + branch,
+		}
+	}
+
+	// Change A opens the branch's stack.
+	repo.WriteFile("a.txt", "a\n")
+	repo.Commit("change A\n\nChange-Id: Iaaaa111111111111111111111111111111111111")
+	oldA, headA := pushCommit(t, repo, bare, "refs/for/main")
+	if r := p.Process(ctx, RefUpdate{OldSHA: oldA, NewSHA: headA, Ref: "refs/for/main"}, claim("head")); !r.Accepted {
+		t.Fatalf("A should open the stack: %+v", r)
+	}
+
+	// An UNRELATED trunk-based change claiming the same branch: refused,
+	// naming the open change and the ways out.
+	repo2 := gitfixture.New(t)
+	repo2.Run("fetch "+bare+" refs/heads/main", "checkout FETCH_HEAD")
+	repo2.WriteFile("b.txt", "b\n")
+	repo2.Commit("change B\n\nChange-Id: Ibbbb111111111111111111111111111111111111")
+	_, headB := pushCommit(t, repo2, bare, "refs/for/main")
+	r := p.Process(ctx, RefUpdate{OldSHA: headA, NewSHA: headB, Ref: "refs/for/main"}, claim("head"))
+	if r.Accepted {
+		t.Fatalf("second unrelated stack on one branch should be refused, got %+v", r)
+	}
+	if !strings.Contains(r.Message, "Iaaaa111111111111111111111111111111111111") || !strings.Contains(r.Message, "one branch, one stack") {
+		t.Fatalf("rejection should name the open change and the invariant, got %q", r.Message)
+	}
+
+	// The same commit on a PARALLEL branch is fine - branches are the
+	// unit of parallel work.
+	if r := p.Process(ctx, RefUpdate{OldSHA: headA, NewSHA: headB, Ref: "refs/for/main"}, claim("side")); !r.Accepted {
+		t.Fatalf("parallel branch should accept an independent line: %+v", r)
+	}
+
+	// Growing the head stack (A <- C, tip includes A) passes.
+	repo.WriteFile("c.txt", "c\n")
+	repo.Commit("change C\n\nChange-Id: Icccc111111111111111111111111111111111111")
+	_, headC := pushCommit(t, repo, bare, "refs/for/main")
+	if r := p.Process(ctx, RefUpdate{OldSHA: headB, NewSHA: headC, Ref: "refs/for/main"}, claim("head")); !r.Accepted {
+		t.Fatalf("growing the branch's stack should pass: %+v", r)
+	}
+
+	// Amending the tip (same ids) passes.
+	repo.WriteFile("c.txt", "c2\n")
+	repo.Run("add -A", "commit --amend --no-edit")
+	_, headC2 := pushCommit(t, repo, bare, "refs/for/main")
+	if r := p.Process(ctx, RefUpdate{OldSHA: headC, NewSHA: headC2, Ref: "refs/for/main"}, claim("head")); !r.Accepted {
+		t.Fatalf("amending the stack should pass: %+v", r)
+	}
+
+	// Pushing a NON-tip member alone (dropping C from the series) is the
+	// subtle foot-gun: refused, since C's open change would fall out of
+	// the chain.
+	r = p.Process(ctx, RefUpdate{OldSHA: headC2, NewSHA: headA, Ref: "refs/for/main"}, claim("head"))
+	if r.Accepted {
+		t.Fatalf("pushing a non-tip member alone should be refused: %+v", r)
+	}
+
+	// Once the branch's changes land/abandon, a fresh line is welcome.
+	for _, id := range []string{"Iaaaa111111111111111111111111111111111111", "Icccc111111111111111111111111111111111111"} {
+		if _, err := store.MarkChangeAbandoned(ctx, id); err != nil {
+			t.Fatalf("abandon %s: %v", id, err)
+		}
+	}
+	repo3 := gitfixture.New(t)
+	repo3.Run("fetch "+bare+" refs/heads/main", "checkout FETCH_HEAD")
+	repo3.WriteFile("d.txt", "d\n")
+	repo3.Commit("change D\n\nChange-Id: Idddd111111111111111111111111111111111111")
+	_, headD := pushCommit(t, repo3, bare, "refs/for/main")
+	if r := p.Process(ctx, RefUpdate{OldSHA: headC2, NewSHA: headD, Ref: "refs/for/main"}, claim("head")); !r.Accepted {
+		t.Fatalf("fresh stack after the old one closed should pass: %+v", r)
+	}
+}

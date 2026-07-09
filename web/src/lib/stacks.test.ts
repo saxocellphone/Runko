@@ -219,8 +219,22 @@ describe("stackOrigin / changesByOrigin", () => {
       "sku-validation/head",
       "sku-validation/inline-errors",
     ]);
-    expect(groups.get("sku-validation/head")!.map((x) => x.id)).toEqual(["bottom", "top"]);
-    expect(groups.get("sku-validation/inline-errors")!.map((x) => x.id)).toEqual(["fork"]);
+    expect(groups.get("sku-validation/head")!.map((ch) => ch.map((x) => x.id))).toEqual([
+      ["bottom", "top"],
+    ]);
+    expect(groups.get("sku-validation/inline-errors")!.map((ch) => ch.map((x) => x.id))).toEqual([
+      ["fork"],
+    ]);
+  });
+
+  it("changesByOrigin splits UNRELATED lines under one branch into separate chains - matching the inbox", () => {
+    const groups = changesByOrigin([
+      withOrigin("line1", "T", "A", 1, "ws", "head"),
+      withOrigin("line2", "T2", "B", 2, "ws", "head"), // fresh trunk base: no chain to line1
+      withOrigin("line2-child", "B", "C", 3, "ws", "head"),
+    ]);
+    const chains = groups.get("ws/head")!.map((ch) => ch.map((x) => x.id));
+    expect(chains).toEqual([["line1"], ["line2", "line2-child"]]);
   });
 });
 

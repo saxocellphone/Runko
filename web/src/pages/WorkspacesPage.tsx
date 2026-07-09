@@ -82,7 +82,7 @@ export function WorkspacesPage() {
                       <BranchStack
                         key={b}
                         branch={b}
-                        stack={data.stacks.get(`${w.id}/${b}`) ?? []}
+                        chains={data.stacks.get(`${w.id}/${b}`) ?? []}
                       />
                     ))}
                   </td>
@@ -104,30 +104,40 @@ export function WorkspacesPage() {
   );
 }
 
-// BranchStack renders one workspace branch with the stack of open changes
-// pushed from it - base-most at the bottom, matching the changes inbox.
+// BranchStack renders one workspace branch with the stack(s) of open
+// changes pushed from it - base-most at the bottom, derived with the SAME
+// ancestry chaining the changes inbox uses, so the two views always
+// agree. More than one chain means pre-invariant data (the funnel now
+// enforces one stack per branch, §12.2) and is flagged as such.
 function BranchStack({
   branch,
-  stack,
+  chains,
 }: {
   branch: string;
-  stack: { id: string; title: string }[];
+  chains: { id: string; title: string }[][];
 }) {
   return (
     <div className="ws-branch">
       <span className="chip mono">{branch}</span>
-      {stack.length === 0 ? (
+      {chains.length > 1 && (
+        <span className="chip chip-amber" title="This branch holds unrelated open changes - pushed before one-stack-per-branch was enforced. Land or abandon to reconcile.">
+          {chains.length} split stacks
+        </span>
+      )}
+      {chains.length === 0 ? (
         <span className="ws-branch-empty">no open changes</span>
       ) : (
-        <ul className="ws-branch-stack">
-          {[...stack].reverse().map((c) => (
-            <li key={c.id}>
-              <Link className="ws-branch-change" to={`/changes/${c.id}`}>
-                {c.title}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        chains.map((stack, i) => (
+          <ul className="ws-branch-stack" key={i}>
+            {[...stack].reverse().map((c) => (
+              <li key={c.id}>
+                <Link className="ws-branch-change" to={`/changes/${c.id}`}>
+                  {c.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ))
       )}
     </div>
   );

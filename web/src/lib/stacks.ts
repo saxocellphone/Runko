@@ -216,7 +216,7 @@ export function stackOrigin(
 // segments by construction, so "/" cannot collide); changes with no
 // provenance are omitted. Within a group, base-most change first (by
 // number when present, else stable input order).
-export function changesByOrigin(changes: ChangeSummary[]): Map<string, ChangeSummary[]> {
+export function changesByOrigin(changes: ChangeSummary[]): Map<string, ChangeSummary[][]> {
   const groups = new Map<string, ChangeSummary[]>();
   for (const c of changes) {
     if (!c.originWorkspace) continue;
@@ -225,10 +225,25 @@ export function changesByOrigin(changes: ChangeSummary[]): Map<string, ChangeSum
     group.push(c);
     groups.set(key, group);
   }
-  for (const group of groups.values()) {
-    group.sort((a, b) => (a.number < b.number ? -1 : a.number > b.number ? 1 : 0));
+  // Within a branch, derive CHAINS with the exact ancestry relation the
+  // inbox uses (buildStackForest) - the two views must never disagree
+  // about what a branch holds. The receive funnel enforces one chain per
+  // branch (§12.2, 2026-07-09); pre-invariant data can still split, and
+  // rendering the split honestly is the fix for the mismatch.
+  const out = new Map<string, ChangeSummary[][]>();
+  for (const [key, group] of groups) {
+    const chains = buildStackForest(group).map(flattenBaseFirst);
+    // Base-most chain first, matching the old base-most-first ordering.
+    chains.sort((a, b) => (a[0]!.number < b[0]!.number ? -1 : 1));
+    out.set(key, chains);
   }
-  return groups;
+  return out;
+}
+
+function flattenBaseFirst(root: StackNode): ChangeSummary[] {
+  const out: ChangeSummary[] = [root.change];
+  for (const child of root.children) out.push(...flattenBaseFirst(child));
+  return out;
 }
 
 // branchesForWorkspace unions a workspace's refs-derived branch list with

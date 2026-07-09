@@ -326,11 +326,64 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 			}}
 		}
 	}
-	return verdict{
+	v := verdict{
 		update: u, changedPaths: changedPaths, extraEnv: extraEnv, author: author,
 		originWorkspace: originWS, originBranch: originBranch,
 		decision: decision,
 	}
+	if decision.Accepted && isMagicRef && originWS != "" {
+		if rej := p.enforceOneStackPerBranch(ctx, v); rej != nil {
+			return *rej
+		}
+	}
+	return v
+}
+
+// enforceOneStackPerBranch is §12.2's "one workspace branch ↔ one stack"
+// as an INVARIANT (2026-07-09), not just an expectation: a push claiming
+// (workspace, branch) must carry every open Change of that origin in its
+// series - amends, restacks, and grows all do naturally (the series walk
+// spans trunk..tip, so stacking on the open head includes it); a fresh
+// trunk-based line does not, and would render as a SECOND stack under one
+// branch in every view (observed live: two agents sharing one owner
+// account pushed unrelated work through the same workspace, and the inbox
+// and workspace pages disagreed about what the branch held).
+func (p *Processor) enforceOneStackPerBranch(ctx context.Context, v verdict) *verdict {
+	open, err := p.Store.ListChanges(ctx, "open")
+	if err != nil {
+		rej := v
+		rej.evalErr = fmt.Sprintf("remote: could not check the branch's open stack: %v\n", err)
+		return &rej
+	}
+	var blocking []Change
+	for _, c := range open {
+		if c.OriginWorkspace == v.originWorkspace && c.OriginBranch == v.originBranch {
+			blocking = append(blocking, c)
+		}
+	}
+	if len(blocking) == 0 {
+		return nil
+	}
+	inSeries := map[string]bool{}
+	for _, m := range p.seriesMembers(ctx, v, v.decision) {
+		inSeries[m.changeID] = true
+	}
+	for _, c := range blocking {
+		if inSeries[c.ChangeKey] {
+			continue
+		}
+		rej := v
+		rej.decision = receive.Decision{
+			Accepted: false,
+			RejectionMessage: fmt.Sprintf("remote: workspace branch %s/%s already carries an open stack including %s (%q) - one branch, one stack (§12.2)\n"+
+				"remote:   -> restack onto it and push your branch TIP so the whole stack rides along (jj rebase; runko workspace sync)\n"+
+				"remote:   -> or abandon it: runko change abandon --change %s\n"+
+				"remote:   -> or open a parallel line: runko workspace branch <name>\n",
+				v.originWorkspace, v.originBranch, c.ChangeKey, firstLine(c.Title), c.ChangeKey),
+		}
+		return &rej
+	}
+	return nil
 }
 
 // pushOptions reads the push options git receive-pack exposed to the
