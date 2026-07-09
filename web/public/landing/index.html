@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Runko — the monorepo operating system on Git</title>
-<meta name="description" content="Runko is a self-hostable monorepo operating system layered on Git: stacked changes that land with confidence, path ownership, trustworthy affected computation, and agents as co-equal clients.">
+<title>Runko — the monorepo platform for humans and agents</title>
+<meta name="description" content="Runko is a self-hosted monorepo platform on plain Git: one-command project generation, isolated agent workspaces with server-side guardrails, stacked review, and merge gates that can't be skipped.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root {
@@ -73,8 +73,8 @@
   .card code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border-radius: 5px; padding: 1px 6px; color: var(--text); }
   .glyph { width: 26px; height: 26px; flex: none; border-radius: 7px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 14px; }
 
-  .pillars .card { border-top: 3px solid var(--accent); }
-  .pillars h3 { font-size: 17px; }
+  .pain .card { border-top: 3px solid var(--warn); }
+  .pain .card h3 { font-size: 15.5px; }
 
   .honest { background: var(--surface-2); border-radius: 14px; padding: 32px; }
   .honest h2 { font-size: 22px; }
@@ -82,8 +82,22 @@
   .honest li { margin: 6px 0; }
   .honest b { color: var(--text); }
 
-  .terminal { background: #16161c; color: #d6d6df; border: 1px solid #2e2e36; border-radius: 12px; font-family: var(--mono); font-size: 13px; line-height: 1.75; padding: 20px 22px; overflow-x: auto; }
+  .terminal { background: #16161c; color: #d6d6df; border: 1px solid #2e2e36; border-radius: 12px; font-family: var(--mono); font-size: 13px; line-height: 1.75; padding: 20px 22px; overflow-x: auto; white-space: nowrap; }
   .terminal .c { color: #6f6f7e; } .terminal .g { color: #4cc38a; } .terminal .v { color: #9b8afb; }
+
+  .split { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 36px; align-items: start; }
+  .split .copy p { color: var(--text-2); font-size: 15px; }
+  .split .copy p + p { margin-top: 12px; }
+  .split .copy b { color: var(--text); }
+
+  .compare-scroll { overflow-x: auto; }
+  table.compare { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; font-size: 14px; min-width: 640px; }
+  .compare th, .compare td { padding: 13px 18px; text-align: left; vertical-align: top; border-top: 1px solid var(--border); }
+  .compare thead th { border-top: none; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); background: var(--surface-2); }
+  .compare thead th.us { color: var(--accent); }
+  .compare td.aspect { font-weight: 600; white-space: nowrap; width: 1%; }
+  .compare td.them { color: var(--text-2); }
+  .compare td.us { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
 
   footer { border-top: 1px solid var(--border); padding: 28px 0 48px; color: var(--text-2); font-size: 14px; display: block; }
   footer .wrap { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
@@ -92,6 +106,7 @@
   @media (max-width: 840px) {
     .hero { grid-template-columns: 1fr; padding-top: 56px; }
     .grid { grid-template-columns: 1fr; }
+    .split { grid-template-columns: 1fr; }
     nav .links a.gh { display: none; }
   }
 </style>
@@ -106,8 +121,9 @@
         Runko
       </span>
       <span class="links">
-        <a href="#features">Features</a>
+        <a href="#projects">Projects</a>
         <a href="#agents">Agents</a>
+        <a href="#landing">Landing</a>
         <a href="#selfhost">Self-host</a>
         <a class="gh" href="https://github.com/saxocellphone/Runko">GitHub</a>
         <a class="btn" href="/demo/">Live demo</a>
@@ -120,8 +136,8 @@
 <main>
   <div class="wrap hero">
     <div>
-      <h1>One monorepo that <em>feels small</em>.<br>Changes that land with <em>confidence</em>.</h1>
-      <p class="lede">Runko is a monorepo operating system layered on plain Git — stacked changes, path ownership, trustworthy affected computation, and coding agents as first-class citizens. Self-hostable, open source, no lock-in.</p>
+      <h1>One repo. Every team.<br><em>Any number of agents.</em></h1>
+      <p class="lede">Runko is a self-hosted monorepo platform on plain Git. Spin up production-ready projects with one command, run parallel coding agents in isolated workspaces, and land every change — human or agent — through review and checks nobody can skip.</p>
       <div class="ctas">
         <a class="btn primary" href="/demo/">Explore the live demo</a>
         <a class="btn" href="/landing/design.html">How it's designed</a>
@@ -149,43 +165,77 @@
     </div>
   </div>
 
-  <section class="pillars">
+  <section class="pain" id="why">
     <div class="wrap">
+      <h2>You've already built the workarounds</h2>
+      <p class="sectionsub">Monorepos are winning and coding agents are multiplying. The tooling hasn't caught up, so teams improvise:</p>
       <div class="grid">
-        <div class="card"><h3>One monorepo that feels small</h3><p>First-class Projects with owners in the tree, and CitC-class workspaces: a full-repo view that materializes only your slice — sparse cones, partial clone, durable snapshot refs.</p></div>
-        <div class="card"><h3>Changes that land with confidence</h3><p>Change-centric review with stable identities that survive rebases. Owners gate by touched paths, required checks come from the tree, and rebase-landing skips re-runs only when it's provably safe.</p></div>
-        <div class="card"><h3>Humans &amp; agents, co-equal</h3><p>Every flow has a CLI, an API, and a UI. Agents get generated <code>AGENTS.md</code>, MCP tools, and server-side policy — path allowlists, diff caps, no self-approval — enforced at receive, never on trust.</p></div>
+        <div class="card"><h3>Every project is a snowflake</h3><p>Each new service starts as a copy of the last one. Two years in, no two projects share a layout, an owners file, or a CI setup — and there's no way to fix them all at once.</p></div>
+        <div class="card"><h3>Agents live in git worktrees</h3><p>One worktree per agent works — until you're babysitting five branches, half-finished work is stranded on one machine, and every agent pushes with <em>your</em> credentials.</p></div>
+        <div class="card"><h3>Merge policy is theater</h3><p>CODEOWNERS suggests. Branch protection half-enforces. Stacked PRs are faked with base branches, and a one-line change re-runs the whole CI matrix.</p></div>
       </div>
     </div>
   </section>
 
-  <section id="features">
+  <section id="projects">
     <div class="wrap">
-      <h2>Built around the workflows that actually hurt</h2>
-      <p class="sectionsub">Everything below is shipped and tested against a real daemon, real Git, and a real Postgres — not a roadmap.</p>
-      <div class="grid">
-        <div class="card"><h3><span class="glyph">⌥</span>Stacked changes, jj-native</h3><p>Jujutsu is the primary client: rework the <em>root</em> of a stack, descendants auto-rebase, and one push updates every change on the server. Plain <code>git push</code> stays fully supported.</p></div>
-        <div class="card"><h3><span class="glyph">✓</span>Merge gates from the tree</h3><p><code>PROJECT.yaml</code> declares owners and required checks; the control plane is a rebuildable index, never a second source of truth. Approvals bind to the exact commit they reviewed.</p></div>
-        <div class="card"><h3><span class="glyph">⚡</span>Optimistic landing</h3><p>Rebase-based landing with revalidation only when trunk's delta intersects your change's affected set. Race-safe by compare-and-swap — a lost race is a retry, never a silent overwrite.</p></div>
-        <div class="card"><h3><span class="glyph">◎</span>Affected computation</h3><p>Paths → projects → declared dependents, fail-closed, with optional build-graph refinement (Bazel first). Your CI runs exactly what a change can break — on your runners, not ours.</p></div>
-        <div class="card"><h3><span class="glyph">🛡</span>One receive funnel</h3><p>Trunk is closed to direct push. Every write — human, agent, or bot — passes policy, secret scanning (gitleaks), and change tracking through the same server-side gate.</p></div>
-        <div class="card"><h3><span class="glyph">⇄</span>Mirror to any git host</h3><p>Keep a leased, divergence-guarded mirror on GitHub, GitLab, Gitea — anything that speaks git. Trust lives where you want it; truth stays yours.</p></div>
+      <h2>Projects come from a generator, not a copy-paste</h2>
+      <p class="sectionsub">Name, type, owners in — everything else is generated or defaulted. That's the whole form.</p>
+      <div class="split">
+        <div class="copy">
+          <p><b>Uniformity isn't a style guide anyone has to follow — it's the generator everyone uses.</b> Every project in the org has the same shape: a manifest next to the code, a skeleton from your org's template, a build binding with zero hand-written lines.</p>
+          <p>Ownership and required checks live in <code>PROJECT.yaml</code>, in the tree — so changing the rules is itself a reviewed change that owners approve, and the whole platform re-reads policy from the code it protects.</p>
+        </div>
+        <div class="terminal">
+<span class="g">$</span> runko project create payments-api \<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="v">--type</span> service <span class="v">--owners</span> team-payments<br>
+&nbsp;&nbsp;create&nbsp; payments-api/PROJECT.yaml&nbsp;<span class="c"># type + owners</span><br>
+&nbsp;&nbsp;create&nbsp; payments-api/main.go&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c"># org template skeleton</span><br>
+&nbsp;&nbsp;create&nbsp; payments-api/BUILD.bazel&nbsp;&nbsp;<span class="c"># zero hand-authored lines</span><br>
+<span class="g">$</span> runko change push&nbsp;<span class="c"># the new project lands like any other change</span>
+        </div>
       </div>
     </div>
   </section>
 
   <section id="agents">
     <div class="wrap">
-      <h2>Agent-native, not agent-tolerant</h2>
-      <p class="sectionsub">Coding agents are normal API clients with stricter defaults — enforced where it can't be faked.</p>
+      <h2>Run five agents like it's one</h2>
+      <p class="sectionsub">Everyone found the same trick: a git worktree per agent. Runko workspaces are what that trick wants to be — each agent gets its own slice of the repo, its own identity, and its own guardrails.</p>
+      <div class="compare-scroll">
+      <table class="compare">
+        <thead>
+          <tr><th></th><th>Git worktrees today</th><th class="us">Runko workspaces</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="aspect">Checkout</td><td class="them">A full tree per worktree</td><td class="us">One shared clone; each workspace materializes only its slice</td></tr>
+          <tr><td class="aspect">Work in progress</td><td class="them">Stranded on one machine</td><td class="us">Snapshotted to the server — kill the box, re-attach anywhere</td></tr>
+          <tr><td class="aspect">Identity</td><td class="them">Every agent pushes as you</td><td class="us">Each agent is a named principal with its own token</td></tr>
+          <tr><td class="aspect">Guardrails</td><td class="them">Whatever your token allows</td><td class="us">Path allowlists, diff caps, secret scan, no self-approval — enforced at the server</td></tr>
+          <tr><td class="aspect">Getting code in</td><td class="them">Hand-merge the branches later</td><td class="us">Each agent's work arrives as stacked, reviewable changes behind the same gates as humans</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="sectionsub" style="margin-top:28px; margin-bottom:14px;">The agent's whole interface is the same CLI your engineers use — taught by a generated <code>AGENTS.md</code>, with policy enforced where it can't be prompt-engineered away:</p>
       <div class="terminal">
-<span class="c"># the same three commands your agents learn from the generated AGENTS.md</span><br>
 <span class="g">$</span> runko change push          <span class="c"># stack's tip → review; every change in the stack updates</span><br>
 <span class="g">$</span> runko change requirements  <span class="c"># owners + checks outstanding, as structured JSON with --json</span><br>
-<span class="g">$</span> runko change land          <span class="c"># gates enforced server-side; agents can never approve themselves</span><br>
-<br>
-<span class="c"># agent guardrails are receive-time policy, not prompt engineering:</span><br>
-<span class="v">agent policy</span> → workspace affinity required · path allow/deny · diff caps · no self-approval · no solo ownership
+<span class="g">$</span> runko change land          <span class="c"># gates enforced server-side; agents can never approve themselves</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="landing">
+    <div class="wrap">
+      <h2>And landing works like it should</h2>
+      <p class="sectionsub">Everything below is shipped and tested against a real daemon, real Git, and a real Postgres — not a roadmap.</p>
+      <div class="grid">
+        <div class="card"><h3><span class="glyph">⌥</span>Stacked changes, jj-native</h3><p>Jujutsu is the primary client: rework the <em>root</em> of a stack, descendants rebase themselves, and one push updates every change on the server. Plain <code>git push</code> stays fully supported.</p></div>
+        <div class="card"><h3><span class="glyph">✓</span>Gates that can't be skipped</h3><p>Owners and required checks are declared next to the code they protect. Approvals bind to the exact commit reviewed — amend it, and approval is re-earned, not carried over.</p></div>
+        <div class="card"><h3><span class="glyph">⚡</span>Land without re-running the world</h3><p>Rebase-based landing re-runs checks only when trunk actually touched something your change depends on. A lost race is a retry, never a silent overwrite.</p></div>
+        <div class="card"><h3><span class="glyph">◎</span>CI runs only what can break</h3><p>Changed paths map to projects and their dependents, fail-closed, with optional build-graph refinement (Bazel first). Your runners, your pipelines — we never run your CI.</p></div>
+        <div class="card"><h3><span class="glyph">🛡</span>One door into trunk</h3><p>Direct push is closed. Every write — human, agent, or bot — passes the same policy, secret scanning (gitleaks), and change tracking on the server.</p></div>
+        <div class="card"><h3><span class="glyph">⇄</span>Mirror to any git host</h3><p>Adopt gradually: keep a leased, divergence-guarded mirror on GitHub, GitLab, Gitea — anything that speaks git. Trust lives where you want it; truth stays yours.</p></div>
       </div>
     </div>
   </section>
