@@ -213,6 +213,7 @@ type MemStore struct {
 	orgNames    []string
 	orgMembers  map[string]map[string]string // org -> principal -> role
 	orgSettings map[string]OrgSettings
+	orgArchived map[string]bool
 	nextID      int
 	// Now overrides the clock check-run timestamps use; nil means time.Now
 	// (tests inject a fake clock to exercise §14.4.2 staleness).
@@ -615,6 +616,9 @@ func (s *MemStore) ListOrgMemberships(ctx context.Context, principal string) ([]
 	defer s.mu.Unlock()
 	var out []OrgMembership
 	for _, org := range s.orgNames {
+		if s.orgArchived[org] {
+			continue
+		}
 		if role, ok := s.orgMembers[org][principal]; ok {
 			out = append(out, OrgMembership{Org: org, Role: role})
 		}
@@ -626,6 +630,26 @@ func (s *MemStore) ListOrgNames(ctx context.Context) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string{}, s.orgNames...), nil
+}
+
+func (s *MemStore) ListOrgRecords(ctx context.Context) ([]OrgRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]OrgRecord, 0, len(s.orgNames))
+	for _, n := range s.orgNames {
+		out = append(out, OrgRecord{Name: n, Archived: s.orgArchived[n]})
+	}
+	return out, nil
+}
+
+func (s *MemStore) SetOrgArchived(ctx context.Context, orgName string, archived bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.orgArchived == nil {
+		s.orgArchived = map[string]bool{}
+	}
+	s.orgArchived[orgName] = archived
+	return nil
 }
 
 func (s *MemStore) RemoveOrgMember(ctx context.Context, orgName, principal string) error {

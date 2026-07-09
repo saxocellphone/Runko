@@ -467,10 +467,11 @@ type Monorepo struct {
 }
 
 type Org struct {
-	ID        uuid.UUID          `json:"id"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	Settings  []byte             `json:"settings"`
+	ID         uuid.UUID          `json:"id"`
+	Name       string             `json:"name"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	Settings   []byte             `json:"settings"`
+	ArchivedAt pgtype.Timestamptz `json:"archived_at"`
 }
 
 type OrgMember struct {

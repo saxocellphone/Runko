@@ -10,6 +10,10 @@ SELECT * FROM orgs WHERE name = $1;
 -- name: ListOrgs :many
 SELECT * FROM orgs ORDER BY created_at;
 
+-- name: SetOrgArchived :exec
+UPDATE orgs SET archived_at = CASE WHEN sqlc.arg(archived)::boolean THEN now() ELSE NULL END
+WHERE name = sqlc.arg(org_name)::text;
+
 -- Org membership (db/migrations/0007): which store-backed principals may
 -- reach an org's /o/<name>/ surface at all. Roles: 'admin' (may add
 -- members) or 'member'. Operator principals and the deploy token are
@@ -49,6 +53,7 @@ WHERE name = sqlc.arg(org_name)::text;
 SELECT o.name AS org_name, m.role FROM org_members m
 JOIN orgs o ON o.id = m.org_id
 WHERE m.principal_name = sqlc.arg(principal_name)::text
+  AND o.archived_at IS NULL
 ORDER BY o.name;
 
 -- name: CreateMonorepo :one

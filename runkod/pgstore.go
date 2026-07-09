@@ -763,6 +763,28 @@ func (s *PostgresStore) UpdateOrgSettings(ctx context.Context, orgName string, s
 	return nil
 }
 
+func (s *PostgresStore) ListOrgRecords(ctx context.Context) ([]OrgRecord, error) {
+	rows, err := s.Queries.ListOrgs(ctx, s.Pool)
+	if err != nil {
+		return nil, fmt.Errorf("runkod: list orgs: %w", err)
+	}
+	out := make([]OrgRecord, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, OrgRecord{Name: r.Name, Archived: r.ArchivedAt.Valid})
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) SetOrgArchived(ctx context.Context, orgName string, archived bool) error {
+	err := s.Queries.SetOrgArchived(ctx, s.Pool, dbgen.SetOrgArchivedParams{
+		OrgName: orgName, Archived: archived,
+	})
+	if err != nil {
+		return fmt.Errorf("runkod: set org %q archived=%v: %w", orgName, archived, err)
+	}
+	return nil
+}
+
 func (s *PostgresStore) ListOrgNames(ctx context.Context) ([]string, error) {
 	rows, err := s.Queries.ListOrgs(ctx, s.Pool)
 	if err != nil {

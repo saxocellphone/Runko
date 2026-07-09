@@ -33,7 +33,7 @@ func (q *Queries) CreateMonorepo(ctx context.Context, db DBTX, arg CreateMonorep
 }
 
 const createOrg = `-- name: CreateOrg :one
-INSERT INTO orgs (name) VALUES ($1) RETURNING id, name, created_at, settings
+INSERT INTO orgs (name) VALUES ($1) RETURNING id, name, created_at, settings, archived_at
 `
 
 func (q *Queries) CreateOrg(ctx context.Context, db DBTX, name string) (*Org, error) {
@@ -44,6 +44,7 @@ func (q *Queries) CreateOrg(ctx context.Context, db DBTX, name string) (*Org, er
 		&i.Name,
 		&i.CreatedAt,
 		&i.Settings,
+		&i.ArchivedAt,
 	)
 	return &i, err
 }
@@ -98,7 +99,7 @@ func (q *Queries) GetMonorepoByOrg(ctx context.Context, db DBTX, orgID uuid.UUID
 }
 
 const getOrg = `-- name: GetOrg :one
-SELECT id, name, created_at, settings FROM orgs WHERE id = $1
+SELECT id, name, created_at, settings, archived_at FROM orgs WHERE id = $1
 `
 
 func (q *Queries) GetOrg(ctx context.Context, db DBTX, id uuid.UUID) (*Org, error) {
@@ -109,12 +110,13 @@ func (q *Queries) GetOrg(ctx context.Context, db DBTX, id uuid.UUID) (*Org, erro
 		&i.Name,
 		&i.CreatedAt,
 		&i.Settings,
+		&i.ArchivedAt,
 	)
 	return &i, err
 }
 
 const getOrgByName = `-- name: GetOrgByName :one
-SELECT id, name, created_at, settings FROM orgs WHERE name = $1
+SELECT id, name, created_at, settings, archived_at FROM orgs WHERE name = $1
 `
 
 func (q *Queries) GetOrgByName(ctx context.Context, db DBTX, name string) (*Org, error) {
@@ -125,6 +127,7 @@ func (q *Queries) GetOrgByName(ctx context.Context, db DBTX, name string) (*Org,
 		&i.Name,
 		&i.CreatedAt,
 		&i.Settings,
+		&i.ArchivedAt,
 	)
 	return &i, err
 }
@@ -194,6 +197,7 @@ const listOrgMembershipsForPrincipal = `-- name: ListOrgMembershipsForPrincipal 
 SELECT o.name AS org_name, m.role FROM org_members m
 JOIN orgs o ON o.id = m.org_id
 WHERE m.principal_name = $1::text
+  AND o.archived_at IS NULL
 ORDER BY o.name
 `
 
@@ -223,7 +227,7 @@ func (q *Queries) ListOrgMembershipsForPrincipal(ctx context.Context, db DBTX, p
 }
 
 const listOrgs = `-- name: ListOrgs :many
-SELECT id, name, created_at, settings FROM orgs ORDER BY created_at
+SELECT id, name, created_at, settings, archived_at FROM orgs ORDER BY created_at
 `
 
 func (q *Queries) ListOrgs(ctx context.Context, db DBTX) ([]*Org, error) {
@@ -240,6 +244,7 @@ func (q *Queries) ListOrgs(ctx context.Context, db DBTX) ([]*Org, error) {
 			&i.Name,
 			&i.CreatedAt,
 			&i.Settings,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -249,6 +254,21 @@ func (q *Queries) ListOrgs(ctx context.Context, db DBTX) ([]*Org, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setOrgArchived = `-- name: SetOrgArchived :exec
+UPDATE orgs SET archived_at = CASE WHEN $1::boolean THEN now() ELSE NULL END
+WHERE name = $2::text
+`
+
+type SetOrgArchivedParams struct {
+	Archived bool   `json:"archived"`
+	OrgName  string `json:"org_name"`
+}
+
+func (q *Queries) SetOrgArchived(ctx context.Context, db DBTX, arg SetOrgArchivedParams) error {
+	_, err := db.Exec(ctx, setOrgArchived, arg.Archived, arg.OrgName)
+	return err
 }
 
 const updateOrgSettings = `-- name: UpdateOrgSettings :exec

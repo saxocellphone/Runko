@@ -1914,3 +1914,21 @@ a.chip-origin:hover {
 .ws-branch-change:hover {
   color: var(--accent);
 }
+
+/* Deployment admin panel. */
+.admin-estate {
+  max-width: 900px;
+}
+.admin-chip {
+  margin-left: 8px;
+}
+.admin-desc {
+  color: var(--text-2);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+tr.admin-archived td {
+  opacity: 0.6;
+}

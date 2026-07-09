@@ -52,6 +52,12 @@ type Directory interface {
 	ListOrgMembers(ctx context.Context, orgName string) ([]OrgMember, error)
 	ListOrgMemberships(ctx context.Context, principal string) ([]OrgMembership, error)
 	ListOrgNames(ctx context.Context) ([]string, error)
+	// ListOrgRecords is the admin view: every org row, archived included.
+	ListOrgRecords(ctx context.Context) ([]OrgRecord, error)
+	// SetOrgArchived flips the archive bit (admin panel; finding #19's
+	// org lifecycle). Archived orgs keep their row and repo - recovery
+	// is unarchive, never restore-from-backup.
+	SetOrgArchived(ctx context.Context, orgName string, archived bool) error
 	// GetOrgSettings returns the zero value for an org with nothing set.
 	GetOrgSettings(ctx context.Context, orgName string) (OrgSettings, error)
 	UpdateOrgSettings(ctx context.Context, orgName string, settings OrgSettings) error
@@ -61,6 +67,12 @@ type Directory interface {
 type OrgMember struct {
 	Name string `json:"name"`
 	Role string `json:"role"`
+}
+
+// OrgRecord is one org row as the ADMIN panel sees it.
+type OrgRecord struct {
+	Name     string `json:"name"`
+	Archived bool   `json:"archived"`
 }
 
 // OrgSettings is the org settings page's storage shape (migration 0008,
@@ -129,8 +141,9 @@ type OrgHub struct {
 	// Ctx bounds per-org workers; nil means context.Background().
 	Ctx context.Context
 
-	mu   sync.Mutex
-	orgs map[string]http.Handler
+	mu       sync.Mutex
+	orgs     map[string]http.Handler
+	archived map[string]bool
 }
 
 func (h *OrgHub) ctx() context.Context {
@@ -176,6 +189,17 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	})))
 	mux.Handle("/api/orgs/{org}/settings", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodGet: h.handleGetOrgSettings, http.MethodPut: h.handlePutOrgSettings,
+	})))
+	// Deployment admin surface (operator-only): the whole org estate,
+	// archived included, plus the archive lifecycle (finding #19).
+	mux.Handle("/api/admin/orgs", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
+		http.MethodGet: h.handleAdminOrgs,
+	})))
+	mux.Handle("/api/orgs/{org}/archive", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
+		http.MethodPost: h.archiveHandler(true),
+	})))
+	mux.Handle("/api/orgs/{org}/unarchive", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
+		http.MethodPost: h.archiveHandler(false),
 	})))
 	// Sign-up at the hub level supersedes the default server's own
 	// handler (more-specific mux pattern): the standard SaaS shape is
@@ -326,6 +350,17 @@ func (h *OrgHub) routeOrg(w http.ResponseWriter, r *http.Request, defaultHandler
 		target = h.orgs[name]
 		h.mu.Unlock()
 	}
+	h.mu.Lock()
+	isArchived := h.archived[name]
+	h.mu.Unlock()
+	if isArchived {
+		writeAPIError(w, typedErr(http.StatusGone, clierr.Error{
+			Code: "org_archived", Field: "org",
+			Message:    fmt.Sprintf("org %q is archived - its repo is kept, its surface is closed", name),
+			Suggestion: "an operator can restore it: POST /api/orgs/" + name + "/unarchive",
+		}))
+		return
+	}
 	if target == nil {
 		writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
 			Code: "unknown_org", Field: "org",
@@ -415,19 +450,29 @@ func (h *OrgHub) createOrg(ctx context.Context, name, creator string, requireNew
 // boot path for durable deployments. The default org's own row (created
 // by the store bootstrap) is skipped: it is already mounted at root.
 func (h *OrgHub) LoadExisting(ctx context.Context) ([]string, error) {
-	names, err := h.Directory.ListOrgNames(ctx)
+	records, err := h.Directory.ListOrgRecords(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var loaded []string
-	for _, name := range names {
-		if name == h.DefaultOrgName {
+	for _, rec := range records {
+		if rec.Name == h.DefaultOrgName {
 			continue
 		}
-		if apiErr := h.createOrg(ctx, name, "", false); apiErr != nil {
-			return loaded, fmt.Errorf("reload org %q: %s", name, apiErr.Err.Message)
+		// Archived orgs are mounted too (unarchive must route without a
+		// restart) - routeOrg answers 410 for them until then.
+		if apiErr := h.createOrg(ctx, rec.Name, "", false); apiErr != nil {
+			return loaded, fmt.Errorf("reload org %q: %s", rec.Name, apiErr.Err.Message)
 		}
-		loaded = append(loaded, name)
+		if rec.Archived {
+			h.mu.Lock()
+			if h.archived == nil {
+				h.archived = map[string]bool{}
+			}
+			h.archived[rec.Name] = true
+			h.mu.Unlock()
+		}
+		loaded = append(loaded, rec.Name)
 	}
 	return loaded, nil
 }
@@ -531,15 +576,18 @@ func (h *OrgHub) handleListOrgs(w http.ResponseWriter, r *http.Request) {
 	// everything: they run the place.
 	out := []orgInfo{}
 	if isOperator(c) {
-		names, err := h.Directory.ListOrgNames(r.Context())
+		records, err := h.Directory.ListOrgRecords(r.Context())
 		if err != nil {
 			writeAPIError(w, internalErr(err))
 			return
 		}
 		seen := map[string]bool{}
-		for _, n := range names {
-			seen[n] = true
-			out = append(out, h.orgInfoFor(n, "operator"))
+		for _, rec := range records {
+			seen[rec.Name] = true
+			if rec.Archived {
+				continue // the selector lists LIVE orgs; admin panel shows the rest
+			}
+			out = append(out, h.orgInfoFor(rec.Name, "operator"))
 		}
 		// Mem-mode directories only know orgs registered this process;
 		// the hub's map + the default org are authoritative for routing.
@@ -785,4 +833,101 @@ func (h *OrgHub) handleAddOrgMember(w http.ResponseWriter, r *http.Request) {
 // a repo mount ("monorepo.git" -> "monorepo").
 func TrimGitSuffix(mount string) string {
 	return strings.TrimSuffix(mount, ".git")
+}
+
+// ---- deployment admin surface (operator-only) --------------------------
+
+// requireOperator: the admin panel is for whoever RUNS the deployment -
+// the anonymous deploy token and flag-configured principals. Org admins
+// administer their org via its settings page, not this.
+func (h *OrgHub) requireOperator(w http.ResponseWriter, r *http.Request) (caller, bool) {
+	c, apiErr := h.hubCaller(r)
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
+		return c, false
+	}
+	if !isOperator(c) {
+		writeAPIError(w, typedErr(http.StatusForbidden, clierr.Error{
+			Code: "operator_only", Field: "admin",
+			Message:    "this is the deployment admin surface - operator credentials only",
+			Suggestion: "sign in with an operator principal (--principal) or the deploy token",
+		}))
+		return c, false
+	}
+	return c, true
+}
+
+type adminOrgRow struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Members     []string `json:"members"`
+	Archived    bool     `json:"archived"`
+	Default     bool     `json:"default"`
+}
+
+func (h *OrgHub) handleAdminOrgs(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireOperator(w, r); !ok {
+		return
+	}
+	records, err := h.Directory.ListOrgRecords(r.Context())
+	if err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
+	// The default org is a row like any other here; mem-mode directories
+	// may not carry it, so union it in.
+	names := map[string]bool{}
+	for _, rec := range records {
+		names[rec.Name] = true
+	}
+	if h.DefaultOrgName != "" && !names[h.DefaultOrgName] {
+		records = append([]OrgRecord{{Name: h.DefaultOrgName}}, records...)
+	}
+	rows := []adminOrgRow{}
+	for _, rec := range records {
+		row := adminOrgRow{Name: rec.Name, Archived: rec.Archived, Default: rec.Name == h.DefaultOrgName}
+		if settings, err := h.Directory.GetOrgSettings(r.Context(), rec.Name); err == nil {
+			row.Description = settings.Description
+		}
+		if members, err := h.Directory.ListOrgMembers(r.Context(), rec.Name); err == nil {
+			for _, m := range members {
+				row.Members = append(row.Members, m.Name)
+			}
+		}
+		rows = append(rows, row)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"orgs": rows})
+}
+
+func (h *OrgHub) archiveHandler(archive bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := h.requireOperator(w, r); !ok {
+			return
+		}
+		orgName := r.PathValue("org")
+		if orgName == h.DefaultOrgName {
+			writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+				Code: "default_org_immutable", Field: "org",
+				Message: "the default org is this deployment's root mount - it cannot be archived",
+			}))
+			return
+		}
+		if !h.knownOrg(orgName) {
+			writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
+				Code: "unknown_org", Field: "org", Message: fmt.Sprintf("no org named %q", orgName),
+			}))
+			return
+		}
+		if err := h.Directory.SetOrgArchived(r.Context(), orgName, archive); err != nil {
+			writeAPIError(w, internalErr(err))
+			return
+		}
+		h.mu.Lock()
+		if h.archived == nil {
+			h.archived = map[string]bool{}
+		}
+		h.archived[orgName] = archive
+		h.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "archived": archive})
+	}
 }

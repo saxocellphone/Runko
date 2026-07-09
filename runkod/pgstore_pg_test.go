@@ -583,6 +583,34 @@ func TestPostgresDirectoryMultiOrg(t *testing.T) {
 		t.Fatalf("re-add alice: %v", err)
 	}
 
+	// Archive round-trip (migration 0009): the record flips, memberships
+	// hide the archived org, unarchive restores both.
+	if err := def.SetOrgArchived(ctx, "acme", true); err != nil {
+		t.Fatalf("SetOrgArchived: %v", err)
+	}
+	recs, err := def.ListOrgRecords(ctx)
+	if err != nil {
+		t.Fatalf("ListOrgRecords: %v", err)
+	}
+	archived := false
+	for _, r := range recs {
+		if r.Name == "acme" {
+			archived = r.Archived
+		}
+	}
+	if !archived {
+		t.Fatalf("acme should read archived: %+v", recs)
+	}
+	if ms, _ := def.ListOrgMemberships(ctx, "alice"); len(ms) != 0 {
+		t.Fatalf("memberships should hide archived orgs, got %+v", ms)
+	}
+	if err := def.SetOrgArchived(ctx, "acme", false); err != nil {
+		t.Fatalf("unarchive: %v", err)
+	}
+	if ms, _ := def.ListOrgMemberships(ctx, "alice"); len(ms) != 1 {
+		t.Fatalf("memberships should return after unarchive, got %+v", ms)
+	}
+
 	// Store isolation on the shared pool: a Change in acme is invisible
 	// from the default org's store.
 	if _, err := acme.CreateOrUpdateChange(ctx, "Iacme000000000000000000000000000000000000",

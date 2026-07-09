@@ -6,6 +6,7 @@ import { ChangePage } from "./pages/ChangePage";
 import { ChangesPage } from "./pages/ChangesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NewProjectPage } from "./pages/NewProjectPage";
+import { AdminPage } from "./pages/AdminPage";
 import { OrgSettingsPage } from "./pages/OrgSettingsPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/workspaces" element={<WorkspacesPage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/settings" element={<OrgSettingsPage />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="*" element={<Navigate to="/changes" replace />} />
       </Route>
     </Routes>

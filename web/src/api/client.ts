@@ -60,6 +60,14 @@ export const authUser: string | null =
 /** True when this browser holds a credential (named or anonymous). */
 export const signedIn = !usingDemoData && !!storedBasic;
 
+/** Operator session (deploy token / flag principal): sees the deployment
+ * admin panel. Display state - every admin endpoint re-checks. The
+ * dev-token loop is an operator by construction. */
+export const isOperator =
+  !usingDemoData &&
+  ((!!storedBasic && window.localStorage.getItem("runko-operator") === "1") ||
+    (!storedBasic && !!devToken));
+
 /** Live transport configured but no credential in this browser yet: every
  * RPC will 401, so App gates on the sign-in screen. */
 export const liveUnauthenticated = !usingDemoData && !storedBasic && !devToken;
@@ -190,6 +198,32 @@ export async function removeOrgMember(org: string, name: string): Promise<void> 
   if (!res.ok) await throwStructured(res, "removing member failed");
 }
 
+export interface AdminOrgRow {
+  name: string;
+  description: string;
+  members: string[] | null;
+  archived: boolean;
+  default: boolean;
+}
+
+/** The deployment's whole org estate (operator-only; archived included). */
+export async function fetchAdminOrgs(): Promise<AdminOrgRow[]> {
+  const res = await fetch(new URL("api/admin/orgs", baseUrl), { headers: authHeaders() });
+  if (!res.ok) await throwStructured(res, "loading the org estate failed");
+  const d = (await res.json()) as { orgs?: AdminOrgRow[] };
+  return d.orgs ?? [];
+}
+
+/** Archive/unarchive an org (operator-only). Archived orgs keep row +
+ * repo; their whole surface answers 410 until unarchived. */
+export async function setOrgArchived(org: string, archived: boolean): Promise<void> {
+  const res = await fetch(new URL(`api/orgs/${org}/${archived ? "archive" : "unarchive"}`, baseUrl), {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) await throwStructured(res, "changing archive state failed");
+}
+
 /** Switch this browser to another of YOUR orgs and reload so every client
  * rebinds its transport. Sessions are always org-scoped; the transport
  * runs through /o/<org>/ for every org, the default one included. */
@@ -217,12 +251,15 @@ export async function signIn(name: string, password: string, org: string): Promi
   if (res.status === 403) throw new Error(`your account is not a member of org “${org}”`);
   if (res.status === 404) throw new Error(`no org named “${org}” here — check the spelling`);
   if (!res.ok) throw new Error(`runkod answered HTTP ${res.status}`);
-  const who = (await res.json()) as { name?: string; anonymous?: boolean };
+  const who = (await res.json()) as { name?: string; anonymous?: boolean; operator?: boolean };
   // A deploy-token password signs in "anonymous" - allowed (it is the
-  // operator credential) but shown as such.
+  // operator credential) but shown as such. Operator-ness (server config,
+  // not signup rows) gates the deployment admin panel; display state
+  // only - the server re-checks on every admin call.
   window.localStorage.setItem("runko-user", who.anonymous ? "" : (who.name ?? name));
   window.localStorage.setItem("runko-basic", basic);
   window.localStorage.setItem("runko-org", org);
+  window.localStorage.setItem("runko-operator", who.operator ? "1" : "0");
   window.location.reload();
 }
 

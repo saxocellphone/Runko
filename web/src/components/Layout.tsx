@@ -5,6 +5,7 @@ import {
   createOrg,
   currentOrg,
   fetchOrgs,
+  isOperator,
   onDemoRoute,
   signedIn,
   signOut,
@@ -45,6 +46,12 @@ export function Layout() {
             {label}
           </NavLink>
         ))}
+        {isOperator && (
+          <NavLink to="/admin" className="nav-link">
+            <AdminIcon />
+            Admin
+          </NavLink>
+        )}
         <div className="sidebar-foot">
           {onDemoRoute ? (
             <div className="demo-badge">
@@ -203,6 +210,15 @@ function SearchIcon() {
     <svg {...iconProps} aria-hidden>
       <circle cx="7" cy="7" r="4.5" />
       <line x1="10.5" y1="10.5" x2="14" y2="14" />
+    </svg>
+  );
+}
+
+function AdminIcon() {
+  return (
+    <svg {...iconProps} aria-hidden>
+      <path d="M8 1.8l5 2.2v3.6c0 3.2-2.1 5.6-5 6.6-2.9-1-5-3.4-5-6.6V4z" />
+      <path d="M5.8 8l1.6 1.6L10.5 6.4" />
     </svg>
   );
 }

@@ -549,3 +549,102 @@ func TestOrgScopedSessionsIsolation(t *testing.T) {
 		t.Fatalf("dora should see exactly the default org, got %v", body)
 	}
 }
+
+// TestAdminPanelAndOrgArchive covers the deployment admin surface: the
+// org estate listing and the archive lifecycle (finding #19). Operators
+// only; archiving closes the org's whole surface (410, uniformly) and
+// hides it from member listings while keeping row + repo; unarchive
+// restores routing without a restart; the default org is immovable.
+func TestAdminPanelAndOrgArchive(t *testing.T) {
+	srv, _ := newTestHub(t, true)
+	hubSignup(t, srv, "alice", "alicepw123")
+	if status, _ := hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}); status != http.StatusCreated {
+		t.Fatalf("create acme failed")
+	}
+
+	// Operator-only: a store account (even an org admin) is refused.
+	status, body := hubDo(t, srv, "GET", "/api/admin/orgs", "alice", "alicepw123", "", nil)
+	if status != http.StatusForbidden || body["Code"] != "operator_only" {
+		t.Fatalf("store account on admin surface: %d %v", status, body)
+	}
+	status, body = hubDo(t, srv, "POST", "/api/orgs/acme/archive", "alice", "alicepw123", "", nil)
+	if status != http.StatusForbidden {
+		t.Fatalf("store account archiving: %d %v", status, body)
+	}
+
+	// The estate listing (deploy token = operator) shows both orgs.
+	status, body = hubDo(t, srv, "GET", "/api/admin/orgs", "", "", "sekret", nil)
+	if status != http.StatusOK {
+		t.Fatalf("admin orgs: %d", status)
+	}
+	rows := body["orgs"].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("estate should list default + acme, got %v", rows)
+	}
+
+	// Archive: surface closes with 410 for EVERYONE, selector listings
+	// hide it, admin listing still shows it (flagged).
+	if status, _ = hubDo(t, srv, "POST", "/api/orgs/acme/archive", "", "", "sekret", nil); status != http.StatusOK {
+		t.Fatalf("archive: %d", status)
+	}
+	status, body = hubDo(t, srv, "GET", "/o/acme/api/changes", "alice", "alicepw123", "", nil)
+	if status != http.StatusGone || body["Code"] != "org_archived" {
+		t.Fatalf("archived org should answer 410 org_archived, got %d %v", status, body)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/o/acme/api/changes", "", "", "sekret", nil); status != http.StatusGone {
+		t.Fatalf("archived org should be 410 even for operators, got %d", status)
+	}
+	status, body = hubDo(t, srv, "GET", "/api/orgs", "alice", "alicepw123", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("list orgs: %d", status)
+	}
+	for _, o := range body["orgs"].([]any) {
+		if o.(map[string]any)["name"] == "acme" {
+			t.Fatalf("archived org leaked into the selector listing: %v", body)
+		}
+	}
+	status, body = hubDo(t, srv, "GET", "/api/admin/orgs", "", "", "sekret", nil)
+	found := false
+	for _, o := range body["orgs"].([]any) {
+		row := o.(map[string]any)
+		if row["name"] == "acme" {
+			found = true
+			if row["archived"] != true {
+				t.Fatalf("admin listing should flag the archive: %v", row)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("admin listing must keep archived orgs visible: %v", body)
+	}
+
+	// Name stays taken while archived.
+	if status, _ = hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}); status != http.StatusConflict {
+		t.Fatalf("archived org's name should stay taken: %d", status)
+	}
+
+	// Unarchive restores routing in-place.
+	if status, _ = hubDo(t, srv, "POST", "/api/orgs/acme/unarchive", "", "", "sekret", nil); status != http.StatusOK {
+		t.Fatalf("unarchive: %d", status)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/o/acme/api/changes", "alice", "alicepw123", "", nil); status != http.StatusOK {
+		t.Fatalf("unarchived org should serve again: %d", status)
+	}
+
+	// The default org is immovable.
+	status, body = hubDo(t, srv, "POST", "/api/orgs/defaultorg/archive", "", "", "sekret", nil)
+	if status != http.StatusBadRequest || body["Code"] != "default_org_immutable" {
+		t.Fatalf("default org archive: %d %v", status, body)
+	}
+
+	// whoami tells the web who gets the panel: operator for the deploy
+	// token, not for a store account.
+	status, body = hubDo(t, srv, "GET", "/api/whoami", "", "", "sekret", nil)
+	if status != http.StatusOK || body["operator"] != true {
+		t.Fatalf("deploy-token whoami should be operator: %d %v", status, body)
+	}
+	status, body = hubDo(t, srv, "GET", "/api/whoami", "alice", "alicepw123", "", nil)
+	if status != http.StatusOK || body["operator"] != false {
+		t.Fatalf("store-account whoami should not be operator: %d %v", status, body)
+	}
+}
