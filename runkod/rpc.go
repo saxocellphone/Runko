@@ -848,6 +848,7 @@ func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
 		LandedForced:    c.LandedForced,
 		OriginWorkspace: c.OriginWorkspace,
 		OriginBranch:    c.OriginBranch,
+		BaseOnTrunk:     s.baseOnTrunk(c.BaseSHA),
 	}
 	if c.AuthoredBy != "" {
 		t := runkov1.ActorType_ACTOR_TYPE_USER

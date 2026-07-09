@@ -959,7 +959,12 @@ type ChangeSummary struct {
 	OriginBranch    string `protobuf:"bytes,13,opt,name=origin_branch,json=originBranch,proto3" json:"origin_branch,omitempty"`
 	// True when the change was landed via the admin force override (§13.5) -
 	// the durable audit bit, straight from the changes.landed_forced column.
-	LandedForced  bool `protobuf:"varint,14,opt,name=landed_forced,json=landedForced,proto3" json:"landed_forced,omitempty"`
+	LandedForced bool `protobuf:"varint,14,opt,name=landed_forced,json=landedForced,proto3" json:"landed_forced,omitempty"`
+	// Whether base_sha is an ancestor of trunk - i.e. this change really
+	// sits on main. False for stacked changes (base = an open parent's
+	// head) and for STRANDED ones (base = an abandoned/unknown commit);
+	// the UI must not draw either as rooted on trunk (2026-07-09).
+	BaseOnTrunk   bool `protobuf:"varint,15,opt,name=base_on_trunk,json=baseOnTrunk,proto3" json:"base_on_trunk,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1088,6 +1093,13 @@ func (x *ChangeSummary) GetOriginBranch() string {
 func (x *ChangeSummary) GetLandedForced() bool {
 	if x != nil {
 		return x.LandedForced
+	}
+	return false
+}
+
+func (x *ChangeSummary) GetBaseOnTrunk() bool {
+	if x != nil {
+		return x.BaseOnTrunk
 	}
 	return false
 }
@@ -1458,7 +1470,7 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\bprojects\x18\x02 \x03(\v2\x18.runko.v1.ProjectSummaryR\bprojects\x12\x14\n" +
 	"\x05paths\x18\x03 \x03(\tR\x05paths\x127\n" +
 	"\freason_codes\x18\x04 \x03(\x0e2\x14.runko.v1.ReasonCodeR\vreasonCodes\x12%\n" +
-	"\x0erun_everything\x18\x05 \x01(\bR\rrunEverything\"\xc3\x03\n" +
+	"\x0erun_everything\x18\x05 \x01(\bR\rrunEverything\"\xe7\x03\n" +
 	"\rChangeSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12+\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x15.runko.v1.ChangeStateR\x05state\x12\x19\n" +
@@ -1476,7 +1488,8 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\x03url\x18\v \x01(\tR\x03url\x12)\n" +
 	"\x10origin_workspace\x18\f \x01(\tR\x0foriginWorkspace\x12#\n" +
 	"\rorigin_branch\x18\r \x01(\tR\foriginBranch\x12#\n" +
-	"\rlanded_forced\x18\x0e \x01(\bR\flandedForced\"\xc4\x01\n" +
+	"\rlanded_forced\x18\x0e \x01(\bR\flandedForced\x12\"\n" +
+	"\rbase_on_trunk\x18\x0f \x01(\bR\vbaseOnTrunk\"\xc4\x01\n" +
 	"\x11MergeRequirements\x12\x1b\n" +
 	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12+\n" +
 	"\x06owners\x18\x02 \x01(\v2\x13.runko.v1.OwnerGateR\x06owners\x12+\n" +

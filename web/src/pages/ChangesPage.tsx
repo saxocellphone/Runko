@@ -149,7 +149,13 @@ function StackCard({
       ))}
       <div className="stack-row stack-row-trunk">
         <RailGraphTrunk lanes={layout.lanes} />
-        <div className="change-line">main</div>
+        {root.change.baseOnTrunk ? (
+          <div className="change-line">main</div>
+        ) : (
+          <div className="change-line anchor-warn" title="This stack's base commit is not on trunk - its parent change was abandoned or landed as a different commit. Rebase onto trunk and re-push.">
+            ⚠ not on main
+          </div>
+        )}
         <span />
       </div>
     </section>

@@ -312,3 +312,34 @@ func (s *Server) attachBlameChanges(ctx context.Context, regions []blameRegion) 
 	}
 	return nil
 }
+
+// baseOnTrunk reports whether base is an ancestor of trunk - i.e. the
+// change genuinely sits on main. "" (a bootstrap change on a then-unborn
+// trunk) counts as on-trunk; any error counts as NOT (never claim trunk
+// ancestry we can't prove).
+func (s *Server) baseOnTrunk(base string) bool {
+	if base == "" {
+		return true
+	}
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", base, "refs/heads/"+s.TrunkRef)
+	cmd.Dir = s.RepoDir
+	return cmd.Run() == nil
+}
+
+// changeWithHead finds the Change (any state) whose head is the given
+// commit - the stack-parent lookup for honest blockers.
+func (s *Server) changeWithHead(ctx context.Context, head string) (Change, bool) {
+	if head == "" {
+		return Change{}, false
+	}
+	all, err := s.Store.ListChanges(ctx, "")
+	if err != nil {
+		return Change{}, false
+	}
+	for _, c := range all {
+		if c.HeadSHA == head {
+			return c, true
+		}
+	}
+	return Change{}, false
+}

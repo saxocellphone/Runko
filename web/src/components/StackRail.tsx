@@ -45,7 +45,13 @@ export function StackRail({
       })}
       <div className="rail-item trunk">
         <RailGraphTrunk lanes={lanes} />
-        <span className="rail-item-body">main</span>
+        {stack.length > 0 && !stack[0]!.baseOnTrunk ? (
+          <span className="rail-item-body anchor-warn" title="This stack's base commit is not on trunk - rebase onto trunk and re-push.">
+            ⚠ not on main
+          </span>
+        ) : (
+          <span className="rail-item-body">main</span>
+        )}
       </div>
     </nav>
   );
