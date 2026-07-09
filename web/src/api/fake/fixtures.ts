@@ -1074,3 +1074,83 @@ export const searchCorpus: SearchDoc[] = [
     ],
   },
 ];
+
+// ------------------------------------------------- history + blame (browse)
+
+/** One fake commit for the browse page's history/blame views. */
+export interface FakeCommit {
+  sha: string;
+  subject: string;
+  authorName: string;
+  authorEmail: string;
+  authoredAt: number; // unix seconds
+  changeId: string; // "" = pre-Runko history (no trailer)
+  changeState: ChangeState; // UNSPECIFIED when no Change row exists
+  paths: string[]; // files this commit touched
+}
+
+const daysAgo = (d: number) => Math.floor(Date.now() / 1000) - Math.floor(d * 86400);
+
+/** Newest first, mirroring `git log`. Rows reuse the demo Changes so the
+ * history view's change links land on real fixture pages. */
+export const fakeHistory: FakeCommit[] = [
+  {
+    sha: fakeSha("hist-authz-cache"),
+    subject: "authz: cache group membership lookups (5m TTL)",
+    authorName: "Val Kim",
+    authorEmail: "val@acme.dev",
+    authoredAt: daysAgo(0.2),
+    changeId: soloChange.id,
+    changeState: ChangeState.OPEN,
+    paths: ["platform/authz/cache.go", "platform/authz/authz.go"],
+  },
+  {
+    sha: fakeSha("landed-rounding"),
+    subject: "cart: fix rounding in order totals",
+    authorName: "Priya Shah",
+    authorEmail: "priya@acme.dev",
+    authoredAt: daysAgo(1.5),
+    changeId: landedChange.id,
+    changeState: ChangeState.LANDED,
+    paths: ["commerce/cart/totals.go", "commerce/cart/sku_test.go"],
+  },
+  {
+    sha: fakeSha("hist-inline-error"),
+    subject: "storefront: extract InlineError component",
+    authorName: "Val Kim",
+    authorEmail: "val@acme.dev",
+    authoredAt: daysAgo(6),
+    changeId: "",
+    changeState: ChangeState.UNSPECIFIED,
+    paths: ["web/storefront/src/cart/InlineError.tsx", "web/storefront/src/cart/AddToCart.tsx"],
+  },
+  {
+    sha: fakeSha("hist-sku-validation"),
+    subject: "cart: validate SKUs at add time",
+    authorName: "Priya Shah",
+    authorEmail: "priya@acme.dev",
+    authoredAt: daysAgo(19),
+    changeId: "",
+    changeState: ChangeState.UNSPECIFIED,
+    paths: ["commerce/cart/sku.go", "commerce/cart/sku_test.go", "commerce/cart/item.go"],
+  },
+  {
+    sha: fakeSha("hist-bootstrap"),
+    subject: "monorepo bootstrap: initial projects + OWNERS",
+    authorName: "Sam Ortiz",
+    authorEmail: "sam@acme.dev",
+    authoredAt: daysAgo(120),
+    changeId: "",
+    changeState: ChangeState.UNSPECIFIED,
+    paths: Object.keys(fsFiles),
+  },
+];
+
+/** Commits touching path ("" = all), newest first. */
+export function historyForPath(path: string): FakeCommit[] {
+  if (!path) return fakeHistory;
+  const clean = path.replace(/\/+$/, "");
+  return fakeHistory.filter((c) =>
+    c.paths.some((p) => p === clean || p.startsWith(clean + "/")),
+  );
+}

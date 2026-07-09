@@ -58,6 +58,8 @@ import {
   TreeEntryType,
   GetTreeResponseSchema,
   GetBlobResponseSchema,
+  ListCommitsResponseSchema,
+  BlameFileResponseSchema,
 } from "../../gen/runko/v1/repo_pb";
 import { OwnersSource, WorkspaceStatus } from "../../gen/runko/v1/common_pb";
 import type { FileDiff } from "../../gen/runko/v1/changes_pb";
@@ -71,6 +73,7 @@ import {
   workspaces as fixtureWorkspaces,
   fakeSha,
   fsFiles,
+  historyForPath,
   BINARY_MARKER,
   TRUNK_SHA,
 } from "./fixtures";
@@ -759,6 +762,69 @@ export function createFakeTransport(): Transport {
           truncated: false,
           size: BigInt(binary ? 3 : content.length),
           project: owningProject(state.projects, req.path),
+        });
+      },
+
+      async listCommits(req) {
+        await delay();
+        const all = historyForPath(req.path);
+        const size = req.pageSize > 0 ? req.pageSize : 30;
+        const off = req.pageToken ? parseInt(req.pageToken, 10) : 0;
+        const page = all.slice(off, off + size);
+        return create(ListCommitsResponseSchema, {
+          commits: page.map((c) => ({
+            sha: c.sha,
+            subject: c.subject,
+            authorName: c.authorName,
+            authorEmail: c.authorEmail,
+            authoredAt: BigInt(c.authoredAt),
+            changeId: c.changeId,
+            changeState: c.changeState,
+          })),
+          nextPageToken: off + size < all.length ? String(off + size) : "",
+          rev: req.rev || TRUNK_SHA,
+        });
+      },
+
+      async blameFile(req) {
+        await delay();
+        const content = fsFiles[req.path];
+        if (content === undefined) throw notFound("file", req.path);
+        if (content === BINARY_MARKER) {
+          return create(BlameFileResponseSchema, {
+            path: req.path,
+            rev: req.rev || TRUNK_SHA,
+            binary: true,
+          });
+        }
+        const lines = content.split("\n");
+        // Deterministic demo attribution: cycle the commits that touched
+        // this path across chunks of lines, newest owning the top.
+        const commits = historyForPath(req.path);
+        const regions = [];
+        let at = 1;
+        let i = 0;
+        while (at <= lines.length) {
+          const c = commits[i % commits.length]!;
+          const count = Math.min(3 + ((i * 2) % 4), lines.length - at + 1);
+          regions.push({
+            startLine: at,
+            lineCount: count,
+            sha: c.sha,
+            subject: c.subject,
+            authorName: c.authorName,
+            authoredAt: BigInt(c.authoredAt),
+            changeId: c.changeId,
+            changeState: c.changeState,
+          });
+          at += count;
+          i++;
+        }
+        return create(BlameFileResponseSchema, {
+          path: req.path,
+          rev: req.rev || TRUNK_SHA,
+          regions,
+          lines,
         });
       },
     });

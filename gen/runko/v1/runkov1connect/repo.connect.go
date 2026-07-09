@@ -37,6 +37,10 @@ const (
 	RepoServiceGetTreeProcedure = "/runko.v1.RepoService/GetTree"
 	// RepoServiceGetBlobProcedure is the fully-qualified name of the RepoService's GetBlob RPC.
 	RepoServiceGetBlobProcedure = "/runko.v1.RepoService/GetBlob"
+	// RepoServiceListCommitsProcedure is the fully-qualified name of the RepoService's ListCommits RPC.
+	RepoServiceListCommitsProcedure = "/runko.v1.RepoService/ListCommits"
+	// RepoServiceBlameFileProcedure is the fully-qualified name of the RepoService's BlameFile RPC.
+	RepoServiceBlameFileProcedure = "/runko.v1.RepoService/BlameFile"
 )
 
 // RepoServiceClient is a client for the runko.v1.RepoService service.
@@ -47,6 +51,16 @@ type RepoServiceClient interface {
 	// Whole file content at `rev`. Binary files return binary=true with
 	// empty content; oversized files set truncated (the UI links to git).
 	GetBlob(context.Context, *connect.Request[v1.GetBlobRequest]) (*connect.Response[v1.GetBlobResponse], error)
+	// Commits touching `path` ("" = whole repo) at/below `rev`, newest
+	// first. Files follow renames; each commit carries its Change-Id
+	// trailer and, when that Change exists on this control plane, its
+	// state - history links to REVIEWS, not just raw commits (§7.4's
+	// change-centric stance applied to the browser).
+	ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error)
+	// Per-line provenance for one file at `rev`: contiguous same-commit
+	// regions plus the file's lines (returned together so content and
+	// attribution can never come from different revisions).
+	BlameFile(context.Context, *connect.Request[v1.BlameFileRequest]) (*connect.Response[v1.BlameFileResponse], error)
 }
 
 // NewRepoServiceClient constructs a client for the runko.v1.RepoService service. By default, it
@@ -72,13 +86,27 @@ func NewRepoServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(repoServiceMethods.ByName("GetBlob")),
 			connect.WithClientOptions(opts...),
 		),
+		listCommits: connect.NewClient[v1.ListCommitsRequest, v1.ListCommitsResponse](
+			httpClient,
+			baseURL+RepoServiceListCommitsProcedure,
+			connect.WithSchema(repoServiceMethods.ByName("ListCommits")),
+			connect.WithClientOptions(opts...),
+		),
+		blameFile: connect.NewClient[v1.BlameFileRequest, v1.BlameFileResponse](
+			httpClient,
+			baseURL+RepoServiceBlameFileProcedure,
+			connect.WithSchema(repoServiceMethods.ByName("BlameFile")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // repoServiceClient implements RepoServiceClient.
 type repoServiceClient struct {
-	getTree *connect.Client[v1.GetTreeRequest, v1.GetTreeResponse]
-	getBlob *connect.Client[v1.GetBlobRequest, v1.GetBlobResponse]
+	getTree     *connect.Client[v1.GetTreeRequest, v1.GetTreeResponse]
+	getBlob     *connect.Client[v1.GetBlobRequest, v1.GetBlobResponse]
+	listCommits *connect.Client[v1.ListCommitsRequest, v1.ListCommitsResponse]
+	blameFile   *connect.Client[v1.BlameFileRequest, v1.BlameFileResponse]
 }
 
 // GetTree calls runko.v1.RepoService.GetTree.
@@ -91,6 +119,16 @@ func (c *repoServiceClient) GetBlob(ctx context.Context, req *connect.Request[v1
 	return c.getBlob.CallUnary(ctx, req)
 }
 
+// ListCommits calls runko.v1.RepoService.ListCommits.
+func (c *repoServiceClient) ListCommits(ctx context.Context, req *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error) {
+	return c.listCommits.CallUnary(ctx, req)
+}
+
+// BlameFile calls runko.v1.RepoService.BlameFile.
+func (c *repoServiceClient) BlameFile(ctx context.Context, req *connect.Request[v1.BlameFileRequest]) (*connect.Response[v1.BlameFileResponse], error) {
+	return c.blameFile.CallUnary(ctx, req)
+}
+
 // RepoServiceHandler is an implementation of the runko.v1.RepoService service.
 type RepoServiceHandler interface {
 	// Immediate children of a directory ("" = repo root) at `rev` (empty =
@@ -99,6 +137,16 @@ type RepoServiceHandler interface {
 	// Whole file content at `rev`. Binary files return binary=true with
 	// empty content; oversized files set truncated (the UI links to git).
 	GetBlob(context.Context, *connect.Request[v1.GetBlobRequest]) (*connect.Response[v1.GetBlobResponse], error)
+	// Commits touching `path` ("" = whole repo) at/below `rev`, newest
+	// first. Files follow renames; each commit carries its Change-Id
+	// trailer and, when that Change exists on this control plane, its
+	// state - history links to REVIEWS, not just raw commits (§7.4's
+	// change-centric stance applied to the browser).
+	ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error)
+	// Per-line provenance for one file at `rev`: contiguous same-commit
+	// regions plus the file's lines (returned together so content and
+	// attribution can never come from different revisions).
+	BlameFile(context.Context, *connect.Request[v1.BlameFileRequest]) (*connect.Response[v1.BlameFileResponse], error)
 }
 
 // NewRepoServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -120,12 +168,28 @@ func NewRepoServiceHandler(svc RepoServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(repoServiceMethods.ByName("GetBlob")),
 		connect.WithHandlerOptions(opts...),
 	)
+	repoServiceListCommitsHandler := connect.NewUnaryHandler(
+		RepoServiceListCommitsProcedure,
+		svc.ListCommits,
+		connect.WithSchema(repoServiceMethods.ByName("ListCommits")),
+		connect.WithHandlerOptions(opts...),
+	)
+	repoServiceBlameFileHandler := connect.NewUnaryHandler(
+		RepoServiceBlameFileProcedure,
+		svc.BlameFile,
+		connect.WithSchema(repoServiceMethods.ByName("BlameFile")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/runko.v1.RepoService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RepoServiceGetTreeProcedure:
 			repoServiceGetTreeHandler.ServeHTTP(w, r)
 		case RepoServiceGetBlobProcedure:
 			repoServiceGetBlobHandler.ServeHTTP(w, r)
+		case RepoServiceListCommitsProcedure:
+			repoServiceListCommitsHandler.ServeHTTP(w, r)
+		case RepoServiceBlameFileProcedure:
+			repoServiceBlameFileHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -141,4 +205,12 @@ func (UnimplementedRepoServiceHandler) GetTree(context.Context, *connect.Request
 
 func (UnimplementedRepoServiceHandler) GetBlob(context.Context, *connect.Request[v1.GetBlobRequest]) (*connect.Response[v1.GetBlobResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.RepoService.GetBlob is not implemented"))
+}
+
+func (UnimplementedRepoServiceHandler) ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.RepoService.ListCommits is not implemented"))
+}
+
+func (UnimplementedRepoServiceHandler) BlameFile(context.Context, *connect.Request[v1.BlameFileRequest]) (*connect.Response[v1.BlameFileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.RepoService.BlameFile is not implemented"))
 }

@@ -709,6 +709,82 @@ func (r *rpcServer) GetBlob(ctx context.Context, req *connect.Request[runkov1.Ge
 	}), nil
 }
 
+func (r *rpcServer) ListCommits(ctx context.Context, req *connect.Request[runkov1.ListCommitsRequest]) (*connect.Response[runkov1.ListCommitsResponse], error) {
+	rev, ok, apiErr := r.s.resolveRepoRev(req.Msg.Rev)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	if !ok {
+		// Unborn trunk: an empty repo has no history, not an error.
+		return connect.NewResponse(&runkov1.ListCommitsResponse{}), nil
+	}
+	limit := int(req.Msg.PageSize)
+	if limit <= 0 {
+		limit = historyPageDefault
+	}
+	if limit > historyPageMax {
+		limit = historyPageMax
+	}
+	offset := 0
+	if req.Msg.PageToken != "" {
+		v, err := strconv.Atoi(req.Msg.PageToken)
+		if err != nil || v < 0 {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid page_token %q", req.Msg.PageToken))
+		}
+		offset = v
+	}
+	commits, hasMore, err := r.s.listCommits(ctx, rev, req.Msg.Path, limit, offset)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	resp := &runkov1.ListCommitsResponse{Rev: string(rev)}
+	for _, c := range commits {
+		resp.Commits = append(resp.Commits, &runkov1.CommitInfo{
+			Sha: c.SHA, Subject: c.Subject,
+			AuthorName: c.AuthorName, AuthorEmail: c.AuthorEmail, AuthoredAt: c.AuthoredAt,
+			ChangeId: c.ChangeID, ChangeState: protoChangeState(c.ChangeState),
+		})
+	}
+	if hasMore {
+		resp.NextPageToken = strconv.Itoa(offset + limit)
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (r *rpcServer) BlameFile(ctx context.Context, req *connect.Request[runkov1.BlameFileRequest]) (*connect.Response[runkov1.BlameFileResponse], error) {
+	rev, ok, apiErr := r.s.resolveRepoRev(req.Msg.Rev)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("file not found: %s", req.Msg.Path))
+	}
+	regions, lines, truncated, apiErr := r.s.blameFile(ctx, rev, req.Msg.Path)
+	if apiErr != nil {
+		if apiErr.Err.Code == "blame_binary" {
+			// Not an error at the proto level: the response shape carries
+			// binary=true so the UI can say so in place.
+			return connect.NewResponse(&runkov1.BlameFileResponse{
+				Path: strings.Trim(req.Msg.Path, "/"), Rev: string(rev), Binary: true,
+			}), nil
+		}
+		return nil, connectErr(apiErr)
+	}
+	resp := &runkov1.BlameFileResponse{
+		Path: strings.Trim(req.Msg.Path, "/"), Rev: string(rev),
+		Lines: lines, Truncated: truncated,
+	}
+	for _, reg := range regions {
+		resp.Regions = append(resp.Regions, &runkov1.BlameRegion{
+			StartLine: int32(reg.StartLine), LineCount: int32(reg.LineCount),
+			Sha: reg.SHA, Subject: reg.Subject, AuthorName: reg.AuthorName,
+			AuthoredAt: reg.AuthoredAt, ChangeId: reg.ChangeID,
+			ChangeState: protoChangeState(reg.ChangeState),
+		})
+	}
+	return connect.NewResponse(resp), nil
+}
+
 // ---- proto transforms ----
 
 // protoChange maps a Store Change onto common.proto's ChangeSummary.

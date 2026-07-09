@@ -4,13 +4,15 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { ChangeState } from "./common_pb";
+import { file_runko_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file runko/v1/repo.proto.
  */
 export const file_runko_v1_repo: GenFile = /*@__PURE__*/
-  fileDesc("ChNydW5rby92MS9yZXBvLnByb3RvEghydW5rby52MSIrCg5HZXRUcmVlUmVxdWVzdBIMCgRwYXRoGAEgASgJEgsKA3JldhgCIAEoCSJtCglUcmVlRW50cnkSDAoEbmFtZRgBIAEoCRIMCgRwYXRoGAIgASgJEiUKBHR5cGUYAyABKA4yFy5ydW5rby52MS5UcmVlRW50cnlUeXBlEgwKBHNpemUYBCABKAMSDwoHcHJvamVjdBgFIAEoCSJECg9HZXRUcmVlUmVzcG9uc2USJAoHZW50cmllcxgBIAMoCzITLnJ1bmtvLnYxLlRyZWVFbnRyeRILCgNyZXYYAiABKAkiKwoOR2V0QmxvYlJlcXVlc3QSDAoEcGF0aBgBIAEoCRILCgNyZXYYAiABKAkifwoPR2V0QmxvYlJlc3BvbnNlEgwKBHBhdGgYASABKAkSCwoDcmV2GAIgASgJEg8KB2NvbnRlbnQYAyABKAkSDgoGYmluYXJ5GAQgASgIEhEKCXRydW5jYXRlZBgFIAEoCBIMCgRzaXplGAYgASgDEg8KB3Byb2plY3QYByABKAkqYwoNVHJlZUVudHJ5VHlwZRIfChtUUkVFX0VOVFJZX1RZUEVfVU5TUEVDSUZJRUQQABIYChRUUkVFX0VOVFJZX1RZUEVfRklMRRABEhcKE1RSRUVfRU5UUllfVFlQRV9ESVIQAjKNAQoLUmVwb1NlcnZpY2USPgoHR2V0VHJlZRIYLnJ1bmtvLnYxLkdldFRyZWVSZXF1ZXN0GhkucnVua28udjEuR2V0VHJlZVJlc3BvbnNlEj4KB0dldEJsb2ISGC5ydW5rby52MS5HZXRCbG9iUmVxdWVzdBoZLnJ1bmtvLnYxLkdldEJsb2JSZXNwb25zZUI1WjNnaXRodWIuY29tL3NheG9jZWxscGhvbmUvcnVua28vZ2VuL3J1bmtvL3YxO3J1bmtvdjFiBnByb3RvMw");
+  fileDesc("ChNydW5rby92MS9yZXBvLnByb3RvEghydW5rby52MSIrCg5HZXRUcmVlUmVxdWVzdBIMCgRwYXRoGAEgASgJEgsKA3JldhgCIAEoCSJtCglUcmVlRW50cnkSDAoEbmFtZRgBIAEoCRIMCgRwYXRoGAIgASgJEiUKBHR5cGUYAyABKA4yFy5ydW5rby52MS5UcmVlRW50cnlUeXBlEgwKBHNpemUYBCABKAMSDwoHcHJvamVjdBgFIAEoCSJECg9HZXRUcmVlUmVzcG9uc2USJAoHZW50cmllcxgBIAMoCzITLnJ1bmtvLnYxLlRyZWVFbnRyeRILCgNyZXYYAiABKAkiKwoOR2V0QmxvYlJlcXVlc3QSDAoEcGF0aBgBIAEoCRILCgNyZXYYAiABKAkifwoPR2V0QmxvYlJlc3BvbnNlEgwKBHBhdGgYASABKAkSCwoDcmV2GAIgASgJEg8KB2NvbnRlbnQYAyABKAkSDgoGYmluYXJ5GAQgASgIEhEKCXRydW5jYXRlZBgFIAEoCBIMCgRzaXplGAYgASgDEg8KB3Byb2plY3QYByABKAkiVgoSTGlzdENvbW1pdHNSZXF1ZXN0EgwKBHBhdGgYASABKAkSCwoDcmV2GAIgASgJEhEKCXBhZ2Vfc2l6ZRgDIAEoBRISCgpwYWdlX3Rva2VuGAQgASgJIqoBCgpDb21taXRJbmZvEgsKA3NoYRgBIAEoCRIPCgdzdWJqZWN0GAIgASgJEhMKC2F1dGhvcl9uYW1lGAMgASgJEhQKDGF1dGhvcl9lbWFpbBgEIAEoCRITCgthdXRob3JlZF9hdBgFIAEoAxIRCgljaGFuZ2VfaWQYBiABKAkSKwoMY2hhbmdlX3N0YXRlGAcgASgOMhUucnVua28udjEuQ2hhbmdlU3RhdGUiYgoTTGlzdENvbW1pdHNSZXNwb25zZRIlCgdjb21taXRzGAEgAygLMhQucnVua28udjEuQ29tbWl0SW5mbxIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSCwoDcmV2GAMgASgJIi0KEEJsYW1lRmlsZVJlcXVlc3QSDAoEcGF0aBgBIAEoCRILCgNyZXYYAiABKAkivQEKC0JsYW1lUmVnaW9uEhIKCnN0YXJ0X2xpbmUYASABKAUSEgoKbGluZV9jb3VudBgCIAEoBRILCgNzaGEYAyABKAkSDwoHc3ViamVjdBgEIAEoCRITCgthdXRob3JfbmFtZRgFIAEoCRITCgthdXRob3JlZF9hdBgGIAEoAxIRCgljaGFuZ2VfaWQYByABKAkSKwoMY2hhbmdlX3N0YXRlGAggASgOMhUucnVua28udjEuQ2hhbmdlU3RhdGUiiAEKEUJsYW1lRmlsZVJlc3BvbnNlEgwKBHBhdGgYASABKAkSCwoDcmV2GAIgASgJEiYKB3JlZ2lvbnMYAyADKAsyFS5ydW5rby52MS5CbGFtZVJlZ2lvbhINCgVsaW5lcxgEIAMoCRIOCgZiaW5hcnkYBSABKAgSEQoJdHJ1bmNhdGVkGAYgASgIKmMKDVRyZWVFbnRyeVR5cGUSHwobVFJFRV9FTlRSWV9UWVBFX1VOU1BFQ0lGSUVEEAASGAoUVFJFRV9FTlRSWV9UWVBFX0ZJTEUQARIXChNUUkVFX0VOVFJZX1RZUEVfRElSEAIynwIKC1JlcG9TZXJ2aWNlEj4KB0dldFRyZWUSGC5ydW5rby52MS5HZXRUcmVlUmVxdWVzdBoZLnJ1bmtvLnYxLkdldFRyZWVSZXNwb25zZRI+CgdHZXRCbG9iEhgucnVua28udjEuR2V0QmxvYlJlcXVlc3QaGS5ydW5rby52MS5HZXRCbG9iUmVzcG9uc2USSgoLTGlzdENvbW1pdHMSHC5ydW5rby52MS5MaXN0Q29tbWl0c1JlcXVlc3QaHS5ydW5rby52MS5MaXN0Q29tbWl0c1Jlc3BvbnNlEkQKCUJsYW1lRmlsZRIaLnJ1bmtvLnYxLkJsYW1lRmlsZVJlcXVlc3QaGy5ydW5rby52MS5CbGFtZUZpbGVSZXNwb25zZUI1WjNnaXRodWIuY29tL3NheG9jZWxscGhvbmUvcnVua28vZ2VuL3J1bmtvL3YxO3J1bmtvdjFiBnByb3RvMw", [file_runko_v1_common]);
 
 /**
  * @generated from message runko.v1.GetTreeRequest
@@ -178,6 +180,263 @@ export const GetBlobResponseSchema: GenMessage<GetBlobResponse> = /*@__PURE__*/
   messageDesc(file_runko_v1_repo, 4);
 
 /**
+ * @generated from message runko.v1.ListCommitsRequest
+ */
+export type ListCommitsRequest = Message<"runko.v1.ListCommitsRequest"> & {
+  /**
+   * "" = whole repo
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * "" = trunk tip
+   *
+   * @generated from field: string rev = 2;
+   */
+  rev: string;
+
+  /**
+   * default 30, capped at 100
+   *
+   * @generated from field: int32 page_size = 3;
+   */
+  pageSize: number;
+
+  /**
+   * opaque offset token from a prior response
+   *
+   * @generated from field: string page_token = 4;
+   */
+  pageToken: string;
+};
+
+/**
+ * Describes the message runko.v1.ListCommitsRequest.
+ * Use `create(ListCommitsRequestSchema)` to create a new message.
+ */
+export const ListCommitsRequestSchema: GenMessage<ListCommitsRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_repo, 5);
+
+/**
+ * @generated from message runko.v1.CommitInfo
+ */
+export type CommitInfo = Message<"runko.v1.CommitInfo"> & {
+  /**
+   * @generated from field: string sha = 1;
+   */
+  sha: string;
+
+  /**
+   * @generated from field: string subject = 2;
+   */
+  subject: string;
+
+  /**
+   * @generated from field: string author_name = 3;
+   */
+  authorName: string;
+
+  /**
+   * @generated from field: string author_email = 4;
+   */
+  authorEmail: string;
+
+  /**
+   * unix seconds
+   *
+   * @generated from field: int64 authored_at = 5;
+   */
+  authoredAt: bigint;
+
+  /**
+   * Change-Id trailer, "" when the commit has none
+   *
+   * @generated from field: string change_id = 6;
+   */
+  changeId: string;
+
+  /**
+   * State of the Change named by change_id when this control plane has
+   * its row; UNSPECIFIED otherwise (pre-Runko history, foreign imports).
+   *
+   * @generated from field: runko.v1.ChangeState change_state = 7;
+   */
+  changeState: ChangeState;
+};
+
+/**
+ * Describes the message runko.v1.CommitInfo.
+ * Use `create(CommitInfoSchema)` to create a new message.
+ */
+export const CommitInfoSchema: GenMessage<CommitInfo> = /*@__PURE__*/
+  messageDesc(file_runko_v1_repo, 6);
+
+/**
+ * @generated from message runko.v1.ListCommitsResponse
+ */
+export type ListCommitsResponse = Message<"runko.v1.ListCommitsResponse"> & {
+  /**
+   * @generated from field: repeated runko.v1.CommitInfo commits = 1;
+   */
+  commits: CommitInfo[];
+
+  /**
+   * "" when this page reaches the beginning
+   *
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
+
+  /**
+   * the resolved revision history was read at
+   *
+   * @generated from field: string rev = 3;
+   */
+  rev: string;
+};
+
+/**
+ * Describes the message runko.v1.ListCommitsResponse.
+ * Use `create(ListCommitsResponseSchema)` to create a new message.
+ */
+export const ListCommitsResponseSchema: GenMessage<ListCommitsResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_repo, 7);
+
+/**
+ * @generated from message runko.v1.BlameFileRequest
+ */
+export type BlameFileRequest = Message<"runko.v1.BlameFileRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * "" = trunk tip
+   *
+   * @generated from field: string rev = 2;
+   */
+  rev: string;
+};
+
+/**
+ * Describes the message runko.v1.BlameFileRequest.
+ * Use `create(BlameFileRequestSchema)` to create a new message.
+ */
+export const BlameFileRequestSchema: GenMessage<BlameFileRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_repo, 8);
+
+/**
+ * @generated from message runko.v1.BlameRegion
+ */
+export type BlameRegion = Message<"runko.v1.BlameRegion"> & {
+  /**
+   * 1-based line number in the file at `rev`
+   *
+   * @generated from field: int32 start_line = 1;
+   */
+  startLine: number;
+
+  /**
+   * @generated from field: int32 line_count = 2;
+   */
+  lineCount: number;
+
+  /**
+   * @generated from field: string sha = 3;
+   */
+  sha: string;
+
+  /**
+   * @generated from field: string subject = 4;
+   */
+  subject: string;
+
+  /**
+   * @generated from field: string author_name = 5;
+   */
+  authorName: string;
+
+  /**
+   * unix seconds
+   *
+   * @generated from field: int64 authored_at = 6;
+   */
+  authoredAt: bigint;
+
+  /**
+   * @generated from field: string change_id = 7;
+   */
+  changeId: string;
+
+  /**
+   * as in CommitInfo
+   *
+   * @generated from field: runko.v1.ChangeState change_state = 8;
+   */
+  changeState: ChangeState;
+};
+
+/**
+ * Describes the message runko.v1.BlameRegion.
+ * Use `create(BlameRegionSchema)` to create a new message.
+ */
+export const BlameRegionSchema: GenMessage<BlameRegion> = /*@__PURE__*/
+  messageDesc(file_runko_v1_repo, 9);
+
+/**
+ * @generated from message runko.v1.BlameFileResponse
+ */
+export type BlameFileResponse = Message<"runko.v1.BlameFileResponse"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string rev = 2;
+   */
+  rev: string;
+
+  /**
+   * ordered, contiguous, covering lines
+   *
+   * @generated from field: repeated runko.v1.BlameRegion regions = 3;
+   */
+  regions: BlameRegion[];
+
+  /**
+   * the blamed content itself
+   *
+   * @generated from field: repeated string lines = 4;
+   */
+  lines: string[];
+
+  /**
+   * binary files carry no regions/lines
+   *
+   * @generated from field: bool binary = 5;
+   */
+  binary: boolean;
+
+  /**
+   * very large files are cut, not blamed whole
+   *
+   * @generated from field: bool truncated = 6;
+   */
+  truncated: boolean;
+};
+
+/**
+ * Describes the message runko.v1.BlameFileResponse.
+ * Use `create(BlameFileResponseSchema)` to create a new message.
+ */
+export const BlameFileResponseSchema: GenMessage<BlameFileResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_repo, 10);
+
+/**
  * @generated from enum runko.v1.TreeEntryType
  */
 export enum TreeEntryType {
@@ -236,6 +495,32 @@ export const RepoService: GenService<{
     methodKind: "unary";
     input: typeof GetBlobRequestSchema;
     output: typeof GetBlobResponseSchema;
+  },
+  /**
+   * Commits touching `path` ("" = whole repo) at/below `rev`, newest
+   * first. Files follow renames; each commit carries its Change-Id
+   * trailer and, when that Change exists on this control plane, its
+   * state - history links to REVIEWS, not just raw commits (§7.4's
+   * change-centric stance applied to the browser).
+   *
+   * @generated from rpc runko.v1.RepoService.ListCommits
+   */
+  listCommits: {
+    methodKind: "unary";
+    input: typeof ListCommitsRequestSchema;
+    output: typeof ListCommitsResponseSchema;
+  },
+  /**
+   * Per-line provenance for one file at `rev`: contiguous same-commit
+   * regions plus the file's lines (returned together so content and
+   * attribution can never come from different revisions).
+   *
+   * @generated from rpc runko.v1.RepoService.BlameFile
+   */
+  blameFile: {
+    methodKind: "unary";
+    input: typeof BlameFileRequestSchema;
+    output: typeof BlameFileResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_runko_v1_repo, 0);
