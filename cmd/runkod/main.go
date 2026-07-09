@@ -29,6 +29,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -106,6 +107,8 @@ func cmdServe(args []string) error {
 	mirrorToken := fs.String("mirror-token", envString("MIRROR_TOKEN", ""), "mirror access token (prefer the env var - never lands in shell history) [RUNKO_MIRROR_TOKEN]")
 	allowOrgCreate := fs.Bool("allow-org-create", envBool("ALLOW_ORG_CREATE"), "enable self-service org creation (POST /api/orgs, §7.1) - each org owns its own repo under --orgs-dir; default off [RUNKO_ALLOW_ORG_CREATE]")
 	orgsDir := fs.String("orgs-dir", envString("ORGS_DIR", ""), "directory holding per-org repos at <orgs-dir>/<org>/repo.git (default: 'orgs' beside --repo-dir) [RUNKO_ORGS_DIR]")
+	var orgMirrors orgMirrorFlag
+	fs.Var(&orgMirrors, "org-mirror", "outbound mirror for a hub org's repo (§18.6 M1), repeatable: 'org=<name>;remote=<url>[;username=<u>][;token=<t>]' - the default org keeps --mirror-remote [RUNKO_ORG_MIRRORS, '|'-separated]")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -123,6 +126,13 @@ func cmdServe(args []string) error {
 		for _, v := range splitPipe(os.Getenv("RUNKO_BOT_LANES")) {
 			if err := botLanes.Set(v); err != nil {
 				return fmt.Errorf("serve: RUNKO_BOT_LANES: %w", err)
+			}
+		}
+	}
+	if len(orgMirrors) == 0 {
+		for _, v := range splitPipe(os.Getenv("RUNKO_ORG_MIRRORS")) {
+			if err := orgMirrors.Set(v); err != nil {
+				return fmt.Errorf("serve: RUNKO_ORG_MIRRORS: %w", err)
 			}
 		}
 	}
@@ -205,6 +215,16 @@ func cmdServe(args []string) error {
 		searcher = search.NotConfiguredSearcher{}
 	}
 
+	// Per-org mirror workers, built in NewOrgServer (which knows the org's
+	// repo dir + store) and started in StartOrgWorkers (which owns worker
+	// lifecycle) - a sync.Map is the join between the two hub callbacks.
+	var orgMirrorWorkers sync.Map
+	for _, cfg := range orgMirrors {
+		if cfg.Org == defaultOrgName {
+			return fmt.Errorf("serve: --org-mirror names the default org %q - use --mirror-remote for it", defaultOrgName)
+		}
+	}
+
 	var mirrorWorker *runkod.MirrorWorker
 	if *mirrorRemote != "" {
 		mirrorWorker = &runkod.MirrorWorker{
@@ -222,6 +242,7 @@ func cmdServe(args []string) error {
 		ZoektIndexWorker:         indexWorker,
 		Mirror:                   mirrorWorker,
 		Principals:               principals,
+		OrgName:                  defaultOrgName,
 	}
 	server := &runkod.Server{
 		RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher,
@@ -271,9 +292,31 @@ func cmdServe(args []string) error {
 				RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
 				Principals:               principals,
 				Directory:                directory,
+				OrgName:                  orgName,
 			}
-			// Per-org zoekt/mirror stay default-org-only in v1 (daemon
-			// singleton flags); search answers structured not-configured.
+			// Per-org mirror (§18.6 M1, was default-org-only in v1 -
+			// docs/migration-findings.md #12): an --org-mirror entry naming
+			// this org gets its own MirrorWorker over the org's repo and
+			// org-scoped Store (cursors live per org). Setting it on the
+			// Server lights up /o/<org>/api/mirror/status|unfreeze; the
+			// worker starts in StartOrgWorkers. Per-org zoekt stays
+			// default-org-only; search answers structured not-configured.
+			var orgMirror *runkod.MirrorWorker
+			for _, cfg := range orgMirrors {
+				if cfg.Org != orgName {
+					continue
+				}
+				orgMirror = &runkod.MirrorWorker{
+					Remote:   &mirror.Remote{RepoDir: orgRepoDir, URL: cfg.Remote, Username: cfg.Username, Token: cfg.Token},
+					Store:    orgStore,
+					TrunkRef: *trunk,
+					Debounce: 3 * time.Second,
+					Interval: time.Minute,
+				}
+				proc.Mirror = orgMirror
+				orgMirrorWorkers.Store(orgName, orgMirror)
+				break
+			}
 			return &runkod.Server{
 				RepoDir: orgRepoDir, TrunkRef: *trunk, Store: orgStore, Processor: proc, Token: *token,
 				Searcher:             search.NotConfiguredSearcher{},
@@ -281,13 +324,22 @@ func cmdServe(args []string) error {
 				AllowUnpolicedLand:   *allowUnpoliced,
 				BotLanes:             botLanes,
 				Principals:           principals,
+				Mirror:               orgMirror,
 			}, nil
 		},
 	}
-	if *webhookURL != "" {
+	if *webhookURL != "" || len(orgMirrors) > 0 {
 		hub.StartOrgWorkers = func(ctx context.Context, orgName string, orgStore runkod.Store) {
-			worker := &runkod.OutboxWorker{Store: orgStore, URL: *webhookURL, Secret: []byte(*webhookSecret)}
-			go worker.Run(ctx, 5*time.Second)
+			if *webhookURL != "" {
+				worker := &runkod.OutboxWorker{Store: orgStore, URL: *webhookURL, Secret: []byte(*webhookSecret)}
+				go worker.Run(ctx, 5*time.Second)
+			}
+			if w, ok := orgMirrorWorkers.Load(orgName); ok {
+				worker := w.(*runkod.MirrorWorker)
+				go worker.Run(ctx)
+				worker.Trigger() // sync whatever the org repo already holds
+				fmt.Printf("runkod: org %s mirroring (trunk leased, tags, change refs; workspace snapshots never)\n", orgName)
+			}
 		}
 	}
 	if loaded, err := hub.LoadExisting(ctx); err != nil {
@@ -465,6 +517,61 @@ func splitPipe(v string) []string {
 		}
 	}
 	return out
+}
+
+// orgMirrorConfig is one --org-mirror value: an outbound mirror (§18.6 M1)
+// for a hub org's repo. The default org's mirror stays --mirror-remote;
+// this closes the "per-org mirror is default-org-only" v1 limitation
+// (docs/migration-findings.md #12) for hub orgs.
+type orgMirrorConfig struct {
+	Org      string
+	Remote   string
+	Username string
+	Token    string
+}
+
+// orgMirrorFlag parses repeatable --org-mirror flags.
+type orgMirrorFlag []orgMirrorConfig
+
+func (m *orgMirrorFlag) String() string { return fmt.Sprintf("%d org mirror(s)", len(*m)) }
+
+func (m *orgMirrorFlag) Set(v string) error {
+	cfg, err := parseOrgMirror(v)
+	if err != nil {
+		return err
+	}
+	*m = append(*m, cfg)
+	return nil
+}
+
+// parseOrgMirror parses one --org-mirror value, e.g.
+// "org=runko;remote=https://github.com/acme/runko.git;username=x-access-token;token=ghp_x".
+// Same key=value;... shape as --principal; username/token optional (ssh and
+// path remotes need neither).
+func parseOrgMirror(v string) (orgMirrorConfig, error) {
+	var cfg orgMirrorConfig
+	for _, kv := range strings.Split(v, ";") {
+		key, val, hasVal := strings.Cut(kv, "=")
+		if !hasVal {
+			return cfg, fmt.Errorf("org-mirror: unknown key %q (want org=, remote=, username=, token=)", kv)
+		}
+		switch key {
+		case "org":
+			cfg.Org = val
+		case "remote":
+			cfg.Remote = val
+		case "username":
+			cfg.Username = val
+		case "token":
+			cfg.Token = val
+		default:
+			return cfg, fmt.Errorf("org-mirror: unknown key %q (want org=, remote=, username=, token=)", kv)
+		}
+	}
+	if cfg.Org == "" || cfg.Remote == "" {
+		return cfg, fmt.Errorf("org-mirror: org= and remote= are both required")
+	}
+	return cfg, nil
 }
 
 // principalFlag parses repeatable --principal flags into runkod.Principal

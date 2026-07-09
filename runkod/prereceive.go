@@ -113,6 +113,11 @@ type Processor struct {
 	// - change refs just moved and the outbound mirror (§18.6 M1) carries
 	// them too. Nil-safe like the zoekt worker.
 	Mirror *MirrorWorker
+	// OrgName stamps outgoing webhook envelopes' org_id (the org NAME, not
+	// a UUID - consumers want the /o/<name> path segment). With one
+	// daemon-wide --webhook-url shared by every org's OutboxWorker, an
+	// unstamped envelope is unattributable (docs/migration-findings.md #13).
+	OrgName string
 	// MaxSnapshotDiffBytes caps the total content bytes one workspace
 	// snapshot push may introduce - §12.2's backstop against build
 	// artifacts/dependency trees (node_modules, target/, .venv) entering
@@ -747,6 +752,7 @@ func (p *Processor) computeAffectedAndEnqueue(ctx context.Context, change Change
 		DeliveryID:  change.ChangeKey + "@" + change.HeadSHA,
 		Type:        "change.updated",
 		OccurredAt:  p.now(),
+		OrgID:       p.OrgName,
 		Change: checks.WebhookChange{
 			ID: change.ChangeKey, State: change.State,
 			BaseSHA: change.BaseSHA, HeadSHA: change.HeadSHA, GitRef: change.GitRef,

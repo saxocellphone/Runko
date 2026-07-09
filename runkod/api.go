@@ -516,6 +516,7 @@ func (s *Server) enqueueRerunWebhook(ctx context.Context, change Change, checkNa
 		DeliveryID:  change.ChangeKey + "@rerun@" + checkName + "@" + s.clock().UTC().Format(time.RFC3339),
 		Type:        "change.check_rerun_requested",
 		OccurredAt:  s.clock(),
+		OrgID:       s.SettingsOrg,
 		Change: checks.WebhookChange{
 			ID: change.ChangeKey, State: change.State,
 			BaseSHA: change.BaseSHA, HeadSHA: change.HeadSHA, GitRef: change.GitRef,
@@ -1087,6 +1088,7 @@ func (s *Server) enqueueLandedWebhook(ctx context.Context, change Change, landed
 		DeliveryID:  change.ChangeKey + "@landed@" + landedSHA,
 		Type:        "change.landed",
 		OccurredAt:  time.Now(),
+		OrgID:       s.SettingsOrg,
 		Change: checks.WebhookChange{
 			ID: change.ChangeKey, State: "landed",
 			BaseSHA: change.BaseSHA, HeadSHA: landedSHA, GitRef: change.GitRef,

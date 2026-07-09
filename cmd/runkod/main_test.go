@@ -1238,8 +1238,16 @@ func orgAPI(t *testing.T, method, url, user, pass, bearer string, body any, out 
 func TestEndToEndDaemonOrgs(t *testing.T) {
 	bin := buildRunkod(t)
 	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	// A local bare repo stands in for the org's outbound mirror (§18.6 M1
+	// per-org, R1): non-https remotes are used as-is by mirror.Remote, so a
+	// path is a real git push target with zero auth machinery.
+	orgMirrorDir := filepath.Join(t.TempDir(), "acme-mirror.git")
+	if out, err := runGit(t, t.TempDir(), "init", "-q", "--bare", "-b", "main", orgMirrorDir); err != nil {
+		t.Fatalf("init org mirror target: %v\n%s", err, out)
+	}
 	addr := startDaemon(t, bin, repoDir, "deploy-tok",
-		"--allow-signup", "--allow-org-create")
+		"--allow-signup", "--allow-org-create",
+		"--org-mirror", "org=acme;remote="+orgMirrorDir)
 
 	// Signup requires an org: both join the shared default org here (the
 	// signup-create path is pinned in runkod's TestSignupWithOrg; this
@@ -1322,10 +1330,63 @@ func TestEndToEndDaemonOrgs(t *testing.T) {
 	if err != nil || !strings.Contains(out, "refs/heads/main") {
 		t.Fatalf("acme trunk after land: %v\n%s", err, out)
 	}
+	acmeTip := strings.Fields(out)[0]
+
+	// The org's own mirror (R1): the land triggered a debounced sync, so
+	// the local bare target must converge on acme's trunk tip plus the
+	// change ref - and /o/acme/api/mirror/status must report it.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		mout, _ := runGit(t, t.TempDir(), "ls-remote", orgMirrorDir)
+		if strings.Contains(mout, acmeTip) && strings.Contains(mout, "refs/heads/main") && strings.Contains(mout, "refs/changes/") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("org mirror never converged on %s; ls-remote:\n%s", acmeTip, mout)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	var mirrorStatus struct {
+		Configured bool   `json:"configured"`
+		RemoteURL  string `json:"remote_url"`
+	}
+	if status := orgAPI(t, "GET", addr+"/o/acme/api/mirror/status", "alice", "alicepw123", "", nil, &mirrorStatus); status != http.StatusOK {
+		t.Fatalf("acme mirror status: status %d", status)
+	}
+	if !mirrorStatus.Configured {
+		t.Fatalf("acme mirror should report configured, got %+v", mirrorStatus)
+	}
 
 	// After restart (mem mode) the org registry is empty again - the
 	// documented eval-profile semantic; durable reload is PG-tested.
 	if status := orgAPI(t, "GET", addr+"/api/orgs", "alice", "alicepw123", "", nil, nil); status != http.StatusOK {
 		t.Fatalf("list orgs: status %d", status)
+	}
+}
+
+func TestParseOrgMirror(t *testing.T) {
+	cfg, err := parseOrgMirror("org=runko;remote=https://github.com/acme/runko.git;username=x-access-token;token=ghp_x")
+	if err != nil {
+		t.Fatalf("parseOrgMirror: %v", err)
+	}
+	if cfg.Org != "runko" || cfg.Remote != "https://github.com/acme/runko.git" ||
+		cfg.Username != "x-access-token" || cfg.Token != "ghp_x" {
+		t.Fatalf("unexpected config: %+v", cfg)
+	}
+
+	// ssh/path remotes need no credentials - org+remote alone is complete.
+	if _, err := parseOrgMirror("org=t1;remote=/srv/mirrors/t1.git"); err != nil {
+		t.Fatalf("minimal org-mirror should parse: %v", err)
+	}
+
+	for _, bad := range []string{
+		"remote=https://x.example/r.git", // no org
+		"org=t1",                         // no remote
+		"org=t1;remote=/m.git;huh=x",     // unknown key
+		"org=t1;remote=/m.git;admin",     // bare word
+	} {
+		if _, err := parseOrgMirror(bad); err == nil {
+			t.Fatalf("parseOrgMirror(%q) should fail", bad)
+		}
 	}
 }
