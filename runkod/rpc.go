@@ -79,7 +79,14 @@ func (s *Server) rpcMiddleware(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if !s.tokenMatches(r.Header.Get("Authorization")) {
+		c := s.callerForAuthHeader(r.Header.Get("Authorization"))
+		if c.deniedOrg {
+			// Bare 403 -> CodePermissionDenied on Connect clients: valid
+			// credential, not a member of this org (auth.go).
+			http.Error(w, "forbidden: not a member of org "+s.OrgName, http.StatusForbidden)
+			return
+		}
+		if !c.ok {
 			// A plain 401: connect clients map the bare HTTP status onto
 			// CodeUnauthenticated without a Connect-framed body.
 			http.Error(w, "unauthorized", http.StatusUnauthorized)

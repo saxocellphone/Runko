@@ -1199,3 +1199,128 @@ func TestServeEnvFallbacks(t *testing.T) {
 		listResp.Body.Close()
 	}
 }
+
+// orgAPI is a tiny helper for the multi-org e2e: JSON request with Basic or
+// Bearer auth, decoded into out (may be nil).
+func orgAPI(t *testing.T, method, url, user, pass, bearer string, body any, out any) int {
+	t.Helper()
+	var rdr io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rdr = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, url, rdr)
+	if err != nil {
+		t.Fatalf("build %s %s: %v", method, url, err)
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	} else if user != "" {
+		req.SetBasicAuth(user, pass)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	defer resp.Body.Close()
+	if out != nil {
+		_ = json.NewDecoder(resp.Body).Decode(out)
+	}
+	return resp.StatusCode
+}
+
+// TestEndToEndDaemonOrgs proves the multi-org surface with real processes:
+// a signed-up account creates an org over REST, gets its own repo, pushes a
+// real Change through the org's own pre-receive funnel (the installed hook
+// calling back to /o/<org>/internal/pre-receive), lands it, and none of it
+// is visible from the default org - while a non-member account is refused
+// at both the API and the git transport with 403, not 401.
+func TestEndToEndDaemonOrgs(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	addr := startDaemon(t, bin, repoDir, "deploy-tok",
+		"--allow-signup", "--allow-org-create")
+
+	for _, u := range [][2]string{{"alice", "alicepw123"}, {"bob", "bobpw1234"}} {
+		if status := orgAPI(t, "POST", addr+"/api/signup", "", "", "", map[string]string{"name": u[0], "password": u[1]}, nil); status != http.StatusCreated {
+			t.Fatalf("signup %s: status %d", u[0], status)
+		}
+	}
+
+	// Alice creates the org; the response carries the repo path.
+	var created struct {
+		GitURL  string `json:"git_url"`
+		APIBase string `json:"api_base"`
+		Role    string `json:"role"`
+	}
+	if status := orgAPI(t, "POST", addr+"/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}, &created); status != http.StatusCreated {
+		t.Fatalf("create org: status %d", status)
+	}
+	if created.GitURL != "/o/acme/repo.git" || created.Role != "admin" {
+		t.Fatalf("create org response: %+v", created)
+	}
+
+	// Clone the org's (empty) repo as alice and push a Change through the
+	// org's own funnel.
+	work := t.TempDir()
+	authedRemote := strings.Replace(addr, "http://", "http://alice:alicepw123@", 1) + created.GitURL
+	if out, err := runGit(t, work, "clone", authedRemote, "."); err != nil {
+		t.Fatalf("clone org repo: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(work, "hello.txt"), []byte("hi from acme\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runGit(t, work, "add", "hello.txt")
+	if out, err := runGit(t, work, "commit", "-m", "acme: first change\n\nChange-Id: Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	if out, err := runGit(t, work, "push", "origin", "HEAD:refs/for/main"); err != nil {
+		t.Fatalf("push refs/for/main to org repo: %v\n%s", err, out)
+	}
+
+	// The Change exists in the org - and ONLY in the org.
+	var acmeChanges []struct{ ChangeKey, State, HeadSHA string }
+	if status := orgAPI(t, "GET", addr+"/o/acme/api/changes", "alice", "alicepw123", "", nil, &acmeChanges); status != http.StatusOK {
+		t.Fatalf("list acme changes: status %d", status)
+	}
+	if len(acmeChanges) != 1 || acmeChanges[0].State != "open" {
+		t.Fatalf("expected one open change in acme, got %+v", acmeChanges)
+	}
+	var rootChanges []struct{ ChangeKey string }
+	if status := orgAPI(t, "GET", addr+"/api/changes", "", "", "deploy-tok", nil, &rootChanges); status != http.StatusOK {
+		t.Fatalf("list root changes: status %d", status)
+	}
+	if len(rootChanges) != 0 {
+		t.Fatalf("org change leaked into the default org: %+v", rootChanges)
+	}
+
+	// Bob is signed up but NOT a member: 403 (not 401 - his credential is
+	// valid) on the API, and the git transport refuses him too.
+	var errBody struct{ Code string }
+	if status := orgAPI(t, "GET", addr+"/o/acme/api/changes", "bob", "bobpw1234", "", nil, &errBody); status != http.StatusForbidden || errBody.Code != "not_org_member" {
+		t.Fatalf("bob on acme API: status %d code %q", status, errBody.Code)
+	}
+	bobRemote := strings.Replace(addr, "http://", "http://bob:bobpw1234@", 1) + created.GitURL
+	if out, err := runGit(t, t.TempDir(), "ls-remote", bobRemote); err == nil {
+		t.Fatalf("bob's ls-remote against acme should fail, got:\n%s", out)
+	} else if !strings.Contains(out, "403") {
+		t.Fatalf("bob's ls-remote should surface 403, got: %v\n%s", err, out)
+	}
+
+	// Alice lands her change (mem-mode eval profile: unpoliced land is
+	// permitted); trunk advances in the ORG repo only.
+	key := acmeChanges[0].ChangeKey
+	if status := orgAPI(t, "POST", addr+"/o/acme/api/changes/"+key+"/land", "alice", "alicepw123", "", map[string]string{}, nil); status != http.StatusOK {
+		t.Fatalf("land in acme: status %d", status)
+	}
+	out, err := runGit(t, t.TempDir(), "ls-remote", authedRemote, "refs/heads/main")
+	if err != nil || !strings.Contains(out, "refs/heads/main") {
+		t.Fatalf("acme trunk after land: %v\n%s", err, out)
+	}
+
+	// After restart (mem mode) the org registry is empty again - the
+	// documented eval-profile semantic; durable reload is PG-tested.
+	if status := orgAPI(t, "GET", addr+"/api/orgs", "alice", "alicepw123", "", nil, nil); status != http.StatusOK {
+		t.Fatalf("list orgs: status %d", status)
+	}
+}

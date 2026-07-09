@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { authUser, onDemoRoute, signedIn, signOut, usingDemoData } from "../api/client";
+import {
+  authUser,
+  createOrg,
+  currentOrg,
+  fetchOrgs,
+  onDemoRoute,
+  signedIn,
+  signOut,
+  switchOrg,
+  usingDemoData,
+  type OrgInfo,
+} from "../api/client";
 
 const nav = [
   { to: "/changes", label: "Changes", icon: ChangesIcon },
@@ -26,6 +37,7 @@ export function Layout() {
           <BrandMark />
           Runko
         </div>
+        {!usingDemoData && signedIn && <OrgSwitcher />}
         {nav.map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} className="nav-link">
             <Icon />
@@ -72,6 +84,54 @@ export function Layout() {
         <Outlet />
       </main>
     </div>
+  );
+}
+
+// OrgSwitcher: pick which org this browser works in (multi-org,
+// runkod/orghub.go - each org owns its own repo, mounted at /o/<name>/).
+// "" = the shared default org at the root mount. Switching reloads so
+// every Connect client rebinds its transport base.
+function OrgSwitcher() {
+  const [orgs, setOrgs] = useState<OrgInfo[]>([]);
+  useEffect(() => {
+    void fetchOrgs().then(setOrgs);
+  }, []);
+
+  // Stale selection (org gone / membership revoked): keep it visible so
+  // the user can switch away rather than being stuck.
+  const known = orgs.some((o) => (o.default ? currentOrg === "" : o.name === currentOrg));
+
+  const onChange = async (value: string) => {
+    if (value === "__new__") {
+      const name = window.prompt("New org name (lowercase letters, digits, dashes):");
+      if (!name) return;
+      try {
+        const created = await createOrg(name.trim());
+        switchOrg(created.name);
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
+    switchOrg(value);
+  };
+
+  return (
+    <select
+      className="org-select"
+      aria-label="Organization"
+      value={currentOrg}
+      onChange={(e) => void onChange(e.target.value)}
+    >
+      {orgs.map((o) => (
+        <option key={o.name} value={o.default ? "" : o.name}>
+          {o.name}
+          {o.default ? " (shared)" : ""}
+        </option>
+      ))}
+      {!known && currentOrg && <option value={currentOrg}>{currentOrg} (unavailable?)</option>}
+      <option value="__new__">＋ New org…</option>
+    </select>
   );
 }
 

@@ -74,6 +74,9 @@ schemas are.
 | `runko change requirements` | `checks.MergeRequirements` - the §13.5 gates; `--change` defaults to HEAD's `Change-Id` trailer, needs a live runkod |
 | `runko workspace branch` | `{"ref"}` - local git only (forks a parallel line: switches this worktree's snapshot target to `refs/workspaces/<id>/<name>` and snapshots the fork point, §12.2) |
 | `runko workspace update-base` | `{"base_revision"}` - needs a live runkod (records the new base in the registry) |
+| `runko org create` | `OrgInfo` (`name`, `role`, `api_base`, `git_url`, `default`) - needs a live runkod with `--allow-org-create`; the caller becomes the org's admin. Every org mounts the FULL surface (git, REST, RPC) under `/o/<org>/`, so pointing `--runkod-url` (or `runko auth login`) at `<host>/o/<org>` makes every other command in this table work against that org unchanged (§7.1). Agents are refused (`agent_denied`, §8.7) |
+| `runko org list` | `[]OrgInfo` - needs a live runkod. The shared default org (the root-mounted repo) is always first, marked `default`; store-backed accounts additionally see their memberships, operators see everything |
+| `runko org add-member` | `{"org", "name", "role"}` - needs a live runkod; org admins and operators only (`not_org_admin` otherwise), and the account must already exist (`unknown_principal` - membership is not an invitation system). Non-members of an org get a structured 403 `not_org_member` (never 401) on every surface, git transport included |
 | `runko-ci affected` | `affected.Result` (always JSON - no human mode exists for this command; it is CI-facing by design) |
 | `runko-ci checkout` | `{"rev", "dest"}` |
 | `runko-ci report-check` | `{"name", "status", "external_id"}` |

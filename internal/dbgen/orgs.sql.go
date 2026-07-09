@@ -97,6 +97,56 @@ func (q *Queries) GetOrgByName(ctx context.Context, db DBTX, name string) (*Org,
 	return &i, err
 }
 
+const getOrgMemberRole = `-- name: GetOrgMemberRole :one
+SELECT m.role FROM org_members m
+JOIN orgs o ON o.id = m.org_id
+WHERE o.name = $1::text AND m.principal_name = $2::text
+`
+
+type GetOrgMemberRoleParams struct {
+	OrgName       string `json:"org_name"`
+	PrincipalName string `json:"principal_name"`
+}
+
+func (q *Queries) GetOrgMemberRole(ctx context.Context, db DBTX, arg GetOrgMemberRoleParams) (string, error) {
+	row := db.QueryRow(ctx, getOrgMemberRole, arg.OrgName, arg.PrincipalName)
+	var role string
+	err := row.Scan(&role)
+	return role, err
+}
+
+const listOrgMembershipsForPrincipal = `-- name: ListOrgMembershipsForPrincipal :many
+SELECT o.name AS org_name, m.role FROM org_members m
+JOIN orgs o ON o.id = m.org_id
+WHERE m.principal_name = $1::text
+ORDER BY o.name
+`
+
+type ListOrgMembershipsForPrincipalRow struct {
+	OrgName string `json:"org_name"`
+	Role    string `json:"role"`
+}
+
+func (q *Queries) ListOrgMembershipsForPrincipal(ctx context.Context, db DBTX, principalName string) ([]*ListOrgMembershipsForPrincipalRow, error) {
+	rows, err := db.Query(ctx, listOrgMembershipsForPrincipal, principalName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*ListOrgMembershipsForPrincipalRow
+	for rows.Next() {
+		var i ListOrgMembershipsForPrincipalRow
+		if err := rows.Scan(&i.OrgName, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrgs = `-- name: ListOrgs :many
 SELECT id, name, created_at FROM orgs ORDER BY created_at
 `
@@ -119,4 +169,27 @@ func (q *Queries) ListOrgs(ctx context.Context, db DBTX) ([]*Org, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertOrgMember = `-- name: UpsertOrgMember :exec
+
+INSERT INTO org_members (org_id, principal_name, role)
+SELECT o.id, $1::text, $2::text
+FROM orgs o WHERE o.name = $3::text
+ON CONFLICT (org_id, principal_name) DO UPDATE SET role = EXCLUDED.role
+`
+
+type UpsertOrgMemberParams struct {
+	PrincipalName string `json:"principal_name"`
+	Role          string `json:"role"`
+	OrgName       string `json:"org_name"`
+}
+
+// Org membership (db/migrations/0007): which store-backed principals may
+// reach an org's /o/<name>/ surface at all. Roles: 'admin' (may add
+// members) or 'member'. Operator principals and the deploy token are
+// daemon config and never appear here.
+func (q *Queries) UpsertOrgMember(ctx context.Context, db DBTX, arg UpsertOrgMemberParams) error {
+	_, err := db.Exec(ctx, upsertOrgMember, arg.PrincipalName, arg.Role, arg.OrgName)
+	return err
 }

@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -103,6 +104,8 @@ func cmdServe(args []string) error {
 	mirrorRemote := fs.String("mirror-remote", envString("MIRROR_REMOTE", ""), "outbound mirror git URL (§18.6 M1) - ANY git host: https:// gets token auth, everything else used as-is [RUNKO_MIRROR_REMOTE]")
 	mirrorUsername := fs.String("mirror-username", envString("MIRROR_USERNAME", ""), "basic-auth username for the mirror token: GitHub 'x-access-token' (default), GitLab 'oauth2', Gitea anything [RUNKO_MIRROR_USERNAME]")
 	mirrorToken := fs.String("mirror-token", envString("MIRROR_TOKEN", ""), "mirror access token (prefer the env var - never lands in shell history) [RUNKO_MIRROR_TOKEN]")
+	allowOrgCreate := fs.Bool("allow-org-create", envBool("ALLOW_ORG_CREATE"), "enable self-service org creation (POST /api/orgs, §7.1) - each org owns its own repo under --orgs-dir; default off [RUNKO_ALLOW_ORG_CREATE]")
+	orgsDir := fs.String("orgs-dir", envString("ORGS_DIR", ""), "directory holding per-org repos at <orgs-dir>/<org>/repo.git (default: 'orgs' beside --repo-dir) [RUNKO_ORGS_DIR]")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -159,14 +162,16 @@ func cmdServe(args []string) error {
 		return fmt.Errorf("serve: %w", err)
 	}
 
+	defaultOrgName := strings.TrimSuffix(runkod.RepoMountName(*repoDir), ".git")
 	var store runkod.Store
+	var pgDefault *runkod.PostgresStore
 	if *databaseURL != "" {
-		orgName := strings.TrimSuffix(runkod.RepoMountName(*repoDir), ".git")
-		pg, err := runkod.BootstrapPostgresStore(context.Background(), *databaseURL, orgName, *trunk)
+		pg, err := runkod.BootstrapPostgresStore(context.Background(), *databaseURL, defaultOrgName, *trunk)
 		if err != nil {
 			return fmt.Errorf("serve: %w", err)
 		}
 		store = pg
+		pgDefault = pg
 		fmt.Println("runkod: using Postgres-backed storage (durable across restarts)")
 		if *allowUnpoliced {
 			fmt.Fprintln(os.Stderr, "runkod: WARNING --insecure-allow-unpoliced-land is set - changes resolving NO merge policy (no required checks, no owners) will land ungated. Declare owners/ci.checks or --global-required-checks instead in production (§28.3 stage 11c).")
@@ -228,13 +233,71 @@ func cmdServe(args []string) error {
 		Principals:           principals,
 		Mirror:               mirrorWorker,
 	}
-	handler, err := server.Handler()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Multi-org (§7.1, runkod/orghub.go): the root-mounted repo above is
+	// the default org; hub-created orgs each own a repo under --orgs-dir,
+	// mounted at /o/<name>/ with the identical Server surface.
+	if *orgsDir == "" {
+		*orgsDir = filepath.Join(filepath.Dir(strings.TrimRight(*repoDir, "/")), "orgs")
+	}
+	directory, ok := store.(runkod.Directory)
+	if !ok {
+		return fmt.Errorf("serve: store %T does not implement the account directory", store)
+	}
+	hub := &runkod.OrgHub{
+		Default:        server,
+		DefaultOrgName: defaultOrgName,
+		DataDir:        *orgsDir,
+		SelfURL:        selfURL,
+		AllowOrgCreate: *allowOrgCreate,
+		Directory:      directory,
+		Ctx:            ctx,
+		NewOrgStore: func(ctx context.Context, orgName string) (runkod.Store, error) {
+			if pgDefault != nil {
+				return runkod.NewOrgPostgresStore(ctx, pgDefault.Pool, orgName, *trunk)
+			}
+			return runkod.NewMemStore(), nil
+		},
+		NewOrgServer: func(orgName, orgRepoDir string, orgStore runkod.Store) (*runkod.Server, error) {
+			proc := &runkod.Processor{
+				RepoDir: orgRepoDir, TrunkRef: *trunk, Scanner: scanner, Store: orgStore,
+				RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
+				Principals:               principals,
+				Directory:                directory,
+			}
+			// Per-org zoekt/mirror stay default-org-only in v1 (daemon
+			// singleton flags); search answers structured not-configured.
+			return &runkod.Server{
+				RepoDir: orgRepoDir, TrunkRef: *trunk, Store: orgStore, Processor: proc, Token: *token,
+				Searcher:             search.NotConfiguredSearcher{},
+				GlobalRequiredChecks: splitNonEmpty(*globalChecks),
+				AllowUnpolicedLand:   *allowUnpoliced,
+				BotLanes:             botLanes,
+				Principals:           principals,
+			}, nil
+		},
+	}
+	if *webhookURL != "" {
+		hub.StartOrgWorkers = func(ctx context.Context, orgName string, orgStore runkod.Store) {
+			worker := &runkod.OutboxWorker{Store: orgStore, URL: *webhookURL, Secret: []byte(*webhookSecret)}
+			go worker.Run(ctx, 5*time.Second)
+		}
+	}
+	if loaded, err := hub.LoadExisting(ctx); err != nil {
+		return fmt.Errorf("serve: %w", err)
+	} else if len(loaded) > 0 {
+		fmt.Printf("runkod: reattached %d org(s): %s\n", len(loaded), strings.Join(loaded, ", "))
+	}
+	if *allowOrgCreate {
+		fmt.Println("runkod: self-service org creation enabled (POST /api/orgs); per-org repos under", *orgsDir)
+	}
+
+	handler, err := hub.Handler()
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	if *webhookURL != "" {
 		worker := &runkod.OutboxWorker{Store: store, URL: *webhookURL, Secret: []byte(*webhookSecret)}
 		go worker.Run(ctx, 5*time.Second)

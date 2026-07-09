@@ -34,6 +34,11 @@ type Principal struct {
 	// Policy is enforced at receive time when IsAgent (§8.7) - for both
 	// change pushes and workspace snapshots. Ignored for human principals.
 	Policy receive.AgentPolicy
+	// Stored marks a self-service account (§15.1 sign-up) resolved from
+	// the store/directory, as opposed to operator flag config. Operator
+	// principals are server-wide; stored accounts are membership-gated
+	// per org (orghub.go).
+	Stored bool
 }
 
 // principalFor resolves the API caller's principal from the Authorization
@@ -78,10 +83,19 @@ func (p *Processor) principalByName(name string) *Principal {
 	// Store-backed principals (§15.1 sign-up) are always human - no agent
 	// policy to enforce - but they must resolve here so workspace
 	// owner-only pushes and authored_by attribution treat them as the
-	// named identities they are.
-	if p.Store != nil {
-		if sp, found, err := p.Store.GetStoredPrincipal(context.Background(), name); err == nil && found {
-			return &Principal{Name: sp.Name}
+	// named identities they are. Accounts are server-global: an org's
+	// Processor consults the hub's Directory (orghub.go), not its own
+	// store's (empty, in mem mode) principal map.
+	var lookup func(context.Context, string) (StoredPrincipal, bool, error)
+	switch {
+	case p.Directory != nil:
+		lookup = p.Directory.GetStoredPrincipal
+	case p.Store != nil:
+		lookup = p.Store.GetStoredPrincipal
+	}
+	if lookup != nil {
+		if sp, found, err := lookup(context.Background(), name); err == nil && found {
+			return &Principal{Name: sp.Name, Stored: true}
 		}
 	}
 	return nil

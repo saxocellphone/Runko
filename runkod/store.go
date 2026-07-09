@@ -207,6 +207,11 @@ type MemStore struct {
 	principals map[string]StoredPrincipal
 	deliveries map[string]*memDelivery
 	mirrors    map[string]MirrorCursor
+	// Directory state (orghub.go): org registry + memberships. Only the
+	// hub's designated directory store (the default org's) carries these
+	// - per-org MemStores leave them empty.
+	orgNames   []string
+	orgMembers map[string]map[string]string // org -> principal -> role
 	nextID     int
 	// Now overrides the clock check-run timestamps use; nil means time.Now
 	// (tests inject a fake clock to exercise §14.4.2 staleness).
@@ -566,3 +571,58 @@ func (s *MemStore) RecordDeliveryResult(ctx context.Context, id string, result c
 }
 
 var _ Store = (*MemStore)(nil)
+
+// Directory (orghub.go): the mem-mode global account + membership view.
+// Orgs and memberships live only in the hub's designated directory store
+// (the default org's MemStore) - like every other MemStore fact, they do
+// not survive a restart, which is the documented eval-profile semantic.
+var _ Directory = (*MemStore)(nil)
+
+func (s *MemStore) EnsureOrg(ctx context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.orgMembers == nil {
+		s.orgMembers = map[string]map[string]string{}
+	}
+	if _, ok := s.orgMembers[name]; !ok {
+		s.orgMembers[name] = map[string]string{}
+		s.orgNames = append(s.orgNames, name)
+	}
+	return nil
+}
+
+func (s *MemStore) OrgMemberRole(ctx context.Context, orgName, principal string) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	role, ok := s.orgMembers[orgName][principal]
+	return role, ok, nil
+}
+
+func (s *MemStore) UpsertOrgMember(ctx context.Context, orgName, principal, role string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	members, ok := s.orgMembers[orgName]
+	if !ok {
+		return fmt.Errorf("runkod: no org named %q", orgName)
+	}
+	members[principal] = role
+	return nil
+}
+
+func (s *MemStore) ListOrgMemberships(ctx context.Context, principal string) ([]OrgMembership, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []OrgMembership
+	for _, org := range s.orgNames {
+		if role, ok := s.orgMembers[org][principal]; ok {
+			out = append(out, OrgMembership{Org: org, Role: role})
+		}
+	}
+	return out, nil
+}
+
+func (s *MemStore) ListOrgNames(ctx context.Context) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string{}, s.orgNames...), nil
+}

@@ -70,9 +70,72 @@ const auth: Interceptor = (next) => (req) => {
   return next(req);
 };
 
+// --- org selection (multi-org, runkod/orghub.go) ---------------------
+// Each org mounts the identical Connect/REST surface under /o/<org>/;
+// the selected org is per-browser state, "" meaning the default org at
+// the root mount. Account APIs (whoami, signup, orgs) stay at root -
+// accounts are server-global.
+const storedOrg: string | null =
+  typeof window !== "undefined" ? window.localStorage.getItem("runko-org") : null;
+export const currentOrg: string = !usingDemoData && storedOrg ? storedOrg : "";
+
+const transportBase =
+  currentOrg && baseUrl ? new URL(`o/${currentOrg}/`, baseUrl).toString() : baseUrl;
+
+export interface OrgInfo {
+  name: string;
+  role: string;
+  api_base: string;
+  git_url: string;
+  default?: boolean;
+}
+
+function authHeaders(): Record<string, string> {
+  if (storedBasic) return { Authorization: `Basic ${storedBasic}` };
+  if (devToken) return { Authorization: `Bearer ${devToken}` };
+  return {};
+}
+
+/** Orgs this account can reach (the shared default org always included). */
+export async function fetchOrgs(): Promise<OrgInfo[]> {
+  const res = await fetch(new URL("api/orgs", baseUrl), { headers: authHeaders() });
+  if (!res.ok) return [];
+  const d = (await res.json()) as { orgs?: OrgInfo[] };
+  return d.orgs ?? [];
+}
+
+/** Create an org (you become its admin); throws the server's structured
+ * message on rejection (name taken, creation disabled, ...). */
+export async function createOrg(name: string): Promise<OrgInfo> {
+  const res = await fetch(new URL("api/orgs", baseUrl), {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    let msg = `creating org failed (HTTP ${res.status})`;
+    try {
+      const e = (await res.json()) as { Message?: string; Suggestion?: string };
+      if (e.Message) msg = e.Message + (e.Suggestion ? ` — ${e.Suggestion}` : "");
+    } catch {
+      // plain-text body; keep the status message
+    }
+    throw new Error(msg);
+  }
+  return (await res.json()) as OrgInfo;
+}
+
+/** Switch this browser to an org ("" = the default org) and reload so
+ * every client rebinds its transport. */
+export function switchOrg(name: string): void {
+  if (name) window.localStorage.setItem("runko-org", name);
+  else window.localStorage.removeItem("runko-org");
+  window.location.reload();
+}
+
 const transport = usingDemoData
   ? createFakeTransport()
-  : createConnectTransport({ baseUrl: baseUrl!, interceptors: [auth] });
+  : createConnectTransport({ baseUrl: transportBase!, interceptors: [auth] });
 
 /** Validate name+password against runkod (GET /api/whoami) and, on
  * success, store the Basic credential for this browser and reload so

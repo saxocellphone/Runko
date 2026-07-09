@@ -78,6 +78,15 @@ type Server struct {
 	// no --mirror-remote is configured. Provider-agnostic by construction:
 	// any smart-HTTPS git host, or any git URL at all without token auth.
 	Mirror *MirrorWorker
+	// OrgName + Directory are set on org-scoped servers built by an
+	// OrgHub (orghub.go). When OrgName is non-empty, store-backed
+	// accounts must be members of that org to authenticate here at all
+	// (403, auth.go); operator principals, bot lanes, and the deploy
+	// token stay server-wide. Empty OrgName - the root-mounted default
+	// org and every pre-hub deployment - keeps the historical
+	// shared-repo behavior.
+	OrgName   string
+	Directory Directory
 	// Now overrides the clock the §14.4.2 check-staleness comparison uses;
 	// nil means time.Now (tests inject a fake clock).
 	Now func() time.Time
@@ -257,7 +266,12 @@ var processStart = time.Now()
 // the daemon and its own installed hook, not a client-facing API).
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.tokenMatches(r.Header.Get("Authorization")) {
+		c := s.callerForAuthHeader(r.Header.Get("Authorization"))
+		if c.deniedOrg {
+			writeAPIError(w, orgDeniedErr(s.OrgName))
+			return
+		}
+		if !c.ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -316,10 +330,17 @@ func (s *Server) requireGitAuth(git *cgi.Handler) http.Handler {
 		// alone is the secret, so a URL-borne username never blocks a
 		// clone; it just doesn't claim someone else's identity.
 		c := s.callerForBasic(user, pass)
-		if !c.ok {
+		if !c.ok && !c.deniedOrg {
 			if p := s.principalForBasicAuth(pass); p != nil {
 				c = caller{ok: true, principal: p}
 			}
+		}
+		if c.deniedOrg {
+			// Valid account, wrong org (auth.go): a 403 git surfaces
+			// verbatim, where a 401 would send the user chasing a
+			// password that is not the problem.
+			http.Error(w, fmt.Sprintf("forbidden: your account is not a member of org %q", s.OrgName), http.StatusForbidden)
+			return
 		}
 		if !c.ok {
 			w.Header().Set("WWW-Authenticate", `Basic realm="runko"`)

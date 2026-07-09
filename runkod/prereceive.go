@@ -93,7 +93,11 @@ type Processor struct {
 	TrunkRef string
 	Scanner  receive.SecretScanner
 	Store    Store
-	Now      func() time.Time
+	// Directory, when set (org-scoped processors, orghub.go), resolves
+	// store-backed pusher identities from the SERVER-GLOBAL account view
+	// instead of this org's own Store (principal.go).
+	Directory Directory
+	Now       func() time.Time
 	// RootInvalidationPatterns mirrors runko-ci affected's own
 	// --root-invalidation flag (org policy, §14.5.2) - without it, every
 	// push through this daemon computed affected with the hardcoded empty

@@ -472,3 +472,63 @@ func TestPostgresStoreMirrorCursors(t *testing.T) {
 		t.Fatalf("list after thaw: %+v err=%v", list, err)
 	}
 }
+
+// TestPostgresDirectoryMultiOrg covers migration 0007's surface: global
+// accounts, org membership CRUD, per-org store isolation on one shared
+// pool - the durable half of what orghub_test.go proves in mem mode.
+func TestPostgresDirectoryMultiOrg(t *testing.T) {
+	ctx := context.Background()
+	def := newTestPostgresStore(t)
+
+	// Accounts are global: created via one org's store, visible via another's.
+	if err := def.CreatePrincipal(ctx, "alice", "hash-a"); err != nil {
+		t.Fatalf("CreatePrincipal: %v", err)
+	}
+	acme, err := NewOrgPostgresStore(ctx, def.Pool, "acme", "main")
+	if err != nil {
+		t.Fatalf("NewOrgPostgresStore(acme): %v", err)
+	}
+	if sp, found, err := acme.GetStoredPrincipal(ctx, "alice"); err != nil || !found || sp.CredentialHash != "hash-a" {
+		t.Fatalf("alice not visible from acme's store: %+v %v %v", sp, found, err)
+	}
+
+	// Membership round-trip against the org rows NewOrgPostgresStore created.
+	if _, member, err := def.OrgMemberRole(ctx, "acme", "alice"); err != nil || member {
+		t.Fatalf("alice should not be a member yet: %v %v", member, err)
+	}
+	if err := def.UpsertOrgMember(ctx, "acme", "alice", "admin"); err != nil {
+		t.Fatalf("UpsertOrgMember: %v", err)
+	}
+	role, member, err := def.OrgMemberRole(ctx, "acme", "alice")
+	if err != nil || !member || role != "admin" {
+		t.Fatalf("OrgMemberRole: %q %v %v", role, member, err)
+	}
+	// Upsert updates role in place.
+	if err := def.UpsertOrgMember(ctx, "acme", "alice", "member"); err != nil {
+		t.Fatalf("UpsertOrgMember (role change): %v", err)
+	}
+	if role, _, _ := def.OrgMemberRole(ctx, "acme", "alice"); role != "member" {
+		t.Fatalf("role should now be member, got %q", role)
+	}
+	memberships, err := def.ListOrgMemberships(ctx, "alice")
+	if err != nil || len(memberships) != 1 || memberships[0].Org != "acme" {
+		t.Fatalf("ListOrgMemberships: %+v %v", memberships, err)
+	}
+	names, err := def.ListOrgNames(ctx)
+	if err != nil || len(names) != 2 { // the bootstrap org + acme
+		t.Fatalf("ListOrgNames: %v %v", names, err)
+	}
+
+	// Store isolation on the shared pool: a Change in acme is invisible
+	// from the default org's store.
+	if _, err := acme.CreateOrUpdateChange(ctx, "Iacme000000000000000000000000000000000000",
+		"", "1111111111111111111111111111111111111111", "refs/changes/x/head", "acme change", "alice", "", ""); err != nil {
+		t.Fatalf("CreateOrUpdateChange in acme: %v", err)
+	}
+	if list, err := def.ListChanges(ctx, ""); err != nil || len(list) != 0 {
+		t.Fatalf("acme change leaked into the default org: %+v %v", list, err)
+	}
+	if list, err := acme.ListChanges(ctx, ""); err != nil || len(list) != 1 {
+		t.Fatalf("acme should list its own change: %+v %v", list, err)
+	}
+}

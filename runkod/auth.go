@@ -25,16 +25,33 @@ package runkod
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"net/http"
 	"strings"
+
+	"github.com/saxocellphone/runko/internal/clierr"
 )
 
 // caller is one resolved credential: ok reports whether ANY credential
 // matched; principal/lane are non-nil when the credential named one.
-// (ok with both nil is the anonymous deploy token.)
+// (ok with both nil is the anonymous deploy token.) deniedOrg means the
+// credential itself was VALID but the account is not a member of this
+// server's org (multi-org, orghub.go) - surfaced as 403, never 401, so a
+// client can tell "wrong password" from "wrong org".
 type caller struct {
 	ok        bool
+	deniedOrg bool
 	principal *Principal
 	lane      *BotLane
+}
+
+// orgDeniedErr is the structured 403 for a valid account outside this org.
+func orgDeniedErr(org string) *apiError {
+	return typedErr(http.StatusForbidden, clierr.Error{
+		Code: "not_org_member", Field: "org",
+		Message:    fmt.Sprintf("your account is not a member of org %q", org),
+		Suggestion: "an org admin (or an operator) can add you: POST /api/orgs/" + org + "/members",
+	})
 }
 
 // callerForAuthHeader resolves an Authorization header value.
@@ -102,13 +119,34 @@ func (s *Server) callerForBasic(user, pass string) caller {
 	// Store-backed principals (§15.1 sign-up, signup.go): checked LAST so
 	// operator config always wins a name. The PBKDF2 verification is
 	// cached per (name, password) pair - Basic rides on every request.
-	if s.Store != nil {
-		if sp, found, err := s.Store.GetStoredPrincipal(context.Background(), user); err == nil && found {
+	// Accounts are server-global (migration 0007): on an org-scoped
+	// server (orghub.go) the credential can be perfectly valid and still
+	// denied here - membership in THIS org is part of authentication.
+	if dir := s.accountLookup(); dir != nil {
+		if sp, found, err := dir(context.Background(), user); err == nil && found {
 			if s.credCache.hit(user, pass) || verifyCredential(pass, sp.CredentialHash) {
 				s.credCache.remember(user, pass)
-				return caller{ok: true, principal: &Principal{Name: sp.Name}}
+				if s.OrgName != "" && s.Directory != nil {
+					if _, member, err := s.Directory.OrgMemberRole(context.Background(), s.OrgName, sp.Name); err != nil || !member {
+						return caller{deniedOrg: true}
+					}
+				}
+				return caller{ok: true, principal: &Principal{Name: sp.Name, Stored: true}}
 			}
 		}
 	}
 	return caller{}
+}
+
+// accountLookup returns the store-backed account resolver: the global
+// Directory when the hub wired one (org-scoped servers MUST see all
+// accounts, not their own store's empty map), else this server's Store.
+func (s *Server) accountLookup() func(context.Context, string) (StoredPrincipal, bool, error) {
+	if s.Directory != nil {
+		return s.Directory.GetStoredPrincipal
+	}
+	if s.Store != nil {
+		return s.Store.GetStoredPrincipal
+	}
+	return nil
 }

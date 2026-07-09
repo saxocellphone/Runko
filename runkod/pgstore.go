@@ -39,6 +39,16 @@ type PostgresStore struct {
 // single org/monorepo/actor row this daemon instance uses, keyed by
 // orgName.
 func BootstrapPostgresStore(ctx context.Context, dsn, orgName, trunkRef string) (*PostgresStore, error) {
+	pool, err := OpenPostgresPool(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	return NewOrgPostgresStore(ctx, pool, orgName, trunkRef)
+}
+
+// OpenPostgresPool connects and applies migrations - once per daemon; the
+// per-org stores (NewOrgPostgresStore) all share the returned pool.
+func OpenPostgresPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("runkod: connect to postgres: %w", err)
@@ -75,6 +85,12 @@ func BootstrapPostgresStore(ctx context.Context, dsn, orgName, trunkRef string) 
 	if len(ran) > 0 {
 		log.Printf("runkod: applied schema migrations: %s", strings.Join(ran, ", "))
 	}
+	return pool, nil
+}
+
+// NewOrgPostgresStore binds one org's store onto an already-migrated
+// shared pool, get-or-creating its org/monorepo/placeholder-actor rows.
+func NewOrgPostgresStore(ctx context.Context, pool *pgxpool.Pool, orgName, trunkRef string) (*PostgresStore, error) {
 	q := dbgen.New()
 
 	org, err := q.GetOrgByName(ctx, pool, orgName)
@@ -618,8 +634,11 @@ func (s *PostgresStore) RecordDeliveryResult(ctx context.Context, id string, res
 var _ Store = (*PostgresStore)(nil)
 
 func (s *PostgresStore) CreatePrincipal(ctx context.Context, name, credentialHash string) error {
+	// Server-global since migration 0007 (one account, many orgs) - every
+	// org's PostgresStore shares the pool, so any of them answers for the
+	// same account rows.
 	_, err := s.Queries.CreatePrincipal(ctx, s.Pool, dbgen.CreatePrincipalParams{
-		OrgID: s.OrgID, Name: name, CredentialHash: credentialHash,
+		Name: name, CredentialHash: credentialHash,
 	})
 	if err != nil {
 		return fmt.Errorf("runkod: create principal %q: %w", name, err)
@@ -628,7 +647,7 @@ func (s *PostgresStore) CreatePrincipal(ctx context.Context, name, credentialHas
 }
 
 func (s *PostgresStore) GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error) {
-	row, err := s.Queries.GetPrincipalByName(ctx, s.Pool, dbgen.GetPrincipalByNameParams{OrgID: s.OrgID, Name: name})
+	row, err := s.Queries.GetPrincipalByName(ctx, s.Pool, name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StoredPrincipal{}, false, nil
 	}
@@ -636,4 +655,66 @@ func (s *PostgresStore) GetStoredPrincipal(ctx context.Context, name string) (St
 		return StoredPrincipal{}, false, fmt.Errorf("runkod: get principal %q: %w", name, err)
 	}
 	return StoredPrincipal{Name: row.Name, CredentialHash: row.CredentialHash}, true, nil
+}
+
+// Directory (orghub.go): global account + membership view. Backed by the
+// shared pool, so the default org's store doubles as the hub's directory.
+var _ Directory = (*PostgresStore)(nil)
+
+func (s *PostgresStore) EnsureOrg(ctx context.Context, name string) error {
+	_, err := s.Queries.GetOrgByName(ctx, s.Pool, name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		_, err = s.Queries.CreateOrg(ctx, s.Pool, name)
+	}
+	if err != nil {
+		return fmt.Errorf("runkod: ensure org %q: %w", name, err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) OrgMemberRole(ctx context.Context, orgName, principal string) (string, bool, error) {
+	role, err := s.Queries.GetOrgMemberRole(ctx, s.Pool, dbgen.GetOrgMemberRoleParams{
+		OrgName: orgName, PrincipalName: principal,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("runkod: membership of %q in %q: %w", principal, orgName, err)
+	}
+	return role, true, nil
+}
+
+func (s *PostgresStore) UpsertOrgMember(ctx context.Context, orgName, principal, role string) error {
+	err := s.Queries.UpsertOrgMember(ctx, s.Pool, dbgen.UpsertOrgMemberParams{
+		OrgName: orgName, PrincipalName: principal, Role: role,
+	})
+	if err != nil {
+		return fmt.Errorf("runkod: add %q to org %q: %w", principal, orgName, err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListOrgMemberships(ctx context.Context, principal string) ([]OrgMembership, error) {
+	rows, err := s.Queries.ListOrgMembershipsForPrincipal(ctx, s.Pool, principal)
+	if err != nil {
+		return nil, fmt.Errorf("runkod: memberships of %q: %w", principal, err)
+	}
+	out := make([]OrgMembership, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, OrgMembership{Org: r.OrgName, Role: r.Role})
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) ListOrgNames(ctx context.Context) ([]string, error) {
+	rows, err := s.Queries.ListOrgs(ctx, s.Pool)
+	if err != nil {
+		return nil, fmt.Errorf("runkod: list orgs: %w", err)
+	}
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		names = append(names, r.Name)
+	}
+	return names, nil
 }

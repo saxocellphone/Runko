@@ -7,30 +7,28 @@ package dbgen
 
 import (
 	"context"
-
-	"github.com/google/uuid"
 )
 
 const createPrincipal = `-- name: CreatePrincipal :one
 
-INSERT INTO principals (org_id, name, credential_hash)
-VALUES ($1, $2, $3)
-RETURNING id, org_id, name, credential_hash, created_at
+INSERT INTO principals (name, credential_hash)
+VALUES ($1, $2)
+RETURNING id, name, credential_hash, created_at
 `
 
 type CreatePrincipalParams struct {
-	OrgID          uuid.UUID `json:"org_id"`
-	Name           string    `json:"name"`
-	CredentialHash string    `json:"credential_hash"`
+	Name           string `json:"name"`
+	CredentialHash string `json:"credential_hash"`
 }
 
 // Self-service principals (§15.1 sign-up; db/migrations/0004).
+// Server-global since 0007: one account, many orgs - org access lives in
+// org_members (orgs.sql).
 func (q *Queries) CreatePrincipal(ctx context.Context, db DBTX, arg CreatePrincipalParams) (*Principal, error) {
-	row := db.QueryRow(ctx, createPrincipal, arg.OrgID, arg.Name, arg.CredentialHash)
+	row := db.QueryRow(ctx, createPrincipal, arg.Name, arg.CredentialHash)
 	var i Principal
 	err := row.Scan(
 		&i.ID,
-		&i.OrgID,
 		&i.Name,
 		&i.CredentialHash,
 		&i.CreatedAt,
@@ -39,21 +37,15 @@ func (q *Queries) CreatePrincipal(ctx context.Context, db DBTX, arg CreatePrinci
 }
 
 const getPrincipalByName = `-- name: GetPrincipalByName :one
-SELECT id, org_id, name, credential_hash, created_at FROM principals
-WHERE org_id = $1 AND name = $2
+SELECT id, name, credential_hash, created_at FROM principals
+WHERE name = $1
 `
 
-type GetPrincipalByNameParams struct {
-	OrgID uuid.UUID `json:"org_id"`
-	Name  string    `json:"name"`
-}
-
-func (q *Queries) GetPrincipalByName(ctx context.Context, db DBTX, arg GetPrincipalByNameParams) (*Principal, error) {
-	row := db.QueryRow(ctx, getPrincipalByName, arg.OrgID, arg.Name)
+func (q *Queries) GetPrincipalByName(ctx context.Context, db DBTX, name string) (*Principal, error) {
+	row := db.QueryRow(ctx, getPrincipalByName, name)
 	var i Principal
 	err := row.Scan(
 		&i.ID,
-		&i.OrgID,
 		&i.Name,
 		&i.CredentialHash,
 		&i.CreatedAt,
