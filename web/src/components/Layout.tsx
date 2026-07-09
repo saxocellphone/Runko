@@ -96,8 +96,9 @@ function OrgSwitcher() {
   }, []);
 
   // Stale selection (org gone / membership revoked): keep it visible so
-  // the user can switch away rather than being stuck.
-  const known = orgs.some((o) => (o.default ? currentOrg === "" : o.name === currentOrg));
+  // the user can switch away rather than being stuck. Sessions are
+  // org-scoped: the listing is exactly this account's memberships.
+  const known = orgs.some((o) => o.name === currentOrg);
 
   const onChange = async (value: string) => {
     if (value === "__new__") {
@@ -122,9 +123,8 @@ function OrgSwitcher() {
       onChange={(e) => void onChange(e.target.value)}
     >
       {orgs.map((o) => (
-        <option key={o.name} value={o.default ? "" : o.name}>
+        <option key={o.name} value={o.name}>
           {o.name}
-          {o.default ? " (shared)" : ""}
         </option>
       ))}
       {!known && currentOrg && <option value={currentOrg}>{currentOrg} (unavailable?)</option>}

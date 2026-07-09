@@ -190,11 +190,11 @@ export async function removeOrgMember(org: string, name: string): Promise<void> 
   if (!res.ok) await throwStructured(res, "removing member failed");
 }
 
-/** Switch this browser to an org ("" = the default org) and reload so
- * every client rebinds its transport. */
+/** Switch this browser to another of YOUR orgs and reload so every client
+ * rebinds its transport. Sessions are always org-scoped; the transport
+ * runs through /o/<org>/ for every org, the default one included. */
 export function switchOrg(name: string): void {
-  if (name) window.localStorage.setItem("runko-org", name);
-  else window.localStorage.removeItem("runko-org");
+  window.localStorage.setItem("runko-org", name);
   window.location.reload();
 }
 
@@ -202,22 +202,27 @@ const transport = usingDemoData
   ? createFakeTransport()
   : createConnectTransport({ baseUrl: transportBase!, interceptors: [auth] });
 
-/** Validate name+password against runkod (GET /api/whoami) and, on
- * success, store the Basic credential for this browser and reload so
+/** Org-scoped sign-in (2026-07-09: logging in means logging into AN ORG):
+ * validate name+password against the ORG's own surface
+ * (GET /o/<org>/api/whoami - membership is part of authentication there)
+ * and, on success, bind this browser's session to that org and reload so
  * every client picks it up. Throws with a human-readable message on
- * rejection. */
-export async function signIn(name: string, password: string): Promise<void> {
+ * rejection - including "valid account, wrong org". */
+export async function signIn(name: string, password: string, org: string): Promise<void> {
   const basic = btoa(`${name}:${password}`);
-  const res = await fetch(new URL("api/whoami", baseUrl), {
+  const res = await fetch(new URL(`o/${org}/api/whoami`, baseUrl), {
     headers: { Authorization: `Basic ${basic}` },
   });
   if (res.status === 401) throw new Error("wrong name or password");
+  if (res.status === 403) throw new Error(`your account is not a member of org “${org}”`);
+  if (res.status === 404) throw new Error(`no org named “${org}” here — check the spelling`);
   if (!res.ok) throw new Error(`runkod answered HTTP ${res.status}`);
   const who = (await res.json()) as { name?: string; anonymous?: boolean };
   // A deploy-token password signs in "anonymous" - allowed (it is the
-  // documented everyone-credential until retired) but shown as such.
+  // operator credential) but shown as such.
   window.localStorage.setItem("runko-user", who.anonymous ? "" : (who.name ?? name));
   window.localStorage.setItem("runko-basic", basic);
+  window.localStorage.setItem("runko-org", org);
   window.location.reload();
 }
 
@@ -268,12 +273,9 @@ export async function signUp(
     body: JSON.stringify({ name, password, code, org, org_mode: orgMode }),
   });
   if (!res.ok) await throwStructured(res, "sign-up failed");
-  const d = (await res.json()) as { org?: { name?: string; default?: boolean } };
-  // Land inside the chosen org; the shared default org lives at the root
-  // transport ("" selection).
-  if (d.org?.name && !d.org.default) window.localStorage.setItem("runko-org", d.org.name);
-  else window.localStorage.removeItem("runko-org");
-  await signIn(name, password);
+  const d = (await res.json()) as { org?: { name?: string } };
+  // Land inside the chosen org - sign-in is org-scoped.
+  await signIn(name, password, d.org?.name ?? org);
 }
 
 /** Clear this browser's credential and reload. */

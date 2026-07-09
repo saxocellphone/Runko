@@ -269,11 +269,15 @@ func cmdServe(args []string) error {
 	if !ok {
 		return fmt.Errorf("serve: store %T does not implement the account directory", store)
 	}
-	// The default org's stored settings (org settings page) apply to the
-	// root-mounted server too; membership gating stays off for it
-	// (OrgName deliberately left empty - the historical shared repo).
+	// The default org is an org like any other (org-scoped sessions,
+	// 2026-07-09): store-backed accounts need a membership row to reach
+	// it - the historical everyone-with-a-credential behavior is gone.
+	// Operator principals and the deploy token stay server-wide, so CI,
+	// hooks, and the eval loop are unaffected; signups join it explicitly
+	// (org_mode=join) like any org.
 	server.Directory = directory
 	server.SettingsOrg = defaultOrgName
+	server.OrgName = defaultOrgName
 	hub := &runkod.OrgHub{
 		Default:        server,
 		DefaultOrgName: defaultOrgName,

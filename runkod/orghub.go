@@ -7,11 +7,14 @@
 // thing a client needs, so `runko --runkod-url https://host/o/acme` and
 // the web transport work against an org with zero client changes.
 //
-// The root-mounted repo the daemon has always served stays exactly as it
-// was (the "default org", also reachable at /o/<default-name>/ for
-// uniformity): existing deployments, remotes, and CI keep working. Only
-// hub-created orgs are membership-gated - the default org keeps its
-// historical everyone-with-a-credential behavior.
+// The root-mounted repo the daemon has always served stays as the
+// "default org" (also reachable at /o/<default-name>/ for uniformity).
+// Since 2026-07-09 sessions are ORG-SCOPED: every org - the default one
+// included - is membership-gated for store-backed accounts, GET /api/orgs
+// lists exactly the caller's memberships, and logging in means logging
+// into an org. Operator principals and the deploy token stay server-wide
+// (they run the place); accounts remain server-global rows - identity is
+// global, REACH is per-org.
 //
 // Deliberately NOT here in v1: org deletion (a repo is not something a
 // REST DELETE should vaporize), per-org zoekt/mirror config (daemon
@@ -158,16 +161,20 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	// is an OPTIONS request that must reach rpcMiddleware (which answers
 	// it) instead of falling through to the default handler's 404 -
 	// found by driving the real dev loop (Vite origin != daemon origin).
-	mux.Handle("/api/orgs", h.Default.rpcMiddleware(byMethod(map[string]http.HandlerFunc{
+	// rpcMiddlewareGlobal, not rpcMiddleware: these are GLOBAL-account
+	// routes ("which orgs am I in", "create one", per-org admin surfaces
+	// that gate themselves via orgAccess) - the default server's own
+	// membership gate must not swallow callers who belong elsewhere.
+	mux.Handle("/api/orgs", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodGet: h.handleListOrgs, http.MethodPost: h.handleCreateOrg,
 	})))
-	mux.Handle("/api/orgs/{org}/members", h.Default.rpcMiddleware(byMethod(map[string]http.HandlerFunc{
+	mux.Handle("/api/orgs/{org}/members", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodGet: h.handleListOrgMembers, http.MethodPost: h.handleAddOrgMember,
 	})))
-	mux.Handle("/api/orgs/{org}/members/{name}", h.Default.rpcMiddleware(byMethod(map[string]http.HandlerFunc{
+	mux.Handle("/api/orgs/{org}/members/{name}", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodDelete: h.handleRemoveOrgMember,
 	})))
-	mux.Handle("/api/orgs/{org}/settings", h.Default.rpcMiddleware(byMethod(map[string]http.HandlerFunc{
+	mux.Handle("/api/orgs/{org}/settings", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodGet: h.handleGetOrgSettings, http.MethodPut: h.handlePutOrgSettings,
 	})))
 	// Sign-up at the hub level supersedes the default server's own
@@ -425,12 +432,14 @@ func (h *OrgHub) LoadExisting(ctx context.Context) ([]string, error) {
 	return loaded, nil
 }
 
-// hubCaller authenticates a hub API request against the default server's
-// resolver and applies the hub-level rules: agents never manage orgs
-// (§8.7 - org creation is exactly the kind of blast-radius action agent
-// policy exists to fence), and bot lanes are land-only credentials.
+// hubCaller authenticates a hub API request - GLOBALLY, without any org's
+// membership gate ("who are you" is server-global; the per-org gates
+// answer "what may you reach") - and applies the hub-level rules: agents
+// never manage orgs (§8.7 - org creation is exactly the kind of
+// blast-radius action agent policy exists to fence), and bot lanes are
+// land-only credentials.
 func (h *OrgHub) hubCaller(r *http.Request) (caller, *apiError) {
-	c := h.Default.callerForAuthHeader(r.Header.Get("Authorization"))
+	c := h.Default.callerForAuthHeaderGlobal(r.Header.Get("Authorization"))
 	if !c.ok {
 		return c, typedErr(http.StatusUnauthorized, clierr.Error{Code: "unauthorized", Message: "credentials required"})
 	}
@@ -516,10 +525,12 @@ func (h *OrgHub) handleListOrgs(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, apiErr)
 		return
 	}
-	var out []orgInfo
-	defaultRole := "shared"
+	// Org-scoped sessions (2026-07-09): a stored account sees exactly its
+	// MEMBERSHIPS - no unconditional default-org row, no enumeration of
+	// anything it doesn't belong to. Operators (server config) still see
+	// everything: they run the place.
+	out := []orgInfo{}
 	if isOperator(c) {
-		defaultRole = "operator"
 		names, err := h.Directory.ListOrgNames(r.Context())
 		if err != nil {
 			writeAPIError(w, internalErr(err))
@@ -527,21 +538,22 @@ func (h *OrgHub) handleListOrgs(w http.ResponseWriter, r *http.Request) {
 		}
 		seen := map[string]bool{}
 		for _, n := range names {
-			if n == h.DefaultOrgName {
-				continue
-			}
 			seen[n] = true
 			out = append(out, h.orgInfoFor(n, "operator"))
 		}
-		// Mem-mode directories only know orgs created this process; the
-		// hub's own map is authoritative for what is actually routable.
+		// Mem-mode directories only know orgs registered this process;
+		// the hub's map + the default org are authoritative for routing.
 		h.mu.Lock()
 		for n := range h.orgs {
 			if !seen[n] {
+				seen[n] = true
 				out = append(out, h.orgInfoFor(n, "operator"))
 			}
 		}
 		h.mu.Unlock()
+		if h.DefaultOrgName != "" && !seen[h.DefaultOrgName] {
+			out = append(out, h.orgInfoFor(h.DefaultOrgName, "operator"))
+		}
 	} else {
 		memberships, err := h.Directory.ListOrgMemberships(r.Context(), c.principal.Name)
 		if err != nil {
@@ -549,21 +561,10 @@ func (h *OrgHub) handleListOrgs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, m := range memberships {
-			if m.Org == h.DefaultOrgName {
-				// Listed unconditionally below - but a real membership
-				// row (e.g. an admin of the shared org) names its role.
-				defaultRole = m.Role
-				continue
-			}
 			out = append(out, h.orgInfoFor(m.Org, m.Role))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	// The default org is everyone's: the shared repo this daemon has
-	// always served, ungated by membership.
-	if h.DefaultOrgName != "" {
-		out = append([]orgInfo{h.orgInfoFor(h.DefaultOrgName, defaultRole)}, out...)
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"orgs": out})
 }
 
@@ -685,8 +686,8 @@ func (h *OrgHub) knownOrg(name string) bool {
 
 // orgAccess resolves what the caller may do in one org: operators (and
 // the anonymous deploy token) act everywhere; stored accounts act per
-// their membership role. The default org is readable by every valid
-// credential (it is the shared repo), writable by its admins.
+// their membership role. The default org is no exception (org-scoped
+// sessions, 2026-07-09): non-members see and reach nothing.
 func (h *OrgHub) orgAccess(r *http.Request, c caller, orgName string) (role string, canRead, canAdmin bool, err error) {
 	if isOperator(c) {
 		return "operator", true, true, nil
@@ -696,7 +697,7 @@ func (h *OrgHub) orgAccess(r *http.Request, c caller, orgName string) (role stri
 		return "", false, false, err
 	}
 	if !member {
-		return "", orgName == h.DefaultOrgName, false, nil
+		return "", false, false, nil
 	}
 	return role, true, role == "admin", nil
 }
@@ -721,7 +722,11 @@ func (h *OrgHub) requireOrg(w http.ResponseWriter, r *http.Request, adminOnly bo
 		writeAPIError(w, internalErr(err))
 		return "", c, false
 	}
-	if (adminOnly && !canAdmin) || !canRead {
+	if !canRead {
+		writeAPIError(w, orgDeniedErr(orgName))
+		return "", c, false
+	}
+	if adminOnly && !canAdmin {
 		writeAPIError(w, typedErr(http.StatusForbidden, clierr.Error{
 			Code: "not_org_admin", Field: "org",
 			Message:    fmt.Sprintf("only admins of %q (or an operator) may do this", orgName),

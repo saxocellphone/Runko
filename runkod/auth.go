@@ -54,8 +54,21 @@ func orgDeniedErr(org string) *apiError {
 	})
 }
 
-// callerForAuthHeader resolves an Authorization header value.
+// callerForAuthHeader resolves an Authorization header value, applying
+// this server's org-membership gate to store-backed accounts.
 func (s *Server) callerForAuthHeader(auth string) caller {
+	return s.callerForAuthHeaderOpts(auth, true)
+}
+
+// callerForAuthHeaderGlobal resolves identity WITHOUT the org-membership
+// gate - for the hub's global-account surfaces (org listing/creation,
+// orghub.go): "who are you" is server-global even when "what may you
+// reach" is org-scoped.
+func (s *Server) callerForAuthHeaderGlobal(auth string) caller {
+	return s.callerForAuthHeaderOpts(auth, false)
+}
+
+func (s *Server) callerForAuthHeaderOpts(auth string, gated bool) caller {
 	if token, found := strings.CutPrefix(auth, "Bearer "); found {
 		return s.callerForBearer(token)
 	}
@@ -68,7 +81,7 @@ func (s *Server) callerForAuthHeader(auth string) caller {
 		if !found {
 			return caller{}
 		}
-		return s.callerForBasic(user, pass)
+		return s.callerForBasicOpts(user, pass, gated)
 	}
 	return caller{}
 }
@@ -99,6 +112,10 @@ func (s *Server) callerForBearer(token string) caller {
 // its historical password-only principal resolution for existing remotes;
 // see requireGitAuth.)
 func (s *Server) callerForBasic(user, pass string) caller {
+	return s.callerForBasicOpts(user, pass, true)
+}
+
+func (s *Server) callerForBasicOpts(user, pass string, gated bool) caller {
 	for i := range s.Principals {
 		nameOK := constantTimeEquals(user, s.Principals[i].Name)
 		passOK := constantTimeEquals(pass, s.Principals[i].Token)
@@ -126,7 +143,7 @@ func (s *Server) callerForBasic(user, pass string) caller {
 		if sp, found, err := dir(context.Background(), user); err == nil && found {
 			if s.credCache.hit(user, pass) || verifyCredential(pass, sp.CredentialHash) {
 				s.credCache.remember(user, pass)
-				if s.OrgName != "" && s.Directory != nil {
+				if gated && s.OrgName != "" && s.Directory != nil {
 					role, member, err := s.Directory.OrgMemberRole(context.Background(), s.OrgName, sp.Name)
 					if err != nil || !member {
 						return caller{deniedOrg: true}

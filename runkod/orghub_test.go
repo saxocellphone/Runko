@@ -25,6 +25,9 @@ func newTestHub(t *testing.T, allowCreate bool, extraPrincipals ...Principal) (*
 		RepoDir: bare, TrunkRef: "main", Store: store,
 		Processor: newTestProcessor(bare, store), Token: "sekret",
 		AllowSignup: true, Principals: extraPrincipals,
+		// Org-scoped sessions (2026-07-09): the default org is membership-
+		// gated like any other - the fixture mirrors cmd/runkod's wiring.
+		OrgName: "defaultorg", Directory: store,
 	}
 	hub := &OrgHub{
 		Default:        def,
@@ -124,10 +127,16 @@ func TestOrgLifecycleMemMode(t *testing.T) {
 	if len(orgs) != 2 {
 		t.Fatalf("alice should see 2 orgs, got %v", body)
 	}
-	first := orgs[0].(map[string]any)
-	// Signup joined the default org, so the row names the real role.
-	if first["default"] != true || first["role"] != "member" {
-		t.Fatalf("first listed org should be the joined default, got %v", first)
+	// Signup joined the default org, so a membership row lists it with
+	// its real role (no unconditional shared entry exists anymore).
+	var defaultRow map[string]any
+	for _, o := range orgs {
+		if row := o.(map[string]any); row["default"] == true {
+			defaultRow = row
+		}
+	}
+	if defaultRow == nil || defaultRow["role"] != "member" {
+		t.Fatalf("the joined default org should list with its membership role, got %v", orgs)
 	}
 	status, body = hubDo(t, srv, "GET", "/api/orgs", "bob", "bobpw1234", "", nil)
 	if status != http.StatusOK || len(body["orgs"].([]any)) != 1 {
@@ -147,16 +156,21 @@ func TestOrgLifecycleMemMode(t *testing.T) {
 		t.Fatalf("deploy token should stay server-wide: status %d", status)
 	}
 
-	// Only admins (or operators) add members.
+	// Only admins (or operators) add members: a NON-MEMBER is refused as
+	// such (he can't even see the org), a non-admin MEMBER as non-admin.
 	status, body = hubDo(t, srv, "POST", "/api/orgs/acme/members", "bob", "bobpw1234", "", map[string]string{"name": "bob"})
-	if status != http.StatusForbidden || body["Code"] != "not_org_admin" {
-		t.Fatalf("non-admin add member: got %d %v", status, body)
+	if status != http.StatusForbidden || body["Code"] != "not_org_member" {
+		t.Fatalf("non-member add member: got %d %v", status, body)
 	}
 	if status, body = hubDo(t, srv, "POST", "/api/orgs/acme/members", "alice", "alicepw123", "", map[string]string{"name": "bob"}); status != http.StatusOK {
 		t.Fatalf("admin add member: got %d %v", status, body)
 	}
 	if status, _ = hubDo(t, srv, "GET", "/o/acme/api/changes", "bob", "bobpw1234", "", nil); status != http.StatusOK {
 		t.Fatalf("bob should have access after being added: status %d", status)
+	}
+	status, body = hubDo(t, srv, "POST", "/api/orgs/acme/members", "bob", "bobpw1234", "", map[string]string{"name": "ghost2"})
+	if status != http.StatusForbidden || body["Code"] != "not_org_admin" {
+		t.Fatalf("member (non-admin) add member: got %d %v", status, body)
 	}
 	// Adding an account nobody registered is a typo, not an invite.
 	status, body = hubDo(t, srv, "POST", "/api/orgs/acme/members", "alice", "alicepw123", "", map[string]string{"name": "ghost"})
@@ -473,5 +487,65 @@ func TestSignupWithOrgDisabled(t *testing.T) {
 	status, body = hubDo(t, srv, "GET", "/api/auth/config", "", "", "", nil)
 	if status != http.StatusOK || body["org_create_enabled"] != false {
 		t.Fatalf("auth config should advertise org creation off: %d %v", status, body)
+	}
+}
+
+// TestOrgScopedSessionsIsolation pins the 2026-07-09 decision: logging in
+// means logging into AN ORG. An account that belongs only to one org must
+// not see, list, or reach any other - the default org included (its
+// historical everyone-with-a-credential behavior is gone).
+func TestOrgScopedSessionsIsolation(t *testing.T) {
+	srv, _ := newTestHub(t, true)
+
+	// zoe signs up CREATING her own org - she never joins the default.
+	status, _ := hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "zoe", "password": "zoepw12345", "org": "zoes-org", "org_mode": "create"})
+	if status != http.StatusCreated {
+		t.Fatalf("signup: %d", status)
+	}
+
+	// Her org list is exactly her org - no default-org row, nothing else.
+	status, body := hubDo(t, srv, "GET", "/api/orgs", "zoe", "zoepw12345", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("list orgs: %d", status)
+	}
+	orgs := body["orgs"].([]any)
+	if len(orgs) != 1 || orgs[0].(map[string]any)["name"] != "zoes-org" {
+		t.Fatalf("zoe should see exactly her org, got %v", orgs)
+	}
+
+	// The default org's API surface refuses her - 403, not 401 (her
+	// credential is valid; the org just isn't hers).
+	status, body = hubDo(t, srv, "GET", "/api/changes", "zoe", "zoepw12345", "", nil)
+	if status != http.StatusForbidden || body["Code"] != "not_org_member" {
+		t.Fatalf("root (default org) should refuse a non-member: %d %v", status, body)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/o/defaultorg/api/changes", "zoe", "zoepw12345", "", nil); status != http.StatusForbidden {
+		t.Fatalf("default org via /o/ should refuse a non-member: %d", status)
+	}
+	// Default-org settings/members: same story (no shared read anymore).
+	if status, _ = hubDo(t, srv, "GET", "/api/orgs/defaultorg/settings", "zoe", "zoepw12345", "", nil); status != http.StatusForbidden {
+		t.Fatalf("default org settings should refuse a non-member: %d", status)
+	}
+
+	// Her own org: whoami (the login round-trip) and the API both work.
+	if status, _ = hubDo(t, srv, "GET", "/o/zoes-org/api/whoami", "zoe", "zoepw12345", "", nil); status != http.StatusOK {
+		t.Fatalf("org-scoped whoami (the login check) should succeed: %d", status)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/o/zoes-org/api/changes", "zoe", "zoepw12345", "", nil); status != http.StatusOK {
+		t.Fatalf("her own org should serve her: %d", status)
+	}
+
+	// A default-org member conversely cannot reach zoes-org.
+	hubSignup(t, srv, "dora", "dorapw1234") // joins defaultorg
+	if status, _ = hubDo(t, srv, "GET", "/api/changes", "dora", "dorapw1234", "", nil); status != http.StatusOK {
+		t.Fatalf("default-org member should reach the default org: %d", status)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/o/zoes-org/api/changes", "dora", "dorapw1234", "", nil); status != http.StatusForbidden {
+		t.Fatalf("default-org member should not reach zoes-org: %d", status)
+	}
+	status, body = hubDo(t, srv, "GET", "/api/orgs", "dora", "dorapw1234", "", nil)
+	if status != http.StatusOK || len(body["orgs"].([]any)) != 1 {
+		t.Fatalf("dora should see exactly the default org, got %v", body)
 	}
 }

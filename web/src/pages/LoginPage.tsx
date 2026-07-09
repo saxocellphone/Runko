@@ -18,7 +18,9 @@ export function LoginPage() {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [org, setOrg] = useState("");
+  // Sessions are org-scoped (2026-07-09): you sign in TO an org. Prefill
+  // the last one this browser used.
+  const [org, setOrg] = useState(() => window.localStorage.getItem("runko-org") ?? "");
   const [orgMode, setOrgMode] = useState<"create" | "join">("create");
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -43,7 +45,7 @@ export function LoginPage() {
           config.orgCreateEnabled ? orgMode : "join",
         );
       } else {
-        await signIn(name.trim(), password);
+        await signIn(name.trim(), password, org.trim());
       }
       // Both reload the page on success.
     } catch (err) {
@@ -59,12 +61,25 @@ export function LoginPage() {
         <p className="login-sub">
           {signingUp ? "Create an account on this control plane" : "Sign in to this control plane"}
         </p>
+        {!signingUp && (
+          <label className="login-label">
+            Organization
+            <input
+              type="text"
+              autoComplete="organization"
+              autoFocus={!org}
+              value={org}
+              placeholder="your org's name"
+              onChange={(e) => setOrg(e.target.value)}
+            />
+          </label>
+        )}
         <label className="login-label">
           Name
           <input
             type="text"
             autoComplete="username"
-            autoFocus
+            autoFocus={!!org}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -137,7 +152,7 @@ export function LoginPage() {
         <button
           className="btn btn-primary login-submit"
           type="submit"
-          disabled={busy || !password || (signingUp && (password.length < 8 || !org.trim()))}
+          disabled={busy || !password || !org.trim() || (signingUp && password.length < 8)}
         >
           {busy
             ? signingUp

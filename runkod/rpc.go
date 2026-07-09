@@ -69,6 +69,17 @@ func (s *Server) mountRPC(mux *http.ServeMux) {
 // can talk to the daemon without per-origin daemon config. The OPTIONS
 // preflight must pass unauthenticated - browsers send it without headers.
 func (s *Server) rpcMiddleware(next http.Handler) http.Handler {
+	return s.rpcMiddlewareOpts(next, true)
+}
+
+// rpcMiddlewareGlobal authenticates WITHOUT this server's org-membership
+// gate - the hub's global-account routes (org listing/creation, orghub.go)
+// must serve any valid credential regardless of which orgs it belongs to.
+func (s *Server) rpcMiddlewareGlobal(next http.Handler) http.Handler {
+	return s.rpcMiddlewareOpts(next, false)
+}
+
+func (s *Server) rpcMiddlewareOpts(next http.Handler, gated bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Access-Control-Allow-Origin", "*")
@@ -82,7 +93,7 @@ func (s *Server) rpcMiddleware(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		c := s.callerForAuthHeader(r.Header.Get("Authorization"))
+		c := s.callerForAuthHeaderOpts(r.Header.Get("Authorization"), gated)
 		if c.deniedOrg {
 			// Bare 403 -> CodePermissionDenied on Connect clients: valid
 			// credential, not a member of this org (auth.go).
