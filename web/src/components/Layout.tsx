@@ -7,6 +7,7 @@ import {
   fetchOrgs,
   isOperator,
   onDemoRoute,
+  pathOrg,
   publicBrowse,
   signedIn,
   signOut,
@@ -40,7 +41,7 @@ export function Layout() {
           <BrandMark />
           Runko
         </div>
-        {!usingDemoData && signedIn && <OrgSwitcher />}
+        {!usingDemoData && signedIn && !pathOrg && <OrgSwitcher />}
         {nav
           // Anonymous read-only browsing (§15.2): workspaces and settings
           // are not on the public allowlist - hide what would only 401.

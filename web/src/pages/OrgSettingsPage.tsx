@@ -24,6 +24,7 @@ export function OrgSettingsPage() {
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [description, setDescription] = useState("");
   const [checksText, setChecksText] = useState("");
+  const [publicRead, setPublicRead] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,6 +46,7 @@ export function OrgSettingsPage() {
       ]);
       setDescription(settings.description ?? "");
       setChecksText((settings.global_required_checks ?? []).join(", "));
+      setPublicRead(!!settings.public_read);
       setMembers(mem);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -91,6 +93,7 @@ export function OrgSettingsPage() {
             .split(",")
             .map((s) => s.trim())
             .filter(Boolean),
+          public_read: publicRead,
         }),
       "Settings saved.",
     );
@@ -144,6 +147,29 @@ export function OrgSettingsPage() {
               placeholder={isAdmin ? "What this org is for" : "(none)"}
               onChange={(e) => setDescription(e.target.value)}
             />
+          </section>
+
+          <section className="card settings-card">
+            <h2 className="settings-h2">Visibility</h2>
+            <label className="settings-label" htmlFor="org-public">
+              <input
+                id="org-public"
+                type="checkbox"
+                checked={publicRead}
+                disabled={!isAdmin}
+                onChange={(e) => setPublicRead(e.target.checked)}
+              />{" "}
+              Public read-only access
+            </label>
+            <p className="settings-hint">
+              Anyone can clone the repo, read changes/projects/search, and browse the
+              read-only UI at{" "}
+              <code className="settings-code">
+                {new URL(`${info.name}`, window.location.origin + "/").toString()}
+              </code>
+              . Writes, workspaces, and these settings stay members-only. Cannot be
+              enabled while any project declares <code>visibility: restricted</code>.
+            </p>
           </section>
 
           <section className="card settings-card">

@@ -115,6 +115,12 @@ var reservedOrgNames = map[string]bool{
 	"api": true, "o": true, "internal": true, "demo": true,
 	"landing": true, "assets": true, "repo": true,
 	"healthz": true, "readyz": true, "metrics": true,
+	// The web SPA's root routes: orgs get GitHub-style path URLs
+	// (/<org>/browse, ...), so an org named after an app route would
+	// shadow it in every browser.
+	"changes": true, "browse": true, "projects": true,
+	"workspaces": true, "search": true, "settings": true,
+	"admin": true, "graph": true, "login": true, "signup": true,
 }
 
 // OrgHub owns the org registry and the /o/<name>/ router. Construction

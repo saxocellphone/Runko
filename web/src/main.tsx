@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
-import { onDemoRoute } from "./api/client";
+import { onDemoRoute, pathOrg } from "./api/client";
 import "./styles/global.css";
 
 // Resolve the theme before first paint to avoid a flash of the wrong one.
@@ -14,13 +14,15 @@ document.documentElement.dataset.theme =
       ? "dark"
       : "light";
 
-// The demo scene mounts under /demo with the fake transport; the root app
-// talks to a real runkod when VITE_RUNKO_URL is set (see api/client.ts).
-// Basename is decided at page load, so every in-app link stays inside its
-// own world - crossing between them is a full navigation, deliberately.
+// The demo scene mounts under /demo with the fake transport; orgs get
+// GitHub-style path URLs (/<org>/browse, ... - api/client.ts's pathOrg)
+// mounting the same app under the org basename; the bare root app talks
+// to the browser's stored org. Basename is decided at page load, so every
+// in-app link stays inside its own world - crossing between them is a
+// full navigation, deliberately.
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter basename={onDemoRoute ? "/demo" : undefined}>
+    <BrowserRouter basename={onDemoRoute ? "/demo" : pathOrg ? `/${pathOrg}` : undefined}>
       <App />
     </BrowserRouter>
   </StrictMode>,

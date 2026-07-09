@@ -49,9 +49,10 @@ function AnonGate() {
     let stale = false;
     void (async () => {
       if (urlOrg && urlOrg !== currentOrg) {
+        // Legacy ?org= links adopt the org's own URL (/<org> - the
+        // GitHub-style entry main.tsx mounts a basename for).
         if (await probePublicOrg(urlOrg)) {
-          window.localStorage.setItem("runko-org", urlOrg);
-          window.location.reload();
+          window.location.href = `/${urlOrg}`;
           return;
         }
         if (!stale) setMode("login");
@@ -83,7 +84,10 @@ function AppRoutes() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Navigate to="/changes" replace />} />
+        <Route
+          index
+          element={<Navigate to={publicBrowse ? "/browse" : "/changes"} replace />}
+        />
         <Route path="/changes" element={<ChangesPage />} />
         <Route path="/changes/:changeId" element={<ChangePage />} />
         {/* Splat: file paths contain slashes. */}

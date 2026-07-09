@@ -93,11 +93,10 @@ export async function probePublicOrg(org: string): Promise<boolean> {
   }
 }
 
-/** Bind this browser to org for anonymous browsing and reload so every
- * client rebinds its transport (the switchOrg pattern, credential-less). */
+/** Navigate to org's own URL (/<org> - the shareable, GitHub-style entry;
+ * a full navigation so the router remounts under the org basename). */
 export function browsePublicOrg(name: string): void {
-  window.localStorage.setItem("runko-org", name);
-  window.location.href = "/";
+  window.location.href = `/${name}`;
 }
 
 const auth: Interceptor = (next) => (req) => {
@@ -113,7 +112,38 @@ const auth: Interceptor = (next) => (req) => {
 // accounts are server-global.
 const storedOrg: string | null =
   typeof window !== "undefined" ? window.localStorage.getItem("runko-org") : null;
-export const currentOrg: string = !usingDemoData && storedOrg ? storedOrg : "";
+
+// GitHub-style org path URLs: /<org>/... binds the whole app to that org
+// (main.tsx mounts the router under the /<org> basename, the demo-mount
+// pattern). The first path segment is an org exactly when it is org-shaped
+// and not one of the app's own root routes - the server reserves those as
+// org names (runkod/orghub.go reservedOrgNames), so this cannot be
+// ambiguous for real orgs.
+const appRootRoutes = new Set([
+  "changes",
+  "browse",
+  "projects",
+  "workspaces",
+  "search",
+  "settings",
+  "admin",
+  "graph",
+  "login",
+  "signup",
+  "demo",
+  "landing",
+  "assets",
+  "o",
+  "api",
+]);
+const firstSegment =
+  typeof window !== "undefined" ? (window.location.pathname.split("/")[1] ?? "") : "";
+export const pathOrg =
+  !onDemoRoute && /^[a-z][a-z0-9-]{0,38}$/.test(firstSegment) && !appRootRoutes.has(firstSegment)
+    ? firstSegment
+    : "";
+
+export const currentOrg: string = pathOrg || (!usingDemoData && storedOrg ? storedOrg : "");
 
 const transportBase =
   currentOrg && baseUrl ? new URL(`o/${currentOrg}/`, baseUrl).toString() : baseUrl;
@@ -177,6 +207,9 @@ async function throwStructured(res: Response, fallback: string): Promise<never> 
 export interface OrgSettings {
   description?: string;
   global_required_checks?: string[];
+  /** §15.2 public_read: anonymous read-only access (git upload-pack, the
+   * GET allowlist, read RPCs, and the read-only web UI at /<org>). */
+  public_read?: boolean;
 }
 
 export interface OrgMember {
