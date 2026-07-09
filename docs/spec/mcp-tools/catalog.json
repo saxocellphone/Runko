@@ -231,6 +231,7 @@
                 "id": { "type": "string" },
                 "name": { "type": "string" },
                 "type": { "$ref": "common.schema.json#/$defs/ProjectType" },
+                "language": { "type": "string", "description": "Built-in template language id ('go', 'python', 'ts', 'rust', 'java', 'cpp'); optional for org templates." },
                 "description": { "type": "string" },
                 "capabilities_default": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/Capability" } }
               }
