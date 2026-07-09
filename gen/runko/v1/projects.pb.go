@@ -28,10 +28,12 @@ const (
 type CreateProjectIntent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`                               // library|service|app|job|other (§7.2)
-	Owners        []string               `protobuf:"bytes,3,rep,name=owners,proto3" json:"owners,omitempty"`                           // empty -> inherited via §7.3 resolution
-	TemplateId    string                 `protobuf:"bytes,4,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"` // empty -> the type's default template
-	Path          string                 `protobuf:"bytes,5,opt,name=path,proto3" json:"path,omitempty"`                               // empty -> derived from name
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`                                // library|service|app|job|other (§7.2)
+	Owners        []string               `protobuf:"bytes,3,rep,name=owners,proto3" json:"owners,omitempty"`                            // empty -> inherited via §7.3 resolution
+	TemplateId    string                 `protobuf:"bytes,4,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`  // empty -> the (type, language) default template
+	Path          string                 `protobuf:"bytes,5,opt,name=path,proto3" json:"path,omitempty"`                                // empty -> derived from name
+	Language      string                 `protobuf:"bytes,6,opt,name=language,proto3" json:"language,omitempty"`                        // empty -> the default (Go) templates; recorded in PROJECT.yaml verbatim, never default-filled (§10.4)
+	NoTemplate    bool                   `protobuf:"varint,7,opt,name=no_template,json=noTemplate,proto3" json:"no_template,omitempty"` // escape hatch (§10.4): PROJECT.yaml + README only, any well-formed language recorded as-is
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -99,6 +101,20 @@ func (x *CreateProjectIntent) GetPath() string {
 		return x.Path
 	}
 	return ""
+}
+
+func (x *CreateProjectIntent) GetLanguage() string {
+	if x != nil {
+		return x.Language
+	}
+	return ""
+}
+
+func (x *CreateProjectIntent) GetNoTemplate() bool {
+	if x != nil {
+		return x.NoTemplate
+	}
+	return false
 }
 
 type PreviewCreateProjectRequest struct {
@@ -679,14 +695,17 @@ var File_runko_v1_projects_proto protoreflect.FileDescriptor
 
 const file_runko_v1_projects_proto_rawDesc = "" +
 	"\n" +
-	"\x17runko/v1/projects.proto\x12\brunko.v1\x1a\x15runko/v1/common.proto\"\x8a\x01\n" +
+	"\x17runko/v1/projects.proto\x12\brunko.v1\x1a\x15runko/v1/common.proto\"\xc7\x01\n" +
 	"\x13CreateProjectIntent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x16\n" +
 	"\x06owners\x18\x03 \x03(\tR\x06owners\x12\x1f\n" +
 	"\vtemplate_id\x18\x04 \x01(\tR\n" +
 	"templateId\x12\x12\n" +
-	"\x04path\x18\x05 \x01(\tR\x04path\"T\n" +
+	"\x04path\x18\x05 \x01(\tR\x04path\x12\x1a\n" +
+	"\blanguage\x18\x06 \x01(\tR\blanguage\x12\x1f\n" +
+	"\vno_template\x18\a \x01(\bR\n" +
+	"noTemplate\"T\n" +
 	"\x1bPreviewCreateProjectRequest\x125\n" +
 	"\x06intent\x18\x01 \x01(\v2\x1d.runko.v1.CreateProjectIntentR\x06intent\"S\n" +
 	"\vPlannedFile\x12\x12\n" +

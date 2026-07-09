@@ -55,6 +55,36 @@ describe("fake create project", () => {
     ).toBe(true);
   });
 
+  it("scaffolds per-language skeletons and records the language verbatim", async () => {
+    const { projects } = clients();
+    const res = await projects.previewCreateProject({
+      intent: { name: "billing-worker", type: "job", language: "python" },
+    });
+    expect(res.files.map((f) => f.path)).toContain("main.py");
+    const manifest = res.files.find((f) => f.path === "PROJECT.yaml")!;
+    expect(manifest.content).toContain("language: python");
+
+    // A defaulted (Go) intent leaves the language key absent - parity with
+    // the server's verbatim-echo rule.
+    const goRes = await projects.previewCreateProject({ intent });
+    expect(goRes.files.find((f) => f.path === "PROJECT.yaml")!.content).not.toContain("language:");
+  });
+
+  it("gates unsupported languages behind the no-template escape hatch", async () => {
+    const { projects } = clients();
+    await expect(
+      projects.previewCreateProject({
+        intent: { name: "exotic-svc", type: "service", language: "haskell" },
+      }),
+    ).rejects.toThrow(/unsupported_language/);
+
+    const res = await projects.previewCreateProject({
+      intent: { name: "exotic-svc", type: "service", language: "haskell", noTemplate: true },
+    });
+    expect(res.files.map((f) => f.path).sort()).toEqual(["BUILD.bazel", "PROJECT.yaml", "README.md"]);
+    expect(res.files.find((f) => f.path === "PROJECT.yaml")!.content).toContain("language: haskell");
+  });
+
   it("rejects duplicates and invalid intents with the daemon's codes", async () => {
     const { projects } = clients();
     await expect(

@@ -535,6 +535,8 @@ func intentFromProto(in *runkov1.CreateProjectIntent) project.Intent {
 	return project.Intent{
 		Name:       in.Name,
 		Type:       in.Type,
+		Language:   in.Language,
+		NoTemplate: in.NoTemplate,
 		Owners:     in.Owners,
 		TemplateID: in.TemplateId,
 		Path:       in.Path,

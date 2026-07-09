@@ -35,8 +35,10 @@ message CreateProjectIntent {
   string name = 1;
   string type = 2;            // library|service|app|job|other (§7.2)
   repeated string owners = 3; // empty -> inherited via §7.3 resolution
-  string template_id = 4;     // empty -> the type's default template
+  string template_id = 4;     // empty -> the (type, language) default template
   string path = 5;            // empty -> derived from name
+  string language = 6;        // empty -> the default (Go) templates; recorded in PROJECT.yaml verbatim, never default-filled (§10.4)
+  bool no_template = 7;       // escape hatch (§10.4): PROJECT.yaml + README only, any well-formed language recorded as-is
 }
 
 message PreviewCreateProjectRequest {

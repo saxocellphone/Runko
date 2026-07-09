@@ -189,3 +189,62 @@ func containsString(items []string, want string) bool {
 	}
 	return false
 }
+
+// Multi-language over the wire (§10.4): an explicit language previews its
+// skeleton and records itself in the manifest, an unsupported language is
+// a structured refusal naming the escape hatch, and no_template scaffolds
+// exactly manifest + README + BUILD.
+func TestCreateProjectLanguageAndEscapeHatch(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+	ctx := context.Background()
+	projects := projectRPC(srv)
+
+	preview, err := projects.PreviewCreateProject(ctx, connect.NewRequest(&runkov1.PreviewCreateProjectRequest{
+		Intent: &runkov1.CreateProjectIntent{Name: "billing-worker", Type: "job", Language: "python"},
+	}))
+	if err != nil {
+		t.Fatalf("PreviewCreateProject(python): %v", err)
+	}
+	var sawMain bool
+	for _, f := range preview.Msg.Files {
+		if f.Path == "main.py" {
+			sawMain = true
+		}
+		if f.Path == "PROJECT.yaml" && !strings.Contains(f.Content, "language: python") {
+			t.Fatalf("manifest must record the explicit language, got:\n%s", f.Content)
+		}
+	}
+	if !sawMain {
+		t.Fatalf("python preview should plan main.py, got %v", preview.Msg.Files)
+	}
+
+	_, err = projects.PreviewCreateProject(ctx, connect.NewRequest(&runkov1.PreviewCreateProjectRequest{
+		Intent: &runkov1.CreateProjectIntent{Name: "exotic-svc", Type: "service", Language: "haskell"},
+	}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("unsupported language: want CodeInvalidArgument, got %v", err)
+	}
+	if detail := errorDetail(t, err); detail.Code != "unsupported_language" {
+		t.Fatalf("unsupported language detail code: want unsupported_language, got %q", detail.Code)
+	}
+
+	preview, err = projects.PreviewCreateProject(ctx, connect.NewRequest(&runkov1.PreviewCreateProjectRequest{
+		Intent: &runkov1.CreateProjectIntent{Name: "exotic-svc", Type: "service", Language: "haskell", NoTemplate: true},
+	}))
+	if err != nil {
+		t.Fatalf("PreviewCreateProject(no_template): %v", err)
+	}
+	want := map[string]bool{"PROJECT.yaml": true, "README.md": true, "BUILD.bazel": true}
+	if len(preview.Msg.Files) != len(want) {
+		t.Fatalf("no_template preview: want exactly manifest+README+BUILD, got %v", preview.Msg.Files)
+	}
+	for _, f := range preview.Msg.Files {
+		if !want[f.Path] {
+			t.Fatalf("no_template preview planned unexpected %s", f.Path)
+		}
+		if f.Path == "PROJECT.yaml" && !strings.Contains(f.Content, "language: haskell") {
+			t.Fatalf("escape-hatch language must be recorded verbatim, got:\n%s", f.Content)
+		}
+	}
+}

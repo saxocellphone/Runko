@@ -8,6 +8,20 @@ import { BackLink, EmptyState, ErrorNote, InfoTip, Spinner } from "../components
 
 const TYPES = ["service", "library", "app", "job", "other"] as const;
 
+// Built-in template languages (§10.4, Bazel-maturity set); "" is the Go
+// default and is sent as-is so web-created default projects stay
+// manifest-identical to CLI-created ones (language echoed verbatim,
+// never default-filled). "Other…" is the no_template escape hatch.
+const LANGUAGES = [
+  ["", "Go (default)"],
+  ["python", "Python"],
+  ["ts", "TypeScript"],
+  ["rust", "Rust"],
+  ["java", "Java"],
+  ["cpp", "C++"],
+  ["__other__", "Other…"],
+] as const;
+
 // The §10.1 create flow, kept deliberately small (anti-Boq, §2.3): name +
 // type is a complete request, owners optional, everything else generated -
 // the preview pane shows exactly the files that will be committed. Create
@@ -17,12 +31,16 @@ export function NewProjectPage() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [type, setType] = useState<string>("service");
+  const [langChoice, setLangChoice] = useState<string>("");
+  const [otherLang, setOtherLang] = useState("");
   const [ownersText, setOwnersText] = useState("");
   const [busy, setBusy] = useState(false);
   const [createError, setCreateError] = useState<ConnectError | undefined>();
 
   const owners = ownersText.split(/[\s,]+/).filter(Boolean);
-  const intent = { name: name.trim(), type, owners };
+  const usingOther = langChoice === "__other__";
+  const language = usingOther ? otherLang.trim() : langChoice;
+  const intent = { name: name.trim(), type, owners, language, noTemplate: usingOther };
   const debouncedKey = useDebounced(JSON.stringify(intent), 350);
 
   const [preview, setPreview] = useState<PreviewCreateProjectResponse | undefined>();
@@ -108,6 +126,36 @@ export function NewProjectPage() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="np-lang">Language</label>
+              <select
+                id="np-lang"
+                value={langChoice}
+                onChange={(e) => setLangChoice(e.target.value)}
+              >
+                {LANGUAGES.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              {usingOther && (
+                <>
+                  <input
+                    id="np-lang-other"
+                    type="text"
+                    placeholder="haskell"
+                    value={otherLang}
+                    onChange={(e) => setOtherLang(e.target.value)}
+                  />
+                  <span className="form-hint">
+                    No built-in template for this language — the project starts as just
+                    PROJECT.yaml and README, with the language recorded as-is.
+                  </span>
+                </>
+              )}
             </div>
 
             <div className="form-field">
