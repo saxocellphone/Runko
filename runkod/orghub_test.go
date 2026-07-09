@@ -53,9 +53,13 @@ func newTestHub(t *testing.T, allowCreate bool, extraPrincipals ...Principal) (*
 	return srv, hub
 }
 
+// hubSignup registers an account joining the shared default org - since
+// the org-required signup contract, every account arrives into SOME org.
 func hubSignup(t *testing.T, srv *httptest.Server, name, password string) {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"name": name, "password": password})
+	body, _ := json.Marshal(map[string]string{
+		"name": name, "password": password, "org": "defaultorg", "org_mode": "join",
+	})
 	resp, err := http.Post(srv.URL+"/api/signup", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("signup: %v", err)
@@ -121,8 +125,9 @@ func TestOrgLifecycleMemMode(t *testing.T) {
 		t.Fatalf("alice should see 2 orgs, got %v", body)
 	}
 	first := orgs[0].(map[string]any)
-	if first["default"] != true || first["role"] != "shared" {
-		t.Fatalf("first listed org should be the shared default, got %v", first)
+	// Signup joined the default org, so the row names the real role.
+	if first["default"] != true || first["role"] != "member" {
+		t.Fatalf("first listed org should be the joined default, got %v", first)
 	}
 	status, body = hubDo(t, srv, "GET", "/api/orgs", "bob", "bobpw1234", "", nil)
 	if status != http.StatusOK || len(body["orgs"].([]any)) != 1 {
@@ -384,22 +389,40 @@ func TestOrgSettingsChecksGateMerge(t *testing.T) {
 	}
 }
 
-// TestSignupWithOrg pins the SaaS sign-up shape: account + org in one
-// request, caller becomes the org's admin and can use it immediately -
-// and a rejected org never strands a half-created account.
+// TestSignupWithOrg pins the org-required sign-up: every account arrives
+// into an org - create (you become admin) or join (open to anyone, for
+// now: per-org email invites are the recorded follow-up) - and a rejected
+// org never strands a half-created account.
 func TestSignupWithOrg(t *testing.T) {
 	srv, _ := newTestHub(t, true)
 
-	// Org validation runs BEFORE account creation: bad org, no account.
+	// No org at all: refused, nothing created.
 	status, body := hubDo(t, srv, "POST", "/api/signup", "", "", "",
-		map[string]string{"name": "carol", "password": "carolpw123", "org": "Bad_Org"})
+		map[string]string{"name": "carol", "password": "carolpw123"})
+	if status != http.StatusBadRequest || body["Code"] != "missing_org" {
+		t.Fatalf("org-less signup: %d %v", status, body)
+	}
+	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "carol", "password": "carolpw123", "org": "somewhere", "org_mode": "sideways"})
+	if status != http.StatusBadRequest || body["Code"] != "invalid_org_mode" {
+		t.Fatalf("bad org_mode: %d %v", status, body)
+	}
+
+	// Org validation runs BEFORE account creation: bad org, no account.
+	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "carol", "password": "carolpw123", "org": "Bad_Org", "org_mode": "create"})
 	if status != http.StatusBadRequest || body["Code"] != "invalid_org_name" {
 		t.Fatalf("signup with bad org: %d %v", status, body)
+	}
+	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "carol", "password": "carolpw123", "org": "ghost", "org_mode": "join"})
+	if status != http.StatusNotFound || body["Code"] != "unknown_org" {
+		t.Fatalf("join of unknown org: %d %v", status, body)
 	}
 
 	// The same account name still signs up cleanly - nothing was created.
 	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
-		map[string]string{"name": "carol", "password": "carolpw123", "org": "carols-org"})
+		map[string]string{"name": "carol", "password": "carolpw123", "org": "carols-org", "org_mode": "create"})
 	if status != http.StatusCreated {
 		t.Fatalf("signup with org: %d %v", status, body)
 	}
@@ -410,41 +433,42 @@ func TestSignupWithOrg(t *testing.T) {
 	if status, _ = hubDo(t, srv, "GET", "/o/carols-org/api/changes", "carol", "carolpw123", "", nil); status != http.StatusOK {
 		t.Fatalf("carol should reach her org immediately: %d", status)
 	}
-	status, body = hubDo(t, srv, "GET", "/api/orgs", "carol", "carolpw123", "", nil)
-	if status != http.StatusOK || len(body["orgs"].([]any)) != 2 {
-		t.Fatalf("carol should see default + her org: %d %v", status, body)
-	}
 
-	// Taken org name at signup: conflict, and again no account row.
+	// Creating a taken name: conflict, no account row - dave then JOINS
+	// it instead (open join, the current policy) and gets member access.
 	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
-		map[string]string{"name": "dave", "password": "davepw1234", "org": "carols-org"})
+		map[string]string{"name": "dave", "password": "davepw1234", "org": "carols-org", "org_mode": "create"})
 	if status != http.StatusConflict || body["Code"] != "org_exists" {
-		t.Fatalf("signup with taken org: %d %v", status, body)
+		t.Fatalf("signup creating taken org: %d %v", status, body)
 	}
-	if status, _ = hubDo(t, srv, "POST", "/api/signup", "", "", "",
-		map[string]string{"name": "dave", "password": "davepw1234"}); status != http.StatusCreated {
-		t.Fatalf("dave should still be able to sign up org-less: %d", status)
+	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "dave", "password": "davepw1234", "org": "carols-org", "org_mode": "join"})
+	if status != http.StatusCreated || body["org"].(map[string]any)["role"] != "member" {
+		t.Fatalf("signup joining existing org: %d %v", status, body)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/o/carols-org/api/changes", "dave", "davepw1234", "", nil); status != http.StatusOK {
+		t.Fatalf("dave should reach the joined org immediately: %d", status)
 	}
 
-	// Discovery config advertises the org field.
+	// Discovery config advertises the org-create option.
 	status, body = hubDo(t, srv, "GET", "/api/auth/config", "", "", "", nil)
 	if status != http.StatusOK || body["org_create_enabled"] != true {
 		t.Fatalf("auth config: %d %v", status, body)
 	}
 }
 
-// TestSignupWithOrgDisabled: org creation off -> org-bearing signup is a
-// structured refusal, org-less signup still works.
+// TestSignupWithOrgDisabled: org creation off -> create-mode signup is a
+// structured refusal, joining (the default org included) still works.
 func TestSignupWithOrgDisabled(t *testing.T) {
 	srv, _ := newTestHub(t, false)
 	status, body := hubDo(t, srv, "POST", "/api/signup", "", "", "",
-		map[string]string{"name": "erin", "password": "erinpw1234", "org": "erins-org"})
+		map[string]string{"name": "erin", "password": "erinpw1234", "org": "erins-org", "org_mode": "create"})
 	if status != http.StatusForbidden || body["Code"] != "org_create_disabled" {
 		t.Fatalf("org signup with creation off: %d %v", status, body)
 	}
 	if status, _ = hubDo(t, srv, "POST", "/api/signup", "", "", "",
-		map[string]string{"name": "erin", "password": "erinpw1234"}); status != http.StatusCreated {
-		t.Fatalf("org-less signup should still work: %d", status)
+		map[string]string{"name": "erin", "password": "erinpw1234", "org": "defaultorg", "org_mode": "join"}); status != http.StatusCreated {
+		t.Fatalf("joining the default org should still work: %d", status)
 	}
 	status, body = hubDo(t, srv, "GET", "/api/auth/config", "", "", "", nil)
 	if status != http.StatusOK || body["org_create_enabled"] != false {

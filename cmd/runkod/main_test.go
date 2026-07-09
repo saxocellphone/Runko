@@ -1241,8 +1241,13 @@ func TestEndToEndDaemonOrgs(t *testing.T) {
 	addr := startDaemon(t, bin, repoDir, "deploy-tok",
 		"--allow-signup", "--allow-org-create")
 
+	// Signup requires an org: both join the shared default org here (the
+	// signup-create path is pinned in runkod's TestSignupWithOrg; this
+	// test exercises post-signup creation via POST /api/orgs below).
 	for _, u := range [][2]string{{"alice", "alicepw123"}, {"bob", "bobpw1234"}} {
-		if status := orgAPI(t, "POST", addr+"/api/signup", "", "", "", map[string]string{"name": u[0], "password": u[1]}, nil); status != http.StatusCreated {
+		if status := orgAPI(t, "POST", addr+"/api/signup", "", "", "", map[string]string{
+			"name": u[0], "password": u[1], "org": "monorepo", "org_mode": "join",
+		}, nil); status != http.StatusCreated {
 			t.Fatalf("signup %s: status %d", u[0], status)
 		}
 	}

@@ -183,30 +183,43 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	return mux, nil
 }
 
-// handleSignup is the org-aware sign-up: create the account and, when the
-// request names one, its org - the caller becomes that org's admin. The
-// org half is validated BEFORE the account is created so a rejected org
-// name never strands a half-registered account.
+// handleSignup is the org-aware sign-up: every account arrives INTO an
+// org - either creating a new one (caller becomes its admin) or joining
+// an existing one as a member. Join is currently open to anyone who can
+// sign up at all (the deployment's invite code is the only gate); the
+// recorded follow-up is per-org email invitations, at which point join
+// stops being open. The org half is validated BEFORE the account is
+// created so a rejected org never strands a half-registered account.
 func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name     string `json:"name"`
 		Password string `json:"password"`
 		Code     string `json:"code"`
 		Org      string `json:"org"`
+		OrgMode  string `json:"org_mode"` // "create" | "join"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
-			Code: "bad_request", Message: "body must be JSON: {name, password, code?, org?}",
+			Code: "bad_request", Message: "body must be JSON: {name, password, code?, org, org_mode}",
 		}))
 		return
 	}
 	req.Org = strings.TrimSpace(req.Org)
-	if req.Org != "" {
+	if req.Org == "" {
+		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "missing_org", Field: "org",
+			Message:    "an account belongs to an org: name one to create or join",
+			Suggestion: fmt.Sprintf(`{"org": "<name>", "org_mode": "create"|"join"} - the shared org %q is always joinable`, h.DefaultOrgName),
+		}))
+		return
+	}
+	switch req.OrgMode {
+	case "create":
 		if !h.AllowOrgCreate {
 			writeAPIError(w, typedErr(http.StatusForbidden, clierr.Error{
 				Code: "org_create_disabled", Field: "org",
 				Message:    "org creation is not enabled on this control plane",
-				Suggestion: "sign up without an org - an admin can add you to one",
+				Suggestion: "join an existing org instead (org_mode: join)",
 			}))
 			return
 		}
@@ -222,17 +235,34 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, typedErr(http.StatusConflict, clierr.Error{
 				Code: "org_exists", Field: "org",
 				Message:    fmt.Sprintf("an org named %q already exists", req.Org),
-				Suggestion: "pick a different name, or sign up without one and ask its admin to add you",
+				Suggestion: "pick a different name, or join it (org_mode: join)",
 			}))
 			return
 		}
+	case "join":
+		if !h.knownOrg(req.Org) {
+			writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
+				Code: "unknown_org", Field: "org",
+				Message:    fmt.Sprintf("no org named %q to join", req.Org),
+				Suggestion: "check the spelling with whoever invited you, or create it (org_mode: create)",
+			}))
+			return
+		}
+	default:
+		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "invalid_org_mode", Field: "org_mode",
+			Message: `org_mode must be "create" (new org, you become admin) or "join" (existing org)`,
+		}))
+		return
 	}
+
 	if apiErr := h.Default.signupCore(r.Context(), signupRequest{Name: req.Name, Password: req.Password, Code: req.Code}); apiErr != nil {
 		writeAPIError(w, apiErr)
 		return
 	}
-	resp := map[string]any{"name": req.Name}
-	if req.Org != "" {
+	var role string
+	switch req.OrgMode {
+	case "create":
 		if apiErr := h.createOrg(r.Context(), req.Org, req.Name, true); apiErr != nil {
 			// Account exists, org lost a race (or infra failed): report it
 			// honestly - the account is real and usable.
@@ -240,9 +270,21 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, apiErr)
 			return
 		}
-		resp["org"] = h.orgInfoFor(req.Org, "admin")
+		role = "admin"
+	case "join":
+		// EnsureOrg first: the DEFAULT org has a serving surface but (in
+		// mem mode) no directory row until someone joins it.
+		if err := h.Directory.EnsureOrg(r.Context(), req.Org); err != nil {
+			writeAPIError(w, internalErr(err))
+			return
+		}
+		if err := h.Directory.UpsertOrgMember(r.Context(), req.Org, req.Name, "member"); err != nil {
+			writeAPIError(w, internalErr(err))
+			return
+		}
+		role = "member"
 	}
-	writeJSON(w, http.StatusCreated, resp)
+	writeJSON(w, http.StatusCreated, map[string]any{"name": req.Name, "org": h.orgInfoFor(req.Org, role)})
 }
 
 // handleAuthConfig extends the default server's discovery config with the

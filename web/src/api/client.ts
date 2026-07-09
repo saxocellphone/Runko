@@ -249,18 +249,30 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
   }
 }
 
-/** Create a principal (and, when org is non-empty, their org - the
- * standard account+workspace sign-up shape) via POST /api/signup, then
- * sign in. The browser lands directly inside the new org. Throws with the
- * server's structured message + suggestion on rejection. */
-export async function signUp(name: string, password: string, code: string, org: string): Promise<void> {
+/** Create a principal via POST /api/signup - every account arrives INTO
+ * an org, either creating one (orgMode "create": you become its admin) or
+ * joining an existing one (orgMode "join": open to anyone for now; per-org
+ * invites are the planned tightening). Signs in on success and lands the
+ * browser inside that org. Throws the server's structured message on
+ * rejection. */
+export async function signUp(
+  name: string,
+  password: string,
+  code: string,
+  org: string,
+  orgMode: "create" | "join",
+): Promise<void> {
   const res = await fetch(new URL("api/signup", baseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, password, code, org }),
+    body: JSON.stringify({ name, password, code, org, org_mode: orgMode }),
   });
   if (!res.ok) await throwStructured(res, "sign-up failed");
-  if (org) window.localStorage.setItem("runko-org", org);
+  const d = (await res.json()) as { org?: { name?: string; default?: boolean } };
+  // Land inside the chosen org; the shared default org lives at the root
+  // transport ("" selection).
+  if (d.org?.name && !d.org.default) window.localStorage.setItem("runko-org", d.org.name);
+  else window.localStorage.removeItem("runko-org");
   await signIn(name, password);
 }
 

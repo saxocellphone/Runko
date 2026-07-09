@@ -19,6 +19,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [org, setOrg] = useState("");
+  const [orgMode, setOrgMode] = useState<"create" | "join">("create");
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
 
@@ -34,7 +35,13 @@ export function LoginPage() {
     setError(undefined);
     try {
       if (signingUp) {
-        await signUp(name.trim(), password, code.trim(), org.trim());
+        await signUp(
+          name.trim(),
+          password,
+          code.trim(),
+          org.trim(),
+          config.orgCreateEnabled ? orgMode : "join",
+        );
       } else {
         await signIn(name.trim(), password);
       }
@@ -74,8 +81,30 @@ export function LoginPage() {
         {signingUp && (
           <p className="login-hint">At least 8 characters — it's your only credential here.</p>
         )}
-        {signingUp && config.orgCreateEnabled && (
+        {signingUp && (
           <>
+            {config.orgCreateEnabled && (
+              <div className="login-orgmode" role="radiogroup" aria-label="Organization">
+                <label className={orgMode === "create" ? "login-radio active" : "login-radio"}>
+                  <input
+                    type="radio"
+                    name="org-mode"
+                    checked={orgMode === "create"}
+                    onChange={() => setOrgMode("create")}
+                  />
+                  Create a new org
+                </label>
+                <label className={orgMode === "join" ? "login-radio active" : "login-radio"}>
+                  <input
+                    type="radio"
+                    name="org-mode"
+                    checked={orgMode === "join"}
+                    onChange={() => setOrgMode("join")}
+                  />
+                  Join an existing org
+                </label>
+              </div>
+            )}
             <label className="login-label">
               Organization
               <input
@@ -87,8 +116,9 @@ export function LoginPage() {
               />
             </label>
             <p className="login-hint">
-              Creates your org with its own repo — you'll be its admin. Leave blank if you're
-              joining an existing org (an admin adds you).
+              {config.orgCreateEnabled && orgMode === "create"
+                ? "Your org gets its own repo — you'll be its admin."
+                : "Anyone can join an existing org for now; ask a teammate for the name."}
             </p>
           </>
         )}
@@ -107,7 +137,7 @@ export function LoginPage() {
         <button
           className="btn btn-primary login-submit"
           type="submit"
-          disabled={busy || !password || (signingUp && password.length < 8)}
+          disabled={busy || !password || (signingUp && (password.length < 8 || !org.trim()))}
         >
           {busy
             ? signingUp
