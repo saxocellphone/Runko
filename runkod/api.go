@@ -524,6 +524,26 @@ func (s *Server) enqueueRerunWebhook(ctx context.Context, change Change, checkNa
 		},
 		Rerun: &checks.WebhookRerun{CheckName: checkName, RequestedBy: actor},
 	}
+	// The rerun envelope must carry the same affected block change.updated
+	// carries (migration-findings #31): CI plugins scope conditional jobs
+	// on affected_projects (e.g. runko-checks.yml's web-check job), so a
+	// rerun without it silently SKIPS those jobs - the run comes back
+	// green while the check stays pending forever. Degrade to no block on
+	// computation error (logged): that is exactly the pre-fix behavior,
+	// never worse.
+	if result, _, err := s.computeAffected(change); err != nil {
+		log.Printf("runkod: %s: affected for rerun webhook: %v", change.ChangeKey, err)
+	} else {
+		env.Affected = &checks.WebhookAffected{
+			ComputationID: result.ComputationID,
+			Paths:         result.Paths,
+			ReasonCodes:   result.ReasonCodes,
+			RunEverything: result.RunEverything,
+		}
+		for _, pr := range result.Projects {
+			env.Affected.Projects = append(env.Affected.Projects, checks.WebhookAffectedProject{Name: pr.Name, Path: pr.Path})
+		}
+	}
 	payload, err := checks.MarshalEnvelope(env)
 	if err != nil {
 		log.Printf("runkod: %s: marshal rerun webhook: %v", change.ChangeKey, err)

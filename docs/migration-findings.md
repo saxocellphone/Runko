@@ -241,6 +241,27 @@ planning; entries marked `[observed]` happened during execution.
     needs a `re-carve` story: manifest + folder moves as one audited
     operation, with the CI-workflow coupling called out in the runbook.
 
+30. **[observed, C2's failed push-time runs] CI failure before the first
+    report-check call is invisible to Runko.** The workflow runs
+    report-check FROM THE CHECKOUT (`go run ./cli/runko-ci`), so a
+    checkout-breaking change also breaks failure reporting - the run dies
+    with zero trace server-side, and the gate shows "has not reported
+    yet" forever (fail-closed, but silent). → the reference workflow
+    should report in_progress via a prebuilt binary or plain curl BEFORE
+    any layout-sensitive step; §14.4.2's TTL blocker is the backstop.
+
+31. **[observed, C2's rerun] The rerun envelope carried no affected
+    block, silently skipping conditionally-scoped CI jobs.**
+    `change.check_rerun_requested` omitted `affected` entirely while
+    change.updated always carries it - runko-checks.yml's web-check job
+    (`if: contains(affected_projects, "web")`) therefore SKIPPED on
+    rerun, the run came back green, and web-check stayed pending forever;
+    GitHub-green + Runko-pending is maximally confusing. Fixed same day
+    (enqueueRerunWebhook now computes and attaches the block). → webhook
+    envelope fields consumed for CI scoping must be present on EVERY
+    event type that can trigger CI, and the contract tests should assert
+    it per event type.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -216,12 +217,31 @@ func TestRerunWebhookEnqueued(t *testing.T) {
 				ID string `json:"id"`
 			} `json:"requested_by"`
 		} `json:"rerun"`
+		Affected *struct {
+			Projects []struct {
+				Name string `json:"name"`
+			} `json:"projects"`
+		} `json:"affected"`
 	}
 	if err := json.Unmarshal(payload, &env); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
 	if env.Rerun.CheckName != "unit" || env.Rerun.RequestedBy.ID == "" {
 		t.Fatalf("expected the rerun block naming unit + a requester, got %+v", env.Rerun)
+	}
+	// The rerun envelope must carry the affected block (migration-findings
+	// #31): CI plugins scope conditional jobs on affected_projects, so a
+	// rerun without it silently skips those jobs - green run, check
+	// pending forever.
+	if env.Affected == nil {
+		t.Fatalf("expected the rerun envelope to carry an affected block, got none: %s", payload)
+	}
+	names := make([]string, len(env.Affected.Projects))
+	for i, p := range env.Affected.Projects {
+		names[i] = p.Name
+	}
+	if !slices.Contains(names, "checkout-api") {
+		t.Fatalf("expected affected projects to include checkout-api, got %v", names)
 	}
 }
 
