@@ -277,6 +277,43 @@ func TestPostgresStoreWebhookOutboxLifecycle(t *testing.T) {
 	}
 }
 
+// TestPostgresStoreWebhookOutboxIsOrgScoped pins migration-findings #27:
+// the daemon runs one OutboxWorker per org server over the same pool, so
+// ListDueWebhookDeliveries must return only the calling org's rows - the
+// unfiltered version made every worker deliver every org's envelopes
+// (observed live as triple repository_dispatch per push).
+func TestPostgresStoreWebhookOutboxIsOrgScoped(t *testing.T) {
+	dsn := pgTestDSN(t)
+	ctx := context.Background()
+
+	acme, err := BootstrapPostgresStore(ctx, dsn, "acme", "main")
+	if err != nil {
+		t.Fatalf("BootstrapPostgresStore (acme): %v", err)
+	}
+	defer acme.Pool.Close()
+	globex, err := BootstrapPostgresStore(ctx, dsn, "globex", "main")
+	if err != nil {
+		t.Fatalf("BootstrapPostgresStore (globex): %v", err)
+	}
+	defer globex.Pool.Close()
+
+	acmeID, err := acme.EnqueueWebhook(ctx, "change.updated", []byte(`{"org":"acme"}`))
+	if err != nil {
+		t.Fatalf("EnqueueWebhook (acme): %v", err)
+	}
+	if _, err := globex.EnqueueWebhook(ctx, "change.updated", []byte(`{"org":"globex"}`)); err != nil {
+		t.Fatalf("EnqueueWebhook (globex): %v", err)
+	}
+
+	due, err := acme.ListDueWebhookDeliveries(ctx, time.Now().Add(time.Second))
+	if err != nil {
+		t.Fatalf("ListDueWebhookDeliveries (acme): %v", err)
+	}
+	if len(due) != 1 || due[0].ID != acmeID {
+		t.Fatalf("acme's worker must see exactly its own delivery, got %+v", due)
+	}
+}
+
 // TestPostgresStoreAttributionRoundTrip pins stage 12c-②'s authored_by/
 // landed_by attribution through real actors rows: named principals become
 // upserted actors, the anonymous deploy token ("") maps to the bootstrap

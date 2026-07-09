@@ -606,7 +606,9 @@ func (s *PostgresStore) EnqueueWebhook(ctx context.Context, eventType string, pa
 }
 
 func (s *PostgresStore) ListDueWebhookDeliveries(ctx context.Context, now time.Time) ([]WebhookDelivery, error) {
-	rows, err := s.Queries.ListDueWebhookDeliveries(ctx, s.Pool, 100)
+	rows, err := s.Queries.ListDueWebhookDeliveries(ctx, s.Pool, dbgen.ListDueWebhookDeliveriesParams{
+		OrgID: s.OrgID, Limit: 100,
+	})
 	if err != nil {
 		return nil, err
 	}

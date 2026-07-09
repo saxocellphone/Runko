@@ -66,13 +66,23 @@ func (q *Queries) GetWebhookDelivery(ctx context.Context, db DBTX, id uuid.UUID)
 
 const listDueWebhookDeliveries = `-- name: ListDueWebhookDeliveries :many
 SELECT id, org_id, delivery_id, event_type, payload, status, attempt, next_attempt_at, last_error, created_at, delivered_at FROM webhook_deliveries
-WHERE status IN ('pending', 'failed') AND next_attempt_at <= now()
+WHERE org_id = $1 AND status IN ('pending', 'failed') AND next_attempt_at <= now()
 ORDER BY next_attempt_at
-LIMIT $1
+LIMIT $2
 `
 
-func (q *Queries) ListDueWebhookDeliveries(ctx context.Context, db DBTX, limit int32) ([]*WebhookDelivery, error) {
-	rows, err := db.Query(ctx, listDueWebhookDeliveries, limit)
+type ListDueWebhookDeliveriesParams struct {
+	OrgID uuid.UUID `json:"org_id"`
+	Limit int32     `json:"limit"`
+}
+
+// Org-scoped on purpose: the daemon runs one OutboxWorker per org server
+// over the same pool, so an unfiltered scan makes every worker deliver
+// every org's rows (observed live as triple repository_dispatch;
+// docs/migration-findings.md #27). Multi-replica deployments will need
+// row claiming (FOR UPDATE SKIP LOCKED) on top.
+func (q *Queries) ListDueWebhookDeliveries(ctx context.Context, db DBTX, arg ListDueWebhookDeliveriesParams) ([]*WebhookDelivery, error) {
+	rows, err := db.Query(ctx, listDueWebhookDeliveries, arg.OrgID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
