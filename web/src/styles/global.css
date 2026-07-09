@@ -1932,3 +1932,9 @@ a.chip-origin:hover {
 tr.admin-archived td {
   opacity: 0.6;
 }
+
+/* Stack anchor when the base is NOT on trunk (orphaned/stranded stack). */
+.anchor-warn {
+  color: var(--amber);
+  font-weight: 600;
+}

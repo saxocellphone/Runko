@@ -241,6 +241,15 @@ export const changes: ChangeSummary[] = [
   abandonedChange,
 ];
 
+// baseOnTrunk parity with the live server (2026-07-09): a change is
+// rooted on trunk unless its base is another fixture change's head
+// (stacked - true of children whether their parent is open or not).
+{
+  const heads = new Set(changes.map((c) => c.headSha));
+  for (const c of changes) c.baseOnTrunk = !heads.has(c.baseSha);
+}
+
+
 // ------------------------------------------------------- merge requirements
 
 const req = (

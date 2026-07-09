@@ -786,6 +786,30 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 
 	req := checks.ComputeMergeRequirements(key, owners, requiredNames, runs, nil, staleNames, nil)
 
+	// A change whose base is not on trunk cannot land regardless of gate
+	// state - attemptLand refuses it (§7.4's ancestors-land-first rule).
+	// Saying "mergeable" while land 409s was a lie the UI faithfully
+	// repeated (found live: abandon a stack's bottom and the pending
+	// child kept its green chip). Name the parent when we know it.
+	if !s.baseOnTrunk(change.BaseSHA) {
+		req.Mergeable = false
+		if parent, ok := s.changeWithHead(ctx, change.BaseSHA); ok {
+			verb := "land it first"
+			switch parent.State {
+			case "abandoned":
+				verb = "reopen it (re-push its stack) or rebase this change onto trunk and re-push"
+			case "landed":
+				// The parent landed REBASED - its pre-land commit never
+				// reached trunk, so this child still hangs off history
+				// that isn't there.
+				verb = "it landed as a different commit - rebase this change onto trunk and re-push"
+			}
+			req.Blockers = append(req.Blockers, fmt.Sprintf("stacked on %s (%q, %s) - %s", parent.ChangeKey, firstLine(parent.Title), parent.State, verb))
+		} else {
+			req.Blockers = append(req.Blockers, fmt.Sprintf("stacked on a commit trunk does not have (base %.12s) - rebase onto trunk and re-push", change.BaseSHA))
+		}
+	}
+
 	if lane == nil && !s.AllowUnpolicedLand && len(req.RequiredChecks) == 0 && len(req.RequiredOwners) == 0 {
 		req.Mergeable = false
 		req.Blockers = append(req.Blockers,

@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/saxocellphone/runko/internal/gitfixture"
+	"github.com/saxocellphone/runko/platform/checks"
 	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
 )
 
@@ -188,5 +189,99 @@ func TestFirstChangeID(t *testing.T) {
 		if got := firstChangeID(in); got != want {
 			t.Fatalf("firstChangeID(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestMergeRequirementsStackedBaseBlockers pins the "mergeable while
+// unlandable" fix (2026-07-09, found live: abandon a stack's bottom and
+// the pending child kept its green chip): a change whose base is not an
+// ancestor of trunk is NOT mergeable, and the blocker names the parent
+// and the way out per its state. protoChange's base_on_trunk carries the
+// same fact to the UI's stack anchors.
+func TestMergeRequirementsStackedBaseBlockers(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("svc/PROJECT.yaml", "schema: project/v1\nname: svc\ntype: service\n")
+	trunkTip := repo.Commit("trunk")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	repo.WriteFile("svc/a.go", "package svc\n")
+	parentHead := repo.Commit("parent: add a\n\nChange-Id: " + changeIDA)
+	repo.WriteFile("svc/b.go", "package svc\n")
+	childHead := repo.Commit("child: add b\n\nChange-Id: " + changeIDB)
+	pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	ctx := context.Background()
+	seed := func(key, base, head, title string) {
+		if _, err := store.CreateOrUpdateChange(ctx, key, base, head, "refs/changes/x", title, "alice", "", ""); err != nil {
+			t.Fatalf("seed %s: %v", key, err)
+		}
+	}
+	seed(changeIDA, trunkTip, parentHead, "parent: add a")
+	seed(changeIDB, parentHead, childHead, "child: add b")
+	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: newTestProcessor(bare, store), Token: "t", AllowUnpolicedLand: true}
+
+	requirements := func(key string) checks.MergeRequirements {
+		change, _, _ := store.GetChange(ctx, key)
+		req, err := srv.mergeRequirements(ctx, key, change, nil)
+		if err != nil {
+			t.Fatalf("mergeRequirements(%s): %v", key, err)
+		}
+		return req
+	}
+
+	// Parent (trunk-based): mergeable, base_on_trunk true.
+	if req := requirements(changeIDA); !req.Mergeable {
+		t.Fatalf("trunk-based parent should be mergeable: %+v", req)
+	}
+	if !srv.protoChange(Change{BaseSHA: trunkTip}).BaseOnTrunk {
+		t.Fatalf("trunk-based change should read base_on_trunk")
+	}
+
+	// Child of an OPEN parent: blocked, blocker names it + "land it first".
+	req := requirements(changeIDB)
+	if req.Mergeable {
+		t.Fatalf("stacked child should not be mergeable: %+v", req)
+	}
+	if !strings.Contains(strings.Join(req.Blockers, " "), changeIDA) || !strings.Contains(strings.Join(req.Blockers, " "), "land it first") {
+		t.Fatalf("blocker should name the open parent: %v", req.Blockers)
+	}
+	if srv.protoChange(Change{BaseSHA: parentHead}).BaseOnTrunk {
+		t.Fatalf("stacked child must not read base_on_trunk")
+	}
+
+	// ABANDONED parent: blocker teaches reopen-or-rebase.
+	if _, err := store.MarkChangeAbandoned(ctx, changeIDA); err != nil {
+		t.Fatalf("abandon parent: %v", err)
+	}
+	req = requirements(changeIDB)
+	if req.Mergeable || !strings.Contains(strings.Join(req.Blockers, " "), "abandoned") {
+		t.Fatalf("abandoned-parent blocker wrong: %+v", req)
+	}
+
+	// LANDED (rebased) parent: base still not on trunk - blocker teaches
+	// rebase-and-re-push. (Reopen, then mark landed at a DIFFERENT sha.)
+	seed(changeIDA, trunkTip, parentHead, "parent: add a") // reopen
+	if _, err := store.MarkChangeLanded(ctx, changeIDA, "0000000000000000000000000000000000000001", "alice", false); err != nil {
+		t.Fatalf("land parent: %v", err)
+	}
+	req = requirements(changeIDB)
+	if req.Mergeable || !strings.Contains(strings.Join(req.Blockers, " "), "landed as a different commit") {
+		t.Fatalf("landed-parent blocker wrong: %+v", req)
+	}
+
+	// Unknown base (a real commit, but no Change owns it and trunk does
+	// not contain it): generic stranded blocker.
+	repo2 := gitfixture.New(t)
+	repo2.Run("fetch " + bare + " refs/heads/main")
+	repo2.Run("checkout FETCH_HEAD")
+	repo2.WriteFile("svc/orphan.go", "package svc\n")
+	orphanBase := repo2.Commit("dangling commit, not a change")
+	pushCommit(t, repo2, bare, "refs/scratch/orphan")
+	seed("Icccc222222222222222222222222222222222222", orphanBase, childHead, "orphan")
+	req = requirements("Icccc222222222222222222222222222222222222")
+	if req.Mergeable || !strings.Contains(strings.Join(req.Blockers, " "), "rebase onto trunk") {
+		t.Fatalf("unknown-base blocker wrong: %+v", req)
 	}
 }
