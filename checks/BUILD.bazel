@@ -1,0 +1,42 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "checks",
+    srcs = [
+        "buildbinding.go",
+        "checkset.go",
+        "delivery.go",
+        "doc.go",
+        "persist.go",
+        "requirements.go",
+        "staleness.go",
+        "webhook.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/checks",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/dbgen",
+        "@com_github_google_uuid//:uuid",
+        "@com_github_jackc_pgx_v5//:pgx",
+        "@com_github_jackc_pgx_v5//pgtype",
+    ],
+)
+
+go_test(
+    name = "checks_test",
+    srcs = [
+        "buildbinding_test.go",
+        "checkset_test.go",
+        "contract_test.go",
+        "delivery_test.go",
+        "persist_pg_test.go",
+        "requirements_test.go",
+        "staleness_test.go",
+    ],
+    embed = [":checks"],
+    deps = [
+        "//internal/dbgen",
+        "//internal/dbtest",
+        "@com_github_santhosh_tekuri_jsonschema_v5//:jsonschema",
+    ],
+)

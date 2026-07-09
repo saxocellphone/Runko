@@ -1,0 +1,13 @@
+load("@gazelle//:def.bzl", "gazelle")
+
+# gazelle:prefix github.com/saxocellphone/runko
+# gazelle:proto disable_global
+# gazelle:exclude web
+# gazelle:exclude .vite
+#
+# proto disable_global is load-bearing: gen/runko/v1's committed *.pb.go (and
+# runkov1connect) must be plain go_library targets. Without it gazelle would
+# generate proto_library/go_proto_library over proto/runko/v1/*.proto and
+# double-define those Go packages. Regeneration stays buf's job
+# (proto/buf.gen.yaml), never bazel's.
+gazelle(name = "gazelle")

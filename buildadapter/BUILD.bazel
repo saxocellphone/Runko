@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "buildadapter",
+    srcs = ["contract.go"],
+    importpath = "github.com/saxocellphone/runko/buildadapter",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "buildadapter_test",
+    srcs = ["contract_test.go"],
+    embed = [":buildadapter"],
+)

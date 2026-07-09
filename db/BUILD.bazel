@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "db",
+    srcs = ["migrations.go"],
+    embedsrcs = [
+        "migrations/0001_init.down.sql",
+        "migrations/0001_init.up.sql",
+        "migrations/0002_approval_head_sha.down.sql",
+        "migrations/0002_approval_head_sha.up.sql",
+        "migrations/0003_landed_by.down.sql",
+        "migrations/0003_landed_by.up.sql",
+        "migrations/0004_principals.down.sql",
+        "migrations/0004_principals.up.sql",
+        "migrations/0005_change_origin.down.sql",
+        "migrations/0005_change_origin.up.sql",
+        "migrations/0006_landed_forced.down.sql",
+        "migrations/0006_landed_forced.up.sql",
+        "migrations/0007_org_accounts.down.sql",
+        "migrations/0007_org_accounts.up.sql",
+        "migrations/0008_org_settings.down.sql",
+        "migrations/0008_org_settings.up.sql",
+    ],
+    importpath = "github.com/saxocellphone/runko/db",
+    visibility = ["//visibility:public"],
+)

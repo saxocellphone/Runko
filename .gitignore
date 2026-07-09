@@ -4,6 +4,12 @@
 *.out
 vendor/
 
+# Bazel (workspace-root convenience symlinks)
+/bazel-*
+
+# Vite dep cache that leaks out of web/ when tools run from the repo root
+.vite/
+
 # Local dev
 .env
 *.local.yaml

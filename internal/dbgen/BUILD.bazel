@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "dbgen",
+    srcs = [
+        "actors.sql.go",
+        "changes.sql.go",
+        "checks.sql.go",
+        "db.go",
+        "mirror.sql.go",
+        "models.go",
+        "orgs.sql.go",
+        "principals.sql.go",
+        "projects.sql.go",
+        "templates.sql.go",
+        "webhooks.sql.go",
+        "workspaces.sql.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/internal/dbgen",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@com_github_google_uuid//:uuid",
+        "@com_github_jackc_pgx_v5//:pgx",
+        "@com_github_jackc_pgx_v5//pgconn",
+        "@com_github_jackc_pgx_v5//pgtype",
+    ],
+)

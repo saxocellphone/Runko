@@ -1,0 +1,5 @@
+# Bazel is the BUILD GRAPH for this repo (affected-computation refinement via
+# `runko-ci affected --engine bazel`, §14.5.4) - `bazel build //...` must stay
+# green, but `go test` via `make check` remains the test truth. See
+# docs/migration-findings.md for the migration record.
+test --test_output=errors

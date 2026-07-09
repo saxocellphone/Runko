@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "clierr",
+    srcs = ["clierr.go"],
+    importpath = "github.com/saxocellphone/runko/internal/clierr",
+    visibility = ["//:__subpackages__"],
+)
+
+go_test(
+    name = "clierr_test",
+    srcs = ["clierr_test.go"],
+    embed = [":clierr"],
+)

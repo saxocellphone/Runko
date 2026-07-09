@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "dbtest",
+    srcs = ["dbtest.go"],
+    importpath = "github.com/saxocellphone/runko/internal/dbtest",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//internal/dbgen",
+        "@com_github_google_uuid//:uuid",
+        "@com_github_jackc_pgx_v5//pgxpool",
+    ],
+)
