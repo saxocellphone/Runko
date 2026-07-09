@@ -230,12 +230,23 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 	}
 
 	author := remoteUser(extraEnv)
-	originWS, originBranch, originVerdict := p.resolveOrigin(ctx, u, extraEnv, author)
+	originWS, originBranch, originWorkspace, originVerdict := p.resolveOrigin(ctx, u, extraEnv, author)
 	if originVerdict != nil {
 		return *originVerdict
 	}
 
-	changedPaths, files, err := p.diff(u.OldSHA, u.NewSHA, extraEnv)
+	// First-ever push to this magic ref arrives with old == zero; the
+	// push's real delta is against trunk, not the empty tree (the
+	// evaluateSnapshot fix's sibling - pre-fix, policy judged the pusher
+	// as authoring the entire repository, e.g. "modifies owners" via
+	// trunk's own manifests). Unborn trunk keeps the empty-tree base.
+	diffBase := u.OldSHA
+	if diffBase == zeroOID {
+		if mb, mbErr := p.runGit(extraEnv, "merge-base", u.NewSHA, "refs/heads/"+p.TrunkRef); mbErr == nil && strings.TrimSpace(mb) != "" {
+			diffBase = strings.TrimSpace(mb)
+		}
+	}
+	changedPaths, files, err := p.diff(diffBase, u.NewSHA, extraEnv)
 	if err != nil {
 		return verdict{update: u, evalErr: fmt.Sprintf("remote: could not inspect push: %v\n", err)}
 	}
@@ -253,14 +264,24 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		// Stage 12c: the first wire-level feed for the AgentPolicy
 		// enforcement stage 6 built (§8.7). DiffBytes is the sum of changed
 		// files' full content - an over-count of the true diff, i.e. the
-		// conservative direction for a cap. A refs/for push carries no
-		// workspace affinity, so a policy with RequireWorkspaceAffinity
-		// correctly refuses it (§8.7: agent WRITES go through workspaces;
-		// snapshot pushes carry their workspace's affinity, see
-		// evaluateSnapshot).
+		// conservative direction for a cap.
+		//
+		// A refs/for push that declares a workspace origin (push options,
+		// resolveOrigin above) carries that workspace's write allowlist as
+		// affinity - the claim is server-validated AND owner-bound, so it
+		// is exactly the workspace-affine write §8.7 wants agents making.
+		// `runko change push` from an attached worktree stamps the options
+		// automatically; a bare push without them still correctly refuses
+		// a RequireWorkspaceAffinity policy. (Found live on the first real
+		// agent-token run: agents could snapshot but never SUBMIT - the
+		// policy refused their change pushes even from their own
+		// workspace, because this branch predated validated provenance.)
 		req.Principal = receive.Principal{IsAgent: true, Policy: pr.Policy}
 		req.DiffBytes = totalContentBytes(files)
 		req.ModifiesOwners = modifiesOwners(changedPaths)
+		if originWS != "" && author != "" && originWorkspace.Owner == author {
+			req.WorkspaceAffinity = originWorkspace.WriteAllowlist
+		}
 	}
 	decision := receive.Decide(req, p.Scanner)
 	if decision.Accepted && isMagicRef {
@@ -321,7 +342,7 @@ func pushOptions(extraEnv []string) []string {
 // spoof), and recording it silently would pin the Change to the wrong stack
 // in every view; fail loud, same posture as snapshot pushes. No options is
 // fine: provenance is advisory, plain git stays a first-class pusher.
-func (p *Processor) resolveOrigin(ctx context.Context, u RefUpdate, extraEnv []string, author string) (wsID, branch string, rejection *verdict) {
+func (p *Processor) resolveOrigin(ctx context.Context, u RefUpdate, extraEnv []string, author string) (wsID, branch string, ws Workspace, rejection *verdict) {
 	for _, opt := range pushOptions(extraEnv) {
 		if v, ok := strings.CutPrefix(opt, "workspace="); ok {
 			wsID = v
@@ -331,30 +352,30 @@ func (p *Processor) resolveOrigin(ctx context.Context, u RefUpdate, extraEnv []s
 		}
 	}
 	if wsID == "" {
-		return "", "", nil
+		return "", "", Workspace{}, nil
 	}
 	if branch == "" {
 		branch = "head" // the §12.2 default branch
 	}
 	ws, registered, err := p.Store.GetWorkspace(ctx, wsID)
 	if err != nil {
-		return "", "", &verdict{update: u, evalErr: fmt.Sprintf("remote: workspace lookup failed: %v\n", err)}
+		return "", "", Workspace{}, &verdict{update: u, evalErr: fmt.Sprintf("remote: workspace lookup failed: %v\n", err)}
 	}
 	if !registered {
-		return "", "", &verdict{update: u, decision: receive.Decision{
+		return "", "", Workspace{}, &verdict{update: u, decision: receive.Decision{
 			Accepted: false,
 			RejectionMessage: fmt.Sprintf("remote: this push declares workspace %q as its origin, but no such workspace is registered\nremote:   -> re-attach with `runko workspace attach <id>`, or unset runko.workspace in this worktree's git config\n",
 				wsID),
 		}}
 	}
 	if author != "" && ws.Owner != "" && author != ws.Owner {
-		return "", "", &verdict{update: u, decision: receive.Decision{
+		return "", "", Workspace{}, &verdict{update: u, decision: receive.Decision{
 			Accepted: false,
 			RejectionMessage: fmt.Sprintf("remote: workspace %q belongs to %s - a Change cannot claim someone else's workspace as its origin (§12.2)\nremote:   -> unset runko.workspace in this worktree's git config, or attach your own workspace\n",
 				wsID, ws.Owner),
 		}}
 	}
-	return wsID, branch, nil
+	return wsID, branch, ws, nil
 }
 
 func totalContentBytes(files []receive.FileContent) int64 {
@@ -413,7 +434,21 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 		}}
 	}
 
-	changedPaths, files, err := p.diff(u.OldSHA, u.NewSHA, extraEnv)
+	// A FIRST push to a fresh snapshot ref arrives with old == zero; the
+	// snapshot's real delta is against trunk, not the empty tree. Without
+	// this, policy/caps judge the pusher as having authored the ENTIRE
+	// repository - an agent's first snapshot violated affinity on any
+	// file outside its cone, making agent workspaces unusable (found
+	// live, first real agent-token workspace run; the stage-11b BaseSHA
+	// bug's sibling). An unborn trunk keeps the empty-tree base - there
+	// is genuinely nothing else the content could be a delta over.
+	oldSHA := u.OldSHA
+	if oldSHA == zeroOID {
+		if mb, err := p.runGit(extraEnv, "merge-base", u.NewSHA, "refs/heads/"+p.TrunkRef); err == nil && strings.TrimSpace(mb) != "" {
+			oldSHA = strings.TrimSpace(mb)
+		}
+	}
+	changedPaths, files, err := p.diff(oldSHA, u.NewSHA, extraEnv)
 	if err != nil {
 		return verdict{update: u, evalErr: fmt.Sprintf("remote: could not inspect snapshot: %v\n", err)}
 	}
