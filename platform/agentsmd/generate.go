@@ -69,6 +69,23 @@ func Generate() string {
 	}
 	b.WriteString("\n")
 
+	b.WriteString("## Workspaces: the writing discipline\n\n")
+	b.WriteString("Changes are born in workspaces - the server refuses a refs/for push\n")
+	b.WriteString("that declares no registered workspace origin. The model:\n\n")
+	for _, line := range []string{
+		"One workspace = one WORKSTREAM (yours, long-lived). Do NOT mint one per change: `runko workspace create --name <stream> --project <p> --by <you>` once, keep using it.",
+		"One branch = one stack = one reviewable line. `head` is the default; parallel work gets `runko workspace branch <name>` - the server refuses a second unrelated stack on one branch.",
+		"Work INSIDE the workspace worktree: the sparse cone stops out-of-scope edits before the server has to, and `runko change push` stamps your origin claim automatically.",
+		"Snapshot early and often: `runko workspace snapshot` - durable, secret-scanned WIP; a killed session loses nothing, `workspace attach` restores it.",
+		"Submit: `runko change create -m <msg>` then `runko change push`. Stacks land BOTTOM-UP; a child is not mergeable until its parent lands.",
+		"Trunk moved (land says revalidate): `runko workspace update-base`, push again, land when checks re-green. Never force.",
+		"Done or dead: land it or `runko change abandon`. An abandoned change stays visible only while something still stacks on it - rebase dependents off it or reopen it by re-pushing.",
+		"Never claim a workspace you don't own or didn't work in - origin claims are validated and owner-bound, and they drive review views.",
+	} {
+		fmt.Fprintf(&b, "- %s\n", line)
+	}
+	b.WriteString("\n")
+
 	b.WriteString("## Commands\n\n")
 	b.WriteString("| Command | Does | `--json` output |\n")
 	b.WriteString("|---|---|---|\n")

@@ -16,8 +16,10 @@ vendor/
 
 # Claude Code session state + agent worktrees (a second full checkout
 # lives under .claude/worktrees/ - must never be committed or swept up
-# by `git add -A` / `runko change create`)
-.claude/
+# by `git add -A` / `runko change create`). Committed skills are the
+# exception: they are how agents learn this repo's workflow.
+.claude/*
+!.claude/skills/
 
 # OS
 .DS_Store
