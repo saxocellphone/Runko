@@ -103,17 +103,45 @@ let api = await crossCheck("phase1-two-stacks", 2, 0);
 const bReq = api.reqs["I3333000000000000000000000000000000000000"];
 if (bReq.mergeable !== false || !JSON.stringify(bReq.blockers).includes("I2222")) fail("B should be blocked naming A: " + JSON.stringify(bReq));
 
-// Phase 2: abandon A -> B orphaned: still 2 stacks, ONE warn anchor, B blocked (abandoned).
+// Phase 2: abandon A -> B still depends on it, so A stays VISIBLE
+// (struck through) and the chain keeps its main anchor: 2 stacks, ZERO
+// warn anchors, one abandoned row, B blocked naming the abandoned A.
 r = await fetch(`${U}/api/changes/I2222000000000000000000000000000000000000/abandon`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: "{}" });
 if (r.status !== 200) fail("abandon A: " + r.status);
-api = await crossCheck("phase2-orphaned", 2, 1);
+api = await crossCheck("phase2-abandoned-retained", 2, 0);
 const bReq2 = api.reqs["I3333000000000000000000000000000000000000"];
 if (bReq2.mergeable !== false || !JSON.stringify(bReq2.blockers).includes("abandoned")) fail("orphaned B blocker wrong: " + JSON.stringify(bReq2.blockers));
+{
+  const struck = await page.$$eval(".stack-row-abandoned", (els) => els.length);
+  if (struck !== 1) fail(`phase2: expected 1 retained abandoned row, got ${struck}`);
+}
 
-// Phase 3: land the single change -> 1 stack (orphan), warn anchor persists.
+// Phase 3: land the single change -> only the A(abandoned)<-B chain
+// remains: 1 stack, still anchored on main through the retained parent.
 r = await fetch(`${U}/api/changes/I1111000000000000000000000000000000000000/land`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: "{}" });
 if (r.status !== 200) fail("land single: " + r.status + " " + (await r.text()));
-api = await crossCheck("phase3-after-land", 1, 1);
+api = await crossCheck("phase3-after-land", 1, 0);
+
+// Phase 4: one card per WORKSPACE - two branches, one card, branches as
+// a tree off the shared main anchor.
+r = await fetch(`${U}/api/workspaces`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ name: "wsdemo", owner: "dev", projects: ["svc"] }) });
+if (r.status !== 201) fail("create workspace: " + r.status + " " + (await r.text()));
+git(["fetch", "origin"]); git(["reset", "--hard", "origin/main"]);
+write("svc/br1.go", "package svc // br1");
+git(["add", "-A"]); git(["commit", "-m", "ws branch one\n\nChange-Id: I4444000000000000000000000000000000000000"]);
+git(["push", "-o", "workspace=wsdemo", "-o", "workspace-branch=head", "origin", "+HEAD:refs/for/main"]);
+git(["reset", "--hard", "origin/main"]);
+write("svc/br2.go", "package svc // br2");
+git(["add", "-A"]); git(["commit", "-m", "ws branch two\n\nChange-Id: I5555000000000000000000000000000000000000"]);
+git(["push", "-o", "workspace=wsdemo", "-o", "workspace-branch=side", "origin", "+HEAD:refs/for/main"]);
+api = await crossCheck("phase4-workspace-card", 2, 0); // wsdemo card + retained-abandoned chain card
+{
+  const heads = await page.$$eval(".stack-card-head", (els) => els.map((e) => e.textContent ?? ""));
+  const wsHead = heads.find((h) => h.includes("wsdemo"));
+  if (!wsHead || !wsHead.includes("2 changes") || !wsHead.includes("branched")) {
+    fail("phase4: workspace card header should read a branched 2-change stack, got " + JSON.stringify(heads));
+  }
+}
 
 await browser.close();
 daemon.kill(); vite.kill();

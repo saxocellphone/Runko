@@ -1938,3 +1938,11 @@ tr.admin-archived td {
   color: var(--amber);
   font-weight: 600;
 }
+
+/* Abandoned ancestors kept visible while something depends on them. */
+.stack-row-abandoned {
+  opacity: 0.62;
+}
+.stack-row-abandoned .change-title-link {
+  text-decoration: line-through;
+}

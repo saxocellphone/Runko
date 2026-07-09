@@ -3,7 +3,16 @@ import { Link } from "react-router-dom";
 import { changesClient } from "../api/client";
 import { ChangeState, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import { changeNumberLabel, shortChangeId } from "../lib/format";
-import { buildStackForest, layoutStack, stackHasFork, stackOrigin, stackSize, type StackNode } from "../lib/stacks";
+import {
+  buildWorkspaceCards,
+  layoutForest,
+  layoutStack,
+  stackHasFork,
+  stackSize,
+  TRUNK_NODE_ID,
+  type StackLayout,
+  type WorkspaceCard,
+} from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
 import { RailGraphRow, RailGraphTrunk } from "../components/RailGraph";
 import {
@@ -29,6 +38,17 @@ export function ChangesPage() {
 
   const { data, error, loading } = useRpc(async () => {
     const res = await changesClient.listChanges({ state: tab });
+    // The open inbox also needs abandoned changes: one that a pending
+    // change still depends on stays VISIBLE (struck through) until
+    // nothing depends on it (2026-07-09).
+    let abandoned: ChangeSummary[] = [];
+    if (tab === ChangeState.OPEN) {
+      try {
+        abandoned = (await changesClient.listChanges({ state: ChangeState.ABANDONED })).changes;
+      } catch {
+        // Retention degrades: orphans fall back to the amber anchor.
+      }
+    }
     // One merge-requirements call per change powers the status chips and
     // stack dots. Fine at demo scale; a batch RPC is the obvious follow-up
     // if the real list view needs it (noted in proto/README.md).
@@ -43,7 +63,7 @@ export function ChangesPage() {
         }
       }),
     );
-    return { changes: res.changes, requirements: reqs };
+    return { changes: res.changes, abandoned, requirements: reqs };
   }, `changes-${tab}`);
 
   return (
@@ -68,7 +88,7 @@ export function ChangesPage() {
       {loading && <Spinner />}
       {error && <ErrorNote error={error} />}
       {data && tab === ChangeState.OPEN && (
-        <StackedList changes={data.changes} requirements={data.requirements} />
+        <StackedList changes={data.changes} abandoned={data.abandoned} requirements={data.requirements} />
       )}
       {data && tab !== ChangeState.OPEN && <FlatList changes={data.changes} />}
       {data && data.changes.length === 0 && (
@@ -82,83 +102,121 @@ export function ChangesPage() {
 
 function StackedList({
   changes,
+  abandoned,
   requirements,
 }: {
   changes: ChangeSummary[];
+  abandoned: ChangeSummary[];
   requirements: Map<string, MergeRequirements>;
 }) {
-  const forest = buildStackForest(changes);
+  const cards = buildWorkspaceCards(changes, abandoned);
   return (
     <div>
-      {forest.map((root) => (
-        <StackCard key={root.change.id} root={root} requirements={requirements} />
+      {cards.map((card, i) => (
+        <WorkspaceStackCard key={card.workspace ?? `loose-${i}`} card={card} requirements={requirements} />
       ))}
     </div>
   );
 }
 
-function StackCard({
-  root,
+// WorkspaceStackCard: ONE card per workspace (2026-07-09). Its branches
+// render as a tree sharing the main anchor - fork lanes, playground
+// style; abandoned ancestors a pending change still depends on stay
+// visible, struck through, until nothing depends on them. Roots whose
+// base is genuinely unreachable (parent landed as a different commit,
+// or vanished) sit below with the amber anchor.
+function WorkspaceStackCard({
+  card,
   requirements,
 }: {
-  root: StackNode;
+  card: WorkspaceCard;
   requirements: Map<string, MergeRequirements>;
 }) {
-  const layout = layoutStack(root);
-  const size = stackSize(root);
-  const origin = stackOrigin(root);
+  const size = [...card.roots, ...card.stranded].reduce((n, r) => n + stackSize(r), 0);
+  const forked = card.roots.length > 1 || card.roots.some(stackHasFork);
+  const layout = card.roots.length > 0 ? layoutForest(card.roots) : null;
   return (
     <section className="card stack-card">
-      {(size > 1 || origin) && (
+      {(card.workspace || size > 1) && (
         <header className="stack-card-head">
           <span>
-            {size > 1
-              ? `Stack · ${size} changes${stackHasFork(root) ? " · forked" : ""}`
-              : "Stack · 1 change"}
+            {size > 1 ? `Stack · ${size} changes${forked ? " · branched" : ""}` : "Stack · 1 change"}
           </span>
-          {origin && <OriginChip workspace={origin.workspace} branch={origin.branch} />}
+          {card.workspace && <OriginChip workspace={card.workspace} branch="" />}
         </header>
       )}
-      {layout.rows.map(({ change: c }, i) => (
-        <div className="stack-row" key={c.id}>
-          <RailGraphRow
-            layout={layout}
-            rowIndex={i}
-            change={c}
-            requirements={requirements.get(c.id)}
-          />
-          <div className="change-line">
-            <Link className="change-title-link" to={`/changes/${c.id}`}>
-              {c.title}
-            </Link>
-            <span className="change-meta">
-              <span>{changeNumberLabel(c.number)}</span>
-              <span className="mono">{shortChangeId(c.id)}</span>
-              <AuthorChip author={c.authoredBy} />
-              {origin && c.originWorkspace && c.originBranch !== origin.branch && (
-                <OriginChip workspace={c.originWorkspace} branch={c.originBranch} branchOnly />
-              )}
-            </span>
+      {layout && layout.rows.map((row, i) => <StackRow key={row.change.id} row={row} rowIndex={i} layout={layout} requirements={requirements} />)}
+      {card.stranded.map((root) => {
+        const sub = layoutStack(root);
+        return (
+          <div key={root.change.id}>
+            {sub.rows.map((row, i) => (
+              <StackRow key={row.change.id} row={row} rowIndex={i} layout={sub} requirements={requirements} />
+            ))}
+            <div className="stack-row stack-row-trunk">
+              <RailGraphTrunk lanes={sub.lanes} />
+              <div className="change-line anchor-warn" title="This stack's base commit is not on trunk - its parent change landed as a different commit or is gone. Rebase onto trunk and re-push.">
+                ⚠ not on main
+              </div>
+              <span />
+            </div>
           </div>
-          <span className="change-chips">
+        );
+      })}
+    </section>
+  );
+}
+
+function StackRow({
+  row,
+  rowIndex,
+  layout,
+  requirements,
+}: {
+  row: StackLayout["rows"][number];
+  rowIndex: number;
+  layout: StackLayout;
+  requirements: Map<string, MergeRequirements>;
+}) {
+  const c = row.change;
+  if (c.id === TRUNK_NODE_ID) {
+    return (
+      <div className="stack-row stack-row-trunk">
+        <RailGraphRow layout={layout} rowIndex={rowIndex} change={c} trunk />
+        <div className="change-line">main</div>
+        <span />
+      </div>
+    );
+  }
+  const isAbandoned = c.state === ChangeState.ABANDONED;
+  return (
+    <div className={`stack-row${isAbandoned ? " stack-row-abandoned" : ""}`}>
+      <RailGraphRow layout={layout} rowIndex={rowIndex} change={c} requirements={requirements.get(c.id)} />
+      <div className="change-line">
+        <Link className="change-title-link" to={`/changes/${c.id}`}>
+          {c.title}
+        </Link>
+        <span className="change-meta">
+          <span>{changeNumberLabel(c.number)}</span>
+          <span className="mono">{shortChangeId(c.id)}</span>
+          <AuthorChip author={c.authoredBy} />
+          {c.originBranch && c.originBranch !== "head" && (
+            <OriginChip workspace={c.originWorkspace} branch={c.originBranch} branchOnly />
+          )}
+        </span>
+      </div>
+      <span className="change-chips">
+        {isAbandoned ? (
+          <StateBadge state={c.state} />
+        ) : (
+          <>
             <MergeableChip requirements={requirements.get(c.id)} />
             <ReviewChip requirements={requirements.get(c.id)} />
             <ChecksChip requirements={requirements.get(c.id)} />
-          </span>
-        </div>
-      ))}
-      <div className="stack-row stack-row-trunk">
-        <RailGraphTrunk lanes={layout.lanes} />
-        {root.change.baseOnTrunk ? (
-          <div className="change-line">main</div>
-        ) : (
-          <div className="change-line anchor-warn" title="This stack's base commit is not on trunk - its parent change was abandoned or landed as a different commit. Rebase onto trunk and re-push.">
-            ⚠ not on main
-          </div>
+          </>
         )}
-        <span />
-      </div>
-    </section>
+      </span>
+    </div>
   );
 }
 

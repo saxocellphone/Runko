@@ -10,11 +10,13 @@ export function RailGraphRow({
   rowIndex,
   change,
   requirements,
+  trunk,
 }: {
   layout: StackLayout;
   rowIndex: number;
   change: ChangeSummary;
-  requirements: MergeRequirements | undefined;
+  trunk?: boolean;
+  requirements?: MergeRequirements | undefined;
 }) {
   return (
     <span className="rail-graph" style={{ width: layout.lanes * LANE_W }}>
@@ -35,7 +37,7 @@ export function RailGraphRow({
               {cell.down && <span className="rg-v-bottom" />}
               {cell.right && <span className="rg-h-right" />}
               <span className="rg-dot">
-                <StatusDot requirements={requirements} state={change.state} />
+                {trunk ? <TrunkIcon /> : <StatusDot requirements={requirements} state={change.state} />}
               </span>
             </>
           )}

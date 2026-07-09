@@ -1,4 +1,4 @@
-import type { ChangeSummary } from "../gen/runko/v1/common_pb";
+import { ChangeState, type ChangeSummary } from "../gen/runko/v1/common_pb";
 
 // Client-side mirror of GetChangeStack's derived relation
 // (proto/runko/v1/changes.proto): Change B is stacked on Change A iff
@@ -44,6 +44,103 @@ export function buildStackForest(changes: ChangeSummary[]): StackNode[] {
   }
   roots.sort((a, b) => Number(maxNumber(b) - maxNumber(a)));
   return roots;
+}
+
+// ---- workspace cards (2026-07-09: one card per workspace, max) --------
+
+// TRUNK_NODE is the virtual root layoutForest hangs branch roots off -
+// rendered as the shared "main" anchor row, never as a change.
+export const TRUNK_NODE_ID = "__trunk__";
+
+export interface WorkspaceCard {
+  // The origin workspace, or undefined for the legacy fallback (changes
+  // with no recorded workspace group by ancestry alone, one card per
+  // connected tree - post-"changes are born in workspaces" these only
+  // exist as history).
+  workspace?: string;
+  // Roots whose base really is on trunk (or chains there through
+  // retained abandoned ancestors): rendered as one forest sharing the
+  // main anchor - branches fork off it, playground-style.
+  roots: StackNode[];
+  // Roots whose base is NOT reachable (parent landed as a different
+  // commit, or vanished): rendered with the amber anchor.
+  stranded: StackNode[];
+}
+
+// retainedAbandoned keeps exactly the abandoned changes some open change
+// still depends on (transitively, chains may pass through several
+// abandoned ancestors). An abandoned LEAF - nothing open on top -
+// disappears from the inbox as before.
+export function retainedAbandoned(
+  open: ChangeSummary[],
+  abandoned: ChangeSummary[],
+): ChangeSummary[] {
+  const byHead = new Map(abandoned.map((c) => [c.headSha, c]));
+  const keep = new Map<string, ChangeSummary>();
+  const walk = (base: string) => {
+    const a = byHead.get(base);
+    if (!a || keep.has(a.id)) return;
+    keep.set(a.id, a);
+    walk(a.baseSha);
+  };
+  for (const c of open) walk(c.baseSha);
+  return [...keep.values()];
+}
+
+// buildWorkspaceCards: one card per workspace (max), abandoned ancestors
+// retained while depended upon, ancestry-fallback cards for the
+// workspace-less. Newest activity first.
+export function buildWorkspaceCards(
+  open: ChangeSummary[],
+  abandoned: ChangeSummary[],
+): WorkspaceCard[] {
+  const all = [...open, ...retainedAbandoned(open, abandoned)];
+  const byWs = new Map<string, ChangeSummary[]>();
+  const loose: ChangeSummary[] = [];
+  for (const c of all) {
+    if (c.originWorkspace) {
+      const g = byWs.get(c.originWorkspace) ?? [];
+      g.push(c);
+      byWs.set(c.originWorkspace, g);
+    } else {
+      loose.push(c);
+    }
+  }
+  const cards: WorkspaceCard[] = [];
+  const split = (roots: StackNode[]) => ({
+    roots: roots.filter((r) => r.change.baseOnTrunk || r.change.state === ChangeState.ABANDONED),
+    stranded: roots.filter((r) => !r.change.baseOnTrunk && r.change.state !== ChangeState.ABANDONED),
+  });
+  for (const [ws, group] of byWs) {
+    const { roots, stranded } = split(buildStackForest(group));
+    cards.push({ workspace: ws, roots, stranded });
+  }
+  for (const root of buildStackForest(loose)) {
+    const { roots, stranded } = split([root]);
+    cards.push({ roots, stranded });
+  }
+  const activity = (card: WorkspaceCard) => {
+    let max = 0n;
+    for (const r of [...card.roots, ...card.stranded]) {
+      const m = maxNumber(r);
+      if (m > max) max = m;
+    }
+    return max;
+  };
+  cards.sort((a, b) => Number(activity(b) - activity(a)));
+  return cards;
+}
+
+// layoutForest lays out a card's on-trunk roots as ONE rail: a virtual
+// trunk node adopts every root, so the existing fork-lane machinery
+// draws branches merging into the shared main anchor. The virtual node
+// surfaces as the final row with id TRUNK_NODE_ID.
+export function layoutForest(roots: StackNode[]): StackLayout {
+  const virtual: StackNode = {
+    change: { id: TRUNK_NODE_ID, baseOnTrunk: true } as ChangeSummary,
+    children: roots,
+  };
+  return layoutStack(virtual);
 }
 
 // stackSize counts a tree's changes (the inbox card header).

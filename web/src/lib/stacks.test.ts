@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { ChangeState, ChangeSummarySchema, type ChangeSummary } from "../gen/runko/v1/common_pb";
-import { branchesForWorkspace, buildStackForest, changesByOrigin, layoutStack, railCells, stackOrigin, stackSize } from "./stacks";
+import { branchesForWorkspace, buildStackForest, buildWorkspaceCards, changesByOrigin, layoutForest, layoutStack, railCells, retainedAbandoned, stackOrigin, stackSize, TRUNK_NODE_ID } from "./stacks";
 import { createFakeTransport } from "../api/fake/transport";
 import { createClient } from "@connectrpc/connect";
 import { ChangeService } from "../gen/runko/v1/changes_pb";
@@ -253,5 +253,73 @@ describe("branchesForWorkspace", () => {
       "head",
       "idle-line",
     ]);
+  });
+});
+
+describe("workspace cards (one card per workspace, abandoned retained while depended upon)", () => {
+  const ws = (id: string, base: string, head: string, n: number, workspace: string, branch: string, opts: Partial<ChangeSummary> = {}) => {
+    const m = create(ChangeSummarySchema, {
+      id, baseSha: base, headSha: head, number: BigInt(n),
+      state: ChangeState.OPEN, originWorkspace: workspace, originBranch: branch,
+      baseOnTrunk: false,
+    });
+    Object.assign(m, opts);
+    return m;
+  };
+
+  it("retains an abandoned ancestor only while an open change depends on it", () => {
+    const abandonedMid = ws("mid", "T", "M", 1, "w", "head", { state: ChangeState.ABANDONED, baseOnTrunk: true });
+    const openLeaf = ws("leaf", "M", "L", 2, "w", "head");
+    const abandonedLoner = ws("loner", "T", "X", 3, "w", "head", { state: ChangeState.ABANDONED, baseOnTrunk: true });
+    expect(retainedAbandoned([openLeaf], [abandonedMid, abandonedLoner]).map((x) => x.id)).toEqual(["mid"]);
+    // chains through SEVERAL abandoned ancestors survive too
+    const abandonedTop = ws("mid2", "M", "M2", 4, "w", "head", { state: ChangeState.ABANDONED });
+    const openTop = ws("leaf2", "M2", "L2", 5, "w", "head");
+    expect(
+      retainedAbandoned([openTop], [abandonedMid, abandonedTop]).map((x) => x.id).sort(),
+    ).toEqual(["mid", "mid2"]);
+  });
+
+  it("groups one card per workspace with branches as forest roots; the abandoned mid reconnects the chain", () => {
+    const a = ws("a", "T", "A", 1, "w", "head", { baseOnTrunk: true, state: ChangeState.ABANDONED });
+    const b = ws("b", "A", "B", 2, "w", "head");
+    const side = ws("s", "T", "S", 3, "w", "side", { baseOnTrunk: true });
+    const other = ws("o", "T", "O", 4, "v", "head", { baseOnTrunk: true });
+    const cards = buildWorkspaceCards([b, side, other], [a]);
+    expect(cards.length).toBe(2);
+    const wCard = cards.find((x) => x.workspace === "w")!;
+    expect(wCard.roots.length).toBe(2); // head chain (a<-b) + side
+    expect(wCard.stranded.length).toBe(0);
+    const headRoot = wCard.roots.find((r) => r.change.id === "a")!;
+    expect(headRoot.children.map((n) => n.change.id)).toEqual(["b"]);
+  });
+
+  it("stranded roots (base unreachable, parent NOT retained) split out of the shared anchor", () => {
+    const stranded = ws("x", "gone", "X", 1, "w", "head"); // baseOnTrunk false, no abandoned parent
+    const fine = ws("y", "T", "Y", 2, "w", "head", { baseOnTrunk: true });
+    const [card] = buildWorkspaceCards([stranded, fine], []);
+    expect(card!.roots.map((r) => r.change.id)).toEqual(["y"]);
+    expect(card!.stranded.map((r) => r.change.id)).toEqual(["x"]);
+  });
+
+  it("workspace-less changes fall back to one card per ancestry tree", () => {
+    const l1 = c("l1", "T", "L1", 1);
+    const l2 = c("l2", "T", "L2", 2);
+    const cards = buildWorkspaceCards([l1, l2], []);
+    expect(cards.length).toBe(2);
+    expect(cards.every((x) => x.workspace === undefined)).toBe(true);
+  });
+
+  it("layoutForest hangs every root off one virtual trunk row", () => {
+    const r1 = buildStackForest([c("a", "T", "A", 1)])[0]!;
+    const r2 = buildStackForest([c("b", "T", "B", 2)])[0]!;
+    const layout = layoutForest([r1, r2]);
+    const last = layout.rows[layout.rows.length - 1]!;
+    expect(last.change.id).toBe(TRUNK_NODE_ID);
+    expect(last.lane).toBe(0);
+    expect(layout.lanes).toBe(2);
+    // both roots edge into the trunk row
+    const trunkRow = layout.rows.length - 1;
+    expect(layout.edges.filter((e) => e.toRow === trunkRow).length).toBe(2);
   });
 });
