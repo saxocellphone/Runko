@@ -82,6 +82,7 @@ go_test(
         "stack_test.go",
         "statemachine_test.go",
         "store_test.go",
+        "webhook_org_test.go",
         "workspace_test.go",
         "workspacebranch_test.go",
         "zoekt_test.go",
