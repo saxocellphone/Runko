@@ -1,0 +1,185 @@
+# Pre-land checks for Runko-hosted Changes (§14.4 Mode C, the R3 slice of
+# docs/migration-findings.md's self-host migration).
+#
+# Flow: a change is pushed to the runkod org -> runkod webhook ->
+# runko-bridge translates the signed envelope into a repository_dispatch
+# here -> each job fetches refs/changes/<id>/head FROM THE MIRROR (this
+# repo; the webhook can beat the 3s-debounced mirror sync, hence the fetch
+# retry loop), runs its check, and reports back with runko-ci report-check
+# using the check names PROJECT.yaml's ci.checks declares. This workflow is
+# inert until dispatched - repository_dispatch only ever runs the DEFAULT
+# branch's copy, which is why it must land on GitHub main before cutover.
+#
+# Secrets: RUNKO_URL (e.g. https://<host>/o/runko), RUNKO_CI_TOKEN (a
+# non-agent, non-admin runkod principal for CI reporting).
+name: Runko checks
+
+on:
+  repository_dispatch:
+    types: [runko-change]
+
+concurrency:
+  group: runko-${{ github.event.client_payload.change_id }}-${{ github.event.client_payload.head_sha }}
+  cancel-in-progress: true
+
+env:
+  CHANGE_ID: ${{ github.event.client_payload.change_id }}
+  HEAD_SHA: ${{ github.event.client_payload.head_sha }}
+  GIT_REF: ${{ github.event.client_payload.git_ref }}
+  RUNKO_URL: ${{ secrets.RUNKO_URL }}
+  RUNKO_CI_TOKEN: ${{ secrets.RUNKO_CI_TOKEN }}
+
+jobs:
+  platform-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: fetch the change ref (mirror-lag retry)
+        run: |
+          for i in $(seq 1 30); do
+            if git fetch origin "$GIT_REF" 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ]; then
+              git checkout -q FETCH_HEAD; break
+            fi
+            sleep 5
+          done
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: report in_progress
+        run: |
+          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name platform-check --external-id "${{ github.run_id }}-check" \
+            --status in_progress --reporter github-actions
+      - name: Install jj (jj-first client tests)
+        run: |
+          curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.43.0/jj-v0.43.0-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C /usr/local/bin ./jj
+      - run: make check
+      - name: report result
+        if: always()
+        run: |
+          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name platform-check --external-id "${{ github.run_id }}-check" \
+            --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
+            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --reporter github-actions
+
+  platform-race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: fetch the change ref (mirror-lag retry)
+        run: |
+          for i in $(seq 1 30); do
+            if git fetch origin "$GIT_REF" 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ]; then
+              git checkout -q FETCH_HEAD; break
+            fi
+            sleep 5
+          done
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: report in_progress
+        run: |
+          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name platform-race --external-id "${{ github.run_id }}-race" \
+            --status in_progress --reporter github-actions
+      - run: make check-race
+      - name: report result
+        if: always()
+        run: |
+          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name platform-race --external-id "${{ github.run_id }}-race" \
+            --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
+            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --reporter github-actions
+
+  platform-db:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: runko
+          POSTGRES_PASSWORD: runko
+          POSTGRES_DB: runko_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: fetch the change ref (mirror-lag retry)
+        run: |
+          for i in $(seq 1 30); do
+            if git fetch origin "$GIT_REF" 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ]; then
+              git checkout -q FETCH_HEAD; break
+            fi
+            sleep 5
+          done
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: report in_progress
+        run: |
+          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name platform-db --external-id "${{ github.run_id }}-db" \
+            --status in_progress --reporter github-actions
+      - name: Ensure psql client is installed
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: make check-db
+        env:
+          RUNKO_TEST_DATABASE_URL: postgres://runko:runko@localhost:5432/runko_test?sslmode=disable
+        run: make check-db
+      - name: report result
+        if: always()
+        run: |
+          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name platform-db --external-id "${{ github.run_id }}-db" \
+            --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
+            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --reporter github-actions
+
+  # Only when the change's affected set includes the web project - the
+  # platform jobs run regardless (the root project matches every path).
+  web-check:
+    runs-on: ubuntu-latest
+    if: contains(toJSON(github.event.client_payload.affected_projects), '"web"')
+    steps:
+      - uses: actions/checkout@v4
+      - name: fetch the change ref (mirror-lag retry)
+        run: |
+          for i in $(seq 1 30); do
+            if git fetch origin "$GIT_REF" 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ]; then
+              git checkout -q FETCH_HEAD; break
+            fi
+            sleep 5
+          done
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: report in_progress
+        run: |
+          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name web-check --external-id "${{ github.run_id }}-web" \
+            --status in_progress --reporter github-actions
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run check
+        working-directory: web
+      - name: report result
+        if: always()
+        run: |
+          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name web-check --external-id "${{ github.run_id }}-web" \
+            --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
+            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --reporter github-actions

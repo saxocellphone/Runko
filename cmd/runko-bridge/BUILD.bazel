@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "runko-bridge_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/saxocellphone/runko/cmd/runko-bridge",
+    visibility = ["//visibility:private"],
+    deps = ["//checks"],
+)
+
+go_binary(
+    name = "runko-bridge",
+    embed = [":runko-bridge_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "runko-bridge_test",
+    srcs = ["main_test.go"],
+    embed = [":runko-bridge_lib"],
+    deps = ["//checks"],
+)
