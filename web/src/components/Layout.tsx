@@ -58,13 +58,10 @@ export function Layout() {
             <div className="demo-badge">
               {authUser ? (
                 <>
-                  Signed in as <strong>{authUser}</strong> —{" "}
-                  <a href="/demo/changes">playground</a>
+                  Signed in as <strong>{authUser}</strong>
                 </>
               ) : (
-                <>
-                  Live{signedIn ? ", anonymous" : ""} — <a href="/demo/changes">playground</a>
-                </>
+                <>Live{signedIn ? ", anonymous" : ""}</>
               )}
             </div>
           )}
