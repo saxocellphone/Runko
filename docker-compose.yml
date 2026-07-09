@@ -49,6 +49,10 @@ services:
       # Org-level required checks (§14.9). The smoke sets one so landing
       # is gated by a real check, not vacuous mergeability.
       RUNKO_GLOBAL_REQUIRED_CHECKS: ${RUNKO_GLOBAL_REQUIRED_CHECKS:-}
+      # Eval-profile opt-out of the changes-are-born-in-workspaces default
+      # (§12.2, 2026-07-09): the §16.4 loop must work from a bare clone
+      # before any workspace exists. Production leaves this unset.
+      RUNKO_ALLOW_WORKSPACELESS_CHANGES: ${RUNKO_ALLOW_WORKSPACELESS_CHANGES:-true}
     ports:
       - "${RUNKO_PORT:-8080}:8080"
     volumes:

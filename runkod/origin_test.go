@@ -171,3 +171,64 @@ func TestPushOptionForeignWorkspaceRejectedForNamedPrincipal(t *testing.T) {
 		t.Fatalf("origin not recorded for the owner: %+v", change)
 	}
 }
+
+// TestChangesAreBornInWorkspaces pins the 2026-07-09 decision superseding
+// "recorded provenance, never an identity constraint": with
+// RequireChangeWorkspace set (the production default), a refs/for push
+// with no validated workspace origin is refused - for EVERYONE, human and
+// agent alike. Exemptions are structural, not principal-based: a
+// brand-new monorepo's bootstrap push (unborn trunk - workspaces need a
+// base revision, so requiring one first would deadlock every new org).
+func TestChangesAreBornInWorkspaces(t *testing.T) {
+	p, _, repo, bare := originFixture(t)
+	p.RequireChangeWorkspace = true
+	ctx := context.Background()
+
+	repo.WriteFile("feature.txt", "v1\n")
+	repo.Commit("add a feature\n\nChange-Id: I9999999999999999999999999999999999999999")
+	oldSHA, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+	update := RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/for/main"}
+
+	// No workspace claim: refused, with the fix named.
+	result := p.Process(ctx, update, nil)
+	if result.Accepted {
+		t.Fatalf("workspaceless change push should be refused, got %+v", result)
+	}
+	if !strings.Contains(result.Message, "workspace") || !strings.Contains(result.Message, "runko workspace create") {
+		t.Fatalf("rejection should teach the workspace flow, got %q", result.Message)
+	}
+
+	// The same push claiming alice's registered workspace: accepted, with
+	// origin recorded.
+	result = p.Process(ctx, update, []string{
+		"GIT_PUSH_OPTION_COUNT=1", "GIT_PUSH_OPTION_0=workspace=checkout-fixes",
+	})
+	if !result.Accepted {
+		t.Fatalf("workspace-origin push should be accepted, got %+v", result)
+	}
+
+	// Snapshot refs are untouched by this gate (they ARE the workspace
+	// write) - and so is the flag-off posture.
+	p.RequireChangeWorkspace = false
+	if result := p.Process(ctx, update, nil); !result.Accepted {
+		t.Fatalf("flag off should restore the old behavior, got %+v", result)
+	}
+}
+
+// TestBootstrapPushExemptFromWorkspaceRequirement: an empty monorepo's
+// first change can never have a workspace (workspaces need a base
+// revision), so the gate must let the bootstrap through.
+func TestBootstrapPushExemptFromWorkspaceRequirement(t *testing.T) {
+	bare := newBareRepo(t) // unborn trunk - no refs at all
+	repo := gitfixture.New(t)
+	repo.WriteFile("svc/PROJECT.yaml", "schema: project/v1\nname: svc\ntype: service\n")
+	repo.Commit("bootstrap\n\nChange-Id: I8888888888888888888888888888888888888888")
+	oldSHA, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+
+	p := newTestProcessor(bare, NewMemStore())
+	p.RequireChangeWorkspace = true
+	result := p.Process(context.Background(), RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/for/main"}, nil)
+	if !result.Accepted {
+		t.Fatalf("bootstrap push onto an unborn trunk must stay exempt, got %+v", result)
+	}
+}

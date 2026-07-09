@@ -97,7 +97,13 @@ type Processor struct {
 	// store-backed pusher identities from the SERVER-GLOBAL account view
 	// instead of this org's own Store (principal.go).
 	Directory Directory
-	Now       func() time.Time
+	// RequireChangeWorkspace refuses refs/for pushes that declare no
+	// (validated) workspace origin - changes are born in workspaces
+	// (2026-07-09). The production default; cmd/runkod's
+	// --allow-workspaceless-changes is the loud opt-out for the eval
+	// profile, where the loop must work before any workspace exists.
+	RequireChangeWorkspace bool
+	Now                    func() time.Time
 	// RootInvalidationPatterns mirrors runko-ci affected's own
 	// --root-invalidation flag (org policy, §14.5.2) - without it, every
 	// push through this daemon computed affected with the hardcoded empty
@@ -233,6 +239,27 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 	originWS, originBranch, originWorkspace, originVerdict := p.resolveOrigin(ctx, u, extraEnv, author)
 	if originVerdict != nil {
 		return *originVerdict
+	}
+
+	// Changes are born in workspaces (decided 2026-07-09, superseding the
+	// 2026-07-08 "recorded provenance, never an identity constraint"
+	// stance): a refs/for push must declare a registered workspace origin
+	// - resolveOrigin above already validated the claim (registered +
+	// owner-bound), so enforcement here is just "a claim must exist".
+	// `runko change push` from an attached worktree stamps it
+	// automatically; plain git needs `-o workspace=<id>`. One structural
+	// exemption: an UNBORN trunk (a brand-new monorepo's bootstrap/import
+	// push) - workspaces need a base revision, so requiring one before
+	// the first landing deadlocks every new org.
+	if isMagicRef && p.RequireChangeWorkspace && originWS == "" {
+		if _, err := p.runGit(extraEnv, "rev-parse", "--verify", "--quiet", "refs/heads/"+p.TrunkRef); err == nil {
+			return verdict{update: u, author: author, decision: receive.Decision{
+				Accepted: false,
+				RejectionMessage: "remote: changes are born in workspaces - this push declares no workspace origin (§12.2)\n" +
+					"remote:   -> runko workspace create --name <n> --project <p> ... (or workspace attach <id>), then `runko change push` from that worktree\n" +
+					"remote:   -> plain git: git push -o workspace=<id> " + u.Ref + "\n",
+			}}
+		}
 	}
 
 	// First-ever push to this magic ref arrives with old == zero; the

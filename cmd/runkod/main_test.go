@@ -87,9 +87,14 @@ func startDaemon(t *testing.T, bin, repoDir, token string, extraArgs ...string) 
 func startDaemonProcess(t *testing.T, bin, repoDir, token string, extraArgs ...string) (addr string, stop func()) {
 	t.Helper()
 	fakeGitleaks := scriptedCleanGitleaks(t)
+	// --allow-workspaceless-changes: these tests predate the 2026-07-09
+	// changes-are-born-in-workspaces default and exercise other surfaces;
+	// TestEndToEndDaemonChangesRequireWorkspace covers the enforced
+	// posture explicitly.
 	args := append([]string{"serve",
 		"--repo-dir", repoDir, "--addr", "127.0.0.1:0", "--trunk", "main",
 		"--token", token, "--gitleaks-bin", fakeGitleaks,
+		"--allow-workspaceless-changes",
 	}, extraArgs...)
 	cmd := exec.Command(bin, args...)
 	stdout, err := cmd.StdoutPipe()
@@ -1388,5 +1393,73 @@ func TestParseOrgMirror(t *testing.T) {
 		if _, err := parseOrgMirror(bad); err == nil {
 			t.Fatalf("parseOrgMirror(%q) should fail", bad)
 		}
+	}
+}
+
+// TestEndToEndDaemonChangesRequireWorkspace pins the 2026-07-09 default
+// over real processes: changes are born in workspaces. The bootstrap push
+// onto an unborn trunk stays exempt (workspaces need a base revision);
+// after trunk exists, a workspaceless push is refused with the fix named,
+// and the same commit pushed with a validated workspace claim lands.
+func TestEndToEndDaemonChangesRequireWorkspace(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	// Override the harness default: THIS test runs the enforced posture.
+	addr := startDaemon(t, bin, repoDir, "deploy-tok", "--allow-workspaceless-changes=false")
+
+	// Bootstrap: empty repo, no workspace possible - exempt.
+	work := t.TempDir()
+	remote := strings.Replace(addr, "http://", "http://runko:deploy-tok@", 1) + "/monorepo.git"
+	if out, err := runGit(t, work, "clone", remote, "."); err != nil {
+		t.Fatalf("clone: %v\n%s", err, out)
+	}
+	if err := os.MkdirAll(filepath.Join(work, "svc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "svc", "PROJECT.yaml"), []byte("schema: project/v1\nname: svc\ntype: service\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, work, "add", "-A")
+	if out, err := runGit(t, work, "commit", "-m", "bootstrap\n\nChange-Id: Iaaaa000000000000000000000000000000000000"); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	if out, err := runGit(t, work, "push", "origin", "HEAD:refs/for/main"); err != nil {
+		t.Fatalf("bootstrap push should be exempt on an unborn trunk: %v\n%s", err, out)
+	}
+	if status := orgAPI(t, "POST", addr+"/api/changes/Iaaaa000000000000000000000000000000000000/land", "", "", "deploy-tok", map[string]string{}, nil); status != http.StatusOK {
+		t.Fatalf("bootstrap land: status %d", status)
+	}
+
+	// Trunk exists now: a workspaceless change push is refused.
+	if err := os.WriteFile(filepath.Join(work, "svc", "main.go"), []byte("package svc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, work, "add", "-A")
+	if out, err := runGit(t, work, "commit", "-m", "feature\n\nChange-Id: Ibbbb000000000000000000000000000000000000"); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	out, err := runGit(t, work, "push", "origin", "HEAD:refs/for/main")
+	if err == nil {
+		t.Fatalf("workspaceless push should be refused, got:\n%s", out)
+	}
+	if !strings.Contains(out, "born in workspaces") || !strings.Contains(out, "workspace create") {
+		t.Fatalf("rejection should teach the workspace flow, got:\n%s", out)
+	}
+
+	// Register a workspace and push the SAME commit through it.
+	if status := orgAPI(t, "POST", addr+"/api/workspaces", "", "", "deploy-tok", map[string]any{
+		"name": "feature-ws", "owner": "dev", "projects": []string{"svc"},
+	}, nil); status != http.StatusCreated {
+		t.Fatalf("create workspace: status %d", status)
+	}
+	if out, err := runGit(t, work, "push", "-o", "workspace=feature-ws", "origin", "HEAD:refs/for/main"); err != nil {
+		t.Fatalf("workspace-origin push should be accepted: %v\n%s", err, out)
+	}
+	var change struct{ OriginWorkspace, State string }
+	if status := orgAPI(t, "GET", addr+"/api/changes/Ibbbb000000000000000000000000000000000000", "", "", "deploy-tok", nil, &change); status != http.StatusOK {
+		t.Fatalf("get change: status %d", status)
+	}
+	if change.OriginWorkspace != "feature-ws" || change.State != "open" {
+		t.Fatalf("change should carry its workspace origin: %+v", change)
 	}
 }
