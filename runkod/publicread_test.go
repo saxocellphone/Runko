@@ -114,3 +114,36 @@ func TestRestrictedProjectsUnbornTrunk(t *testing.T) {
 		t.Fatalf("expected nil, got %v", restricted)
 	}
 }
+
+// Anonymous GET /api/orgs lists exactly the public orgs - the web
+// sign-in page's discovery surface.
+func TestPublicOrgsListedAnonymously(t *testing.T) {
+	srv, _ := newTestHub(t, true)
+	hubSignup(t, srv, "alice", "alicepw123")
+	for _, org := range []string{"pub", "priv"} {
+		if status, body := hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": org}); status != http.StatusCreated {
+			t.Fatalf("create %s: %d %v", org, status, body)
+		}
+	}
+	if status, body := hubDo(t, srv, "PUT", "/api/orgs/pub/settings", "alice", "alicepw123", "", map[string]any{"public_read": true}); status != http.StatusOK {
+		t.Fatalf("enable public_read: %d %v", status, body)
+	}
+
+	status, body := hubDo(t, srv, "GET", "/api/orgs", "", "", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("anonymous org listing: %d %v", status, body)
+	}
+	orgs, _ := body["orgs"].([]any)
+	if len(orgs) != 1 {
+		t.Fatalf("anonymous listing must show exactly the public org, got %v", body)
+	}
+	first := orgs[0].(map[string]any)
+	if first["name"] != "pub" || first["role"] != "anonymous" {
+		t.Fatalf("expected pub/anonymous, got %v", first)
+	}
+
+	// Wrong credentials still 401 - no downgrade to the anonymous list.
+	if status, _ := hubDo(t, srv, "GET", "/api/orgs", "alice", "wrongpw", "", nil); status != http.StatusUnauthorized {
+		t.Fatalf("wrong password must 401, got %d", status)
+	}
+}

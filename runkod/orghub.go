@@ -189,9 +189,20 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	// routes ("which orgs am I in", "create one", per-org admin surfaces
 	// that gate themselves via orgAccess) - the default server's own
 	// membership gate must not swallow callers who belong elsewhere.
-	mux.Handle("/api/orgs", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
+	orgsAuthed := h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodGet: h.handleListOrgs, http.MethodPost: h.handleCreateOrg,
-	})))
+	}))
+	mux.Handle("/api/orgs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Credential-less GET reaches the handler's anonymous branch
+		// (public-org discovery, §15.2); everything else - POST, OPTIONS
+		// preflight, any presented credential - takes the authed path.
+		if r.Method == http.MethodGet && r.Header.Get("Authorization") == "" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			h.handleListOrgs(w, r)
+			return
+		}
+		orgsAuthed.ServeHTTP(w, r)
+	}))
 	mux.Handle("/api/orgs/{org}/members", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodGet: h.handleListOrgMembers, http.MethodPost: h.handleAddOrgMember,
 	})))
@@ -576,6 +587,36 @@ func (h *OrgHub) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OrgHub) handleListOrgs(w http.ResponseWriter, r *http.Request) {
+	// §15.2 public_read discovery: a request with NO credentials lists
+	// exactly the public orgs (role "anonymous") so the web sign-in page
+	// can offer read-only browsing. Wrong credentials still 401 below -
+	// never a silent downgrade.
+	if r.Header.Get("Authorization") == "" {
+		names, err := h.Directory.ListOrgNames(r.Context())
+		if err != nil {
+			writeAPIError(w, internalErr(err))
+			return
+		}
+		if h.DefaultOrgName != "" {
+			names = append(names, h.DefaultOrgName)
+		}
+		out := []orgInfo{}
+		seen := map[string]bool{}
+		for _, n := range names {
+			h.mu.Lock()
+			archived := h.archived[n]
+			h.mu.Unlock()
+			if seen[n] || archived {
+				continue
+			}
+			seen[n] = true
+			if settings, err := h.Directory.GetOrgSettings(r.Context(), n); err == nil && settings.PublicRead {
+				out = append(out, h.orgInfoFor(n, "anonymous"))
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"orgs": out})
+		return
+	}
 	c, apiErr := h.hubCaller(r)
 	if apiErr != nil {
 		writeAPIError(w, apiErr)

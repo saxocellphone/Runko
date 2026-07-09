@@ -1,3 +1,4 @@
+import { publicBrowse } from "../api/client";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { projectTypeLabel } from "../lib/format";
@@ -27,9 +28,11 @@ export function ProjectsPage() {
       <header className="page-header">
         <div className="page-header-row">
           <h1 className="page-title">Projects</h1>
+          {!publicBrowse && (
           <Link className="btn btn-primary" to="/projects/new">
             New project
           </Link>
+          )}
         </div>
         <p className="page-sub">
           Everything with a PROJECT.yaml on trunk. Arrows point at what a project depends on

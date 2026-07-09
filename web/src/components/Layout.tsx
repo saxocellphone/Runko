@@ -7,6 +7,7 @@ import {
   fetchOrgs,
   isOperator,
   onDemoRoute,
+  publicBrowse,
   signedIn,
   signOut,
   switchOrg,
@@ -40,7 +41,11 @@ export function Layout() {
           Runko
         </div>
         {!usingDemoData && signedIn && <OrgSwitcher />}
-        {nav.map(({ to, label, icon: Icon }) => (
+        {nav
+          // Anonymous read-only browsing (§15.2): workspaces and settings
+          // are not on the public allowlist - hide what would only 401.
+          .filter(({ to }) => !publicBrowse || (to !== "/workspaces" && to !== "/settings"))
+          .map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} className="nav-link">
             <Icon />
             {label}
@@ -61,6 +66,8 @@ export function Layout() {
             <div className="demo-badge">
               Playground data — set VITE_RUNKO_URL to connect to a runkod
             </div>
+          ) : publicBrowse ? (
+            <div className="demo-badge">Browsing read-only</div>
           ) : (
             <div className="demo-badge">
               {authUser ? (
@@ -71,6 +78,16 @@ export function Layout() {
                 <>Live{signedIn ? ", anonymous" : ""}</>
               )}
             </div>
+          )}
+          {publicBrowse && (
+            <button
+              className="btn btn-sm theme-toggle"
+              onClick={() => {
+                window.location.href = "/?signin=1";
+              }}
+            >
+              Sign in
+            </button>
           )}
           {!onDemoRoute && !usingDemoData && signedIn && (
             <button className="btn btn-sm theme-toggle" onClick={() => signOut()}>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { ConnectError } from "@connectrpc/connect";
-import { changesClient } from "../api/client";
+import { publicBrowse, changesClient } from "../api/client";
 import { ChangeState, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import type { LandChangeResponse } from "../gen/runko/v1/changes_pb";
 import { changeNumberLabel, shortSha } from "../lib/format";
@@ -156,7 +156,7 @@ export function ChangePage() {
             </section>
           )}
 
-          {open && (
+          {open && !publicBrowse && (
             <section className="card side-card">
               <h2>Actions</h2>
               <div className="chip-row">

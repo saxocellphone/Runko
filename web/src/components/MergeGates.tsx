@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { authUser } from "../api/client";
+import { authUser, publicBrowse } from "../api/client";
 import { ChangeState, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import { InfoTip } from "./ui";
 
@@ -29,6 +29,9 @@ export function MergeGates({
   const hasOwners = (owners?.required.length ?? 0) > 0;
   const hasChecks = (checks?.required.length ?? 0) > 0;
   const open = state === ChangeState.OPEN;
+  // Anonymous read-only browsing (§15.2): the gate STATUS is public
+  // information; the controls act through authenticated RPCs and vanish.
+  const actionable = open && !publicBrowse;
 
   const banner =
     state === ChangeState.LANDED ? (
@@ -61,7 +64,7 @@ export function MergeGates({
                   {satisfied ? "✓" : "○"}
                 </span>
                 <span className="gate-name mono">{o}</span>
-                {!satisfied && open && (
+                {!satisfied && actionable && (
                   <button
                     className="btn btn-sm"
                     disabled={busy}
@@ -77,7 +80,7 @@ export function MergeGates({
               </div>
             );
           })}
-          {open && !authUser && owners!.outstanding.length > 0 && (
+          {actionable && !authUser && owners!.outstanding.length > 0 && (
             <div className="approve-as">
               <input
                 type="text"
@@ -111,7 +114,7 @@ export function MergeGates({
                 <span className="gate-name mono" title={name}>
                   {name}
                 </span>
-                {failing && open && (
+                {failing && actionable && (
                   <button className="btn btn-sm" disabled={busy} onClick={() => onRerun(name)}>
                     Rerun
                   </button>

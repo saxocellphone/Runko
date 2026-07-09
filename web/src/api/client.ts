@@ -69,8 +69,36 @@ export const isOperator =
     (!storedBasic && !!devToken));
 
 /** Live transport configured but no credential in this browser yet: every
- * RPC will 401, so App gates on the sign-in screen. */
+ * RPC will 401, so App gates on the sign-in screen - unless the target
+ * org is public_read (§15.2), in which case App enters anonymous
+ * read-only browsing instead. */
 export const liveUnauthenticated = !usingDemoData && !storedBasic && !devToken;
+
+/** Anonymous read-only browsing of a public_read org (§15.2). Set by
+ * App's boot probe BEFORE any page renders (App gates rendering on the
+ * probe), so components may read it like the other module consts. */
+export let publicBrowse = false;
+export function markPublicBrowse(): void {
+  publicBrowse = true;
+}
+
+/** Whether org ("" = the default org) answers anonymous reads - the
+ * §15.2 public_read probe, against an allowlisted GET. */
+export async function probePublicOrg(org: string): Promise<boolean> {
+  try {
+    const res = await fetch(new URL(org ? `o/${org}/api/projects` : "api/projects", baseUrl));
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Bind this browser to org for anonymous browsing and reload so every
+ * client rebinds its transport (the switchOrg pattern, credential-less). */
+export function browsePublicOrg(name: string): void {
+  window.localStorage.setItem("runko-org", name);
+  window.location.href = "/";
+}
 
 const auth: Interceptor = (next) => (req) => {
   if (storedBasic) req.header.set("Authorization", `Basic ${storedBasic}`);
