@@ -43,11 +43,16 @@ jobs:
             sleep 5
           done
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      # Layout-agnostic runko-ci location: the checkout may predate or
+      # postdate the cmd/ -> cli/ restructure, and repository_dispatch
+      # always runs the DEFAULT branch's copy of this workflow.
+      - name: locate runko-ci
+        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
       - name: report in_progress
         run: |
-          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name platform-check --external-id "${{ github.run_id }}-check" \
             --status in_progress --reporter github-actions
       - name: Install jj (jj-first client tests)
@@ -58,7 +63,7 @@ jobs:
       - name: report result
         if: always()
         run: |
-          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name platform-check --external-id "${{ github.run_id }}-check" \
             --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
@@ -77,18 +82,23 @@ jobs:
             sleep 5
           done
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      # Layout-agnostic runko-ci location: the checkout may predate or
+      # postdate the cmd/ -> cli/ restructure, and repository_dispatch
+      # always runs the DEFAULT branch's copy of this workflow.
+      - name: locate runko-ci
+        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
       - name: report in_progress
         run: |
-          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name platform-race --external-id "${{ github.run_id }}-race" \
             --status in_progress --reporter github-actions
       - run: make check-race
       - name: report result
         if: always()
         run: |
-          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name platform-race --external-id "${{ github.run_id }}-race" \
             --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
@@ -121,11 +131,16 @@ jobs:
             sleep 5
           done
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      # Layout-agnostic runko-ci location: the checkout may predate or
+      # postdate the cmd/ -> cli/ restructure, and repository_dispatch
+      # always runs the DEFAULT branch's copy of this workflow.
+      - name: locate runko-ci
+        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
       - name: report in_progress
         run: |
-          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name platform-db --external-id "${{ github.run_id }}-db" \
             --status in_progress --reporter github-actions
       - name: Ensure psql client is installed
@@ -137,7 +152,7 @@ jobs:
       - name: report result
         if: always()
         run: |
-          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name platform-db --external-id "${{ github.run_id }}-db" \
             --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
@@ -159,11 +174,16 @@ jobs:
             sleep 5
           done
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      # Layout-agnostic runko-ci location: the checkout may predate or
+      # postdate the cmd/ -> cli/ restructure, and repository_dispatch
+      # always runs the DEFAULT branch's copy of this workflow.
+      - name: locate runko-ci
+        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
       - name: report in_progress
         run: |
-          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name web-check --external-id "${{ github.run_id }}-web" \
             --status in_progress --reporter github-actions
       - uses: actions/setup-node@v4
@@ -178,7 +198,7 @@ jobs:
       - name: report result
         if: always()
         run: |
-          go run ./cmd/runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name web-check --external-id "${{ github.run_id }}-web" \
             --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
