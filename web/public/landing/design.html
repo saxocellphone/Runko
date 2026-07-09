@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Runko is designed</title>
+<meta name="description" content="The design principles behind Runko, in plain terms.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #f7f7f8; --surface: #ffffff; --border: #e3e3e8;
+    --text: #1a1a1f; --text-2: #5b5b66; --accent: #6e56cf; --accent-strong: #5b46b4;
+    --accent-soft: #ece9fb;
+    --font: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131316; --surface: #1b1b20; --border: #2e2e36;
+      --text: #ededf2; --text-2: #9a9aa7; --accent: #9b8afb; --accent-strong: #b2a5fc;
+      --accent-soft: #26214a;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.65; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-strong); }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 24px; }
+  header { border-bottom: 1px solid var(--border); }
+  nav { display: flex; align-items: center; gap: 12px; padding: 14px 0; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); }
+  nav .back { margin-left: auto; font-size: 14px; }
+  main { padding: 56px 0 72px; }
+  h1 { font-size: clamp(28px, 4.5vw, 38px); letter-spacing: -0.02em; line-height: 1.15; }
+  p.lede { margin: 14px 0 40px; color: var(--text-2); font-size: 17px; }
+  .principle { margin: 0 0 28px; padding: 22px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .principle h2 { font-size: 18px; margin-bottom: 6px; display: flex; gap: 12px; align-items: baseline; }
+  .principle h2 .n { color: var(--accent); font-family: var(--mono); font-size: 14px; }
+  .principle p { color: var(--text-2); font-size: 15px; }
+  .principle code { font-family: var(--mono); font-size: 13px; background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; color: var(--text); }
+  footer { border-top: 1px solid var(--border); padding: 24px 0 48px; color: var(--text-2); font-size: 14px; }
+  footer .wrap { display: flex; gap: 18px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <nav>
+      <a class="logo" href="/">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="7" fill="#6e56cf"/><line x1="16" y1="7" x2="16" y2="25" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".55"/><circle cx="16" cy="7.5" r="3.4" fill="#fff"/><circle cx="16" cy="16" r="3.4" fill="#fff"/><circle cx="16" cy="24.5" r="3.4" fill="#fff"/></svg>
+        Runko
+      </a>
+      <a class="back" href="/">← Back</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <h1>How Runko is designed</h1>
+    <p class="lede">Eight principles, in plain terms. Every feature either follows from one of these or doesn't get built.</p>
+
+    <div class="principle">
+      <h2><span class="n">01</span>Git is the only storage.</h2>
+      <p>Your code lives in a normal Git repository — no custom database of file contents, no virtual filesystem. If you ever want out, <code>git clone</code> is the exit, and it always works.</p>
+    </div>
+
+    <div class="principle">
+      <h2><span class="n">02</span>The tree is the truth.</h2>
+      <p>Who owns what, and which checks a project needs, are written in small files inside the repository itself. The server keeps a database, but it's only an index — you can delete it and rebuild everything from the code.</p>
+    </div>
+
+    <div class="principle">
+      <h2><span class="n">03</span>Nobody pushes to trunk.</h2>
+      <p>Every change — from a person, a bot, or an AI agent — goes through the same single gate: review, required checks, owner approval, and a secret scan. There is no side door.</p>
+    </div>
+
+    <div class="principle">
+      <h2><span class="n">04</span>A change is an idea, not a commit.</h2>
+      <p>Each change has a stable identity that survives rewriting, rebasing, and amending. You can rework the bottom of a stack and every change above it follows along — one push updates them all.</p>
+    </div>
+
+    <div class="principle">
+      <h2><span class="n">05</span>Only re-test what could have broken.</h2>
+      <p>When trunk moves while your change waits, Runko checks whether the new commits touch anything your change depends on. If they can't affect you, you land without re-running checks. When in doubt, it re-runs — it never guesses in your favor.</p>
+    </div>
+
+    <div class="principle">
+      <h2><span class="n">06</span>Agents are users with tighter rules.</h2>
+      <p>AI agents use the same commands and APIs people do, but the server holds them to stricter limits: no approving their own work, no touching paths outside their assignment, caps on how much they can change at once. Enforced on the server — never by trusting the agent.</p>
+    </div>
+
+    <div class="principle">
+      <h2><span class="n">07</span>Start with three fields, opt into the rest.</h2>
+      <p>A new project needs a name, a type, and an owner. Build files, CI wiring, and everything else are generated or added later when you actually want them — never a wall of required YAML.</p>
+    </div>
+
+    <div class="principle">
+      <h2><span class="n">08</span>Don't rebuild what already works.</h2>
+      <p>Runko never runs your CI, manages your servers, or replaces your editor. It owns change identity, ownership, and the merge gate — and mirrors your repository to GitHub, GitLab, or any Git host you already trust.</p>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Runko · Apache-2.0</span>
+    <a href="/">Home</a>
+    <a href="/demo/">Demo</a>
+  </div>
+</footer>
+
+</body>
+</html>
