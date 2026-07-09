@@ -12,42 +12,96 @@ import { shortSha, timeAgo } from "../lib/format";
 import { useRpc } from "../lib/useRpc";
 import { EmptyState, ErrorNote, Spinner, StateBadge } from "../components/ui";
 
-// Repo browser (§17.2): lazy directory tree on the left; on the right the
-// selected file (Code / Blame / History tabs) or a directory's history.
-// Gerrit-inspired at the data level, with Runko's twist: history and blame
-// rows link to the CHANGE that landed the code (§7.4), not a raw commit.
-// Selection deep-links as /browse/<path>; ?view= carries dir-ness and tab.
+// Repo browser (§17.2), Gitiles-inspired layout modernized: a breadcrumb
+// path bar anchors where you are; the CONTENT region always shows what
+// the path IS (directory -> entry listing, file -> code with a Code/Blame
+// toggle); HISTORY lives in its own permanent section below - always
+// history, never replacing content (the pane-morphing tabs confused).
+// Runko's twist stays: history rows and blame regions link to the CHANGE
+// that landed the code (§7.4), not a raw commit.
+//
+// URL state: /browse/<path>, ?view=dir marks directory paths (tree,
+// breadcrumbs, and listing rows all stamp it), ?view=blame selects the
+// file's blame mode.
 export function BrowsePage() {
   const params = useParams();
   const [search] = useSearchParams();
   const selected = params["*"] ?? "";
-  const view = search.get("view") ?? ""; // "", "dir", "blame", "history"
+  const view = search.get("view") ?? "";
+  const isDir = selected === "" || view === "dir";
 
   return (
     <div className="page">
       <header className="page-header">
         <h1 className="page-title">Browse</h1>
         <p className="page-sub">
-          The monorepo at trunk tip. Click a directory or file to see the changes behind it.
+          The monorepo at trunk tip. Every path carries the changes that made it.
         </p>
       </header>
       <div className="browse-layout">
         <section className="card tree-panel">
           <TreeLevel path="" depth={0} selected={selected} />
         </section>
-        <section className="card file-panel">
-          {selected === "" ? (
-            <HistoryPanel path="" title="Repository history" />
-          ) : view === "dir" ? (
-            <HistoryPanel path={selected} title={selected + "/"} />
-          ) : (
-            <BlobView path={selected} tab={view === "blame" || view === "history" ? view : "code"} />
-          )}
-        </section>
+        <div className="browse-main">
+          <Breadcrumbs path={selected} isDir={isDir} />
+          <section className="card content-panel">
+            {isDir ? (
+              <DirListing path={selected} />
+            ) : (
+              <FileContent path={selected} blame={view === "blame"} />
+            )}
+          </section>
+          <section className="card history-panel">
+            <header className="history-head">
+              <HistoryIcon />
+              <span>
+                History
+                <span className="history-scope">
+                  {selected === "" ? " — whole repo" : ` — ${selected}${isDir ? "/" : ""}`}
+                </span>
+              </span>
+            </header>
+            <HistoryList path={selected} />
+          </section>
+        </div>
       </div>
     </div>
   );
 }
+
+// ---- breadcrumbs -----------------------------------------------------
+
+function Breadcrumbs({ path, isDir }: { path: string; isDir: boolean }) {
+  const segments = path === "" ? [] : path.split("/");
+  return (
+    <nav className="crumbs" aria-label="Path">
+      <Link className="crumb" to="/browse">
+        repo
+      </Link>
+      {segments.map((seg, i) => {
+        const p = segments.slice(0, i + 1).join("/");
+        const last = i === segments.length - 1;
+        return (
+          <span key={p} className="crumb-group">
+            <span className="crumb-sep">/</span>
+            {last ? (
+              <span className="crumb current">
+                {seg}
+                {isDir ? "/" : ""}
+              </span>
+            ) : (
+              <Link className="crumb" to={`/browse/${p}?view=dir`}>
+                {seg}
+              </Link>
+            )}
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
+// ---- tree ------------------------------------------------------------
 
 function TreeLevel({
   path,
@@ -93,8 +147,6 @@ function DirRow({
         className={`tree-row${current ? " selected" : ""}`}
         style={indent(depth)}
         onClick={() => {
-          // Selecting a directory shows its history; a second click on
-          // the already-selected dir just toggles expansion.
           setOpen(current ? !open : true);
           navigate(`/browse/${entry.path}?view=dir`);
         }}
@@ -137,31 +189,82 @@ function FileRow({
 
 const indent = (depth: number) => ({ paddingLeft: `${10 + depth * 14}px` });
 
-// ---- file panel: Code / Blame / History tabs ----
+// ---- directory listing (Gitiles' file table, modernized) --------------
 
-function BlobView({ path, tab }: { path: string; tab: "code" | "blame" | "history" }) {
+function DirListing({ path }: { path: string }) {
   const navigate = useNavigate();
-  const setTab = (t: string) =>
-    navigate(`/browse/${path}${t === "code" ? "" : `?view=${t}`}`, { replace: true });
+  const { data, error, loading } = useRpc(() => repoClient.getTree({ path }), `list-${path}`);
+  if (loading) return <Spinner />;
+  if (error) return <ErrorNote error={error} />;
+  if (!data || data.entries.length === 0) return <EmptyState>Empty directory.</EmptyState>;
+  return (
+    <table className="dir-table">
+      <tbody>
+        {data.entries.map((e) => {
+          const dir = e.type === TreeEntryType.DIR;
+          return (
+            <tr
+              key={e.path}
+              className="dir-row"
+              onClick={() => navigate(`/browse/${e.path}${dir ? "?view=dir" : ""}`)}
+            >
+              <td className="dir-name">
+                {dir ? <FolderIcon /> : <FileIcon />}
+                <span className={dir ? "dir-label" : ""}>
+                  {e.name}
+                  {dir ? "/" : ""}
+                </span>
+              </td>
+              <td className="dir-project">
+                {e.project && <span className="chip">{e.project}</span>}
+              </td>
+              <td className="dir-size">{dir ? "" : formatSize(e.size)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ---- file content: code with a Code/Blame segmented toggle ------------
+
+function FileContent({ path, blame }: { path: string; blame: boolean }) {
+  const navigate = useNavigate();
+  const setMode = (m: "code" | "blame") =>
+    navigate(`/browse/${path}${m === "blame" ? "?view=blame" : ""}`, { replace: true });
   return (
     <div>
-      <div className="panel-tabs" role="tablist">
-        {(["code", "blame", "history"] as const).map((t) => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={tab === t}
-            className={`panel-tab${tab === t ? " active" : ""}`}
-            onClick={() => setTab(t)}
-          >
-            {t === "code" ? "Code" : t === "blame" ? "Blame" : "History"}
-          </button>
-        ))}
-      </div>
-      {tab === "code" && <CodeView path={path} />}
-      {tab === "blame" && <BlameView path={path} />}
-      {tab === "history" && <HistoryList path={path} />}
+      <header className="file-panel-head">
+        <FileMetaChips path={path} />
+        <span className="spacer" />
+        <div className="seg" role="tablist" aria-label="File view">
+          {(["code", "blame"] as const).map((m) => (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={blame === (m === "blame")}
+              className={`seg-btn${blame === (m === "blame") ? " active" : ""}`}
+              onClick={() => setMode(m)}
+            >
+              {m === "code" ? "Code" : "Blame"}
+            </button>
+          ))}
+        </div>
+      </header>
+      {blame ? <BlameView path={path} /> : <CodeView path={path} />}
     </div>
+  );
+}
+
+// FileMetaChips shows size/project/rev for the file - fetched once via
+// getBlob's metadata by CodeView; kept tiny here to avoid a second fetch:
+// the chips render inside CodeView/BlameView instead when data arrives.
+function FileMetaChips({ path }: { path: string }) {
+  return (
+    <span className="file-path" title={path}>
+      {path.split("/").pop()}
+    </span>
   );
 }
 
@@ -173,11 +276,7 @@ function CodeView({ path }: { path: string }) {
   const lines = data.content.split("\n");
   return (
     <div>
-      <header className="file-panel-head">
-        <span className="file-path" title={data.path}>
-          {data.path}
-        </span>
-        <span className="spacer" />
+      <div className="file-meta-row">
         {data.project && (
           <Link className="chip" to={`/projects/${data.project}`}>
             {data.project}
@@ -187,7 +286,7 @@ function CodeView({ path }: { path: string }) {
           {shortSha(data.rev)}
         </span>
         <span className="chip">{formatSize(data.size)}</span>
-      </header>
+      </div>
       {data.binary ? (
         <div className="binary-note">Binary file not shown</div>
       ) : (
@@ -207,7 +306,7 @@ function CodeView({ path }: { path: string }) {
   );
 }
 
-// ---- blame ----
+// ---- blame -----------------------------------------------------------
 
 function BlameView({ path }: { path: string }) {
   const { data, error, loading } = useRpc(() => repoClient.blameFile({ path }), `blame-${path}`);
@@ -269,18 +368,7 @@ function BlameView({ path }: { path: string }) {
   );
 }
 
-// ---- history ----
-
-function HistoryPanel({ path, title }: { path: string; title: string }) {
-  return (
-    <div>
-      <header className="file-panel-head">
-        <span className="file-path">{title}</span>
-      </header>
-      <HistoryList path={path} />
-    </div>
-  );
-}
+// ---- history ----------------------------------------------------------
 
 function HistoryList({ path }: { path: string }) {
   const [commits, setCommits] = useState<CommitInfo[]>([]);
@@ -383,6 +471,15 @@ function FileIcon() {
     <svg {...treeIconProps} className="tree-icon" aria-hidden>
       <path d="M4 2h5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
       <path d="M9 2v3h3" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <svg {...treeIconProps} aria-hidden>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4.5V8l2.3 1.6" />
     </svg>
   );
 }

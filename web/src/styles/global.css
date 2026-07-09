@@ -1240,30 +1240,138 @@ tr.hunk-head td {
   word-break: break-word;
 }
 
-/* Code / Blame / History tabs on the file panel. */
-.panel-tabs {
+/* Browse right column: breadcrumbs on top, content, then history. */
+.browse-main {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 2px;
-  margin-bottom: 10px;
+  font-size: 13px;
+  font-family: var(--mono);
+  padding: 2px 2px 0;
+}
+.crumb {
+  color: var(--accent);
+  padding: 1px 3px;
+  border-radius: 5px;
+}
+.crumb:hover {
+  background: var(--accent-soft);
+  text-decoration: none;
+}
+.crumb.current {
+  color: var(--text);
+  font-weight: 600;
+}
+.crumb-sep {
+  color: var(--text-3);
+  padding: 0 1px;
+}
+
+.content-panel,
+.history-panel {
+  padding: 10px 14px 12px;
+}
+
+/* Directory listing: Gitiles' file table, modernized. */
+.dir-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.dir-table td {
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
 }
-.panel-tab {
-  font: inherit;
+.dir-table tr:last-child td {
+  border-bottom: none;
+}
+.dir-row {
+  cursor: pointer;
+}
+.dir-row:hover td {
+  background: var(--surface-2);
+}
+.dir-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
   font-size: 12.5px;
+}
+.dir-label {
+  color: var(--accent);
+  font-weight: 550;
+}
+.dir-project {
+  width: 1%;
+  white-space: nowrap;
+}
+.dir-size {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* Segmented Code/Blame toggle on the file header. */
+.seg {
+  display: inline-flex;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.seg-btn {
+  font: inherit;
+  font-size: 12px;
   font-weight: 550;
   color: var(--text-2);
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
-  padding: 5px 12px 7px;
+  border-radius: 6px;
+  padding: 3px 12px;
   cursor: pointer;
 }
-.panel-tab:hover {
+.seg-btn.active {
+  background: var(--surface);
   color: var(--text);
+  box-shadow: var(--shadow);
 }
-.panel-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+
+.file-meta-row {
+  display: flex;
+  gap: 6px;
+  margin: 2px 0 10px;
+}
+
+/* History section header. */
+.history-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.history-head svg {
+  color: var(--text-2);
+}
+.history-scope {
+  color: var(--text-3);
+  font-weight: 500;
+  font-family: var(--mono);
+  font-size: 12px;
 }
 
 /* History list: rows link to the CHANGE that landed the commit. */
