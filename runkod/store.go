@@ -207,12 +207,13 @@ type MemStore struct {
 	principals map[string]StoredPrincipal
 	deliveries map[string]*memDelivery
 	mirrors    map[string]MirrorCursor
-	// Directory state (orghub.go): org registry + memberships. Only the
-	// hub's designated directory store (the default org's) carries these
-	// - per-org MemStores leave them empty.
-	orgNames   []string
-	orgMembers map[string]map[string]string // org -> principal -> role
-	nextID     int
+	// Directory state (orghub.go): org registry + memberships + settings.
+	// Only the hub's designated directory store (the default org's)
+	// carries these - per-org MemStores leave them empty.
+	orgNames    []string
+	orgMembers  map[string]map[string]string // org -> principal -> role
+	orgSettings map[string]OrgSettings
+	nextID      int
 	// Now overrides the clock check-run timestamps use; nil means time.Now
 	// (tests inject a fake clock to exercise §14.4.2 staleness).
 	Now func() time.Time
@@ -625,4 +626,41 @@ func (s *MemStore) ListOrgNames(ctx context.Context) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string{}, s.orgNames...), nil
+}
+
+func (s *MemStore) RemoveOrgMember(ctx context.Context, orgName, principal string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.orgMembers[orgName], principal)
+	return nil
+}
+
+func (s *MemStore) ListOrgMembers(ctx context.Context, orgName string) ([]OrgMember, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []OrgMember
+	for name, role := range s.orgMembers[orgName] {
+		out = append(out, OrgMember{Name: name, Role: role})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// GetOrgSettings: the mem directory answers the zero value for ANY org
+// name, known or not - the default org has no EnsureOrg call in mem mode
+// and must still be configurable.
+func (s *MemStore) GetOrgSettings(ctx context.Context, orgName string) (OrgSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.orgSettings[orgName], nil
+}
+
+func (s *MemStore) UpdateOrgSettings(ctx context.Context, orgName string, settings OrgSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.orgSettings == nil {
+		s.orgSettings = map[string]OrgSettings{}
+	}
+	s.orgSettings[orgName] = settings
+	return nil
 }

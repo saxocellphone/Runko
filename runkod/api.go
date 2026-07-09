@@ -87,9 +87,31 @@ type Server struct {
 	// shared-repo behavior.
 	OrgName   string
 	Directory Directory
+	// SettingsOrg names the org whose STORED settings (org settings page;
+	// Directory.GetOrgSettings) apply to this server - the default server
+	// gets the default org's name (it stays membership-ungated, so this
+	// is distinct from OrgName), org servers their own. Empty means flag
+	// config only.
+	SettingsOrg string
 	// Now overrides the clock the §14.4.2 check-staleness comparison uses;
 	// nil means time.Now (tests inject a fake clock).
 	Now func() time.Time
+}
+
+// effectiveGlobalChecks is the org-wide required-check set the §13.5 gate
+// enforces: daemon flag config unioned with the org's stored settings. A
+// directory read failing must not silently drop policy - but flag-level
+// checks still apply, and the stored half is retried on the next request.
+func (s *Server) effectiveGlobalChecks(ctx context.Context) []string {
+	names := s.GlobalRequiredChecks
+	if s.SettingsOrg != "" && s.Directory != nil {
+		if settings, err := s.Directory.GetOrgSettings(ctx, s.SettingsOrg); err == nil {
+			names = mergeCheckNames(names, settings.GlobalRequiredChecks)
+		} else {
+			log.Printf("runkod: org %q settings unavailable for merge gate (flag-level checks still apply): %v", s.SettingsOrg, err)
+		}
+	}
+	return names
 }
 
 func (s *Server) clock() time.Time {
@@ -639,7 +661,7 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 		return checks.MergeRequirements{}, err
 	}
 	requiredNames := requiredCheckNames(result, indexed)
-	requiredNames = mergeCheckNames(requiredNames, s.GlobalRequiredChecks)
+	requiredNames = mergeCheckNames(requiredNames, s.effectiveGlobalChecks(ctx))
 
 	var owners []checks.OwnerRequirement
 	if lane != nil {

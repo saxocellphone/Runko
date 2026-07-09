@@ -391,7 +391,7 @@ func (s *Server) rerunCheckCore(ctx context.Context, key string, change Change, 
 	if err != nil {
 		return checks.MergeRequirements{}, internalErr(err)
 	}
-	required := mergeCheckNames(requiredCheckNames(result, indexed), s.GlobalRequiredChecks)
+	required := mergeCheckNames(requiredCheckNames(result, indexed), s.effectiveGlobalChecks(ctx))
 	isRequired := false
 	for _, n := range required {
 		if n == name {

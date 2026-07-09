@@ -73,7 +73,10 @@ func (s *Server) rpcMiddleware(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Set("Access-Control-Allow-Origin", "*")
 		if r.Method == http.MethodOptions {
-			h.Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+			// PUT/DELETE cover the org settings/member routes (orghub.go),
+			// which ride this same middleware; Connect itself needs only
+			// GET/POST.
+			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Connect-Protocol-Version, Connect-Timeout-Ms")
 			h.Set("Access-Control-Max-Age", "7200")
 			w.WriteHeader(http.StatusNoContent)

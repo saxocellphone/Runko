@@ -26,6 +26,25 @@ SELECT m.role FROM org_members m
 JOIN orgs o ON o.id = m.org_id
 WHERE o.name = sqlc.arg(org_name)::text AND m.principal_name = sqlc.arg(principal_name)::text;
 
+-- name: ListOrgMembers :many
+SELECT m.principal_name, m.role FROM org_members m
+JOIN orgs o ON o.id = m.org_id
+WHERE o.name = sqlc.arg(org_name)::text
+ORDER BY m.principal_name;
+
+-- name: DeleteOrgMember :exec
+DELETE FROM org_members m
+USING orgs o
+WHERE o.id = m.org_id AND o.name = sqlc.arg(org_name)::text
+  AND m.principal_name = sqlc.arg(principal_name)::text;
+
+-- name: GetOrgSettings :one
+SELECT settings FROM orgs WHERE name = sqlc.arg(org_name)::text;
+
+-- name: UpdateOrgSettings :exec
+UPDATE orgs SET settings = sqlc.arg(settings)::jsonb
+WHERE name = sqlc.arg(org_name)::text;
+
 -- name: ListOrgMembershipsForPrincipal :many
 SELECT o.name AS org_name, m.role FROM org_members m
 JOIN orgs o ON o.id = m.org_id

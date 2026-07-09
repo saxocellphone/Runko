@@ -19,6 +19,7 @@ const nav = [
   { to: "/projects", label: "Projects", icon: ProjectsIcon },
   { to: "/workspaces", label: "Workspaces", icon: WorkspacesIcon },
   { to: "/search", label: "Search", icon: SearchIcon },
+  { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export function Layout() {
@@ -200,6 +201,15 @@ function SearchIcon() {
     <svg {...iconProps} aria-hidden>
       <circle cx="7" cy="7" r="4.5" />
       <line x1="10.5" y1="10.5" x2="14" y2="14" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg {...iconProps} aria-hidden>
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4" />
     </svg>
   );
 }

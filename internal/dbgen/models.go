@@ -470,6 +470,7 @@ type Org struct {
 	ID        uuid.UUID          `json:"id"`
 	Name      string             `json:"name"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Settings  []byte             `json:"settings"`
 }
 
 type OrgMember struct {

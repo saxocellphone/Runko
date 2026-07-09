@@ -33,14 +33,36 @@ func (q *Queries) CreateMonorepo(ctx context.Context, db DBTX, arg CreateMonorep
 }
 
 const createOrg = `-- name: CreateOrg :one
-INSERT INTO orgs (name) VALUES ($1) RETURNING id, name, created_at
+INSERT INTO orgs (name) VALUES ($1) RETURNING id, name, created_at, settings
 `
 
 func (q *Queries) CreateOrg(ctx context.Context, db DBTX, name string) (*Org, error) {
 	row := db.QueryRow(ctx, createOrg, name)
 	var i Org
-	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.CreatedAt,
+		&i.Settings,
+	)
 	return &i, err
+}
+
+const deleteOrgMember = `-- name: DeleteOrgMember :exec
+DELETE FROM org_members m
+USING orgs o
+WHERE o.id = m.org_id AND o.name = $1::text
+  AND m.principal_name = $2::text
+`
+
+type DeleteOrgMemberParams struct {
+	OrgName       string `json:"org_name"`
+	PrincipalName string `json:"principal_name"`
+}
+
+func (q *Queries) DeleteOrgMember(ctx context.Context, db DBTX, arg DeleteOrgMemberParams) error {
+	_, err := db.Exec(ctx, deleteOrgMember, arg.OrgName, arg.PrincipalName)
+	return err
 }
 
 const getMonorepo = `-- name: GetMonorepo :one
@@ -76,24 +98,34 @@ func (q *Queries) GetMonorepoByOrg(ctx context.Context, db DBTX, orgID uuid.UUID
 }
 
 const getOrg = `-- name: GetOrg :one
-SELECT id, name, created_at FROM orgs WHERE id = $1
+SELECT id, name, created_at, settings FROM orgs WHERE id = $1
 `
 
 func (q *Queries) GetOrg(ctx context.Context, db DBTX, id uuid.UUID) (*Org, error) {
 	row := db.QueryRow(ctx, getOrg, id)
 	var i Org
-	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.CreatedAt,
+		&i.Settings,
+	)
 	return &i, err
 }
 
 const getOrgByName = `-- name: GetOrgByName :one
-SELECT id, name, created_at FROM orgs WHERE name = $1
+SELECT id, name, created_at, settings FROM orgs WHERE name = $1
 `
 
 func (q *Queries) GetOrgByName(ctx context.Context, db DBTX, name string) (*Org, error) {
 	row := db.QueryRow(ctx, getOrgByName, name)
 	var i Org
-	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.CreatedAt,
+		&i.Settings,
+	)
 	return &i, err
 }
 
@@ -113,6 +145,49 @@ func (q *Queries) GetOrgMemberRole(ctx context.Context, db DBTX, arg GetOrgMembe
 	var role string
 	err := row.Scan(&role)
 	return role, err
+}
+
+const getOrgSettings = `-- name: GetOrgSettings :one
+SELECT settings FROM orgs WHERE name = $1::text
+`
+
+func (q *Queries) GetOrgSettings(ctx context.Context, db DBTX, orgName string) ([]byte, error) {
+	row := db.QueryRow(ctx, getOrgSettings, orgName)
+	var settings []byte
+	err := row.Scan(&settings)
+	return settings, err
+}
+
+const listOrgMembers = `-- name: ListOrgMembers :many
+SELECT m.principal_name, m.role FROM org_members m
+JOIN orgs o ON o.id = m.org_id
+WHERE o.name = $1::text
+ORDER BY m.principal_name
+`
+
+type ListOrgMembersRow struct {
+	PrincipalName string `json:"principal_name"`
+	Role          string `json:"role"`
+}
+
+func (q *Queries) ListOrgMembers(ctx context.Context, db DBTX, orgName string) ([]*ListOrgMembersRow, error) {
+	rows, err := db.Query(ctx, listOrgMembers, orgName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*ListOrgMembersRow
+	for rows.Next() {
+		var i ListOrgMembersRow
+		if err := rows.Scan(&i.PrincipalName, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listOrgMembershipsForPrincipal = `-- name: ListOrgMembershipsForPrincipal :many
@@ -148,7 +223,7 @@ func (q *Queries) ListOrgMembershipsForPrincipal(ctx context.Context, db DBTX, p
 }
 
 const listOrgs = `-- name: ListOrgs :many
-SELECT id, name, created_at FROM orgs ORDER BY created_at
+SELECT id, name, created_at, settings FROM orgs ORDER BY created_at
 `
 
 func (q *Queries) ListOrgs(ctx context.Context, db DBTX) ([]*Org, error) {
@@ -160,7 +235,12 @@ func (q *Queries) ListOrgs(ctx context.Context, db DBTX) ([]*Org, error) {
 	var items []*Org
 	for rows.Next() {
 		var i Org
-		if err := rows.Scan(&i.ID, &i.Name, &i.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedAt,
+			&i.Settings,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, &i)
@@ -169,6 +249,21 @@ func (q *Queries) ListOrgs(ctx context.Context, db DBTX) ([]*Org, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateOrgSettings = `-- name: UpdateOrgSettings :exec
+UPDATE orgs SET settings = $1::jsonb
+WHERE name = $2::text
+`
+
+type UpdateOrgSettingsParams struct {
+	Settings []byte `json:"settings"`
+	OrgName  string `json:"org_name"`
+}
+
+func (q *Queries) UpdateOrgSettings(ctx context.Context, db DBTX, arg UpdateOrgSettingsParams) error {
+	_, err := db.Exec(ctx, updateOrgSettings, arg.Settings, arg.OrgName)
+	return err
 }
 
 const upsertOrgMember = `-- name: UpsertOrgMember :exec

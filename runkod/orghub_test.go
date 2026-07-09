@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/saxocellphone/runko/receive"
@@ -256,3 +257,197 @@ func TestOrgReloadFromDirectory(t *testing.T) {
 // others) is proven over real git + the real binary in cmd/runkod's
 // TestEndToEndDaemonOrgs - each org's Store is a separate instance by
 // construction here.
+
+func TestOrgSettingsAndMembers(t *testing.T) {
+	srv, _ := newTestHub(t, true)
+	hubSignup(t, srv, "alice", "alicepw123")
+	hubSignup(t, srv, "bob", "bobpw1234")
+	if status, _ := hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}); status != http.StatusCreated {
+		t.Fatalf("create acme failed")
+	}
+	if status, _ := hubDo(t, srv, "POST", "/api/orgs/acme/members", "alice", "alicepw123", "", map[string]string{"name": "bob"}); status != http.StatusOK {
+		t.Fatalf("add bob failed")
+	}
+
+	// Members may read settings; only admins may write.
+	status, body := hubDo(t, srv, "GET", "/api/orgs/acme/settings", "bob", "bobpw1234", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("member GET settings: %d %v", status, body)
+	}
+	status, body = hubDo(t, srv, "PUT", "/api/orgs/acme/settings", "bob", "bobpw1234", "",
+		map[string]any{"description": "nope"})
+	if status != http.StatusForbidden || body["Code"] != "not_org_admin" {
+		t.Fatalf("member PUT settings: %d %v", status, body)
+	}
+
+	// Admin write normalizes check names (trim, dedupe, drop empties).
+	status, body = hubDo(t, srv, "PUT", "/api/orgs/acme/settings", "alice", "alicepw123", "",
+		map[string]any{"description": "the acme org", "global_required_checks": []string{" lint ", "lint", "", "e2e"}})
+	if status != http.StatusOK {
+		t.Fatalf("admin PUT settings: %d %v", status, body)
+	}
+	settings := body["settings"].(map[string]any)
+	got := settings["global_required_checks"].([]any)
+	if len(got) != 2 || got[0] != "lint" || got[1] != "e2e" {
+		t.Fatalf("checks not normalized: %v", got)
+	}
+	status, body = hubDo(t, srv, "GET", "/api/orgs/acme/settings", "alice", "alicepw123", "", nil)
+	if status != http.StatusOK || body["settings"].(map[string]any)["description"] != "the acme org" {
+		t.Fatalf("settings did not persist: %d %v", status, body)
+	}
+
+	// Member listing, then removal - bob loses org access entirely.
+	status, body = hubDo(t, srv, "GET", "/api/orgs/acme/members", "bob", "bobpw1234", "", nil)
+	if status != http.StatusOK || len(body["members"].([]any)) != 2 {
+		t.Fatalf("list members: %d %v", status, body)
+	}
+	if status, body = hubDo(t, srv, "DELETE", "/api/orgs/acme/members/bob", "alice", "alicepw123", "", nil); status != http.StatusOK {
+		t.Fatalf("remove bob: %d %v", status, body)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/o/acme/api/changes", "bob", "bobpw1234", "", nil); status != http.StatusForbidden {
+		t.Fatalf("bob should lose access after removal: %d", status)
+	}
+	status, body = hubDo(t, srv, "DELETE", "/api/orgs/acme/members/ghost", "alice", "alicepw123", "", nil)
+	if status != http.StatusNotFound || body["Code"] != "not_a_member" {
+		t.Fatalf("remove non-member: %d %v", status, body)
+	}
+}
+
+// TestDefaultOrgSettingsAndAdminRole pins the default org's special rules:
+// shared read for every valid credential, writes for its admins/operators,
+// and a real membership row surfacing its role in the org listing (the
+// "make <user> the org admin" flow).
+func TestDefaultOrgSettingsAndAdminRole(t *testing.T) {
+	srv, hub := newTestHub(t, true)
+	hubSignup(t, srv, "alice", "alicepw123")
+	def := hub.DefaultOrgName
+
+	// Everyone reads; a non-admin account cannot write; the operator can.
+	if status, _ := hubDo(t, srv, "GET", "/api/orgs/"+def+"/settings", "alice", "alicepw123", "", nil); status != http.StatusOK {
+		t.Fatalf("shared read of default settings: %d", status)
+	}
+	if status, _ := hubDo(t, srv, "PUT", "/api/orgs/"+def+"/settings", "alice", "alicepw123", "", map[string]any{"description": "x"}); status != http.StatusForbidden {
+		t.Fatalf("non-admin write to default settings should 403, got %d", status)
+	}
+	if status, _ := hubDo(t, srv, "PUT", "/api/orgs/"+def+"/settings", "", "", "sekret", map[string]any{"description": "the shared org"}); status != http.StatusOK {
+		t.Fatalf("operator write to default settings failed")
+	}
+
+	// Operator promotes alice to default-org admin; she can now write,
+	// and the org listing names her role instead of "shared".
+	// (Mem-mode needs the default org registered in the directory first.)
+	if err := hub.Directory.EnsureOrg(t.Context(), def); err != nil {
+		t.Fatalf("EnsureOrg: %v", err)
+	}
+	if status, body := hubDo(t, srv, "POST", "/api/orgs/"+def+"/members", "", "", "sekret", map[string]string{"name": "alice", "role": "admin"}); status != http.StatusOK {
+		t.Fatalf("promote alice: %d %v", status, body)
+	}
+	if status, _ := hubDo(t, srv, "PUT", "/api/orgs/"+def+"/settings", "alice", "alicepw123", "", map[string]any{"description": "run by alice"}); status != http.StatusOK {
+		t.Fatalf("default-org admin write failed")
+	}
+	status, body := hubDo(t, srv, "GET", "/api/orgs", "alice", "alicepw123", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("list orgs: %d", status)
+	}
+	first := body["orgs"].([]any)[0].(map[string]any)
+	if first["default"] != true || first["role"] != "admin" {
+		t.Fatalf("default org should list alice's admin role, got %v", first)
+	}
+}
+
+// TestOrgSettingsChecksGateMerge proves stored org settings reach the
+// §13.5 gate: a check required via the settings page blocks mergeability
+// exactly like --global-required-checks.
+func TestOrgSettingsChecksGateMerge(t *testing.T) {
+	srv, changeID := newTestServer(t)
+	defer srv.Close()
+
+	resp := authedGet(t, srv, "/api/changes/"+changeID+"/merge-requirements", "sekret")
+	before := readBody(t, resp)
+	if strings.Contains(before, "org-smoke-check") {
+		t.Fatalf("org check present before settings set: %s", before)
+	}
+
+	// newTestServer's Server has no SettingsOrg; wire one through the
+	// same MemStore the way cmd/runkod does, then re-ask.
+	srv2, changeID2, server, store := newTestServerWithHandle(t)
+	defer srv2.Close()
+	server.SettingsOrg = "defaultorg"
+	server.Directory = store
+	if err := store.UpdateOrgSettings(t.Context(), "defaultorg", OrgSettings{GlobalRequiredChecks: []string{"org-smoke-check"}}); err != nil {
+		t.Fatalf("UpdateOrgSettings: %v", err)
+	}
+	resp = authedGet(t, srv2, "/api/changes/"+changeID2+"/merge-requirements", "sekret")
+	after := readBody(t, resp)
+	if !strings.Contains(after, "org-smoke-check") || !strings.Contains(after, `"mergeable":false`) {
+		t.Fatalf("org-settings check should gate the merge: %s", after)
+	}
+}
+
+// TestSignupWithOrg pins the SaaS sign-up shape: account + org in one
+// request, caller becomes the org's admin and can use it immediately -
+// and a rejected org never strands a half-created account.
+func TestSignupWithOrg(t *testing.T) {
+	srv, _ := newTestHub(t, true)
+
+	// Org validation runs BEFORE account creation: bad org, no account.
+	status, body := hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "carol", "password": "carolpw123", "org": "Bad_Org"})
+	if status != http.StatusBadRequest || body["Code"] != "invalid_org_name" {
+		t.Fatalf("signup with bad org: %d %v", status, body)
+	}
+
+	// The same account name still signs up cleanly - nothing was created.
+	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "carol", "password": "carolpw123", "org": "carols-org"})
+	if status != http.StatusCreated {
+		t.Fatalf("signup with org: %d %v", status, body)
+	}
+	orgResp := body["org"].(map[string]any)
+	if orgResp["name"] != "carols-org" || orgResp["role"] != "admin" {
+		t.Fatalf("signup org response: %v", body)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/o/carols-org/api/changes", "carol", "carolpw123", "", nil); status != http.StatusOK {
+		t.Fatalf("carol should reach her org immediately: %d", status)
+	}
+	status, body = hubDo(t, srv, "GET", "/api/orgs", "carol", "carolpw123", "", nil)
+	if status != http.StatusOK || len(body["orgs"].([]any)) != 2 {
+		t.Fatalf("carol should see default + her org: %d %v", status, body)
+	}
+
+	// Taken org name at signup: conflict, and again no account row.
+	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "dave", "password": "davepw1234", "org": "carols-org"})
+	if status != http.StatusConflict || body["Code"] != "org_exists" {
+		t.Fatalf("signup with taken org: %d %v", status, body)
+	}
+	if status, _ = hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "dave", "password": "davepw1234"}); status != http.StatusCreated {
+		t.Fatalf("dave should still be able to sign up org-less: %d", status)
+	}
+
+	// Discovery config advertises the org field.
+	status, body = hubDo(t, srv, "GET", "/api/auth/config", "", "", "", nil)
+	if status != http.StatusOK || body["org_create_enabled"] != true {
+		t.Fatalf("auth config: %d %v", status, body)
+	}
+}
+
+// TestSignupWithOrgDisabled: org creation off -> org-bearing signup is a
+// structured refusal, org-less signup still works.
+func TestSignupWithOrgDisabled(t *testing.T) {
+	srv, _ := newTestHub(t, false)
+	status, body := hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "erin", "password": "erinpw1234", "org": "erins-org"})
+	if status != http.StatusForbidden || body["Code"] != "org_create_disabled" {
+		t.Fatalf("org signup with creation off: %d %v", status, body)
+	}
+	if status, _ = hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "erin", "password": "erinpw1234"}); status != http.StatusCreated {
+		t.Fatalf("org-less signup should still work: %d", status)
+	}
+	status, body = hubDo(t, srv, "GET", "/api/auth/config", "", "", "", nil)
+	if status != http.StatusOK || body["org_create_enabled"] != false {
+		t.Fatalf("auth config should advertise org creation off: %d %v", status, body)
+	}
+}

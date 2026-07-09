@@ -10,10 +10,15 @@ import { fetchAuthConfig, signIn, signUp, type AuthConfig } from "../api/client"
 // only when the daemon demands one.
 export function LoginPage() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [config, setConfig] = useState<AuthConfig>({ signupEnabled: false, codeRequired: false });
+  const [config, setConfig] = useState<AuthConfig>({
+    signupEnabled: false,
+    codeRequired: false,
+    orgCreateEnabled: false,
+  });
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [org, setOrg] = useState("");
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
 
@@ -29,7 +34,7 @@ export function LoginPage() {
     setError(undefined);
     try {
       if (signingUp) {
-        await signUp(name.trim(), password, code.trim());
+        await signUp(name.trim(), password, code.trim(), org.trim());
       } else {
         await signIn(name.trim(), password);
       }
@@ -68,6 +73,24 @@ export function LoginPage() {
         </label>
         {signingUp && (
           <p className="login-hint">At least 8 characters — it's your only credential here.</p>
+        )}
+        {signingUp && config.orgCreateEnabled && (
+          <>
+            <label className="login-label">
+              Organization
+              <input
+                type="text"
+                autoComplete="organization"
+                value={org}
+                placeholder="e.g. acme"
+                onChange={(e) => setOrg(e.target.value)}
+              />
+            </label>
+            <p className="login-hint">
+              Creates your org with its own repo — you'll be its admin. Leave blank if you're
+              joining an existing org (an admin adds you).
+            </p>
+          </>
         )}
         {signingUp && config.codeRequired && (
           <label className="login-label">

@@ -2,6 +2,7 @@ package runkod
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -705,6 +706,59 @@ func (s *PostgresStore) ListOrgMemberships(ctx context.Context, principal string
 		out = append(out, OrgMembership{Org: r.OrgName, Role: r.Role})
 	}
 	return out, nil
+}
+
+func (s *PostgresStore) RemoveOrgMember(ctx context.Context, orgName, principal string) error {
+	err := s.Queries.DeleteOrgMember(ctx, s.Pool, dbgen.DeleteOrgMemberParams{
+		OrgName: orgName, PrincipalName: principal,
+	})
+	if err != nil {
+		return fmt.Errorf("runkod: remove %q from org %q: %w", principal, orgName, err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListOrgMembers(ctx context.Context, orgName string) ([]OrgMember, error) {
+	rows, err := s.Queries.ListOrgMembers(ctx, s.Pool, orgName)
+	if err != nil {
+		return nil, fmt.Errorf("runkod: members of %q: %w", orgName, err)
+	}
+	out := make([]OrgMember, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, OrgMember{Name: r.PrincipalName, Role: r.Role})
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) GetOrgSettings(ctx context.Context, orgName string) (OrgSettings, error) {
+	raw, err := s.Queries.GetOrgSettings(ctx, s.Pool, orgName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OrgSettings{}, fmt.Errorf("runkod: no org named %q", orgName)
+	}
+	if err != nil {
+		return OrgSettings{}, fmt.Errorf("runkod: settings of %q: %w", orgName, err)
+	}
+	var settings OrgSettings
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &settings); err != nil {
+			return OrgSettings{}, fmt.Errorf("runkod: decode settings of %q: %w", orgName, err)
+		}
+	}
+	return settings, nil
+}
+
+func (s *PostgresStore) UpdateOrgSettings(ctx context.Context, orgName string, settings OrgSettings) error {
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("runkod: encode settings of %q: %w", orgName, err)
+	}
+	err = s.Queries.UpdateOrgSettings(ctx, s.Pool, dbgen.UpdateOrgSettingsParams{
+		OrgName: orgName, Settings: raw,
+	})
+	if err != nil {
+		return fmt.Errorf("runkod: update settings of %q: %w", orgName, err)
+	}
+	return nil
 }
 
 func (s *PostgresStore) ListOrgNames(ctx context.Context) ([]string, error) {

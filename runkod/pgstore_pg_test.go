@@ -518,6 +518,33 @@ func TestPostgresDirectoryMultiOrg(t *testing.T) {
 	if err != nil || len(names) != 2 { // the bootstrap org + acme
 		t.Fatalf("ListOrgNames: %v %v", names, err)
 	}
+	members, err := def.ListOrgMembers(ctx, "acme")
+	if err != nil || len(members) != 1 || members[0].Name != "alice" {
+		t.Fatalf("ListOrgMembers: %+v %v", members, err)
+	}
+
+	// Org settings round-trip (migration 0008 JSONB).
+	if settings, err := def.GetOrgSettings(ctx, "acme"); err != nil || settings.Description != "" {
+		t.Fatalf("fresh settings should be zero: %+v %v", settings, err)
+	}
+	want := OrgSettings{Description: "acme org", GlobalRequiredChecks: []string{"lint", "e2e"}}
+	if err := def.UpdateOrgSettings(ctx, "acme", want); err != nil {
+		t.Fatalf("UpdateOrgSettings: %v", err)
+	}
+	if settings, err := def.GetOrgSettings(ctx, "acme"); err != nil || settings.Description != want.Description || len(settings.GlobalRequiredChecks) != 2 {
+		t.Fatalf("settings round-trip: %+v %v", settings, err)
+	}
+
+	// Member removal + re-add.
+	if err := def.RemoveOrgMember(ctx, "acme", "alice"); err != nil {
+		t.Fatalf("RemoveOrgMember: %v", err)
+	}
+	if _, member, _ := def.OrgMemberRole(ctx, "acme", "alice"); member {
+		t.Fatalf("alice should be removed")
+	}
+	if err := def.UpsertOrgMember(ctx, "acme", "alice", "member"); err != nil {
+		t.Fatalf("re-add alice: %v", err)
+	}
 
 	// Store isolation on the shared pool: a Change in acme is invisible
 	// from the default org's store.

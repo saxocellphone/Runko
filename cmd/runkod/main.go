@@ -246,6 +246,11 @@ func cmdServe(args []string) error {
 	if !ok {
 		return fmt.Errorf("serve: store %T does not implement the account directory", store)
 	}
+	// The default org's stored settings (org settings page) apply to the
+	// root-mounted server too; membership gating stays off for it
+	// (OrgName deliberately left empty - the historical shared repo).
+	server.Directory = directory
+	server.SettingsOrg = defaultOrgName
 	hub := &runkod.OrgHub{
 		Default:        server,
 		DefaultOrgName: defaultOrgName,

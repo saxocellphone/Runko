@@ -125,6 +125,71 @@ export async function createOrg(name: string): Promise<OrgInfo> {
   return (await res.json()) as OrgInfo;
 }
 
+/** Decode runkod's structured error body ({Code, Message, Suggestion} -
+ * Go-exported names per docs/cli-contract.md) into a thrown Error. */
+async function throwStructured(res: Response, fallback: string): Promise<never> {
+  let msg = `${fallback} (HTTP ${res.status})`;
+  try {
+    const e = (await res.json()) as { Message?: string; Suggestion?: string };
+    if (e.Message) msg = e.Message + (e.Suggestion ? ` — ${e.Suggestion}` : "");
+  } catch {
+    // plain-text body; keep the status message
+  }
+  throw new Error(msg);
+}
+
+export interface OrgSettings {
+  description?: string;
+  global_required_checks?: string[];
+}
+
+export interface OrgMember {
+  name: string;
+  role: string;
+}
+
+export async function fetchOrgSettings(org: string): Promise<OrgSettings> {
+  const res = await fetch(new URL(`api/orgs/${org}/settings`, baseUrl), { headers: authHeaders() });
+  if (!res.ok) await throwStructured(res, "loading settings failed");
+  const d = (await res.json()) as { settings?: OrgSettings };
+  return d.settings ?? {};
+}
+
+export async function updateOrgSettings(org: string, settings: OrgSettings): Promise<OrgSettings> {
+  const res = await fetch(new URL(`api/orgs/${org}/settings`, baseUrl), {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) await throwStructured(res, "saving settings failed");
+  const d = (await res.json()) as { settings?: OrgSettings };
+  return d.settings ?? {};
+}
+
+export async function fetchOrgMembers(org: string): Promise<OrgMember[]> {
+  const res = await fetch(new URL(`api/orgs/${org}/members`, baseUrl), { headers: authHeaders() });
+  if (!res.ok) await throwStructured(res, "loading members failed");
+  const d = (await res.json()) as { members?: OrgMember[] };
+  return d.members ?? [];
+}
+
+export async function addOrgMember(org: string, name: string, role: string): Promise<void> {
+  const res = await fetch(new URL(`api/orgs/${org}/members`, baseUrl), {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ name, role }),
+  });
+  if (!res.ok) await throwStructured(res, "adding member failed");
+}
+
+export async function removeOrgMember(org: string, name: string): Promise<void> {
+  const res = await fetch(new URL(`api/orgs/${org}/members/${name}`, baseUrl), {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) await throwStructured(res, "removing member failed");
+}
+
 /** Switch this browser to an org ("" = the default org) and reload so
  * every client rebinds its transport. */
 export function switchOrg(name: string): void {
@@ -161,39 +226,41 @@ export async function signIn(name: string, password: string): Promise<void> {
 export interface AuthConfig {
   signupEnabled: boolean;
   codeRequired: boolean;
+  orgCreateEnabled: boolean;
 }
 
 export async function fetchAuthConfig(): Promise<AuthConfig> {
+  const none = { signupEnabled: false, codeRequired: false, orgCreateEnabled: false };
   try {
     const res = await fetch(new URL("api/auth/config", baseUrl));
-    if (!res.ok) return { signupEnabled: false, codeRequired: false };
-    const d = (await res.json()) as { signup_enabled?: boolean; code_required?: boolean };
-    return { signupEnabled: !!d.signup_enabled, codeRequired: !!d.code_required };
+    if (!res.ok) return none;
+    const d = (await res.json()) as {
+      signup_enabled?: boolean;
+      code_required?: boolean;
+      org_create_enabled?: boolean;
+    };
+    return {
+      signupEnabled: !!d.signup_enabled,
+      codeRequired: !!d.code_required,
+      orgCreateEnabled: !!d.org_create_enabled,
+    };
   } catch {
-    return { signupEnabled: false, codeRequired: false };
+    return none;
   }
 }
 
-/** Create a principal via POST /api/signup, then sign in with it. Throws
- * with the server's structured message + suggestion on rejection. */
-export async function signUp(name: string, password: string, code: string): Promise<void> {
+/** Create a principal (and, when org is non-empty, their org - the
+ * standard account+workspace sign-up shape) via POST /api/signup, then
+ * sign in. The browser lands directly inside the new org. Throws with the
+ * server's structured message + suggestion on rejection. */
+export async function signUp(name: string, password: string, code: string, org: string): Promise<void> {
   const res = await fetch(new URL("api/signup", baseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, password, code }),
+    body: JSON.stringify({ name, password, code, org }),
   });
-  if (!res.ok) {
-    let msg = `sign-up failed (HTTP ${res.status})`;
-    try {
-      // The REST error shape uses the Go structs' exported names
-      // (docs/cli-contract.md's convention): {Code, Field, Message, ...}.
-      const e = (await res.json()) as { Message?: string; Suggestion?: string };
-      if (e.Message) msg = e.Message + (e.Suggestion ? ` — ${e.Suggestion}` : "");
-    } catch {
-      // plain-text body; keep the status message
-    }
-    throw new Error(msg);
-  }
+  if (!res.ok) await throwStructured(res, "sign-up failed");
+  if (org) window.localStorage.setItem("runko-org", org);
   await signIn(name, password);
 }
 

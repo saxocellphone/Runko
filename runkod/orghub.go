@@ -45,8 +45,30 @@ type Directory interface {
 	EnsureOrg(ctx context.Context, name string) error
 	OrgMemberRole(ctx context.Context, orgName, principal string) (role string, member bool, err error)
 	UpsertOrgMember(ctx context.Context, orgName, principal, role string) error
+	RemoveOrgMember(ctx context.Context, orgName, principal string) error
+	ListOrgMembers(ctx context.Context, orgName string) ([]OrgMember, error)
 	ListOrgMemberships(ctx context.Context, principal string) ([]OrgMembership, error)
 	ListOrgNames(ctx context.Context) ([]string, error)
+	// GetOrgSettings returns the zero value for an org with nothing set.
+	GetOrgSettings(ctx context.Context, orgName string) (OrgSettings, error)
+	UpdateOrgSettings(ctx context.Context, orgName string, settings OrgSettings) error
+}
+
+// OrgMember is one account's membership in one org.
+type OrgMember struct {
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
+// OrgSettings is the org settings page's storage shape (migration 0008,
+// JSONB on the org row). Deliberately thin - real merge policy lives in
+// the tree (§9.4); these are the org-level knobs that were daemon flags
+// before multi-org made the org a first-class row.
+type OrgSettings struct {
+	Description string `json:"description,omitempty"`
+	// GlobalRequiredChecks are required on EVERY change in this org
+	// (§14.9), merged with the daemon-level --global-required-checks.
+	GlobalRequiredChecks []string `json:"global_required_checks,omitempty"`
 }
 
 // OrgMembership is one (org, role) pair for a principal. Roles: "admin"
@@ -132,14 +154,117 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	// route. It authenticates against the DEFAULT server: accounts are
 	// global, and org membership doesn't gate knowing which orgs you're
 	// in or asking for a new one.
-	mux.Handle("POST /api/orgs", h.Default.rpcMiddleware(http.HandlerFunc(h.handleCreateOrg)))
-	mux.Handle("GET /api/orgs", h.Default.rpcMiddleware(http.HandlerFunc(h.handleListOrgs)))
-	mux.Handle("POST /api/orgs/{org}/members", h.Default.rpcMiddleware(http.HandlerFunc(h.handleAddOrgMember)))
+	// Registered WITHOUT method qualifiers: the browser's CORS preflight
+	// is an OPTIONS request that must reach rpcMiddleware (which answers
+	// it) instead of falling through to the default handler's 404 -
+	// found by driving the real dev loop (Vite origin != daemon origin).
+	mux.Handle("/api/orgs", h.Default.rpcMiddleware(byMethod(map[string]http.HandlerFunc{
+		http.MethodGet: h.handleListOrgs, http.MethodPost: h.handleCreateOrg,
+	})))
+	mux.Handle("/api/orgs/{org}/members", h.Default.rpcMiddleware(byMethod(map[string]http.HandlerFunc{
+		http.MethodGet: h.handleListOrgMembers, http.MethodPost: h.handleAddOrgMember,
+	})))
+	mux.Handle("/api/orgs/{org}/members/{name}", h.Default.rpcMiddleware(byMethod(map[string]http.HandlerFunc{
+		http.MethodDelete: h.handleRemoveOrgMember,
+	})))
+	mux.Handle("/api/orgs/{org}/settings", h.Default.rpcMiddleware(byMethod(map[string]http.HandlerFunc{
+		http.MethodGet: h.handleGetOrgSettings, http.MethodPut: h.handlePutOrgSettings,
+	})))
+	// Sign-up at the hub level supersedes the default server's own
+	// handler (more-specific mux pattern): the standard SaaS shape is
+	// account + org in ONE step, and org assembly is the hub's job. The
+	// default server's registration still serves pre-hub embedders.
+	mux.HandleFunc("/api/signup", publicCORS(http.MethodPost, h.handleSignup))
+	mux.HandleFunc("/api/auth/config", publicCORS(http.MethodGet, h.handleAuthConfig))
 	mux.HandleFunc("/o/{org}/", func(w http.ResponseWriter, r *http.Request) {
 		h.routeOrg(w, r, defaultHandler)
 	})
 	mux.Handle("/", defaultHandler)
 	return mux, nil
+}
+
+// handleSignup is the org-aware sign-up: create the account and, when the
+// request names one, its org - the caller becomes that org's admin. The
+// org half is validated BEFORE the account is created so a rejected org
+// name never strands a half-registered account.
+func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name     string `json:"name"`
+		Password string `json:"password"`
+		Code     string `json:"code"`
+		Org      string `json:"org"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "bad_request", Message: "body must be JSON: {name, password, code?, org?}",
+		}))
+		return
+	}
+	req.Org = strings.TrimSpace(req.Org)
+	if req.Org != "" {
+		if !h.AllowOrgCreate {
+			writeAPIError(w, typedErr(http.StatusForbidden, clierr.Error{
+				Code: "org_create_disabled", Field: "org",
+				Message:    "org creation is not enabled on this control plane",
+				Suggestion: "sign up without an org - an admin can add you to one",
+			}))
+			return
+		}
+		if !orgNamePattern.MatchString(req.Org) || reservedOrgNames[req.Org] {
+			writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+				Code: "invalid_org_name", Field: "org",
+				Message:    fmt.Sprintf("%q is not a valid org name", req.Org),
+				Suggestion: "1-39 chars: lowercase letters, digits, dashes; must start with a letter",
+			}))
+			return
+		}
+		if req.Org == h.DefaultOrgName || h.knownOrg(req.Org) {
+			writeAPIError(w, typedErr(http.StatusConflict, clierr.Error{
+				Code: "org_exists", Field: "org",
+				Message:    fmt.Sprintf("an org named %q already exists", req.Org),
+				Suggestion: "pick a different name, or sign up without one and ask its admin to add you",
+			}))
+			return
+		}
+	}
+	if apiErr := h.Default.signupCore(r.Context(), signupRequest{Name: req.Name, Password: req.Password, Code: req.Code}); apiErr != nil {
+		writeAPIError(w, apiErr)
+		return
+	}
+	resp := map[string]any{"name": req.Name}
+	if req.Org != "" {
+		if apiErr := h.createOrg(r.Context(), req.Org, req.Name, true); apiErr != nil {
+			// Account exists, org lost a race (or infra failed): report it
+			// honestly - the account is real and usable.
+			apiErr.Err.Message = fmt.Sprintf("account %q was created, but the org was not: %s", req.Name, apiErr.Err.Message)
+			writeAPIError(w, apiErr)
+			return
+		}
+		resp["org"] = h.orgInfoFor(req.Org, "admin")
+	}
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+// handleAuthConfig extends the default server's discovery config with the
+// org-creation bit so the sign-up form knows whether to offer it.
+func (h *OrgHub) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"signup_enabled":     h.Default.AllowSignup,
+		"code_required":      h.Default.AllowSignup && h.Default.SignupCode != "",
+		"org_create_enabled": h.AllowOrgCreate,
+	})
+}
+
+// byMethod dispatches on the HTTP method (405 otherwise) - the routes
+// above stay method-less so OPTIONS preflights reach rpcMiddleware.
+func byMethod(handlers map[string]http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if next, ok := handlers[r.Method]; ok {
+			next(w, r)
+			return
+		}
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	})
 }
 
 func (h *OrgHub) routeOrg(w http.ResponseWriter, r *http.Request, defaultHandler http.Handler) {
@@ -208,6 +333,7 @@ func (h *OrgHub) createOrg(ctx context.Context, name, creator string, requireNew
 	}
 	server.OrgName = name
 	server.Directory = h.Directory
+	server.SettingsOrg = name
 	handler, err := server.Handler()
 	if err != nil {
 		return internalErr(err)
@@ -349,7 +475,9 @@ func (h *OrgHub) handleListOrgs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out []orgInfo
+	defaultRole := "shared"
 	if isOperator(c) {
+		defaultRole = "operator"
 		names, err := h.Directory.ListOrgNames(r.Context())
 		if err != nil {
 			writeAPIError(w, internalErr(err))
@@ -380,7 +508,10 @@ func (h *OrgHub) handleListOrgs(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, m := range memberships {
 			if m.Org == h.DefaultOrgName {
-				continue // listed unconditionally below
+				// Listed unconditionally below - but a real membership
+				// row (e.g. an admin of the shared org) names its role.
+				defaultRole = m.Role
+				continue
 			}
 			out = append(out, h.orgInfoFor(m.Org, m.Role))
 		}
@@ -389,41 +520,180 @@ func (h *OrgHub) handleListOrgs(w http.ResponseWriter, r *http.Request) {
 	// The default org is everyone's: the shared repo this daemon has
 	// always served, ungated by membership.
 	if h.DefaultOrgName != "" {
-		out = append([]orgInfo{h.orgInfoFor(h.DefaultOrgName, "shared")}, out...)
+		out = append([]orgInfo{h.orgInfoFor(h.DefaultOrgName, defaultRole)}, out...)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"orgs": out})
 }
 
-func (h *OrgHub) handleAddOrgMember(w http.ResponseWriter, r *http.Request) {
-	c, apiErr := h.hubCaller(r)
-	if apiErr != nil {
-		writeAPIError(w, apiErr)
+func (h *OrgHub) handleListOrgMembers(w http.ResponseWriter, r *http.Request) {
+	orgName, _, ok := h.requireOrg(w, r, false)
+	if !ok {
 		return
 	}
-	orgName := r.PathValue("org")
-	h.mu.Lock()
-	_, exists := h.orgs[orgName]
-	h.mu.Unlock()
-	if !exists {
+	members, err := h.Directory.ListOrgMembers(r.Context(), orgName)
+	if err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
+	if members == nil {
+		members = []OrgMember{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "members": members})
+}
+
+func (h *OrgHub) handleRemoveOrgMember(w http.ResponseWriter, r *http.Request) {
+	orgName, _, ok := h.requireOrg(w, r, true)
+	if !ok {
+		return
+	}
+	name := r.PathValue("name")
+	if _, member, err := h.Directory.OrgMemberRole(r.Context(), orgName, name); err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	} else if !member {
 		writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
-			Code: "unknown_org", Field: "org", Message: fmt.Sprintf("no org named %q", orgName),
+			Code: "not_a_member", Field: "name",
+			Message: fmt.Sprintf("%q is not a member of %q", name, orgName),
 		}))
 		return
 	}
-	if !isOperator(c) {
-		role, member, err := h.Directory.OrgMemberRole(r.Context(), orgName, c.principal.Name)
-		if err != nil {
-			writeAPIError(w, internalErr(err))
-			return
+	if err := h.Directory.RemoveOrgMember(r.Context(), orgName, name); err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "removed": name})
+}
+
+func (h *OrgHub) handleGetOrgSettings(w http.ResponseWriter, r *http.Request) {
+	orgName, _, ok := h.requireOrg(w, r, false)
+	if !ok {
+		return
+	}
+	settings, err := h.Directory.GetOrgSettings(r.Context(), orgName)
+	if err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "settings": settings})
+}
+
+const (
+	maxOrgDescription    = 1000
+	maxOrgRequiredChecks = 64
+)
+
+func (h *OrgHub) handlePutOrgSettings(w http.ResponseWriter, r *http.Request) {
+	orgName, _, ok := h.requireOrg(w, r, true)
+	if !ok {
+		return
+	}
+	var settings OrgSettings
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "bad_request", Message: "body must be JSON: {description?, global_required_checks?}",
+		}))
+		return
+	}
+	if len(settings.Description) > maxOrgDescription {
+		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "description_too_long", Field: "description",
+			Message: fmt.Sprintf("description is capped at %d characters", maxOrgDescription),
+		}))
+		return
+	}
+	// Normalize check names: trimmed, no empties, no duplicates - these
+	// feed straight into the §13.5 merge gate.
+	seen := map[string]bool{}
+	var checks []string
+	for _, c := range settings.GlobalRequiredChecks {
+		c = strings.TrimSpace(c)
+		if c == "" || seen[c] {
+			continue
 		}
-		if !member || role != "admin" {
-			writeAPIError(w, typedErr(http.StatusForbidden, clierr.Error{
-				Code: "not_org_admin", Field: "org",
-				Message:    fmt.Sprintf("only admins of %q may add members", orgName),
-				Suggestion: "ask an org admin or an operator",
-			}))
-			return
-		}
+		seen[c] = true
+		checks = append(checks, c)
+	}
+	if len(checks) > maxOrgRequiredChecks {
+		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "too_many_checks", Field: "global_required_checks",
+			Message: fmt.Sprintf("at most %d org-required checks", maxOrgRequiredChecks),
+		}))
+		return
+	}
+	settings.GlobalRequiredChecks = checks
+	if err := h.Directory.UpdateOrgSettings(r.Context(), orgName, settings); err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "settings": settings})
+}
+
+// knownOrg reports whether name is a routable org - the default org
+// counts: its membership rows carry admin roles for the settings page
+// even though its serving surface stays ungated.
+func (h *OrgHub) knownOrg(name string) bool {
+	if name == h.DefaultOrgName && h.DefaultOrgName != "" {
+		return true
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, exists := h.orgs[name]
+	return exists
+}
+
+// orgAccess resolves what the caller may do in one org: operators (and
+// the anonymous deploy token) act everywhere; stored accounts act per
+// their membership role. The default org is readable by every valid
+// credential (it is the shared repo), writable by its admins.
+func (h *OrgHub) orgAccess(r *http.Request, c caller, orgName string) (role string, canRead, canAdmin bool, err error) {
+	if isOperator(c) {
+		return "operator", true, true, nil
+	}
+	role, member, err := h.Directory.OrgMemberRole(r.Context(), orgName, c.principal.Name)
+	if err != nil {
+		return "", false, false, err
+	}
+	if !member {
+		return "", orgName == h.DefaultOrgName, false, nil
+	}
+	return role, true, role == "admin", nil
+}
+
+// requireOrg 404s unknown orgs and returns the caller's access; adminOnly
+// additionally demands write authority.
+func (h *OrgHub) requireOrg(w http.ResponseWriter, r *http.Request, adminOnly bool) (orgName string, c caller, ok bool) {
+	c, apiErr := h.hubCaller(r)
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
+		return "", c, false
+	}
+	orgName = r.PathValue("org")
+	if !h.knownOrg(orgName) {
+		writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
+			Code: "unknown_org", Field: "org", Message: fmt.Sprintf("no org named %q", orgName),
+		}))
+		return "", c, false
+	}
+	_, canRead, canAdmin, err := h.orgAccess(r, c, orgName)
+	if err != nil {
+		writeAPIError(w, internalErr(err))
+		return "", c, false
+	}
+	if (adminOnly && !canAdmin) || !canRead {
+		writeAPIError(w, typedErr(http.StatusForbidden, clierr.Error{
+			Code: "not_org_admin", Field: "org",
+			Message:    fmt.Sprintf("only admins of %q (or an operator) may do this", orgName),
+			Suggestion: "ask an org admin or an operator",
+		}))
+		return "", c, false
+	}
+	return orgName, c, true
+}
+
+func (h *OrgHub) handleAddOrgMember(w http.ResponseWriter, r *http.Request) {
+	orgName, _, ok := h.requireOrg(w, r, true)
+	if !ok {
+		return
 	}
 	var body struct {
 		Name string `json:"name"`

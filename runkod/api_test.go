@@ -24,6 +24,14 @@ import (
 // httptest.Server, and returns the server plus the ChangeID to query.
 func newTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
+	srv, changeID, _, _ := newTestServerWithHandle(t)
+	return srv, changeID
+}
+
+// newTestServerWithHandle additionally exposes the Server and its MemStore
+// so tests can adjust wiring (org settings, directory) after construction.
+func newTestServerWithHandle(t *testing.T) (*httptest.Server, string, *Server, *MemStore) {
+	t.Helper()
 	bare := newBareRepo(t)
 	repo := gitfixture.New(t)
 	// ci.checks declares "unit" as required (§14.9) - needed so
@@ -51,7 +59,17 @@ func newTestServer(t *testing.T) (*httptest.Server, string) {
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
 	}
-	return httptest.NewServer(handler), result.ChangeID
+	return httptest.NewServer(handler), result.ChangeID, srv, store
+}
+
+func readBody(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return string(b)
 }
 
 func authedGet(t *testing.T, srv *httptest.Server, path, token string) *http.Response {
