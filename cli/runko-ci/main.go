@@ -160,3 +160,5 @@ func splitNonEmpty(csv string) []string {
 	}
 	return out
 }
+
+// scoped-ci probe: this cli-only change should run go test ./cli/... only, not the full suite.
