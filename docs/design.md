@@ -79,6 +79,8 @@ At Google, Boq and related platform manifests made the *right* things possible (
 
 **Design rule:** If creating a standard service takes more than a few decisions a junior engineer (or an agent) can make in one minute, the UX has failed—even if the power user surface is complete.
 
+**Sharpened (2026-07-10, prompted by the per-check-inputs question in §14.5.8):** this doctrine constrains **defaults, not capability**. An opt-in refinement is admissible when (a) absence means exactly today's zero-config semantics — the knob can never become load-bearing for a default project; (b) it reuses an existing vocabulary (one glob dialect, one error shape) rather than minting a new one; and (c) the zero-config default is *good* — Nx's lesson is that a default coarse enough to force everyone into the opt-in is itself a Boq violation wearing an "optional" badge. Coarse-default pain is a defect to fix in the default, never an upsell for the knob.
+
 ### 2.4 Coding agents change the user model
 
 Software is increasingly written by **agents under human supervision**:
@@ -1408,6 +1410,73 @@ design-doc or README edit anywhere runs one seconds-long job; a contract
 schema edit runs the suites that actually read it; `go.mod` still runs
 the world.
 
+#### 14.5.8 Root invalidation, refined: `!` exceptions now; a graph-refinable class next (decided 2026-07-10)
+
+Survey result (Nx, Turborepo, Pants, bazel-diff, target-determinator,
+Meta's BTD): every affected system converges on the same three layers this
+platform already has — a dependency-graph closure, a blunt
+"global-invalidation" path list for files the graph cannot see, and an
+optional precision layer. Two consequences, one shipped and one planned:
+
+**1. `!` exceptions in `root_invalidation` (shipped with this decision).**
+The list is now **ordered, first-match-wins**, with the same gitignore-style
+`!` prefix as `prose:` (§14.5.7) — one dialect, one evaluator
+(`affected.MatchOrdered`). An excepted path does not escalate; it falls
+through to prose/ownership attribution, so it keeps failing closed when
+unowned. Cross-manifest composition follows prose: manifests concatenate in
+scan order (root first), so the root manifest's exceptions outrank deeper
+manifests' patterns. Exceptions carry §14.5.7's obligation — name what
+still gates the excepted path. First instance:
+`!.github/workflows/ci.yml` (before `.github/**`): the post-land safety
+net executes only after landing, so no edit to it can change a pre-land
+check's validity — escalation bought a full matrix that exercises workflow
+files not at all. What still gates it: owner review + `docs-check`
+pre-land, and the workflow's own first post-land execution (a broken
+`ci.yml` fails loudly against trunk, exactly the fix-forward class §14.4
+assigns it). `runko-checks.yml` (the PRE-land executor) is deliberately
+NOT excepted: editing the machine that runs checks invalidates every
+check by definition.
+
+**2. The blunt/graph-refinable split (decided; lands with its consumer).**
+`root_invalidation` entries divide into two classes. **Out-of-graph** paths
+(CI workflows, `scripts/**`, `Makefile`, `Dockerfile`, compose, sqlc) are
+invisible to any build graph — every surveyed system keeps these blunt, and
+so do we, permanently. **Graph-visible** paths (`go.mod`, `go.sum`,
+`MODULE.bazel*`, `BUILD.bazel`, `.bazelrc*`) are where the
+bazel-diff/target-determinator technique applies: hash the configured
+target graph at base and head, diff, and run exactly what moved — a
+`MODULE.bazel` edit stops meaning "the world" and starts meaning "the
+targets whose hashes changed". Plan, in order: (i) the build-adapter
+contract (§14.5.4) grows a `SnapshotDiff(base, head) → impacted targets`
+strategy, v1 wrapping a target-determinator-class external process (a Go
+binary — engines stay processes, not imports), fail-closed to
+`run_everything` on any error exactly like rdeps refinement; the
+machine-readable `refinable` marker on `root_invalidation` entries enters
+`project.schema.json` in that same change, keeping schema and parser in
+lockstep (spec-before-code, not schema-before-parser). (ii) It dogfoods
+first in **post-land `ci.yml`** — gate-free by construction, so narrowing
+is a pure CI-cost experiment measured in `migration-findings.md`. (iii)
+Gate-grade narrowing is the org opt-in §14.5.4 already reserves, and
+requires the gate to accept CI-reported refinement — its own recorded
+decision when (ii)'s data justifies it.
+
+**Also decided here — per-check `inputs:` conditionally admitted.** The Nx
+`namedInputs` power is real, and §2.3 (as sharpened this date) does not
+forbid it: `prose:`, its `!` exceptions, and `root_invalidation` are
+already three special-cased input filesets, proven in-tree. A general
+per-check `inputs:` fileset on `ci.checks` entries is admitted **under
+conditions**: it waits for the snapshot-diff data (most of its value for
+graph-covered checks may already be captured there, leaving only the
+non-graph checks — `web-check`, `bazel-check` — as candidates); defaults
+stay exactly today's semantics (absent = the project subtree + dependency
+closure); it reuses the one glob dialect; and it rolls out
+**advisory-first** — logging "this check would have been skipped" while
+still running everything, so an under-inclusive fileset is caught by
+comparison, not by a missed regression on trunk. Soundness note: a wrong
+fileset under-gates, but so does a missing `dependencies:` edge — this is
+the same declared trust class (§13.3), reviewed in-tree, not a new risk
+species.
+
 ### 14.6 Plugins vs templates (delivery model)
 
 We ship **both**—they solve different problems:
@@ -2199,6 +2268,8 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-10 | **Doc estate brought current (user direction: repo cleanup)**: `CLAUDE.md` slimmed from ~71KB to a current-state operating manual — the per-stage engineering record (every stage's shipped scope, caught bugs, review findings) moved verbatim to `docs/implementation-log.md`, frozen as history; `AGENTS.md` rewritten (it still claimed no compose/CI/web/Postgres existed); `proto/README.md` reframed from "draft, needs confirming" to the settled Connect contract doc; `db/README.md` migration + serialization sections updated for `runkod.ApplyMigrations` and the §14.9.1 advisory-lock harness (the `-p 1` rationale it documented no longer exists); `web/README.md` gained the browse tabs/org surfaces; §22.2's MVP-web-stack row and §28.3's stage-13 row updated in place to the React+Connect reality their own changelog rows had already superseded; stale pre-re-carve path references (`cmd/runko*` → `cli/runko*`, `buildadapter/` → `platform/buildadapter/`) fixed in code comments and the build-adapter spec |
 | 2026-07-10 | **Prose paths (§14.5.7, new; user direction: "even doc changes are triggering CI checks - add exceptions")**: `PROJECT.yaml` gains `prose:` — the de-escalation dual of `root_invalidation`: an ordered, first-match-wins pattern list (glob dialect + new leading-`**/` any-depth form + gitignore-style `!` exceptions) re-attributing matching paths, for check derivation only, to the repo-root project — so a README/design-doc edit anywhere requires one seconds-long `docs-check` (`make check-docs`, a real markdown link checker satisfying §13.5 default-deny) instead of its folder-owner's test matrix and dependency closure. Fail-closed properties pinned by tests: root invalidation beats prose; the §7.3 owner gate reads raw touched paths and never de-escalates; no root project ⇒ no de-escalation (unowned paths keep escalating). The `!` exceptions carry an obligation: paths tests consume as data (`docs/spec/**`, `docs/cli-contract.md` — runfiles of the contract suites) are excepted AND the `docs` project now declares `contracts-test` running exactly the consuming suites — which also CLOSES a pre-existing hole where a contract-doc edit gated only on a build-no-test bazel-check. Plumbed like root invalidation (index scan union → daemon funnel/gate/land + `runko-ci affected`/`checks`); zero executor/workflow changes, the §14.9.1 payoff. Dogfooded on a clone: design.md+platform/README edit → `docs-check` alone; cli-contract.md edit → `contracts-test`+`docs-check` |
 | 2026-07-10 | **Post-land safety net becomes the second generic executor (§14.9.1; user direction: "I want the tooling uniformed", anticipating RBE cache sharing)**: `ci.yml`'s check job - plain `go test` lanes since stage 9d, missed by this date's bazel-test adoption because it is post-land-only - is replaced by the same resolve-then-run shape as runko-checks.yml: `runko-ci checks --base <push.before> --head <push.after>` resolves the LANDED delta's affected closure into the manifests' own check commands, evaluated on the landed, post-rebase tree. The workflow again knows no project names and no commands (the first draft hardcoded `make check-bazel-*` lanes and was caught breaking exactly this rule): what gated pre-land is what re-runs post-land, the hardcoded web job dissolves into the matrix as `web-check`, and docs-check/contracts-test now run post-land too when affected. Scope narrows from run-always-everything to the landed delta's closure - the gate's own model; an unusable `before` falls back to the empty tree, which root-invalidates to run_everything (fail closed). Per-check setup-bazel disk-cache keys are shared with the pre-land executor deliberately: pre-land warms post-land and vice versa - the pre-RBE cache story, and RBE later serves both sides identically. Kept outside the matrix by doctrine: compose-smoke (Docker territory; its subject is the deployment artifact, not a project). Plain `go test` retires from CI; `make check` remains the local <30s inner loop (§28.2 rule 3), where every session runs it |
+| 2026-07-10 | **Anti-Boq sharpened: defaults, not capability (§2.3; user direction: "maybe we should revisit the anti-boq doctrine... if the power is too good")**: prompted by the Nx `namedInputs` survey — the doctrine was being over-read as banning power features. Restated: opt-in refinements are admissible when absence means today's zero-config semantics, they reuse existing vocabulary, and the zero-config default is itself good; a default coarse enough to force everyone into the opt-in is a Boq violation wearing an "optional" badge. Under that test, per-check `inputs:` filesets are **conditionally admitted** (§14.5.8): sequenced after the snapshot-diff measurement, defaults unchanged, one glob dialect, advisory-first rollout — same declared trust class as `dependencies:` edges, not a new risk species |
+| 2026-07-10 | **Root invalidation refined (§14.5.8, new; follow-up to "why did this change trigger all the projects' checks?")**: affected-system survey (Nx/Turborepo/Pants/bazel-diff/target-determinator/BTD — every one converges on graph closure + a blunt global list + optional precision) turned the coarseness complaint into two decisions. SHIPPED: `root_invalidation` becomes ordered, first-match-wins with `!` exceptions — `prose:`'s exact dialect, one evaluator (`affected.MatchOrdered` replaces the unordered any-match; `index.RootInvalidation` concatenates in scan order instead of sort+dedup, root manifest first). First instance: `!.github/workflows/ci.yml` before `.github/**` — the post-land safety net can't affect pre-land check validity, so escalating on it bought a full matrix that never exercises workflow files; what still gates it is owner review + docs-check + the workflow's own post-land execution. Pinned by tests: exception-after-pattern is dead (ordering), excepted-but-unowned still fails closed (exceptions remove escalation, never gating), mixed changes still escalate. DECIDED, lands with its consumer: the blunt/graph-refinable split — out-of-graph paths (workflows, scripts, Docker) stay blunt permanently; graph-visible ones (go.mod, MODULE.bazel, BUILD, bazelrc) get a `SnapshotDiff` adapter strategy (target-determinator-class external process), dogfooded gate-free in post-land ci.yml before any gate-grade opt-in |
 
 ---
 

@@ -3,7 +3,6 @@ package index
 import (
 	"fmt"
 	"path"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -27,8 +26,9 @@ type IndexedProject struct {
 	Capabilities         []string
 	DeclaredDependencies []string
 	// RootInvalidation is the manifest's tree-borne §14.5.2 pattern list
-	// (root-manifest-oriented; see index.RootInvalidation). Not persisted
-	// by Sync - live consumers scan the tree, which is the §10.3 truth.
+	// (root-manifest-oriented; ordered, first-match-wins, "!" exceptions
+	// per §14.5.8; see index.RootInvalidation). Not persisted by Sync -
+	// live consumers scan the tree, which is the §10.3 truth.
 	RootInvalidation []string
 	// Prose is the manifest's tree-borne §14.5.7 de-escalation list
 	// (ordered, first-match-wins, ! exceptions; see index.Prose). Not
@@ -228,23 +228,22 @@ func parseOwnersFile(content []byte) []string {
 	return owners
 }
 
-// RootInvalidation unions every indexed project's tree-declared
-// root-invalidation patterns (§14.5.2; §9.4 "the tree owns policy" -
-// relocated here from daemon flags, which remain an additive override).
-// In practice the root manifest declares them; accepting them from any
-// project keeps the semantics monorepo-wide rather than path-magic.
+// RootInvalidation concatenates every indexed project's tree-declared
+// root-invalidation patterns (§14.5.2/§14.5.8; §9.4 "the tree owns policy"
+// - relocated here from daemon flags, which remain an additive override).
+// Like Prose (and unlike the pre-§14.5.8 sorted union), the result is
+// ORDERED: root-invalidation lists are first-match-wins with "!"
+// exceptions, so each manifest's internal order is preserved and manifests
+// concatenate in scan order (root first - Scan walks the tree top-down),
+// meaning the root manifest's exceptions take precedence over any deeper
+// manifest's patterns. In practice only the root manifest declares these;
+// accepting them from any project keeps the semantics monorepo-wide
+// rather than path-magic.
 func RootInvalidation(projects []IndexedProject) []string {
-	seen := map[string]bool{}
 	var out []string
 	for _, p := range projects {
-		for _, pat := range p.RootInvalidation {
-			if !seen[pat] {
-				seen[pat] = true
-				out = append(out, pat)
-			}
-		}
+		out = append(out, p.RootInvalidation...)
 	}
-	sort.Strings(out)
 	return out
 }
 

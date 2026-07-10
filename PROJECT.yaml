@@ -39,6 +39,14 @@ root_invalidation:
   - .dockerignore
   - docker-compose.yml
   - sqlc.yaml
+  # ci.yml is POST-LAND-ONLY (§14.5.8): it executes after landing, so no
+  # edit to it can change a pre-land check's validity - escalating on it
+  # buys nothing (no pre-land check exercises workflow files at all). What
+  # still gates it: owner review + docs-check pre-land, and the workflow
+  # run itself post-land (a broken ci.yml fails loudly on its own first
+  # execution against trunk). First-match-wins: the exception must precede
+  # the ".github/**" it carves.
+  - "!.github/workflows/ci.yml"
   - .github/**
   - scripts/**
 # The content tier: prose-attributed paths (and root glue like .gitignore)

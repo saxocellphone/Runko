@@ -91,7 +91,7 @@ func TestProseMixedChangeKeepsCodeAttribution(t *testing.T) {
 	}
 }
 
-func TestProseMatchOrderedFirstMatchWins(t *testing.T) {
+func TestMatchOrderedFirstMatchWins(t *testing.T) {
 	patterns := []string{"!docs/spec/**", "!docs/cli-contract.md", "**/*.md", "LICENSE", "docs/images/**"}
 	cases := map[string]bool{
 		"README.md":                         true,
@@ -107,8 +107,8 @@ func TestProseMatchOrderedFirstMatchWins(t *testing.T) {
 	}
 	cases["LICENSE"] = true // exact-name pattern matches the root LICENSE
 	for path, want := range cases {
-		if got := ProseMatch(patterns, path); got != want {
-			t.Fatalf("ProseMatch(%q) = %v, want %v", path, got, want)
+		if got := MatchOrdered(patterns, path); got != want {
+			t.Fatalf("MatchOrdered(%q) = %v, want %v", path, got, want)
 		}
 	}
 }

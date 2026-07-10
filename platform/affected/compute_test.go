@@ -81,6 +81,61 @@ func TestRootInvalidationPattern(t *testing.T) {
 	}
 }
 
+// §14.5.8: root-invalidation lists are ordered with "!" exceptions - a
+// known post-land-only file is carved out of a broad ".github/**" and falls
+// through to ordinary attribution instead of escalating.
+func TestRootInvalidationExceptionDoesNotEscalate(t *testing.T) {
+	projects := []ProjectInfo{{Name: "repo", Path: ""}}
+	opts := Options{RootInvalidationPatterns: []string{"!.github/workflows/ci.yml", ".github/**"}}
+
+	r := Compute(projects, []string{".github/workflows/ci.yml"}, opts)
+	if r.RunEverything {
+		t.Fatalf("excepted path must not escalate: %+v", r)
+	}
+	if len(r.Projects) != 1 || r.Projects[0].Name != "repo" {
+		t.Fatalf("excepted path should fall through to its owner, got %v", r.Projects)
+	}
+
+	// A sibling not covered by the exception still escalates.
+	r2 := Compute(projects, []string{".github/workflows/runko-checks.yml"}, opts)
+	if !r2.RunEverything {
+		t.Fatalf("non-excepted workflow path must still escalate: %+v", r2)
+	}
+
+	// Both in one change: the un-excepted path's escalation wins (an
+	// exception never narrows what another path escalated).
+	r3 := Compute(projects, []string{".github/workflows/ci.yml", ".github/workflows/runko-checks.yml"}, opts)
+	if !r3.RunEverything {
+		t.Fatalf("mixed change must still escalate: %+v", r3)
+	}
+}
+
+// First-match-wins is load-bearing: an exception listed AFTER the broad
+// pattern it means to carve is dead, and the path escalates - the safe
+// direction to get ordering wrong.
+func TestRootInvalidationExceptionAfterPatternIsDead(t *testing.T) {
+	projects := []ProjectInfo{{Name: "repo", Path: ""}}
+	opts := Options{RootInvalidationPatterns: []string{".github/**", "!.github/workflows/ci.yml"}}
+
+	r := Compute(projects, []string{".github/workflows/ci.yml"}, opts)
+	if !r.RunEverything {
+		t.Fatalf("exception after its pattern must be inert (first match wins): %+v", r)
+	}
+}
+
+// An excepted path is not exempt from prose/ownership rules - it re-enters
+// the normal pipeline. With no owning project at all it keeps failing
+// closed (§14.5.3): the exception removes ESCALATION, never gating.
+func TestRootInvalidationExceptionStillFailsClosedWhenUnowned(t *testing.T) {
+	projects := []ProjectInfo{{Name: "svc", Path: "svc"}} // no root project
+	opts := Options{RootInvalidationPatterns: []string{"!.github/workflows/ci.yml", ".github/**"}}
+
+	r := Compute(projects, []string{".github/workflows/ci.yml"}, opts)
+	if !r.RunEverything {
+		t.Fatalf("excepted but unowned path must fail closed to run_everything: %+v", r)
+	}
+}
+
 func TestUnownedPathFailsClosedByDefault(t *testing.T) {
 	projects := []ProjectInfo{{Name: "checkout-api", Path: "commerce/checkout"}}
 	r := Compute(projects, []string{"some/random/unregistered/file.txt"}, Options{})

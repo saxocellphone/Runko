@@ -216,10 +216,13 @@ func TestScanDefaultVisibility(t *testing.T) {
 }
 
 // root_invalidation is tree-borne policy (§9.4): Scan surfaces it and the
-// union helper dedupes across manifests.
+// helper concatenates in scan order - ORDER PRESERVED (§14.5.8: lists are
+// first-match-wins with "!" exceptions, so the root manifest's exceptions
+// must stay ahead of everything, including its own broad patterns and any
+// deeper manifest's).
 func TestScanRootInvalidation(t *testing.T) {
 	repo := gitfixture.New(t)
-	repo.WriteFile("PROJECT.yaml", "schema: project/v1\nname: repo\ntype: other\nroot_invalidation:\n  - go.mod\n  - .github/**\n")
+	repo.WriteFile("PROJECT.yaml", "schema: project/v1\nname: repo\ntype: other\nroot_invalidation:\n  - \"!.github/workflows/ci.yml\"\n  - .github/**\n  - go.mod\n")
 	repo.WriteFile("svc/PROJECT.yaml", "schema: project/v1\nname: svc\ntype: service\nroot_invalidation:\n  - go.mod\n")
 	rev := repo.Commit("seed")
 
@@ -228,8 +231,13 @@ func TestScanRootInvalidation(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 	got := RootInvalidation(indexed)
-	want := []string{".github/**", "go.mod"}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("expected deduped sorted union %v, got %v", want, got)
+	want := []string{"!.github/workflows/ci.yml", ".github/**", "go.mod", "go.mod"}
+	if len(got) != len(want) {
+		t.Fatalf("expected ordered concatenation %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected ordered concatenation %v, got %v", want, got)
+		}
 	}
 }

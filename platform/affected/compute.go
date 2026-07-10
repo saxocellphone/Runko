@@ -43,7 +43,16 @@ type Options struct {
 	// RootInvalidationPatterns are glob-style patterns (path.Match syntax,
 	// plus a "prefix/**" form for whole-subtree matches) identifying
 	// tooling/root paths that force run_everything when touched, e.g.
-	// "go.mod", "Makefile", ".github/workflows/**".
+	// "go.mod", "Makefile", ".github/workflows/**". ORDERED,
+	// first-match-wins, with a gitignore-style "!" prefix for exceptions
+	// (§14.5.8) - the same dialect as ProsePatterns - so a known-safe file
+	// can be carved out of a broad pattern ("!.github/workflows/ci.yml"
+	// before ".github/**"; the exception must precede the pattern it
+	// excepts). An excepted path does not escalate; it falls through to
+	// prose/ownership attribution below. Exceptions carry the §14.5.7-style
+	// obligation: name what still gates the excepted path. Flag-supplied
+	// patterns are appended after the tree's and so can never override a
+	// tree-declared exception's precedence (additive escalation only).
 	RootInvalidationPatterns []string
 	// Strictness is StrictnessConservative (default) or StrictnessAggressive.
 	// Conservative treats any changed path that matches no project and no
@@ -101,7 +110,7 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 		// when a project (typically a root glue manifest at path "")
 		// happens to own the path by longest-prefix. Owner-first made
 		// tree-declared patterns dead the moment a root project existed.
-		if matchesAny(opts.RootInvalidationPatterns, cp) {
+		if MatchOrdered(opts.RootInvalidationPatterns, cp) {
 			runEverything = true
 			reasons[ReasonRootInvalidation] = true
 			continue
@@ -111,7 +120,7 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 		// folder-owner's (and its dependents') full check set. Only with
 		// a root project to attribute to - otherwise fall through, so
 		// de-escalation can never widen to "run nothing" (§14.5.3).
-		if hasRoot && ProseMatch(opts.ProsePatterns, cp) {
+		if hasRoot && MatchOrdered(opts.ProsePatterns, cp) {
 			direct[rootProject.Name] = true
 			reasons[ReasonDirectPath] = true
 			continue
@@ -167,13 +176,16 @@ func findRootProject(projects []ProjectInfo) (ProjectInfo, bool) {
 	return ProjectInfo{}, false
 }
 
-// ProseMatch evaluates §14.5.7's ordered prose list against one path:
-// entries are tried in order, the FIRST whose pattern matches decides, and
-// a "!" prefix negates ("this is NOT prose" - how load-bearing files that
-// tests consume as data are excepted from a broad "**/*.md"). No match
-// means not prose. Exported beside MatchPath for the same reason: one
+// MatchOrdered evaluates an ordered pattern list against one path: entries
+// are tried in order, the FIRST whose pattern matches decides, and a "!"
+// prefix negates. It is the one evaluator for both ordered-list manifest
+// keys: prose (§14.5.7 - "!" means "this is NOT prose", how load-bearing
+// files that tests consume as data are excepted from a broad "**/*.md")
+// and root_invalidation (§14.5.8 - "!" means "this does NOT escalate", how
+// a post-land-only workflow file is excepted from ".github/**"). No match
+// means false. Exported beside MatchPath for the same reason: one
 // implementation of the dialect, not one per package.
-func ProseMatch(orderedPatterns []string, changedPath string) bool {
+func MatchOrdered(orderedPatterns []string, changedPath string) bool {
 	for _, pat := range orderedPatterns {
 		negated := strings.HasPrefix(pat, "!")
 		if negated {
@@ -235,15 +247,6 @@ func closeOverDependents(projects []ProjectInfo, direct map[string]bool) (map[st
 		}
 	}
 	return affected, sawDependent
-}
-
-func matchesAny(patterns []string, changedPath string) bool {
-	for _, pat := range patterns {
-		if MatchPath(pat, changedPath) {
-			return true
-		}
-	}
-	return false
 }
 
 // MatchPath supports path.Match glob syntax, plus a "prefix/**" form for
