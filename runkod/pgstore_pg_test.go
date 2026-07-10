@@ -419,6 +419,22 @@ func TestPostgresStoreLifecycleAndRerunAttempts(t *testing.T) {
 		t.Fatalf("expected newest-first ordering (I2 has the higher number), got %+v", open)
 	}
 
+	// ListChangesPage pages the same listing at the SQL layer (stage 15):
+	// limit/offset window it newest-first; past-the-end reads are empty,
+	// not an error; limit 0 means unbounded.
+	if page, err := store.ListChangesPage(ctx, "open", 1, 0); err != nil || len(page) != 1 || page[0].ChangeKey != "I2" {
+		t.Fatalf("page(1,0): want [I2], got %+v (%v)", page, err)
+	}
+	if page, err := store.ListChangesPage(ctx, "open", 1, 1); err != nil || len(page) != 1 || page[0].ChangeKey != "I1" {
+		t.Fatalf("page(1,1): want [I1], got %+v (%v)", page, err)
+	}
+	if page, err := store.ListChangesPage(ctx, "open", 1, 5); err != nil || len(page) != 0 {
+		t.Fatalf("page(1,5): want empty, got %+v (%v)", page, err)
+	}
+	if page, err := store.ListChangesPage(ctx, "open", 0, 1); err != nil || len(page) != 1 || page[0].ChangeKey != "I1" {
+		t.Fatalf("page(0,1) unbounded limit: want [I1], got %+v (%v)", page, err)
+	}
+
 	// Abandon -> filtered lists reflect it; idempotent; re-push reopens.
 	if _, err := store.MarkChangeAbandoned(ctx, "I1"); err != nil {
 		t.Fatalf("abandon: %v", err)

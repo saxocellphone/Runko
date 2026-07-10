@@ -528,10 +528,11 @@ func (s *Server) handlePreReceive(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, results)
 }
 
-// handleListChanges serves GET /api/changes?state= (§28.3 stage 12c-③, the
-// UI's first page): every Change in a state, newest first, all states when
-// ?state is absent. Unpaginated like /api/projects - server-side pagination
-// is deferred until a real list outgrows one response.
+// handleListChanges serves GET /api/changes?state=[&limit=&offset=] (§28.3
+// stage 12c-③, the UI's first page): Changes in a state, newest first, all
+// states when ?state is absent. limit/offset page at the store (stage 15;
+// same offset semantics as the RPC's page_token); omitted, the historical
+// full listing is unchanged.
 func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	switch state {
@@ -544,7 +545,21 @@ func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	list, err := s.Store.ListChanges(r.Context(), state)
+	limit, ok := queryInt(w, r, "limit")
+	if !ok {
+		return
+	}
+	offset, ok := queryInt(w, r, "offset")
+	if !ok {
+		return
+	}
+	var list []Change
+	var err error
+	if limit > 0 || offset > 0 {
+		list, err = s.Store.ListChangesPage(r.Context(), state, limit, offset)
+	} else {
+		list, err = s.Store.ListChanges(r.Context(), state)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -553,6 +568,26 @@ func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) {
 		list = []Change{}
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// queryInt parses an optional non-negative integer query parameter, writing
+// a structured 400 (and returning ok=false) on garbage - a silent fallback
+// to "no limit" would hand a typo the full history.
+func queryInt(w http.ResponseWriter, r *http.Request, name string) (int, bool) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return 0, true
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		writeJSON(w, http.StatusBadRequest, clierr.Error{
+			Code: "invalid_" + name, Field: name,
+			Message:    fmt.Sprintf("%q is not a non-negative integer", raw),
+			Suggestion: "pass a non-negative integer, or omit it",
+		})
+		return 0, false
+	}
+	return v, true
 }
 
 // handleAbandonChange serves POST /api/changes/{key}/abandon (§7.4's third

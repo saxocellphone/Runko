@@ -51,6 +51,20 @@ SELECT * FROM changes WHERE monorepo_id = $1 AND state = $2 ORDER BY number DESC
 -- name: ListAllChanges :many
 SELECT * FROM changes WHERE monorepo_id = $1 ORDER BY number DESC;
 
+-- name: ListChangesByStatePage :many
+-- One page of ListChangesByState, newest first - LIMIT/OFFSET ride
+-- idx_changes_state_number (migration 0010). page_limit 0 means no limit
+-- (NULLIF turns it into LIMIT NULL), matching Store.ListChangesPage's
+-- contract.
+SELECT * FROM changes WHERE monorepo_id = $1 AND state = $2
+ORDER BY number DESC
+LIMIT NULLIF(sqlc.arg(page_limit)::int, 0) OFFSET sqlc.arg(page_offset)::int;
+
+-- name: ListAllChangesPage :many
+SELECT * FROM changes WHERE monorepo_id = $1
+ORDER BY number DESC
+LIMIT NULLIF(sqlc.arg(page_limit)::int, 0) OFFSET sqlc.arg(page_offset)::int;
+
 -- name: AbandonChange :one
 UPDATE changes SET state = 'abandoned', updated_at = now() WHERE id = $1 RETURNING *;
 

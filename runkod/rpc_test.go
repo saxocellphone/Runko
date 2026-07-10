@@ -3,6 +3,7 @@ package runkod
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -570,5 +571,75 @@ func TestRPCCheckReportedViaRESTGatesRPCView(t *testing.T) {
 	r := after.Msg.Requirements
 	if !r.GetMergeable() || len(r.GetChecks().GetPassing()) != 1 {
 		t.Fatalf("post-report: want mergeable with unit passing, got %+v", r)
+	}
+}
+
+// TestRPCListChangesPagination pins the store-level pagination path (stage
+// 15: "don't show all changes in one page"): a positive page_size windows
+// the listing with offset tokens, pages tile the full listing exactly (no
+// duplicates, no gaps, same order), the last page carries no token, and a
+// garbage token is a structured invalid-argument, not offset zero.
+func TestRPCListChangesPagination(t *testing.T) {
+	store := NewMemStore()
+	ctx := context.Background()
+	for i := 0; i < 7; i++ {
+		key := fmt.Sprintf("Ipage%02d", i)
+		if _, err := store.CreateOrUpdateChange(ctx, key, "base", "head", "ref", "t", "", "", ""); err != nil {
+			t.Fatalf("seed %s: %v", key, err)
+		}
+		if _, err := store.MarkChangeLanded(ctx, key, "sha", "", false); err != nil {
+			t.Fatalf("land %s: %v", key, err)
+		}
+	}
+	r := &rpcServer{s: &Server{Store: store}}
+	landed := runkov1.ChangeState_CHANGE_STATE_LANDED
+
+	var paged []string
+	token := ""
+	pages := 0
+	for {
+		resp, err := r.ListChanges(ctx, connect.NewRequest(&runkov1.ListChangesRequest{
+			State: landed, PageSize: 3, PageToken: token,
+		}))
+		if err != nil {
+			t.Fatalf("page %d: %v", pages, err)
+		}
+		want := 3
+		if pages == 2 {
+			want = 1 // 7 = 3 + 3 + 1
+		}
+		if len(resp.Msg.Changes) != want {
+			t.Fatalf("page %d: want %d changes, got %d", pages, want, len(resp.Msg.Changes))
+		}
+		for _, c := range resp.Msg.Changes {
+			paged = append(paged, c.Id)
+		}
+		pages++
+		token = resp.Msg.NextPageToken
+		if token == "" {
+			break
+		}
+	}
+	if pages != 3 {
+		t.Fatalf("want 3 pages, got %d", pages)
+	}
+
+	full, err := r.ListChanges(ctx, connect.NewRequest(&runkov1.ListChangesRequest{State: landed}))
+	if err != nil {
+		t.Fatalf("unpaginated: %v", err)
+	}
+	if len(full.Msg.Changes) != len(paged) {
+		t.Fatalf("pages must tile the full listing: %d vs %d", len(paged), len(full.Msg.Changes))
+	}
+	for i, c := range full.Msg.Changes {
+		if paged[i] != c.Id {
+			t.Fatalf("page order diverged at %d: %s vs %s", i, paged[i], c.Id)
+		}
+	}
+
+	if _, err := r.ListChanges(ctx, connect.NewRequest(&runkov1.ListChangesRequest{
+		State: landed, PageSize: 3, PageToken: "banana",
+	})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("garbage token: want CodeInvalidArgument, got %v", err)
 	}
 }

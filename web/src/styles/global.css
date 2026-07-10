@@ -453,6 +453,11 @@ a:hover {
   color: var(--text);
   box-shadow: var(--shadow);
 }
+.load-more {
+  display: flex;
+  justify-content: center;
+  margin: 14px 0;
+}
 
 /* --------------------------------------------------------- changes list */
 

@@ -104,6 +104,13 @@ type Store interface {
 	// state "" means all states (§28.3 stage 12c-③ - the UI's first page).
 	ListChanges(ctx context.Context, state string) ([]Change, error)
 
+	// ListChangesPage is ListChanges bounded to one page: at most limit
+	// changes starting at offset, same order, same state semantics. limit
+	// <= 0 means unbounded (offset still applies). Landed history grows
+	// without limit, so list READS must not materialize all of it to
+	// serve a page (stage 15: the landed tab).
+	ListChangesPage(ctx context.Context, state string, limit, offset int) ([]Change, error)
+
 	// MarkChangeAbandoned moves an open Change to "abandoned" (§7.4's third
 	// state, settable for the first time in stage 12c-③). Abandoning an
 	// already-abandoned Change is an idempotent no-op; abandoning a LANDED
@@ -347,6 +354,24 @@ func (s *MemStore) ListChanges(ctx context.Context, state string) ([]Change, err
 	// newest first); sort by ChangeKey for a deterministic listing.
 	sort.Slice(out, func(i, j int) bool { return out[i].ChangeKey < out[j].ChangeKey })
 	return out, nil
+}
+
+func (s *MemStore) ListChangesPage(ctx context.Context, state string, limit, offset int) ([]Change, error) {
+	all, err := s.ListChanges(ctx, state)
+	if err != nil {
+		return nil, err
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(all) {
+		return nil, nil
+	}
+	all = all[offset:]
+	if limit > 0 && limit < len(all) {
+		all = all[:limit:limit]
+	}
+	return all, nil
 }
 
 func (s *MemStore) MarkChangeAbandoned(ctx context.Context, changeKey string) (Change, error) {

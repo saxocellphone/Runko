@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ConnectError } from "@connectrpc/connect";
 import { changesClient } from "../api/client";
 import { ChangeState, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import { changeNumberLabel, shortChangeId } from "../lib/format";
@@ -34,44 +35,14 @@ const tabs = [
   { state: ChangeState.ABANDONED, label: "Abandoned" },
 ] as const;
 
+// One history page. Open is NOT paginated: it is the working set (bounded
+// by active workspaces), and the stack cards need every open change to
+// derive parent links - a page boundary through a stack would draw broken
+// trees. Landed/abandoned grow with history and page server-side.
+const PAGE_SIZE = 25;
+
 export function ChangesPage() {
   const [tab, setTab] = useState<ChangeState>(ChangeState.OPEN);
-
-  const { data, error, loading } = useRpc(async () => {
-    const res = await changesClient.listChanges({ state: tab });
-    // The open inbox also needs abandoned changes: one that a pending
-    // change still depends on stays VISIBLE (struck through) until
-    // nothing depends on it (2026-07-09).
-    let abandoned: ChangeSummary[] = [];
-    if (tab === ChangeState.OPEN) {
-      try {
-        abandoned = (await changesClient.listChanges({ state: ChangeState.ABANDONED })).changes;
-      } catch {
-        // Retention degrades: orphans fall back to the amber anchor.
-      }
-    }
-    // One merge-requirements call per change powers the status chips and
-    // stack dots - which only the OPEN tab renders. Landed/abandoned use
-    // FlatList (state badge only), and fanning the calls out there made
-    // those tabs O(history) server round-trips: 44 landed changes were
-    // 44 unused ~400ms gate computations (stage 15 dogfood). A batch RPC
-    // is still the follow-up if the open inbox itself outgrows this
-    // (noted in proto/README.md).
-    const reqs = new Map<string, MergeRequirements>();
-    if (tab === ChangeState.OPEN) {
-      await Promise.all(
-        res.changes.map(async (c) => {
-          try {
-            const r = await changesClient.getMergeRequirements({ changeId: c.id });
-            if (r.requirements) reqs.set(c.id, r.requirements);
-          } catch {
-            // Chips degrade to "unknown"; the list itself still renders.
-          }
-        }),
-      );
-    }
-    return { changes: res.changes, abandoned, requirements: reqs };
-  }, `changes-${tab}`);
 
   return (
     <div className="page">
@@ -92,18 +63,125 @@ export function ChangesPage() {
         ))}
       </div>
 
-      {loading && <Spinner />}
-      {error && <ErrorNote error={error} />}
-      {data && tab === ChangeState.OPEN && (
-        <StackedList changes={data.changes} abandoned={data.abandoned} requirements={data.requirements} />
-      )}
-      {data && tab !== ChangeState.OPEN && <FlatList changes={data.changes} />}
-      {data && data.changes.length === 0 && (
-        <EmptyState>
-          No {tabs.find((t) => t.state === tab)?.label.toLowerCase()} changes.
-        </EmptyState>
+      {tab === ChangeState.OPEN ? (
+        <OpenInbox />
+      ) : (
+        <PagedFlatList
+          key={tab}
+          state={tab}
+          label={tabs.find((t) => t.state === tab)?.label.toLowerCase() ?? ""}
+        />
       )}
     </div>
+  );
+}
+
+function OpenInbox() {
+  const { data, error, loading } = useRpc(async () => {
+    const res = await changesClient.listChanges({ state: ChangeState.OPEN });
+    // The open inbox also needs abandoned changes: one that a pending
+    // change still depends on stays VISIBLE (struck through) until
+    // nothing depends on it (2026-07-09).
+    let abandoned: ChangeSummary[] = [];
+    try {
+      abandoned = (await changesClient.listChanges({ state: ChangeState.ABANDONED })).changes;
+    } catch {
+      // Retention degrades: orphans fall back to the amber anchor.
+    }
+    // One merge-requirements call per open change powers the status chips
+    // and stack dots. Only this inbox pays it - fanning the calls out on
+    // the landed tab burned ~400ms of unused gate computation per row
+    // (stage 15 dogfood). A batch RPC is still the follow-up if the open
+    // inbox itself outgrows this (noted in proto/README.md).
+    const reqs = new Map<string, MergeRequirements>();
+    await Promise.all(
+      res.changes.map(async (c) => {
+        try {
+          const r = await changesClient.getMergeRequirements({ changeId: c.id });
+          if (r.requirements) reqs.set(c.id, r.requirements);
+        } catch {
+          // Chips degrade to "unknown"; the list itself still renders.
+        }
+      }),
+    );
+    return { changes: res.changes, abandoned, requirements: reqs };
+  }, "changes-open");
+
+  return (
+    <>
+      {loading && <Spinner />}
+      {error && <ErrorNote error={error} />}
+      {data && (
+        <StackedList changes={data.changes} abandoned={data.abandoned} requirements={data.requirements} />
+      )}
+      {data && data.changes.length === 0 && <EmptyState>No open changes.</EmptyState>}
+    </>
+  );
+}
+
+// PagedFlatList: server-side pagination for the history tabs (stage 15 -
+// "don't show all changes in one page"). Pages accumulate behind a Load
+// more button; the offset token comes from the server, never derived
+// client-side.
+function PagedFlatList({ state, label }: { state: ChangeState; label: string }) {
+  const [changes, setChanges] = useState<ChangeSummary[]>([]);
+  const [nextToken, setNextToken] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<ConnectError | undefined>(undefined);
+
+  const fetchPage = useCallback(
+    (pageToken: string) => changesClient.listChanges({ state, pageSize: PAGE_SIZE, pageToken }),
+    [state],
+  );
+
+  useEffect(() => {
+    let stale = false;
+    setLoading(true);
+    setError(undefined);
+    fetchPage("")
+      .then((res) => {
+        if (stale) return;
+        setChanges(res.changes);
+        setNextToken(res.nextPageToken);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (stale) return;
+        setError(ConnectError.from(err));
+        setLoading(false);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [fetchPage]);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const res = await fetchPage(nextToken);
+      setChanges((prev) => [...prev, ...res.changes]);
+      setNextToken(res.nextPageToken);
+    } catch (err) {
+      setError(ConnectError.from(err));
+    }
+    setLoadingMore(false);
+  };
+
+  if (loading) return <Spinner />;
+  if (error) return <ErrorNote error={error} />;
+  if (changes.length === 0) return <EmptyState>No {label} changes.</EmptyState>;
+  return (
+    <>
+      <FlatList changes={changes} />
+      {nextToken && (
+        <div className="load-more">
+          <button className="btn btn-sm" onClick={() => void loadMore()} disabled={loadingMore}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 

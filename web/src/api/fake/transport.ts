@@ -451,10 +451,23 @@ export function createFakeTransport(): Transport {
       async listChanges(req) {
         await delay();
         const want = req.state === ChangeState.UNSPECIFIED ? ChangeState.OPEN : req.state;
-        const out = [...state.changes.values()]
+        let out = [...state.changes.values()]
           .filter((c) => c.state === want)
           .sort((a, b) => Number(b.number - a.number));
-        return create(ListChangesResponseSchema, { changes: out, nextPageToken: "" });
+        // Offset-token pagination, mirroring runkod's ListChanges: a
+        // positive pageSize windows the list and reports the next offset;
+        // pageSize 0 keeps the fetch-everything contract.
+        let nextPageToken = "";
+        const size = req.pageSize ?? 0;
+        if (size > 0) {
+          const offset = req.pageToken ? Number.parseInt(req.pageToken, 10) : 0;
+          out = out.slice(offset);
+          if (out.length > size) {
+            out = out.slice(0, size);
+            nextPageToken = String(offset + size);
+          }
+        }
+        return create(ListChangesResponseSchema, { changes: out, nextPageToken });
       },
 
       async getChangeStack(req) {

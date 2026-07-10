@@ -201,17 +201,26 @@ func (r *rpcServer) getChange(ctx context.Context, key string) (Change, error) {
 	return change, nil
 }
 
+// pageOffset decodes the plain offset page token every paginated read here
+// uses (proto/README.md item 6).
+func pageOffset(pageToken string) (int, error) {
+	if pageToken == "" {
+		return 0, nil
+	}
+	v, err := strconv.Atoi(pageToken)
+	if err != nil || v < 0 {
+		return 0, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid page_token %q", pageToken))
+	}
+	return v, nil
+}
+
 // pageWindow applies the draft's plain offset-token pagination (proto/
-// README.md item 6) - the same adapter-level windowing the MCP surface
-// uses, since none of the underlying reads are paginated yet.
+// README.md item 6) - adapter-level windowing for reads whose underlying
+// store call is not paginated (ListChanges pages at the store instead).
 func pageWindow[T any](items []T, pageSize int32, pageToken string) ([]T, string, error) {
-	offset := 0
-	if pageToken != "" {
-		v, err := strconv.Atoi(pageToken)
-		if err != nil || v < 0 {
-			return nil, "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid page_token %q", pageToken))
-		}
-		offset = v
+	offset, err := pageOffset(pageToken)
+	if err != nil {
+		return nil, "", err
 	}
 	if offset > len(items) {
 		offset = len(items)
@@ -236,19 +245,41 @@ func (r *rpcServer) GetChange(ctx context.Context, req *connect.Request[runkov1.
 func (r *rpcServer) ListChanges(ctx context.Context, req *connect.Request[runkov1.ListChangesRequest]) (*connect.Response[runkov1.ListChangesResponse], error) {
 	// Unspecified defaults to OPEN, the inbox view (changes.proto).
 	state := changeStateString(req.Msg.State)
+
+	// A positive page_size pages at the STORE (SQL LIMIT/OFFSET riding
+	// migration 0010's index): serving one page of an unbounded landed
+	// history must not materialize the rest (stage 15). One extra row is
+	// fetched to learn whether a next page exists. page_size 0 keeps the
+	// fetch-everything contract the stack views and CLI rely on.
+	if size := int(req.Msg.PageSize); size > 0 {
+		offset, err := pageOffset(req.Msg.PageToken)
+		if err != nil {
+			return nil, err
+		}
+		page, err := r.s.Store.ListChangesPage(ctx, state, size+1, offset)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		next := ""
+		if len(page) > size {
+			page, next = page[:size], strconv.Itoa(offset+size)
+		}
+		out := make([]*runkov1.ChangeSummary, len(page))
+		for i, c := range page {
+			out[i] = r.s.protoChange(c)
+		}
+		return connect.NewResponse(&runkov1.ListChangesResponse{Changes: out, NextPageToken: next}), nil
+	}
+
 	list, err := r.s.Store.ListChanges(ctx, state)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	window, next, err := pageWindow(list, req.Msg.PageSize, req.Msg.PageToken)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*runkov1.ChangeSummary, len(window))
-	for i, c := range window {
+	out := make([]*runkov1.ChangeSummary, len(list))
+	for i, c := range list {
 		out[i] = r.s.protoChange(c)
 	}
-	return connect.NewResponse(&runkov1.ListChangesResponse{Changes: out, NextPageToken: next}), nil
+	return connect.NewResponse(&runkov1.ListChangesResponse{Changes: out}), nil
 }
 
 func (r *rpcServer) GetChangeStack(ctx context.Context, req *connect.Request[runkov1.GetChangeStackRequest]) (*connect.Response[runkov1.GetChangeStackResponse], error) {

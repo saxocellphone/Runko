@@ -43,6 +43,9 @@ numbers are wire-frozen; `buf lint` runs clean against this directory.
 5. **Auth**: `authorization` header (bearer or Basic); the signed-in
    principal drives approve/land attribution server-side.
 6. **Pagination**: plain `page_size`/`page_token` per request message.
+   `ListChanges` pages at the store (SQL `LIMIT/OFFSET`; landed history
+   outgrew one response, stage 15); other list reads still window
+   adapter-side. `page_size` 0 keeps the fetch-everything contract.
 
 ## Files
 
@@ -63,5 +66,6 @@ graduate, not pre-built (anti-Boq, §6.2).
 
 ## Still open
 
-Write-tool RPCs as the deferred MCP tools graduate; server-side pagination
-when a real list outgrows one response.
+Write-tool RPCs as the deferred MCP tools graduate; store-level pagination
+for the remaining list reads if they too outgrow one response (ListChanges
+already pages at the store).

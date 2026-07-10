@@ -373,6 +373,61 @@ func (q *Queries) ListAllChanges(ctx context.Context, db DBTX, monorepoID uuid.U
 	return items, nil
 }
 
+const listAllChangesPage = `-- name: ListAllChangesPage :many
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced FROM changes WHERE monorepo_id = $1
+ORDER BY number DESC
+LIMIT NULLIF($3::int, 0) OFFSET $2::int
+`
+
+type ListAllChangesPageParams struct {
+	MonorepoID uuid.UUID `json:"monorepo_id"`
+	PageOffset int32     `json:"page_offset"`
+	PageLimit  int32     `json:"page_limit"`
+}
+
+func (q *Queries) ListAllChangesPage(ctx context.Context, db DBTX, arg ListAllChangesPageParams) ([]*Change, error) {
+	rows, err := db.Query(ctx, listAllChangesPage, arg.MonorepoID, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Change
+	for rows.Next() {
+		var i Change
+		if err := rows.Scan(
+			&i.ID,
+			&i.MonorepoID,
+			&i.ChangeKey,
+			&i.Number,
+			&i.State,
+			&i.BaseSha,
+			&i.HeadSha,
+			&i.GitRef,
+			&i.Title,
+			&i.Description,
+			&i.TestPlan,
+			&i.AuthoredByActorID,
+			&i.DependsOnChangeID,
+			&i.Mechanical,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LandedAt,
+			&i.LandedSha,
+			&i.LandedByActorID,
+			&i.OriginWorkspace,
+			&i.OriginBranch,
+			&i.LandedForced,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChangeAffectedProjects = `-- name: ListChangeAffectedProjects :many
 SELECT p.id, p.monorepo_id, p.name, p.path, p.project_type, p.template_id, p.visibility, p.capabilities, p.declared_dependencies, p.indexed_at_sha, p.created_at, p.updated_at FROM change_affected_projects cap
 JOIN projects p ON p.id = cap.project_id
@@ -527,6 +582,71 @@ type ListChangesByStateParams struct {
 
 func (q *Queries) ListChangesByState(ctx context.Context, db DBTX, arg ListChangesByStateParams) ([]*Change, error) {
 	rows, err := db.Query(ctx, listChangesByState, arg.MonorepoID, arg.State)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Change
+	for rows.Next() {
+		var i Change
+		if err := rows.Scan(
+			&i.ID,
+			&i.MonorepoID,
+			&i.ChangeKey,
+			&i.Number,
+			&i.State,
+			&i.BaseSha,
+			&i.HeadSha,
+			&i.GitRef,
+			&i.Title,
+			&i.Description,
+			&i.TestPlan,
+			&i.AuthoredByActorID,
+			&i.DependsOnChangeID,
+			&i.Mechanical,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LandedAt,
+			&i.LandedSha,
+			&i.LandedByActorID,
+			&i.OriginWorkspace,
+			&i.OriginBranch,
+			&i.LandedForced,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChangesByStatePage = `-- name: ListChangesByStatePage :many
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced FROM changes WHERE monorepo_id = $1 AND state = $2
+ORDER BY number DESC
+LIMIT NULLIF($4::int, 0) OFFSET $3::int
+`
+
+type ListChangesByStatePageParams struct {
+	MonorepoID uuid.UUID   `json:"monorepo_id"`
+	State      ChangeState `json:"state"`
+	PageOffset int32       `json:"page_offset"`
+	PageLimit  int32       `json:"page_limit"`
+}
+
+// One page of ListChangesByState, newest first - LIMIT/OFFSET ride
+// idx_changes_state_number (migration 0010). page_limit 0 means no limit
+// (NULLIF turns it into LIMIT NULL), matching Store.ListChangesPage's
+// contract.
+func (q *Queries) ListChangesByStatePage(ctx context.Context, db DBTX, arg ListChangesByStatePageParams) ([]*Change, error) {
+	rows, err := db.Query(ctx, listChangesByStatePage,
+		arg.MonorepoID,
+		arg.State,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

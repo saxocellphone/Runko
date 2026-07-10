@@ -171,6 +171,33 @@ func (s *PostgresStore) ListChanges(ctx context.Context, state string) ([]Change
 	return s.hydrateChanges(ctx, rows)
 }
 
+// ListChangesPage pages at the SQL layer - LIMIT/OFFSET riding migration
+// 0010's (monorepo_id, state, number DESC) index - so serving one page of
+// an unbounded landed history never materializes (or hydrates) the rest.
+func (s *PostgresStore) ListChangesPage(ctx context.Context, state string, limit, offset int) ([]Change, error) {
+	if limit < 0 {
+		limit = 0 // dbgen's LIMIT NULLIF(x, 0): 0 means unbounded
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var rows []*dbgen.Change
+	var err error
+	if state == "" {
+		rows, err = s.Queries.ListAllChangesPage(ctx, s.Pool, dbgen.ListAllChangesPageParams{
+			MonorepoID: s.MonorepoID, PageLimit: int32(limit), PageOffset: int32(offset),
+		})
+	} else {
+		rows, err = s.Queries.ListChangesByStatePage(ctx, s.Pool, dbgen.ListChangesByStatePageParams{
+			MonorepoID: s.MonorepoID, State: dbgen.ChangeState(state), PageLimit: int32(limit), PageOffset: int32(offset),
+		})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.hydrateChanges(ctx, rows)
+}
+
 func (s *PostgresStore) MarkChangeAbandoned(ctx context.Context, changeKey string) (Change, error) {
 	existing, ok, err := s.GetChange(ctx, changeKey)
 	if err != nil {
