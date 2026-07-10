@@ -28,19 +28,21 @@ trunk, never a second source of truth. The full design is in
 
 There are no direct pushes to `main` and no merged PRs, anywhere. A change
 is pushed to `refs/for/main`, passes receive policy and a secret scan,
-gets its required checks from the `PROJECT.yaml` manifests it affects
-(GitHub Actions runs them and reports back), and lands by rebase once the
-gates are green. The repo is carved into projects with declared
-`dependencies:` edges; some projects declare no checks at all and are
-gated through the reverse-dependency closure. The self-hosting migration
+gets its required checks from the `PROJECT.yaml` manifests it affects —
+each project declares its own check *commands*, and CI is a generic
+executor that runs whatever `runko-ci checks` resolves for the change —
+and lands by rebase once the gates are green. The repo is carved into
+projects with declared `dependencies:` edges; some projects declare no
+checks at all and are gated through the reverse-dependency closure. The self-hosting migration
 and everything it surfaced is recorded in
 [`docs/migration-findings.md`](docs/migration-findings.md).
 
 ## Status
 
 Working end-to-end and in daily use by its own development (which is the
-current test of record). The build plan and per-stage history live in
-`docs/design.md` §28 and [`CLAUDE.md`](CLAUDE.md). Implemented: the
+current test of record). The build plan lives in `docs/design.md` §28; the
+per-stage engineering history is
+[`docs/implementation-log.md`](docs/implementation-log.md). Implemented: the
 `runkod` daemon (smart-HTTP git, receive funnel, REST + Connect APIs,
 merge gates, multi-org, outbound mirror), the `runko`/`runko-ci` CLIs,
 workspaces (snapshot refs + sparse cones), affected computation with a
@@ -87,7 +89,7 @@ interface. The daily loop:
 
 ```bash
 runko project create --name payments-api --type service --lang go
-runko workspace create --name fix-sku --project payments-api  # your slice, from one shared clone
+runko workspace create --name fix-sku --project payments-api --by you  # your slice, from one shared clone
 runko change push                        # -> review; checks scoped to what changed
 runko change requirements --json         # owners + checks outstanding, machine-readable
 runko change land                        # rebase-lands once the gates are green
@@ -126,8 +128,10 @@ services — it uses throwaway local Git repositories.
 
 Optional suites, each with its own toolchain: `make check-race`,
 `make check-db` (live Postgres), `make check-web` (Node ≥ 22),
-`make check-bazel` (build graph + gazelle drift; tests never run under
-Bazel), `make check-compose` (Docker; the timed end-to-end eval loop).
+`make check-bazel` (build graph + gazelle drift) and
+`make check-bazel-test` (the same test suite under Bazel — what CI's
+per-project checks run, scoped), `make check-compose` (Docker; the timed
+end-to-end eval loop).
 
 ## Contributing
 

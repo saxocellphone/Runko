@@ -612,7 +612,7 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 		// A stable per-Change ref, independent of whatever rotating ref the
 		// client pushed to: refs/for/<trunk> is a single ref every Change
 		// (and every amend of THIS Change - PushChange force-pushes it, see
-		// cmd/runko/change.go) overwrites in turn. Without this, an accepted
+		// cli/runko/change.go) overwrites in turn. Without this, an accepted
 		// Change's commit becomes unreachable - and thus GC-eligible - the
 		// moment a later push moves refs/for/<trunk> on, which breaks both
 		// "commits are versions of a Change" (§7.4, the Change row would
@@ -748,7 +748,7 @@ func (p *Processor) commitOwnPaths(sha string, extraEnv []string) []string {
 // value is NOT the trunk commit the Change is based on - it's zero on the
 // Change's first push, and the Change's own PRIOR commit on an amend/
 // re-push (PushChange force-pushes the same rotating ref, see
-// cmd/runko/change.go) - neither is "where this Change branched from
+// cli/runko/change.go) - neither is "where this Change branched from
 // trunk". For an unstacked Change the answer is `git merge-base(newSHA,
 // trunk tip)`; for a STACKED Change (the pushed commit's parent chain
 // contains another pending Change's commit, §7.4) it is that nearest

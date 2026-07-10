@@ -1069,7 +1069,7 @@ func (s *Server) handleAffectedByPaths(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// checkRunReport mirrors cmd/runko-ci's CheckRunReport exactly (the POST
+// checkRunReport mirrors cli/runko-ci's CheckRunReport exactly (the POST
 // /changes/{id}/checks body it already sends) - this is the endpoint
 // `runko-ci report-check` round-trips against.
 type checkRunReport struct {
@@ -1293,7 +1293,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 
 // gitDiffNamesOnly returns the paths that differ between two revisions -
 // the REST layer's own copy of the same `git diff --name-only` primitive
-// cmd/runko-ci shells out to, since this package has no dependency on that
+// cli/runko-ci shells out to, since this package has no dependency on that
 // command package.
 func gitDiffNamesOnly(repoDir, from, to string) ([]string, error) {
 	cmd := exec.Command("git", "diff", "--name-only", from, to)

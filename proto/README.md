@@ -1,136 +1,67 @@
-# Runko gRPC API (draft)
+# Runko Connect/gRPC API
 
-This is a **draft schema** for the web frontend (§28.3 stage 13, not yet
-started) to talk to `runkod`, per the user's 2026-07-07 direction that
-frontend/backend communication should use gRPC. It exists so a frontend
-agent can start building UI against a stable-looking contract in parallel
-with the Go server-side work, not because the architecture below is fully
-decided - see "Open questions" before treating any of this as final.
+The wire contract between the web frontend (`web/`) and `runkod`
+(docs/design.md §17.4 — decided 2026-07-07 on both halves: Connect-ES on
+the client, connect-go on the server, no Envoy/grpc-web proxy). Field
+numbers are wire-frozen; `buf lint` runs clean against this directory.
 
-## Status
+## How it's served and consumed
 
-- **Consumed by the web frontend since 2026-07-07** (`web/`, stage 13's
-  frontend half): TypeScript types are generated into `web/src/gen`
-  (committed; `cd web && npm run gen` regenerates via `@bufbuild/buf` +
-  local `protoc-gen-es`), and `buf lint` runs clean against this
-  directory. Field numbers are therefore wire-frozen now, as
-  `common.proto`'s header warns.
-- **Served since 2026-07-07** (stage 13's server half): runkod mounts
-  connect-go handlers for all six services on its existing `net/http` mux
-  (`runkod/rpc.go`; Go stubs committed at `gen/runko/v1`, regenerate with
-  `buf generate` per `buf.gen.yaml`'s header). Every RPC wraps the same
-  decision cores the REST handlers use (`runkod/actions.go`), and errors
-  carry `ErrorDetail` as a Connect error detail per item 4 below. The web
-  UI talks to it via `VITE_RUNKO_URL`/`VITE_RUNKO_TOKEN`; the fake
-  transport remains mounted at `/demo` (see web/README.md).
-- `GetChangeStack` + `GetChangeDiff` (and the FileDiff/DiffHunk/DiffLine
-  shapes) were added to `changes.proto` for the stacked-diff view - the
-  original draft had no way to render a diff at all. Their REST
-  equivalents don't exist yet either; the fake transport documents the
-  intended semantics.
-- **Recorded in `docs/design.md`** (§17.4 + the 2026-07-07 changelog rows)
-  as a committed architecture decision: Connect on both halves.
-- Existing clients (`runko`/`runko-ci` CLI, `runko mcp serve`) keep using
-  `runkod`'s REST API (`runkod/api.go`) unchanged. This draft does not
-  propose replacing that surface - only adding the web frontend's contract
-  as gRPC. Whether `runkod`'s REST handlers eventually become thin
-  wrappers over the same gRPC service handlers (or vice versa) is an open
-  question, not assumed here.
+- **Server**: `runkod/rpc.go` mounts all services on the daemon's existing
+  `net/http` mux, behind the same auth as `/api/*` (bearer token or HTTP
+  Basic against the principal registry), with permissive-origin CORS
+  (auth is header-borne, never cookies). Every RPC wraps the same decision
+  cores the REST handlers use (`runkod/actions.go`), so the two transports
+  cannot disagree on gate semantics; errors carry `runko.v1.ErrorDetail`
+  as a typed Connect error detail with the same stable `code` strings the
+  CLI (`internal/clierr`) and MCP use (§6.5).
+- **Generated code is committed**: Go stubs at `proto/gen/runko/v1`
+  (regenerate with `go run github.com/bufbuild/buf/cmd/buf generate` —
+  local `protoc-gen-go`/`protoc-gen-connect-go`, see `buf.gen.yaml`'s
+  header) and TypeScript at `web/src/gen` (`cd web && npm run gen`).
+  Never hand-edit either; only proto edits require buf.
+- **Other clients stay on REST**: the `runko`/`runko-ci` CLIs and
+  `runko mcp serve` use `runkod/api.go` unchanged. This surface exists for
+  the web UI; whether REST and Connect ever collapse into one is open.
 
-## Design choices made in this draft (need confirming, not yet decided)
+## Design choices (settled)
 
 1. **Message shapes mirror `docs/spec/mcp-tools/common.schema.json`
-   field-for-field** wherever a concept already has a schema there
-   (`ProjectSummary`, `ProjectDetail`, `OwnersResult`,
-   `AffectedComputation`, `ChangeSummary`, `MergeRequirements`,
-   `WorkspaceSummary`). Rationale: one shape per concept across CLI, MCP,
-   and web, not three independently-drifting ones - the same reasoning
-   `docs/cli-contract.md`'s "single-contract rule" already states for
-   CLI/MCP.
-2. **Recommend [Connect](https://connectrpc.com/) over raw grpc-go +
-   grpc-web + Envoy.** Browsers cannot speak raw gRPC (HTTP/2 trailers
-   aren't accessible to `fetch`/`XMLHttpRequest`), so *some* adaptation
-   layer is mandatory - the usual answer is a separate grpc-web proxy
-   (Envoy). Connect instead generates a server that speaks gRPC, gRPC-Web,
-   *and* plain JSON/HTTP from the same `.proto` set, mounted directly on
-   Go's `net/http`, no extra process. That fits this repo's established
-   posture of shelling out to real binaries instead of adding heavyweight
-   library/infra dependencies (Zoekt, Bazel, gitleaks are all processes,
-   not `go.mod` imports) - Envoy would be the odd one out. `buf.gen.yaml`
-   drafts `connectrpc/go` + `connectrpc/es` codegen on this assumption;
-   swap it out if Connect is rejected.
-3. **`GetProject` always returns `ProjectDetail`** (a strict superset of
-   `ProjectSummary`), unlike the MCP tool's `oneOf(summary, detail)` -
-   JSON-RPC can return either shape at runtime, a single gRPC RPC has one
-   static response type, so returning the superset and letting the
-   frontend pick fields is the idiomatic proto equivalent.
-4. **Errors as `google.rpc.Status` + an `ErrorDetail` message
-   (`common.proto`)**, not an inline "error" field on every response.
-   Transport-level codes (`NOT_FOUND`, `INVALID_ARGUMENT`,
-   `FAILED_PRECONDITION` for policy violations) stay meaningful to generic
-   gRPC tooling and browser devtools; `ErrorDetail.code` carries the same
-   stable string every other client (`internal/clierr.Error`, `mcp.Error`)
-   already branches on. Not yet wired to any actual `google.rpc.Status`
-   usage since there's no server implementation yet - flagged here so the
-   frontend agent builds error handling against this shape from the start
-   rather than improvising one.
-5. **Auth**: `authorization: Bearer <token>` request metadata, mirroring
-   the REST API's current scheme, until the named-token principal
-   registry (§28.3 stage 12c, in progress) and eventually OIDC (§15.1)
-   land. `ApproveChangeRequest.approved_by` is still client-asserted text
-   for the same reason `runko change approve --by` is today - expected to
-   move to request-metadata-derived identity once principals exist.
-6. **Pagination**: plain `page_size`/`page_token` fields per request
-   message, not a shared `PageParams` message - idiomatic per-RPC proto
-   style, same information as `common.schema.json#/$defs/PageParams`.
-
-## Deliberately out of scope for this draft
-
-- `ReportCheck` / anything CI-facing - `runko-ci` stays on the REST API
-  (it's a CI runner, not the web frontend; no reason to add gRPC there).
-- Workspace *snapshotting* - `runko workspace snapshot` is local git plus
-  a push through the ordinary receive funnel, not a control-plane call;
-  it has no RPC in `workspaces.proto` for the same reason `git push`
-  itself doesn't.
-- Write-tool parity with MCP's deferred-v1.x catalog (`create_project`,
-  `create_change`, etc.) - add RPCs here as those graduate, don't
-  pre-build a surface nothing calls yet (anti-Boq, §6.2's spirit).
-- Restricted-visibility project filtering (§15.2) - the read-ACL model
-  isn't implemented anywhere yet (REST included); this draft doesn't
-  invent gRPC-specific enforcement ahead of that.
+   field-for-field** wherever a concept has a schema there — one shape per
+   concept across CLI, MCP, and web (the `docs/cli-contract.md`
+   single-contract rule).
+2. **Connect over raw grpc-go + grpc-web + Envoy**: browsers can't speak
+   raw gRPC, and Connect serves gRPC, gRPC-Web, and plain JSON/HTTP from
+   one `.proto` set directly on `net/http` — no sidecar process, matching
+   this repo's processes-over-heavy-deps posture.
+3. **`GetProject` always returns `ProjectDetail`** (superset of the
+   summary) — a single static response type instead of MCP's runtime
+   `oneOf`.
+4. **Errors**: transport-level Connect codes (`NOT_FOUND`,
+   `INVALID_ARGUMENT`, `FAILED_PRECONDITION`) + `ErrorDetail.code` for the
+   stable string every client branches on.
+5. **Auth**: `authorization` header (bearer or Basic); the signed-in
+   principal drives approve/land attribution server-side.
+6. **Pagination**: plain `page_size`/`page_token` per request message.
 
 ## Files
 
 | File | Covers |
 |---|---|
 | `common.proto` | Shared messages/enums, mirroring `common.schema.json` $defs |
-| `projects.proto` | `ProjectService`: list/get/who-owns; preview-create/create (the first write RPC to graduate from the MCP catalog's deferred set - creation opens an ordinary Change, §6.9/§10.1) |
+| `projects.proto` | `ProjectService`: list/get/who-owns; preview-create/create (creation opens an ordinary Change, §6.9/§10.1) |
 | `changes.proto` | `ChangeService`: get/list/stack/diff/affected/merge-requirements/approve/land/abandon/rerun |
 | `workspaces.proto` | `WorkspaceService`: create/list/get/update-base |
 | `search.proto` | `SearchService`: code search |
-| `repo.proto` | `RepoService`: read-only tree/blob browsing (stage 13 explorer; REST equivalents pending, like the stack/diff RPCs) |
+| `repo.proto` | `RepoService`: tree/blob browsing, path-scoped history (`ListCommits`), blame (`BlameFile`) |
 
-`ListChanges`, `AbandonChange`, and `RerunCheck` correspond to REST
-endpoints being added in parallel (§28.3 stage 12c, slice 3) - this draft
-assumes they exist so the frontend can be built against the intended full
-surface rather than today's partial one.
+Out of scope, deliberately: CI-facing RPCs (`runko-ci` is a CI runner, it
+stays on REST), workspace *snapshotting* (that's local git + a push
+through the receive funnel, not a control-plane call), and write-tool
+parity with MCP's deferred-v1.x catalog — RPCs are added here as those
+graduate, not pre-built (anti-Boq, §6.2).
 
-## Next steps (for whoever picks this up)
+## Still open
 
-All four original items closed 2026-07-07 with stage 13's server half:
-
-1. ~~Confirm or reject the Connect recommendation~~ **Confirmed on both
-   halves**: `web/` on Connect-ES, runkod on connect-go (`runkod/rpc.go`).
-2. ~~Install buf, run buf lint / buf generate~~ Done for TS
-   (`web/src/gen`) and Go (`proto/gen/runko/v1`, local plugins - see
-   `buf.gen.yaml`'s header for the regenerate incantation).
-3. ~~Record the confirmed decision in `docs/design.md`~~ Done (§17.4 +
-   changelog).
-4. ~~Implement `GetChangeStack`/`GetChangeDiff` server-side~~ Done
-   (`runkod/rpc.go`, `runkod/diff.go`), plus `RepoService` tree/blob
-   (`runkod/repo.go`).
-
-Still open: write-tool RPCs as the MCP catalog's deferred-v1.x tools
-graduate, server-side pagination when a real list outgrows one response,
-and request-metadata-derived identity for `approved_by` once real AuthN
-(§15.1) lands.
+Write-tool RPCs as the deferred MCP tools graduate; server-side pagination
+when a real list outgrows one response.

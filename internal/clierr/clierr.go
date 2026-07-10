@@ -83,7 +83,7 @@ func quote(s string) string {
 
 // quotedCulprit matches git's own single-quoting of the offending argument,
 // e.g. "ambiguous argument 'badbase'" or "pathspec 'nope' did not match".
-// Callers that shell out (e.g. cmd/runko-ci's runGit) commonly echo the full
+// Callers that shell out (e.g. cli/runko-ci's runGit) commonly echo the full
 // argv into their own error text too ("git diff --name-only badbase HEAD: ...")
 // - since that echoed argv is unquoted, the FIRST quoted substring in the
 // combined message is reliably git's own stderr, not the argv restatement.

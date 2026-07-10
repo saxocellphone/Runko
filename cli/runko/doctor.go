@@ -68,7 +68,7 @@ type DoctorReport struct {
 // Not being a git repository at all IS a hard failure, and gets a structured
 // clierr.Error (§6.5) rather than raw `git rev-parse` exit-128 text - the
 // same resolve-or-explain treatment stage 9a already gave `project create`
-// (cmd/runko/project.go's resolveBaseOrEmpty), extended here since `doctor`
+// (cli/runko/project.go's resolveBaseOrEmpty), extended here since `doctor`
 // had the identical raw-passthrough gap.
 func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 	if _, err := runGit(repoDir, "rev-parse", "--git-dir"); err != nil {

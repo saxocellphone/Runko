@@ -12,7 +12,7 @@ graph, when the org has one, *refines* that floor to target-level precision.
 The daemon (`runkod`, stage 10) never executes customer build tooling; the
 adapter runs **runner-side only**, inside `runko-ci`.
 
-## 1. Engine interface (Go side, implemented in `buildadapter/`)
+## 1. Engine interface (Go side, implemented in `platform/buildadapter/`)
 
 ```go
 // Engine queries one build system's dependency graph. Implementations shell
@@ -140,7 +140,7 @@ bazel query \
   the platform floor (`affected.Compute`) is what actually gates on paths
   with no owning project, per §14.5.3's fail-closed rule.
 - Nonzero exit, a query timeout, or unparseable output all map to `Refine`'s
-  fail-closed path (table in §1) - `buildadapter/bazel` never tries to
+  fail-closed path (table in §1) - `platform/buildadapter/bazel` never tries to
   distinguish "this specific failure is probably fine."
 
 An optional second query (`cquery` with `--output=jsonproto`) can resolve

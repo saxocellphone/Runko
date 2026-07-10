@@ -1,9 +1,8 @@
 # Runko web frontend
 
-The stage-13 web UI (docs/design.md §17.2, §28.3), built against the
-draft gRPC contract in `proto/runko/v1/` via
-[Connect-ES](https://connectrpc.com/) — confirming proto/README.md's
-Connect recommendation on the client side. Design language is inspired by
+The web UI (docs/design.md §17.2), built against the Connect contract in
+`proto/runko/v1/` via [Connect-ES](https://connectrpc.com/) — see
+proto/README.md for the server side. Design language is inspired by
 [Graphite](https://graphite.dev): stacked changes rendered as a rail with
 per-change status dots, trunk at the bottom, quiet neutral surfaces with a
 single violet accent, light + dark themes.
@@ -19,15 +18,23 @@ single violet accent, light + dark themes.
   delta), stack panel, §13.5 merge gates (owners + checks) with
   approve/rerun, land/abandon actions gated on the same `mergeable` bool
   the server reports.
-- **Browse** — barebones repo explorer (`RepoService`: lazy directory
-  tree + file viewer, deep-linkable as `/browse/<path>`, project-badged
-  via longest-prefix ownership).
+- **Browse** — repo explorer (`RepoService`: lazy directory tree + file
+  viewer, deep-linkable as `/browse/<path>`, project-badged via
+  longest-prefix ownership) with Code/Blame/History tabs: path-scoped
+  history (renames followed), age-tinted blame gutter, and rows linking to
+  the *Change* (state-badged) rather than the raw commit.
 - **New project** — the §10.1 create flow: name + type (+ optional
   owners), live preview of the generated files, and "Create as a change" —
   creation opens an ordinary Change (trunk is closed, §6.9); landing it is
   what makes the project real.
 - **Projects / project detail / workspaces / code search** — thinner reads
-  over the corresponding services.
+  over the corresponding services (the workspaces page derives per-branch
+  stacks with the same grouping the inbox uses).
+- **Org support** — sidebar org switcher (rebases the Connect transport
+  onto `/o/<org>/`), org-scoped sign-in, `/settings` (description,
+  org-required checks, member management), and an operator-only Admin
+  page (org estate, archive lifecycle, create-org). Public orgs render
+  read-only without a session under GitHub-style `/<org>` URLs.
 
 ## Transport: real vs. demo
 

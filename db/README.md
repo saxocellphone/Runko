@@ -15,11 +15,16 @@ export PATH="$HOME/.local/go/bin:$HOME/go/bin:$PATH"   # go + sqlc, if not alrea
 sqlc generate
 ```
 
-sqlc parses the schema and queries with its own SQL analyzer - `sqlc generate` succeeding does **not** require a live Postgres connection, and is treated as the correctness check for this layer in this environment (no Docker/Postgres available here; see CLAUDE.md).
+sqlc parses the schema and queries with its own SQL analyzer - `sqlc generate` succeeding does **not** require a live Postgres connection. The real correctness check is `make check-db` (below), which CI runs against a live Postgres on every change that affects this layer.
 
 ## Running migrations against a real Postgres
 
-Not yet wired to a runnable stack (that's the compose eval loop, §16.4, session DAG stage 14). Once Postgres exists:
+The product applies them itself: `runkod` embeds `db/migrations` (package
+`db`'s `//go:embed`) and `runkod.ApplyMigrations` runs any unapplied files
+in order at boot — advisory-locked so concurrent replicas don't race, each
+recorded in `runko_schema_migrations`. A fresh `docker compose up` (§16.4)
+therefore needs no migration tooling at all. To apply them outside the
+daemon, any runner over the same files works, e.g.:
 
 ```bash
 migrate -database "$DATABASE_URL" -path db/migrations up
@@ -27,10 +32,10 @@ migrate -database "$DATABASE_URL" -path db/migrations up
 
 ## Live-Postgres integration tests (`make check-db`)
 
-`internal/dbtest` plus `*_pg_test.go` files (`index/sync_pg_test.go`,
-`receive/persist_pg_test.go`, `checks/persist_pg_test.go`,
-`runkod/pgstore_pg_test.go`, `runkod/cmd/runkod`'s restart test) exercise the
-persistence wiring against a **real** database - not sqlc's schema analyzer.
+`internal/dbtest` plus the `*_pg_test.go` files (`platform/index`,
+`platform/receive`, `platform/checks`, `runkod/pgstore_pg_test.go`,
+`runkod/cmd/runkod`'s restart test) exercise the persistence wiring
+against a **real** database - not sqlc's schema analyzer.
 `go test ./...` / `make check` skip them (no Postgres in this sandbox); to
 run them for real:
 
@@ -47,12 +52,15 @@ no other tooling (Docker, testcontainers) is required, so this also works
 against a Postgres started any other way (a local install, a cloud dev
 instance, etc).
 
-**Why `make check-db` passes `-p 1`:** each package's reset wipes the
-*entire* shared schema, not just its own tables - fine when only one
-package's live-DB tests run at a time, but `go test ./...` normally runs
-different packages' test binaries concurrently, so two packages' resets can
-interleave and race (caught in CI once a 4th/5th package gained
-`*_pg_test.go` files: "relation already exists" / "relation does not
-exist" errors from a reset landing mid-test). `-p 1` forces one package at a
-time - correct for tests sharing external stateful infrastructure instead of
-being hermetic. Don't drop it when adding new live-Postgres tests.
+**Serialization is the harness's job, not a runner flag's:** each
+package's reset wipes the *entire* shared schema, not just its own tables,
+while go/bazel both run different packages' test binaries concurrently -
+two resets interleaving mid-test was a real CI failure ("relation already
+exists" / "relation does not exist"). `dbtest.Connect` therefore holds a
+session-level Postgres **advisory lock** for the test's lifetime, so
+Connect-holding tests serialize across processes with no `-p 1` /
+`--local_test_jobs=1` anywhere (that's what lets pg tests ride each
+project's ordinary scoped check in CI, §14.9.1). Consequences when writing
+new live-DB tests: call `Connect` **once per test** (a second call in the
+same test self-deadlocks on the session lock), and expect wall-clock
+serialization - keep them short.

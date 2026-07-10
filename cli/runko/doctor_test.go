@@ -14,7 +14,7 @@ import (
 // gap found in the CLI robustness audit (§6.5): `doctor` against a
 // directory that isn't a git repo at all used to surface git's raw
 // `rev-parse --git-dir` exit-128 text, the same class of bug stage 9a
-// already fixed for `project create` (cmd/runko/project.go).
+// already fixed for `project create` (cli/runko/project.go).
 func TestRunDoctorOnNonRepoDirReturnsStructuredError(t *testing.T) {
 	dir := t.TempDir() // not a git repo at all
 
