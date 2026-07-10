@@ -2,7 +2,6 @@ package runkod
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,17 +15,15 @@ import (
 // ApplyMigrations brings everything up, a second call is a no-op, and
 // BootstrapPostgresStore works end to end on the result. Named to match
 // check-db's -run Postgres filter, like every live-Postgres test here.
+//
+// dbtest.Lock, not Connect: this test wants an EMPTY database, not a
+// migrated one, but it must still hold the harness lock - its DROP SCHEMA
+// CASCADE against the shared database is precisely the operation that must
+// never interleave with another package's reset (it did, for four
+// consecutive post-land check-db runs, once -p 1 stopped serializing
+// externally: "relation orgs already exists" in whichever package lost).
 func TestPostgresApplyMigrationsFromEmptyDatabase(t *testing.T) {
-	// dbtest.Connect both skips without a DSN and - critically - holds the
-	// cross-process harness lock for this test's lifetime. This test drops
-	// and recreates the whole schema on the SHARED test database; it was
-	// the one live-Postgres test that took the DSN directly, so it could
-	// run concurrently with another package's freshly-reset schema and
-	// re-create tables under it (post-land CI 2026-07-10: platform/checks
-	// failed its reset with "orgs already exists" - this test's
-	// ApplyMigrations had landed between checks' teardown and its 0001).
-	dbtest.Connect(t)
-	dsn := os.Getenv("RUNKO_TEST_DATABASE_URL")
+	dsn := dbtest.Lock(t)
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

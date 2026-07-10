@@ -15,7 +15,12 @@ import (
 // produces; the lock is session-level in Postgres, so what serializes two
 // goroutines' sessions here serializes two OS processes' sessions
 // identically.
-func TestConnectSerializesConcurrentTests(t *testing.T) {
+//
+// "Postgres" in the name is load-bearing: check-db and check-bazel-db run
+// `-run Postgres` / `--test_filter=Postgres`, and this test's first
+// version, named without it, never executed in those lanes - it passed
+// only under the unfiltered internal-test check.
+func TestConnectSerializesConcurrentTestsAgainstLivePostgres(t *testing.T) {
 	if os.Getenv(envVar) == "" {
 		t.Skipf("%s not set - skipping live-Postgres test", envVar)
 	}

@@ -50,12 +50,17 @@ const envVar = "RUNKO_TEST_DATABASE_URL"
 // this one.
 const harnessLockKey = 0x52554e4b4f5f4442 // "RUNKO_DB"
 
-// Connect returns a pool against RUNKO_TEST_DATABASE_URL with the schema
-// reset to a clean, freshly-migrated state, or skips the test if the env
-// var isn't set. It blocks until every other Connect-holding test (in any
-// process) finishes; call it once per test (a second Connect in the same
-// test would self-deadlock on the session lock).
-func Connect(t *testing.T) *pgxpool.Pool {
+// Lock acquires the cross-process harness lock WITHOUT resetting the
+// schema, or skips the test if RUNKO_TEST_DATABASE_URL is unset. It is for
+// the rare test that manages its own schema state (e.g. the migrator test,
+// which starts from a deliberately EMPTY database) but must still exclude
+// every Connect-holding test - such a test skipping the lock was exactly
+// how four consecutive post-land check-db runs failed once the external
+// -p 1 serialization was removed: its DROP SCHEMA CASCADE interleaved with
+// another package's locked reset. Held until the test's cleanups run; one
+// Lock or Connect per test (a second would self-deadlock on the session
+// lock). Returns the DSN for convenience.
+func Lock(t *testing.T) string {
 	t.Helper()
 	dsn := os.Getenv(envVar)
 	if dsn == "" {
@@ -70,9 +75,20 @@ func Connect(t *testing.T) *pgxpool.Pool {
 		lock.Close(context.Background())
 		t.Fatalf("dbtest: acquire harness lock: %v", err)
 	}
-	// Closing the session releases the lock; registered before resetSchema
-	// so even a Fatalf below unblocks the next waiter.
+	// Closing the session releases the lock; registered before any schema
+	// work so even a Fatalf later unblocks the next waiter.
 	t.Cleanup(func() { lock.Close(context.Background()) })
+	return dsn
+}
+
+// Connect returns a pool against RUNKO_TEST_DATABASE_URL with the schema
+// reset to a clean, freshly-migrated state, or skips the test if the env
+// var isn't set. It blocks until every other Connect- or Lock-holding test
+// (in any process) finishes; call it once per test (a second Connect in
+// the same test would self-deadlock on the session lock).
+func Connect(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	dsn := Lock(t)
 
 	resetSchema(t, dsn)
 

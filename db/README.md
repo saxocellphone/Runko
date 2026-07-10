@@ -62,5 +62,9 @@ Connect-holding tests serialize across processes with no `-p 1` /
 `--local_test_jobs=1` anywhere (that's what lets pg tests ride each
 project's ordinary scoped check in CI, §14.9.1). Consequences when writing
 new live-DB tests: call `Connect` **once per test** (a second call in the
-same test self-deadlocks on the session lock), and expect wall-clock
-serialization - keep them short.
+same test self-deadlocks on the session lock), expect wall-clock
+serialization (keep them short), name the test with `Postgres` so the
+`-run Postgres` lanes execute it, and if a test manages its own schema
+state instead of wanting Connect's reset, it must still hold the lock via
+`dbtest.Lock` - an unlocked `DROP SCHEMA` was a real four-runs-straight
+CI breaker.
