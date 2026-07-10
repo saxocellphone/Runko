@@ -10,6 +10,13 @@ RETURNING *;
 -- name: GetActor :one
 SELECT * FROM actors WHERE id = $1;
 
+-- name: GetActorsByIDs :many
+-- Batch form of GetActor for list hydration: ListChanges used to resolve
+-- authored_by/landed_by with one GetActor round-trip per row (N+1 - the
+-- landed tab's 300ms at 44 changes), this fetches every distinct actor a
+-- page of changes references in one query.
+SELECT * FROM actors WHERE id = ANY(sqlc.arg(ids)::uuid[]);
+
 -- name: GetActorByExternalRef :one
 SELECT * FROM actors WHERE org_id = $1 AND type = $2 AND external_ref = $3;
 

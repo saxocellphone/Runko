@@ -168,13 +168,7 @@ func (s *PostgresStore) ListChanges(ctx context.Context, state string) ([]Change
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Change, len(rows))
-	for i, r := range rows {
-		if out[i], err = s.hydrateChange(ctx, r); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
+	return s.hydrateChanges(ctx, rows)
 }
 
 func (s *PostgresStore) MarkChangeAbandoned(ctx context.Context, changeKey string) (Change, error) {
@@ -218,20 +212,63 @@ func (s *PostgresStore) actorIDFor(ctx context.Context, name string) (uuid.UUID,
 	return actor.ID, nil
 }
 
-// actorName is actorIDFor's inverse for reads; the bootstrap placeholder
-// reads back as "" (anonymous), matching MemStore.
-func (s *PostgresStore) actorName(ctx context.Context, id uuid.UUID) (string, error) {
-	if id == s.AuthorActorID {
-		return "", nil
+// actorNamesFor resolves every authored_by/landed_by actor a set of change
+// rows references in ONE GetActorsByIDs query. Hydrating row-by-row did a
+// GetActor round-trip per name, which made ListChanges O(rows) in database
+// round-trips - the landed tab paid ~300ms at 44 changes for what is one
+// indexed lookup (stage 15 dogfood: "landed/open tabs load slowly"). The
+// bootstrap placeholder actor is never fetched; it reads back as ""
+// (anonymous), matching MemStore.
+func (s *PostgresStore) actorNamesFor(ctx context.Context, rows []*dbgen.Change) (map[uuid.UUID]string, error) {
+	seen := map[uuid.UUID]bool{}
+	var ids []uuid.UUID
+	add := func(id uuid.UUID) {
+		if id != s.AuthorActorID && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
 	}
-	actor, err := s.Queries.GetActor(ctx, s.Pool, id)
+	for _, r := range rows {
+		add(r.AuthoredByActorID)
+		if r.LandedByActorID.Valid {
+			add(uuid.UUID(r.LandedByActorID.Bytes))
+		}
+	}
+	names := make(map[uuid.UUID]string, len(ids))
+	if len(ids) == 0 {
+		return names, nil
+	}
+	actors, err := s.Queries.GetActorsByIDs(ctx, s.Pool, ids)
 	if err != nil {
-		return "", fmt.Errorf("runkod: resolve actor %s: %w", id, err)
+		return nil, fmt.Errorf("runkod: resolve actors: %w", err)
 	}
-	return actor.ExternalRef, nil
+	for _, a := range actors {
+		names[a.ID] = a.ExternalRef
+	}
+	return names, nil
+}
+
+func (s *PostgresStore) hydrateChanges(ctx context.Context, rows []*dbgen.Change) ([]Change, error) {
+	names, err := s.actorNamesFor(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Change, len(rows))
+	for i, r := range rows {
+		out[i] = hydrateChangeNamed(r, names)
+	}
+	return out, nil
 }
 
 func (s *PostgresStore) hydrateChange(ctx context.Context, c *dbgen.Change) (Change, error) {
+	list, err := s.hydrateChanges(ctx, []*dbgen.Change{c})
+	if err != nil {
+		return Change{}, err
+	}
+	return list[0], nil
+}
+
+func hydrateChangeNamed(c *dbgen.Change, names map[uuid.UUID]string) Change {
 	ch := Change{
 		ChangeKey: c.ChangeKey, State: string(c.State),
 		BaseSHA: c.BaseSha, HeadSHA: c.HeadSha, GitRef: c.GitRef, Title: c.Title,
@@ -241,16 +278,11 @@ func (s *PostgresStore) hydrateChange(ctx context.Context, c *dbgen.Change) (Cha
 	if c.LandedSha != nil {
 		ch.LandedSHA = *c.LandedSha
 	}
-	var err error
-	if ch.AuthoredBy, err = s.actorName(ctx, c.AuthoredByActorID); err != nil {
-		return Change{}, err
-	}
+	ch.AuthoredBy = names[c.AuthoredByActorID]
 	if c.LandedByActorID.Valid {
-		if ch.LandedBy, err = s.actorName(ctx, uuid.UUID(c.LandedByActorID.Bytes)); err != nil {
-			return Change{}, err
-		}
+		ch.LandedBy = names[uuid.UUID(c.LandedByActorID.Bytes)]
 	}
-	return ch, nil
+	return ch
 }
 
 func (s *PostgresStore) GetMirrorCursor(ctx context.Context, remote, ref string) (MirrorCursor, bool, error) {

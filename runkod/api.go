@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/saxocellphone/runko/internal/clierr"
@@ -96,6 +97,25 @@ type Server struct {
 	// Now overrides the clock the §14.4.2 check-staleness comparison uses;
 	// nil means time.Now (tests inject a fake clock).
 	Now func() time.Time
+
+	// affectedMu/affectedCache memoize computeAffected by (base_sha,
+	// head_sha). Both key halves are commit SHAs, so an entry can never go
+	// stale - §13.3's "never cached past a head_sha change" is honored BY
+	// the key: a new head is simply a new entry. Without this, every
+	// merge-requirements read re-walked the whole tree at head (one git
+	// subprocess per directory, two more per manifest - ~400ms on the
+	// dogfood repo), and the UI reads merge requirements once per listed
+	// change (stage 15 dogfood: "landed/open tabs load slowly").
+	affectedMu    sync.Mutex
+	affectedCache map[string]affectedEntry
+}
+
+// affectedEntry is one memoized computeAffected result. Entries are shared
+// across requests, so callers treat result/indexed as read-only - every
+// existing consumer already does (they derive fresh slices).
+type affectedEntry struct {
+	result  affected.Result
+	indexed []index.IndexedProject
 }
 
 // effectiveGlobalChecks is the org-wide required-check set the §13.5 gate
@@ -670,6 +690,14 @@ func (s *Server) handleGetAffected(w http.ResponseWriter, r *http.Request) {
 // against this Change's base/head when CI posted its checks - not trunk's
 // current tip, which is attemptLand's (land.go) concern, not this one.
 func (s *Server) computeAffected(change Change) (affected.Result, []index.IndexedProject, error) {
+	cacheKey := change.BaseSHA + "\x00" + change.HeadSHA
+	s.affectedMu.Lock()
+	if e, ok := s.affectedCache[cacheKey]; ok {
+		s.affectedMu.Unlock()
+		return e.result, e.indexed, nil
+	}
+	s.affectedMu.Unlock()
+
 	store := gitstore.New(s.RepoDir)
 	indexed, err := index.Scan(store, core.Revision(change.HeadSHA), nil)
 	if err != nil {
@@ -696,6 +724,18 @@ func (s *Server) computeAffected(change Change) (affected.Result, []index.Indexe
 		rootInvalidation = append(rootInvalidation, s.Processor.RootInvalidationPatterns...)
 	}
 	result := affected.Compute(projects, changedPaths, affected.Options{RootInvalidationPatterns: rootInvalidation})
+
+	s.affectedMu.Lock()
+	if s.affectedCache == nil {
+		s.affectedCache = map[string]affectedEntry{}
+	}
+	// SHA-keyed entries never expire, but the map must not grow with every
+	// amend ever pushed; past ~512 live (base, head) pairs just start over.
+	if len(s.affectedCache) >= 512 {
+		s.affectedCache = map[string]affectedEntry{}
+	}
+	s.affectedCache[cacheKey] = affectedEntry{result: result, indexed: indexed}
+	s.affectedMu.Unlock()
 	return result, indexed, nil
 }
 

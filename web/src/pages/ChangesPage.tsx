@@ -51,19 +51,25 @@ export function ChangesPage() {
       }
     }
     // One merge-requirements call per change powers the status chips and
-    // stack dots. Fine at demo scale; a batch RPC is the obvious follow-up
-    // if the real list view needs it (noted in proto/README.md).
+    // stack dots - which only the OPEN tab renders. Landed/abandoned use
+    // FlatList (state badge only), and fanning the calls out there made
+    // those tabs O(history) server round-trips: 44 landed changes were
+    // 44 unused ~400ms gate computations (stage 15 dogfood). A batch RPC
+    // is still the follow-up if the open inbox itself outgrows this
+    // (noted in proto/README.md).
     const reqs = new Map<string, MergeRequirements>();
-    await Promise.all(
-      res.changes.map(async (c) => {
-        try {
-          const r = await changesClient.getMergeRequirements({ changeId: c.id });
-          if (r.requirements) reqs.set(c.id, r.requirements);
-        } catch {
-          // Chips degrade to "unknown"; the list itself still renders.
-        }
-      }),
-    );
+    if (tab === ChangeState.OPEN) {
+      await Promise.all(
+        res.changes.map(async (c) => {
+          try {
+            const r = await changesClient.getMergeRequirements({ changeId: c.id });
+            if (r.requirements) reqs.set(c.id, r.requirements);
+          } catch {
+            // Chips degrade to "unknown"; the list itself still renders.
+          }
+        }),
+      );
+    }
     return { changes: res.changes, abandoned, requirements: reqs };
   }, `changes-${tab}`);
 

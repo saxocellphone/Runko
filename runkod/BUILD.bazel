@@ -59,6 +59,7 @@ go_library(
 go_test(
     name = "runkod_test",
     srcs = [
+        "affectedcache_test.go",
         "api_test.go",
         "approve_test.go",
         "auth_test.go",

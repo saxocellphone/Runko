@@ -111,6 +111,43 @@ func (q *Queries) GetActorByExternalRef(ctx context.Context, db DBTX, arg GetAct
 	return &i, err
 }
 
+const getActorsByIDs = `-- name: GetActorsByIDs :many
+SELECT id, org_id, type, external_ref, display_name, agent_policy_id, metadata, created_at FROM actors WHERE id = ANY($1::uuid[])
+`
+
+// Batch form of GetActor for list hydration: ListChanges used to resolve
+// authored_by/landed_by with one GetActor round-trip per row (N+1 - the
+// landed tab's 300ms at 44 changes), this fetches every distinct actor a
+// page of changes references in one query.
+func (q *Queries) GetActorsByIDs(ctx context.Context, db DBTX, ids []uuid.UUID) ([]*Actor, error) {
+	rows, err := db.Query(ctx, getActorsByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Actor
+	for rows.Next() {
+		var i Actor
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Type,
+			&i.ExternalRef,
+			&i.DisplayName,
+			&i.AgentPolicyID,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAgentPolicy = `-- name: GetAgentPolicy :one
 SELECT id, org_id, name, require_workspace_affinity, max_changed_files, max_diff_bytes, can_create_projects, can_land_changes, can_modify_owners, can_enable_capabilities, denylist_paths, created_at FROM agent_policies WHERE id = $1
 `

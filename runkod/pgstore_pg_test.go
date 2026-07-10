@@ -372,6 +372,25 @@ func TestPostgresStoreAttributionRoundTrip(t *testing.T) {
 	if got.LandedBy != "" {
 		t.Fatalf("expected anonymous LandedBy to read back empty, got %q", got.LandedBy)
 	}
+
+	// The same names must come back through the LIST path: ListChanges
+	// hydrates attribution via one batch GetActorsByIDs query rather than
+	// per-row GetActor round-trips (stage 15: the landed tab paid one
+	// round-trip per name at 44 changes).
+	landedList, err := store.ListChanges(ctx, "landed")
+	if err != nil || len(landedList) != 2 {
+		t.Fatalf("ListChanges(landed): got %d changes (%v)", len(landedList), err)
+	}
+	byKey := map[string]Change{}
+	for _, c := range landedList {
+		byKey[c.ChangeKey] = c
+	}
+	if c := byKey["Iattr"]; c.AuthoredBy != "bob" || c.LandedBy != "carol" {
+		t.Fatalf("batch hydration: expected Iattr authored=bob landed=carol, got %+v", c)
+	}
+	if c := byKey["Ianon"]; c.AuthoredBy != "" || c.LandedBy != "" {
+		t.Fatalf("batch hydration: expected Ianon anonymous both ways, got %+v", c)
+	}
 }
 
 // TestPostgresStoreLifecycleAndRerunAttempts covers stage 12c-③'s Postgres
