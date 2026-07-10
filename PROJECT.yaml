@@ -25,15 +25,30 @@ prose:
   - "**/*.md"
   - LICENSE
   - docs/images/**
+# Two classes (§14.5.8): GRAPH-VISIBLE entries carry {refinable: true} -
+# a successful bazel snapshot diff (target-determinator) may replace their
+# run_everything with the exact impacted-target set, consumed ONLY by
+# post-land ci.yml's resolve (runko-ci checks --engine bazel; the merge
+# gate never narrows). Out-of-graph entries (Makefile, Docker, sqlc,
+# workflows, scripts) stay blunt strings permanently - no build graph can
+# see them, so nothing can vouch for a narrower blast radius.
 root_invalidation:
-  - go.mod
-  - go.sum
-  - MODULE.bazel
-  - MODULE.bazel.lock
-  - BUILD.bazel
-  - .bazelrc
-  - .bazelversion
-  - .bazelignore
+  - pattern: go.mod
+    refinable: true
+  - pattern: go.sum
+    refinable: true
+  - pattern: MODULE.bazel
+    refinable: true
+  - pattern: MODULE.bazel.lock
+    refinable: true
+  - pattern: BUILD.bazel
+    refinable: true
+  - pattern: .bazelrc
+    refinable: true
+  - pattern: .bazelversion
+    refinable: true
+  - pattern: .bazelignore
+    refinable: true
   - Makefile
   - Dockerfile
   - .dockerignore

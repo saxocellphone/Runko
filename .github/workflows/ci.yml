@@ -41,6 +41,25 @@ jobs:
           fetch-depth: 0 # the before..after diff needs the pre-push tip
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
+      # The snapshot-diff strategy (§14.5.8) needs bazel + the determinator
+      # only when a refinable root file (MODULE.bazel, go.mod, ...) is in
+      # the landed delta; installing both is cheap and unconditional, the
+      # diff itself runs conditionally inside runko-ci. Post-land is the
+      # ONE place --engine belongs today: nothing gates on this output, so
+      # narrowing is a pure CI-cost experiment (fail-closed to
+      # run_everything on any determinator error).
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: bazel-resolve
+          repository-cache: true
+      - name: install target-determinator (snapshot diff, §14.5.8)
+        run: |
+          command -v target-determinator >/dev/null || {
+            sudo curl -fsSL -o /usr/local/bin/target-determinator \
+              https://github.com/bazel-contrib/target-determinator/releases/download/v0.34.0/target-determinator.linux.amd64
+            sudo chmod +x /usr/local/bin/target-determinator
+          }
       - name: resolve the check matrix from the landed tree
         id: resolve
         run: |
@@ -48,7 +67,7 @@ jobs:
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             BASE=$(git hash-object -t tree /dev/null) # git's empty tree
           fi
-          OUT=$(go run ./cli/runko-ci checks --base "$BASE" --head "$GITHUB_SHA")
+          OUT=$(go run ./cli/runko-ci checks --base "$BASE" --head "$GITHUB_SHA" --engine bazel)
           echo "$OUT" | jq .
           echo "matrix=$(echo "$OUT" | jq -c '.checks')" >> "$GITHUB_OUTPUT"
           echo "has_checks=$(echo "$OUT" | jq -r '.checks | length > 0')" >> "$GITHUB_OUTPUT"
