@@ -1,4 +1,13 @@
 load("@gazelle//:def.bzl", "gazelle")
+load("@rules_go//go:def.bzl", "nogo")
+
+# vet-under-bazel (MODULE.bazel go_sdk.nogo): runs during every build,
+# so a vet violation fails compilation - no separate lint lane to forget.
+nogo(
+    name = "runko_nogo",
+    vet = True,
+    visibility = ["//visibility:public"],
+)
 
 # gazelle:prefix github.com/saxocellphone/runko
 # gazelle:proto disable_global

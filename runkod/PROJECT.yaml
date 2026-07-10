@@ -17,6 +17,6 @@ ci:
     - name: platform-race
       command: make check-bazel-race
     - name: platform-db
-      command: make check-db
+      command: make check-bazel-db
     - name: bazel-check
       command: make check-bazel

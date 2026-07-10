@@ -10,6 +10,11 @@ bazel_dep(name = "gazelle", version = "0.51.3")
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
 go_sdk.download(version = "1.25.0")
 
+# nogo: vet analyzers ride every compilation (§14.5.4 golden path - the
+# bazel-native replacement for a separate `go vet` pass). //:runko_nogo
+# enables the same default analyzer set `go vet` runs.
+go_sdk.nogo(nogo = "//:runko_nogo")
+
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
 use_repo(

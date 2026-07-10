@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "dbtest",
@@ -6,8 +6,15 @@ go_library(
     importpath = "github.com/saxocellphone/runko/internal/dbtest",
     visibility = ["//:__subpackages__"],
     deps = [
+        "//db",
         "//internal/dbgen",
         "@com_github_google_uuid//:uuid",
         "@com_github_jackc_pgx_v5//pgxpool",
     ],
+)
+
+go_test(
+    name = "dbtest_test",
+    srcs = ["migrations_test.go"],
+    embed = [":dbtest"],
 )

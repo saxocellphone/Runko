@@ -1,4 +1,4 @@
-.PHONY: check fmt vet test build check-db check-race check-web check-bazel check-bazel-test check-bazel-race
+.PHONY: check fmt vet test build check-db check-race check-web check-bazel check-bazel-test check-bazel-race check-bazel-db
 
 check: fmt vet test
 
@@ -78,6 +78,19 @@ check-bazel-test:
 
 check-bazel-race:
 	bazel test --@rules_go//go/config:race //...
+
+# The live-Postgres integration tests under bazel: env passthrough for the
+# DSN, --test_filter narrows to the Postgres-gated tests (targets without
+# any simply pass), --local_test_jobs=1 gives the -p 1 serialization the
+# shared-schema resets need, and --nocache_test_results because a mutable
+# external database is not a hermetic input.
+check-bazel-db:
+	@if [ -z "$$RUNKO_TEST_DATABASE_URL" ]; then \
+		echo "RUNKO_TEST_DATABASE_URL is not set - see db/README.md"; \
+		exit 1; \
+	fi
+	bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_filter=Postgres \
+		--local_test_jobs=1 --nocache_test_results //...
 
 # The §16.4 measured eval loop (docker compose v2 + go required): compose
 # up -> create -> change -> land, twice, timed against §3.3's budget. CI

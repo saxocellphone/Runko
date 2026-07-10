@@ -15,18 +15,21 @@
 package dbtest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
+	"path"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/saxocellphone/runko/db"
 
 	"github.com/saxocellphone/runko/internal/dbgen"
 )
@@ -63,34 +66,26 @@ func Connect(t *testing.T) *pgxpool.Pool {
 // without a new mid-session dependency (CLAUDE.md rule).
 func resetSchema(t *testing.T, dsn string) {
 	t.Helper()
-	dir := filepath.Join(repoRoot(t), "db", "migrations")
-	ups, err := filepath.Glob(filepath.Join(dir, "*.up.sql"))
+	ups, downs, err := migrationNames()
 	if err != nil || len(ups) == 0 {
-		t.Fatalf("dbtest: find migrations in %s: %v", dir, err)
+		t.Fatalf("dbtest: enumerate embedded migrations: %v (ups: %d)", err, len(ups))
 	}
-	downs, err := filepath.Glob(filepath.Join(dir, "*.down.sql"))
-	if err != nil {
-		t.Fatalf("dbtest: find down migrations in %s: %v", dir, err)
-	}
-	sort.Strings(ups)
-	sort.Sort(sort.Reverse(sort.StringSlice(downs)))
 
 	// Best-effort teardown first (ignore errors: first run against a fresh
 	// database has nothing to tear down yet). The migration-tracking table
 	// isn't any down file's concern (runkod.ApplyMigrations owns it), so
 	// drop it here too.
 	for _, down := range downs {
-		exec.Command("psql", dsn, "-q", "-f", down).Run()
+		runPsqlStdin(dsn, mustRead(t, down), false)
 	}
 	exec.Command("psql", dsn, "-q", "-c", "DROP TABLE IF EXISTS runko_schema_migrations").Run()
 
 	versions := make([]string, 0, len(ups))
 	for _, up := range ups {
-		cmd := exec.Command("psql", dsn, "-v", "ON_ERROR_STOP=1", "-q", "-f", up)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := runPsqlStdin(dsn, mustRead(t, up), true); err != nil {
 			t.Fatalf("dbtest: apply migration %s: %v: %s", up, err, out)
 		}
-		versions = append(versions, fmt.Sprintf("('%s')", strings.TrimSuffix(filepath.Base(up), ".up.sql")))
+		versions = append(versions, fmt.Sprintf("('%s')", strings.TrimSuffix(path.Base(up), ".up.sql")))
 	}
 
 	// Record what was applied in the same table runkod.ApplyMigrations
@@ -140,24 +135,49 @@ func Seed(t *testing.T, ctx context.Context, db dbgen.DBTX, name string) Fixture
 	return Fixture{OrgID: org.ID, MonorepoID: repo.ID, ActorID: actor.ID}
 }
 
-// repoRoot walks up from this source file's directory to find the module
-// root (the directory containing go.mod), so tests work regardless of the
-// working directory `go test` is invoked from.
-func repoRoot(t *testing.T) string {
+// The migrations come from the SAME embedded FS the product ships
+// (db.Migrations, //go:embed): no repo-root discovery, so this harness
+// works identically under plain `go test` (source tree) and `bazel test`
+// (sandbox runfiles) - §14.5.4's both-runners contract.
+
+// migrationNames enumerates embedded migration paths: ups in ascending
+// numeric order, downs descending - the sequence a real runner produces.
+func migrationNames() (ups, downs []string, err error) {
+	entries, err := fs.ReadDir(db.Migrations, "migrations")
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, e := range entries {
+		name := path.Join("migrations", e.Name())
+		switch {
+		case strings.HasSuffix(e.Name(), ".up.sql"):
+			ups = append(ups, name)
+		case strings.HasSuffix(e.Name(), ".down.sql"):
+			downs = append(downs, name)
+		}
+	}
+	sort.Strings(ups)
+	sort.Sort(sort.Reverse(sort.StringSlice(downs)))
+	return ups, downs, nil
+}
+
+func mustRead(t *testing.T, name string) []byte {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatalf("dbtest: could not determine source file location")
+	b, err := fs.ReadFile(db.Migrations, name)
+	if err != nil {
+		t.Fatalf("dbtest: read embedded %s: %v", name, err)
 	}
-	dir := filepath.Dir(thisFile)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("dbtest: could not find go.mod above %s", filepath.Dir(thisFile))
-		}
-		dir = parent
+	return b
+}
+
+// runPsqlStdin feeds sql to psql over stdin (embedded content has no file
+// path to hand to -f). strict toggles ON_ERROR_STOP.
+func runPsqlStdin(dsn string, sql []byte, strict bool) ([]byte, error) {
+	args := []string{dsn, "-q"}
+	if strict {
+		args = append(args, "-v", "ON_ERROR_STOP=1")
 	}
+	cmd := exec.Command("psql", args...)
+	cmd.Stdin = bytes.NewReader(sql)
+	return cmd.CombinedOutput()
 }

@@ -145,10 +145,8 @@ jobs:
           bazelisk-cache: true
           disk-cache: bazel-tests
           repository-cache: true
-      - name: fmt + vet (native, fast)
-        run: |
-          gofmt -l . | (! grep .)
-          go vet ${{ needs.setup.outputs.go_scope }}
+      - name: gofmt (nogo covers vet inside every bazel build)
+        run: gofmt -l . | (! grep .)
       - name: bazel test (scoped - §14.5.4 golden path)
         run: bazel test --test_output=errors ${{ needs.setup.outputs.bazel_scope }}
       - name: report result
@@ -253,10 +251,18 @@ jobs:
             --status in_progress --reporter github-actions
       - name: Ensure psql client is installed
         run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
-      - name: db integration tests (scoped)
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: bazel-tests-db
+          repository-cache: true
+      - name: db integration tests (bazel, scoped)
         env:
           RUNKO_TEST_DATABASE_URL: postgres://runko:runko@localhost:5432/runko_test?sslmode=disable
-        run: go test -run Postgres -p 1 ${{ needs.setup.outputs.go_scope }}
+        run: |
+          bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_filter=Postgres \
+            --local_test_jobs=1 --nocache_test_results --test_output=errors \
+            ${{ needs.setup.outputs.bazel_scope }}
       - name: report result
         if: success() || failure()
         run: |

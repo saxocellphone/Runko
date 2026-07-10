@@ -78,7 +78,7 @@ go test ./...    # tests only
 go build ./...   # compile-check only
 sqlc generate    # regenerate internal/dbgen after editing db/migrations or db/queries (see db/README.md)
 make check-db    # live-Postgres integration tests; needs RUNKO_TEST_DATABASE_URL + psql (db/README.md) — not runnable in this environment
-make check-bazel-test  # the test suite under bazel (§14.5.4 golden path — what CI's platform-check runs, scoped); check-bazel-race is its -race sibling
+make check-bazel-test  # the test suite under bazel (§14.5.4 golden path — what CI's platform-check runs, scoped); check-bazel-race / check-bazel-db are its -race and live-Postgres siblings
 make check-web   # web frontend: tsc + oxlint + vitest + vite build; needs Node >= 22 — hand-installed at ~/.local/node/bin here, export PATH="$HOME/.local/node/bin:$PATH"
 ```
 
