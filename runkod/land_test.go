@@ -6,6 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
 	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/platform/land"
 	"github.com/saxocellphone/runko/platform/receive"
 )
 
@@ -562,4 +566,91 @@ func TestRevalidationRebaseRepushLands(t *testing.T) {
 	if landResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected the rebased re-push to land, got %d: %s", landResp.StatusCode, body)
 	}
+}
+
+// TestRebaseLandPreservesAuthorship: a fast-forward land keeps the pushed
+// commit verbatim, but the rebase path creates a new commit - it must
+// carry the original author and full message (committer becomes the
+// landing machine), not re-author history as "Runko" with a title-only
+// message. Observed live on the mirror before the fix.
+func TestRebaseLandPreservesAuthorship(t *testing.T) {
+	bare := newBareRepo(t)
+	store := NewMemStore()
+	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, AllowUnpolicedLand: true}
+
+	// Trunk with one commit; a change based on it; then trunk advances so
+	// the land MUST rebase (non-fast-forward), touching disjoint paths so
+	// revalidation stays quiet.
+	work := t.TempDir()
+	mustGitLand(t, work, "clone", bare, ".")
+	mustGitLand(t, work, "-c", "user.name=Base", "-c", "user.email=base@x.dev", "commit", "--allow-empty", "-m", "root")
+	mustGitLand(t, work, "push", "origin", "HEAD:refs/heads/main")
+
+	// The change: authored by Alice with a multi-line message.
+	change := t.TempDir()
+	mustGitLand(t, change, "clone", bare, ".")
+	if err := os.WriteFile(filepath.Join(change, "a.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGitLand(t, change, "add", "a.txt")
+	{
+		// Env beats -c for identity, so author Alice needs explicit env.
+		cmd := exec.Command("git", "commit", "-m", "feat: the change\n\nA body line that must survive.\n\nChange-Id: Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		cmd.Dir = change
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Alice", "GIT_AUTHOR_EMAIL=alice@x.dev",
+			"GIT_COMMITTER_NAME=Alice", "GIT_COMMITTER_EMAIL=alice@x.dev")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("alice commit: %v\n%s", err, out)
+		}
+	}
+	headSHA := strings.TrimSpace(mustGitLand(t, change, "rev-parse", "HEAD"))
+	baseSHA := strings.TrimSpace(mustGitLand(t, change, "rev-parse", "HEAD~1"))
+	mustGitLand(t, change, "push", "origin", "HEAD:refs/changes/Iaaa/head")
+
+	// Trunk moves on (disjoint path).
+	if err := os.WriteFile(filepath.Join(work, "b.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGitLand(t, work, "add", "b.txt")
+	mustGitLand(t, work, "-c", "user.name=Base", "-c", "user.email=base@x.dev", "commit", "-m", "trunk moved")
+	mustGitLand(t, work, "push", "origin", "HEAD:refs/heads/main")
+
+	if _, err := store.CreateOrUpdateChange(context.Background(), "Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		baseSHA, headSHA, "refs/changes/Iaaa/head", "feat: the change", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	changeRow, _, _ := store.GetChange(context.Background(), "Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	outcome, err := srv.attemptLand(context.Background(), changeRow, land.RevalidationNever)
+	if err != nil || !outcome.Landed {
+		t.Fatalf("land: %v %+v", err, outcome)
+	}
+
+	mustGitLand(t, work, "fetch", "origin", "main")
+	got := strings.TrimSpace(mustGitLand(t, work, "log", "-1", "--format=%an%x00%ae%x00%cn%x00%B", "FETCH_HEAD"))
+	parts := strings.SplitN(got, "\x00", 4)
+	if len(parts) != 4 {
+		t.Fatalf("unexpected log output: %q", got)
+	}
+	if parts[0] != "Alice" || parts[1] != "alice@x.dev" {
+		t.Fatalf("rebase-land must preserve the author, got %q <%q>", parts[0], parts[1])
+	}
+	if parts[2] != "Runko" {
+		t.Fatalf("committer should be the landing machine, got %q", parts[2])
+	}
+	if !strings.Contains(parts[3], "A body line that must survive.") || !strings.Contains(parts[3], "Change-Id: Iaaa") {
+		t.Fatalf("rebase-land must preserve the full message, got:\n%s", parts[3])
+	}
+}
+
+func mustGitLand(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.dev", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.dev", "GIT_CONFIG_GLOBAL=/dev/null")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
 }

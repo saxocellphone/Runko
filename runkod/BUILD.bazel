@@ -98,6 +98,7 @@ go_test(
         "//platform/affected",
         "//platform/checks",
         "//platform/index",
+        "//platform/land",
         "//platform/mirror",
         "//platform/receive",
         "//platform/search",

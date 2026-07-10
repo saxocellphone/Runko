@@ -32,6 +32,11 @@ func diffPaths(repoDir, from, to string) ([]string, error) {
 // commitTree wraps `git commit-tree`, used to turn a merge-tree result (a
 // tree object, not yet a commit) into a real commit with a single parent -
 // the linear-trunk-history half of rebase-based landing (§7.4).
+//
+// Identity follows the Gerrit/GitHub model: the AUTHOR is whoever wrote
+// the change (meta, filled from the original commit by the caller - a
+// rebase-land must not eat authorship the way a fast-forward land
+// preserves it), the COMMITTER is the landing machine.
 func commitTree(repoDir, treeSHA, parent string, meta core.CommitMeta) (string, error) {
 	authorName := orDefault(meta.AuthorName, "Runko")
 	authorEmail := orDefault(meta.AuthorEmail, "runko@localhost")
@@ -40,7 +45,7 @@ func commitTree(repoDir, treeSHA, parent string, meta core.CommitMeta) (string, 
 	cmd.Dir = repoDir
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME="+authorName, "GIT_AUTHOR_EMAIL="+authorEmail,
-		"GIT_COMMITTER_NAME="+authorName, "GIT_COMMITTER_EMAIL="+authorEmail,
+		"GIT_COMMITTER_NAME=Runko", "GIT_COMMITTER_EMAIL=runko@localhost",
 	)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out

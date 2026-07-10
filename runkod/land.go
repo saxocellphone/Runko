@@ -3,8 +3,10 @@ package runkod
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
+	"strings"
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
@@ -106,7 +108,22 @@ func (s *Server) attemptLand(ctx context.Context, change Change, scope land.Reva
 		}
 		changeAffected := affected.Compute(projects, changedPaths, opts)
 
+		// A fast-forward land preserves the pushed commit verbatim; the
+		// rebase path creates a NEW commit and must not degrade it - read
+		// the original author and full message from the change head
+		// instead of re-authoring as the machine with a title-only
+		// message (observed on GitHub as history attributed to "Runko").
 		meta := core.CommitMeta{Message: change.Title + "\n\nChange-Id: " + change.ChangeKey + "\n"}
+		if an, ae, msg, err := commitIdentity(s.RepoDir, change.HeadSHA); err == nil {
+			if !strings.Contains(msg, "Change-Id: "+change.ChangeKey) {
+				// Server-minted ids (trailer-less pushes) aren't in the
+				// original message; the landed commit must stay linkable.
+				msg = strings.TrimRight(msg, "\n") + "\n\nChange-Id: " + change.ChangeKey + "\n"
+			}
+			meta = core.CommitMeta{AuthorName: an, AuthorEmail: ae, Message: msg}
+		} else {
+			log.Printf("runkod: %s: reading head commit identity (landing with fallback identity): %v", change.ChangeKey, err)
+		}
 
 		outcome, err := land.Land(gstore, s.RepoDir, s.TrunkRef, base, change.HeadSHA,
 			scope, changeAffected, projects, opts, meta)
@@ -118,4 +135,18 @@ func (s *Server) attemptLand(ctx context.Context, change Change, scope land.Reva
 		}
 	}
 	return land.Outcome{RaceRetry: true}, nil
+}
+
+// commitIdentity reads sha's author and full message from the bare repo.
+func commitIdentity(repoDir, sha string) (name, email, message string, err error) {
+	cmd := exec.Command("git", "-C", repoDir, "log", "-1", "--format=%an%x00%ae%x00%B", sha)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", "", "", fmt.Errorf("git log %s: %w", sha, err)
+	}
+	parts := strings.SplitN(string(out), "\x00", 3)
+	if len(parts) != 3 {
+		return "", "", "", fmt.Errorf("git log %s: unexpected output", sha)
+	}
+	return parts[0], parts[1], parts[2], nil
 }
