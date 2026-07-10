@@ -1,13 +1,19 @@
 schema: project/v1
 name: docs
 type: other
-# docs has no dependents and no owners (solo-dev: self-approval is
-# hard-denied), so without at least one declared check a docs-only change
-# would hit the default-deny "no merge policy" blocker and be unlandable.
-# bazel-check is the cheapest always-relevant gate under affected-scoped CI
-# (§14.5): the Go test jobs are skipped for a docs-only change, but the
-# build-graph check (gazelle drift) is repo-wide and fast for pure prose.
+# Prose under docs/ (design.md, this file's siblings) re-attributes to the
+# root project (§14.5.7) and gates on docs-check there - so what reaches
+# THIS project's checks is exactly the non-prose remainder: the !-excepted
+# load-bearing docs (docs/spec/** contract schemas, docs/cli-contract.md)
+# plus docs/BUILD.bazel. contracts-test runs precisely the suites that
+# consume those files as runfiles data (//docs:contracts): checks' webhook
+# schema contract tests, mcp's catalog drift/validation, agentsmd's
+# CLI-contract cross-check - the §14.5.7 obligation that every prose
+# exception names what still gates it. docs-check rides along so a mixed
+# docs change validates its links too.
 ci:
   checks:
-    - name: bazel-check
-      command: make check-bazel
+    - name: docs-check
+      command: make check-docs
+    - name: contracts-test
+      command: bazel test --test_output=errors //platform/agentsmd/... //platform/checks/... //platform/mcp/...

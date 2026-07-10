@@ -1,4 +1,4 @@
-.PHONY: check fmt vet test build check-db check-race check-web check-bazel check-bazel-test check-bazel-race check-bazel-db
+.PHONY: check fmt vet test build check-db check-race check-web check-bazel check-bazel-test check-bazel-race check-bazel-db check-docs
 
 check: fmt vet test
 
@@ -42,6 +42,12 @@ check-db:
 		exit 1; \
 	fi
 	go test ./... -run Postgres -v
+
+# The content-tier check (§14.5.7): prose changes (markdown, LICENSE,
+# images - the root manifest's `prose:` patterns) gate on this alone
+# instead of the build graph. Needs only git + python3; seconds.
+check-docs:
+	scripts/check-docs.sh
 
 # Frontend checks (web/): typecheck + lint + vitest + production build.
 # Needs Node >= 22 (this sandbox: ~/.local/node/bin). Separate from

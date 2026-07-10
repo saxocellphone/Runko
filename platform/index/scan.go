@@ -30,6 +30,10 @@ type IndexedProject struct {
 	// (root-manifest-oriented; see index.RootInvalidation). Not persisted
 	// by Sync - live consumers scan the tree, which is the §10.3 truth.
 	RootInvalidation []string
+	// Prose is the manifest's tree-borne §14.5.7 de-escalation list
+	// (ordered, first-match-wins, ! exceptions; see index.Prose). Not
+	// persisted by Sync, like RootInvalidation.
+	Prose []string
 	// Checks are the manifest's full ci.checks definitions (name AND
 	// command) - the encapsulation contract §14.9's generic CI executor
 	// consumes (`runko-ci checks`). RequiredChecks above stays the
@@ -148,6 +152,7 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		Capabilities:         manifest.Capabilities,
 		DeclaredDependencies: manifest.Dependencies,
 		RootInvalidation:     manifest.RootInvalidation,
+		Prose:                manifest.Prose,
 		Visibility:           visibility,
 		Owners:               owners,
 		RequiredChecks:       requiredChecks,
@@ -240,6 +245,20 @@ func RootInvalidation(projects []IndexedProject) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// Prose concatenates every indexed project's tree-declared prose patterns
+// (§14.5.7). Unlike RootInvalidation this is NOT sorted or deduped: prose
+// lists are ordered (first match wins, ! exceptions), so each manifest's
+// internal order is preserved and manifests concatenate in scan order
+// (root first - Scan walks the tree top-down). In practice only the root
+// manifest declares prose.
+func Prose(projects []IndexedProject) []string {
+	var out []string
+	for _, p := range projects {
+		out = append(out, p.Prose...)
+	}
 	return out
 }
 

@@ -25,9 +25,14 @@ remote is named `github` and is the OUTBOUND MIRROR — **never push to it**
   `--test_env=RUNKO_TEST_DATABASE_URL` and `internal/dbtest`'s
   advisory-lock self-serialization — no db lane); `bazel-check`
   (= `make check-bazel`, gazelle drift, repo-wide by nature) is declared by
-  `repo`/`docs`/the Go projects and dedupes by name; `web/PROJECT.yaml`
+  the Go projects and dedupes by name; `web/PROJECT.yaml`
   declares `web-check`; `db/` and `proto/` declare none and are gated via
-  `dependencies:` edges. GitHub Actions is the executor:
+  `dependencies:` edges. PROSE paths (§14.5.7 — markdown anywhere, LICENSE,
+  doc images; the root manifest's ordered `prose:` list) de-escalate to the
+  root project's `docs-check` (`make check-docs`, markdown link checker,
+  seconds); the `!`-excepted load-bearing docs (`docs/spec/**`,
+  `docs/cli-contract.md`) gate on `docs`'s `contracts-test` instead.
+  GitHub Actions is the executor:
   webhook→`runko-bridge`→`repository_dispatch`→
   `.github/workflows/runko-checks.yml` resolves the matrix with
   `runko-ci checks --base --head` and runs each returned command; land

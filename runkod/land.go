@@ -97,6 +97,7 @@ func (s *Server) attemptLand(ctx context.Context, change Change, scope land.Reva
 				return land.Outcome{}, fmt.Errorf("land: scan projects: %w", err)
 			}
 			opts.RootInvalidationPatterns = append(index.RootInvalidation(indexed), rootInvalidation...)
+			opts.ProsePatterns = index.Prose(indexed)
 			projects = make([]affected.ProjectInfo, len(indexed))
 			for i, p := range indexed {
 				projects[i] = affected.ProjectInfo{Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies}

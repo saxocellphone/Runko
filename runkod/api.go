@@ -758,7 +758,10 @@ func (s *Server) computeAffected(change Change) (affected.Result, []index.Indexe
 	if s.Processor != nil {
 		rootInvalidation = append(rootInvalidation, s.Processor.RootInvalidationPatterns...)
 	}
-	result := affected.Compute(projects, changedPaths, affected.Options{RootInvalidationPatterns: rootInvalidation})
+	result := affected.Compute(projects, changedPaths, affected.Options{
+		RootInvalidationPatterns: rootInvalidation,
+		ProsePatterns:            index.Prose(indexed),
+	})
 
 	s.affectedMu.Lock()
 	if s.affectedCache == nil {
@@ -1140,7 +1143,10 @@ func (s *Server) handleAffectedByPaths(w http.ResponseWriter, r *http.Request) {
 	if s.Processor != nil {
 		rootInvalidation = append(rootInvalidation, s.Processor.RootInvalidationPatterns...)
 	}
-	result := affected.Compute(projects, paths, affected.Options{RootInvalidationPatterns: rootInvalidation})
+	result := affected.Compute(projects, paths, affected.Options{
+		RootInvalidationPatterns: rootInvalidation,
+		ProsePatterns:            index.Prose(indexed),
+	})
 	writeJSON(w, http.StatusOK, result)
 }
 

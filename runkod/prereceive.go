@@ -858,6 +858,7 @@ func (p *Processor) computeAffectedAndEnqueue(ctx context.Context, change Change
 	}
 	result := affected.Compute(projects, changedPaths, affected.Options{
 		RootInvalidationPatterns: append(index.RootInvalidation(indexed), p.RootInvalidationPatterns...),
+		ProsePatterns:            index.Prose(indexed),
 	})
 
 	// Actor attribution and Change numbering need real AuthN/a persistent

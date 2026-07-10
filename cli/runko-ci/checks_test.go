@@ -100,3 +100,40 @@ func TestChecksSharedNameDedupesAndConflictErrors(t *testing.T) {
 		t.Fatalf("expected ambiguous_check naming the check, got %v", err)
 	}
 }
+
+// §14.5.7 end to end through the resolver: a prose edit inside a code
+// project's folder gates on the root project's content-tier check alone -
+// not the folder-owner's suite, not its dependents' - while a !-excepted
+// load-bearing doc keeps its owner's checks.
+func TestChecksProseEditResolvesContentTierOnly(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("PROJECT.yaml", "schema: project/v1\nname: repo\ntype: other\nprose:\n  - \"!docs/contract.md\"\n  - \"**/*.md\"\nci:\n  checks:\n    - name: docs-check\n      command: make check-docs\n")
+	repo.WriteFile("lib/PROJECT.yaml", checksManifest("lib", "lib-test", "bazel test //lib/..."))
+	repo.WriteFile("svc/PROJECT.yaml", "schema: project/v1\nname: svc\ntype: service\ndependencies:\n  - lib\nci:\n  checks:\n    - name: svc-test\n      command: bazel test //svc/...\n")
+	repo.WriteFile("docs/PROJECT.yaml", checksManifest("docs", "contracts-test", "bazel test //consumers/..."))
+	base := repo.Commit("seed")
+
+	repo.WriteFile("lib/README.md", "# lib\n")
+	head := repo.Commit("doc edit inside lib")
+	out, err := Checks(repo.Dir, base, head, nil)
+	if err != nil {
+		t.Fatalf("Checks: %v", err)
+	}
+	if out.RunEverything || len(out.Checks) != 1 || out.Checks[0].Name != "docs-check" {
+		t.Fatalf("a prose edit must resolve docs-check alone, got %+v", out)
+	}
+
+	repo.WriteFile("docs/contract.md", "load-bearing\n")
+	head2 := repo.Commit("contract doc edit")
+	out, err = Checks(repo.Dir, base, head2, nil)
+	if err != nil {
+		t.Fatalf("Checks: %v", err)
+	}
+	names := map[string]bool{}
+	for _, c := range out.Checks {
+		names[c.Name] = true
+	}
+	if !names["contracts-test"] {
+		t.Fatalf("an excepted load-bearing doc must keep its owner's checks, got %+v", out)
+	}
+}

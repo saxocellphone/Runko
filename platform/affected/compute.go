@@ -50,6 +50,17 @@ type Options struct {
 	// root-invalidation pattern as if it had - fail closed, never fail open
 	// to "run nothing" (§14.5.3). Aggressive simply drops such paths.
 	Strictness string
+	// ProsePatterns is §14.5.7's de-escalation dual of root invalidation:
+	// an ORDERED, first-match-wins list (same glob dialect, plus a
+	// gitignore-style "!" prefix meaning "not prose"). A changed path whose
+	// first match is un-negated is re-attributed to the repo-root project
+	// (Path == "") instead of its longest-prefix owner - it drives the root
+	// project's content-tier checks (the closure applies to that attribution
+	// as usual; a root project has no dependents in practice). Root
+	// invalidation always wins (checked first); without a root project the
+	// path falls through to ordinary ownership. Check derivation only:
+	// owner derivation reads raw touched paths and never consults this.
+	ProsePatterns []string
 }
 
 // Result mirrors the "affected" block of docs/spec/webhooks/webhook-envelope.schema.json.
@@ -78,6 +89,8 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 		byName[p.Name] = p
 	}
 
+	rootProject, hasRoot := findRootProject(projects)
+
 	reasons := map[string]bool{}
 	runEverything := false
 	direct := map[string]bool{}
@@ -91,6 +104,16 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 		if matchesAny(opts.RootInvalidationPatterns, cp) {
 			runEverything = true
 			reasons[ReasonRootInvalidation] = true
+			continue
+		}
+		// Prose AFTER invalidation, BEFORE ownership (§14.5.7): content
+		// paths gate as root-project content instead of running their
+		// folder-owner's (and its dependents') full check set. Only with
+		// a root project to attribute to - otherwise fall through, so
+		// de-escalation can never widen to "run nothing" (§14.5.3).
+		if hasRoot && ProseMatch(opts.ProsePatterns, cp) {
+			direct[rootProject.Name] = true
+			reasons[ReasonDirectPath] = true
 			continue
 		}
 		if owner, ok := findOwner(projects, cp); ok {
@@ -132,6 +155,35 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 		ReasonCodes:   reasonList,
 		RunEverything: runEverything,
 	}
+}
+
+// findRootProject returns the repo-root project (Path == ""), if any.
+func findRootProject(projects []ProjectInfo) (ProjectInfo, bool) {
+	for _, p := range projects {
+		if p.Path == "" {
+			return p, true
+		}
+	}
+	return ProjectInfo{}, false
+}
+
+// ProseMatch evaluates §14.5.7's ordered prose list against one path:
+// entries are tried in order, the FIRST whose pattern matches decides, and
+// a "!" prefix negates ("this is NOT prose" - how load-bearing files that
+// tests consume as data are excepted from a broad "**/*.md"). No match
+// means not prose. Exported beside MatchPath for the same reason: one
+// implementation of the dialect, not one per package.
+func ProseMatch(orderedPatterns []string, changedPath string) bool {
+	for _, pat := range orderedPatterns {
+		negated := strings.HasPrefix(pat, "!")
+		if negated {
+			pat = pat[1:]
+		}
+		if MatchPath(pat, changedPath) {
+			return !negated
+		}
+	}
+	return false
 }
 
 // findOwner returns the project owning changedPath by longest-path-prefix
@@ -195,11 +247,29 @@ func matchesAny(patterns []string, changedPath string) bool {
 }
 
 // MatchPath supports path.Match glob syntax, plus a "prefix/**" form for
-// matching a whole subtree (path.Match's "*" does not cross "/"). Exported
-// for reuse anywhere else in the codebase that needs the same glob dialect
-// (e.g. receive/'s AgentPolicy.DenylistPaths) - keep this the one
-// implementation rather than duplicating it per package.
+// matching a whole subtree (path.Match's "*" does not cross "/") and a
+// leading "**/" form for any-depth matches ("**/*.md" matches README.md,
+// docs/design.md, and a/b/c.md alike - the remainder is tried against the
+// path itself and every "/"-suffix of it). Exported for reuse anywhere
+// else in the codebase that needs the same glob dialect (e.g. receive/'s
+// AgentPolicy.DenylistPaths) - keep this the one implementation rather
+// than duplicating it per package.
 func MatchPath(pattern, changedPath string) bool {
+	// "**/" prefix before "/**" suffix, so "**/spec/**" recurses into the
+	// any-depth form (whose remainder then uses the suffix form) instead of
+	// treating "**/spec" as a literal prefix.
+	if rest, ok := strings.CutPrefix(pattern, "**/"); ok {
+		for sub := changedPath; ; {
+			if MatchPath(rest, sub) {
+				return true
+			}
+			i := strings.IndexByte(sub, '/')
+			if i < 0 {
+				return false
+			}
+			sub = sub[i+1:]
+		}
+	}
 	if strings.HasSuffix(pattern, "/**") {
 		prefix := strings.TrimSuffix(pattern, "/**")
 		return changedPath == prefix || strings.HasPrefix(changedPath, prefix+"/")

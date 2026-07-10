@@ -12,6 +12,9 @@ go_library(
 
 go_test(
     name = "affected_test",
-    srcs = ["compute_test.go"],
+    srcs = [
+        "compute_test.go",
+        "prose_test.go",
+    ],
     embed = [":affected"],
 )

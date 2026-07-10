@@ -1345,8 +1345,9 @@ image, every time. Runko's own CI is the reference implementation:
   executes exactly the matrix it returns (§14.9.1): each affected
   project's own manifest-declared commands, themselves scoped to their
   project's subtree. A `cli`-only change runs `cli-test`
-  (`bazel test //cli/...`); a `docs`-only change runs only the
-  build-graph check; a `web`-only change runs only `web-check`. A
+  (`bazel test //cli/...`); a prose change — markdown anywhere, per
+  §14.5.7 — runs only `docs-check` (seconds); a `web`-only change runs
+  only `web-check`. A
   `run_everything` result (unowned root path, or an engine escalation)
   fails **open** to every project's checks, matching the gate's
   fail-closed bias: the workflow must never skip a check the gate will
@@ -1361,6 +1362,51 @@ image, every time. Runko's own CI is the reference implementation:
 This is the §14.5.1 "affected → CI scoping" contract turned on the
 platform itself; the mechanism is entirely `runko-ci affected` +
 `PROJECT.yaml` dependency edges, no new machinery.
+
+#### 14.5.7 Prose paths — the de-escalation dual of root invalidation (decided 2026-07-10)
+
+`root_invalidation` (§14.5.2) escalates: touching a build-sensitive path
+runs everything. `prose` is its dual, closing the opposite gap: a
+documentation edit *inside* a project's folder (`platform/README.md`,
+`web/README.md`) is owned by that project by longest prefix, so it runs
+the project's full check set — and drags the reverse-dependency closure
+with it. Tests for a README.
+
+`PROJECT.yaml` gains `prose:` — an **ordered, first-match-wins** pattern
+list (same glob dialect as `root_invalidation`, plus a leading `**/` form
+for any-depth matches and a gitignore-style `!` prefix for exceptions).
+A changed path matching a prose pattern is re-attributed, **for check
+derivation only**, to the repo-root project instead of its longest-prefix
+owner: it requires the root project's (cheap, content-tier) checks, and
+the dependency closure applies to that attribution as usual — the root
+project simply has no dependents, so nothing rides along. Precedence and
+fail-closed properties:
+
+- **Root invalidation always wins** — checked before prose, so a pattern
+  collision escalates rather than de-escalates.
+- **Owners are untouched.** The §7.3 owner gate derives from raw touched
+  paths by longest prefix, deliberately not from the check attribution —
+  the owning team still reviews its own README; only the machines stand
+  down.
+- **No root project ⇒ no de-escalation.** A prose match in a repo without
+  a root manifest falls through to ordinary ownership (and unowned paths
+  keep failing closed to `run_everything`).
+- **Load-bearing "docs" must be excepted, and covered.** Anything a test
+  consumes as data is not prose — this repo's own list opens with
+  `!docs/spec/**` and `!docs/cli-contract.md` (runfiles of the contract
+  tests), and the `docs` project declares a `contracts-test` check that
+  runs exactly those consuming suites. The `!` exceptions and the data
+  checks are two halves of one obligation: if you exempt a path class,
+  you must name what still gates its exceptions.
+
+The reference carve in this repo: root `prose:` is `!docs/spec/**`,
+`!docs/cli-contract.md`, `**/*.md`, `LICENSE`, `docs/images/**`; the root
+and `docs` projects declare `docs-check` (`make check-docs`, a fast
+markdown link checker — a *real* check, satisfying default-deny §13.5
+without policy theater), and `docs` adds `contracts-test`. Net effect: a
+design-doc or README edit anywhere runs one seconds-long job; a contract
+schema edit runs the suites that actually read it; `go.mod` still runs
+the world.
 
 ### 14.6 Plugins vs templates (delivery model)
 
@@ -2151,6 +2197,7 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-10 | **Encapsulated checks, phase 1 (§14.9.1, new; user direction: "each project's test should be part of the project - like encapsulation in OOP")**: `runko-ci checks --base --head` resolves the affected closure's manifest-declared `ci.checks` into `{project, name, command}` rows - deduped by name, same-name-different-command a structured `ambiguous_check` error - and `.github/workflows/runko-checks.yml` collapses to a generic executor: a `setup` job resolves the matrix, one matrix job per check runs `command` and reports under `name`. The workflow now contains zero project names, zero commands, zero per-check environments; the runner contract (go/bazel/node/jj/psql + an always-on postgres with `RUNKO_TEST_DATABASE_URL`) is the only thing it owns. Gate/executor agreement is by construction: both read the change's own head tree. `index.IndexedProject` gains `Checks` (name+command) beside the gate's name-only `RequiredChecks`; `web-check`'s command self-scopes (`cd web && ...`) since the executor grants no working-directory |
 | 2026-07-10 | **Encapsulated checks, phase 2 (§14.9.1): manifests own everything, db lane dissolved**: `internal/dbtest.Connect` self-serializes with a session-level Postgres advisory lock held per test (key distinct from the migrator's - daemon e2e tests boot a migrating daemon while holding it), replacing the external `-p 1`/`--local_test_jobs=1` runner flags; pg tests are now safe inside ANY test invocation, so the dedicated db lane disappears into each project's own check via `--test_env` passthrough. The re-carve: `platform-test`/`platform-race`, `runkod-test`/`runkod-race`, `cli-test` (no race - sequential CLIs; race-where-it-matters), `internal-test` (new: consumers' scoped commands never covered `//internal/...` itself), each `bazel test //<dir>/...` scoped to its own subtree; `bazel-check` stays declared across the Go projects deliberately - gazelle drift is repo-wide, and dedupe-by-name makes it one job regardless. The old `platform-check`/`platform-race`/`platform-db` names retire in the same change that lands the executor reading the new ones from the head tree - the rename-safety property §14.9.1 exists to provide |
 | 2026-07-10 | **Doc estate brought current (user direction: repo cleanup)**: `CLAUDE.md` slimmed from ~71KB to a current-state operating manual — the per-stage engineering record (every stage's shipped scope, caught bugs, review findings) moved verbatim to `docs/implementation-log.md`, frozen as history; `AGENTS.md` rewritten (it still claimed no compose/CI/web/Postgres existed); `proto/README.md` reframed from "draft, needs confirming" to the settled Connect contract doc; `db/README.md` migration + serialization sections updated for `runkod.ApplyMigrations` and the §14.9.1 advisory-lock harness (the `-p 1` rationale it documented no longer exists); `web/README.md` gained the browse tabs/org surfaces; §22.2's MVP-web-stack row and §28.3's stage-13 row updated in place to the React+Connect reality their own changelog rows had already superseded; stale pre-re-carve path references (`cmd/runko*` → `cli/runko*`, `buildadapter/` → `platform/buildadapter/`) fixed in code comments and the build-adapter spec |
+| 2026-07-10 | **Prose paths (§14.5.7, new; user direction: "even doc changes are triggering CI checks - add exceptions")**: `PROJECT.yaml` gains `prose:` — the de-escalation dual of `root_invalidation`: an ordered, first-match-wins pattern list (glob dialect + new leading-`**/` any-depth form + gitignore-style `!` exceptions) re-attributing matching paths, for check derivation only, to the repo-root project — so a README/design-doc edit anywhere requires one seconds-long `docs-check` (`make check-docs`, a real markdown link checker satisfying §13.5 default-deny) instead of its folder-owner's test matrix and dependency closure. Fail-closed properties pinned by tests: root invalidation beats prose; the §7.3 owner gate reads raw touched paths and never de-escalates; no root project ⇒ no de-escalation (unowned paths keep escalating). The `!` exceptions carry an obligation: paths tests consume as data (`docs/spec/**`, `docs/cli-contract.md` — runfiles of the contract suites) are excepted AND the `docs` project now declares `contracts-test` running exactly the consuming suites — which also CLOSES a pre-existing hole where a contract-doc edit gated only on a build-no-test bazel-check. Plumbed like root invalidation (index scan union → daemon funnel/gate/land + `runko-ci affected`/`checks`); zero executor/workflow changes, the §14.9.1 payoff. Dogfooded on a clone: design.md+platform/README edit → `docs-check` alone; cli-contract.md edit → `contracts-test`+`docs-check` |
 
 ---
 

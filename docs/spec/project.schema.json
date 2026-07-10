@@ -66,6 +66,11 @@
       "items": { "type": "string" },
       "description": "L3, root-manifest-oriented. Glob patterns (path.Match plus 'prefix/**' subtrees) naming BUILD-SENSITIVE paths whose change invalidates every project: toolchain manifests (go.mod, MODULE.bazel), build entrypoints (Makefile, Dockerfile), CI definitions (.github/**). A matching path escalates affected computation to run_everything (§14.5.2). Tree-borne per §9.4 ('the tree owns policy' - relocated from the daemon's --root-invalidation flag, which remains as an additive override): the platform and runko-ci read these from the indexed manifests, so policy rides the same review gates as the code it protects."
     },
+    "prose": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "L3, root-manifest-oriented; ORDERED, first match wins. The de-escalation dual of root_invalidation (\u00a714.5.7): a changed path matching a prose pattern is re-attributed, for check derivation only, to the repo-root project - it requires the root project's content-tier checks and feeds no dependency closure. Same glob dialect as root_invalidation plus a leading '**/' any-depth form and a gitignore-style '!' prefix for exceptions (a '!' match means NOT prose). root_invalidation always wins over prose; the \u00a77.3 owner gate is untouched (it derives from raw touched paths); a repo with no root project gets no de-escalation. Paths tests consume as data must be '!'-excepted and covered by a declared check."
+    },
     "visibility": {
       "type": "string",
       "enum": ["default", "restricted"],

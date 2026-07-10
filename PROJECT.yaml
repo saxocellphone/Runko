@@ -5,15 +5,26 @@
 # manifest exists so repo-glue changes still resolve a merge policy
 # instead of falling to the fail-closed unowned-path default.
 #
-# Two-tier gating (§14.5.2, tree-borne per §9.4): root CONTENT (README,
-# CLAUDE.md, LICENSE...) requires only bazel-check - a prose edit must not
-# run the Go test matrix. Root BUILD-SENSITIVE files are enumerated in
-# root_invalidation below: touching one escalates affected computation to
+# Two-tier gating (§14.5.2/§14.5.7, tree-borne per §9.4), escalation and
+# de-escalation as duals: root BUILD-SENSITIVE files are enumerated in
+# root_invalidation - touching one escalates affected computation to
 # run_everything, which requires every project's checks and rebuilds every
-# artifact - fail-closed exactly where it matters.
+# artifact. PROSE paths (markdown anywhere, LICENSE, doc images) go the
+# other way: they re-attribute to THIS project for check derivation, so a
+# doc edit - even inside platform/ or web/ - requires only docs-check
+# (seconds) instead of its folder-owner's test matrix and dependency
+# closure. Load-bearing docs that tests consume as data are !-excepted
+# from prose and covered by the docs project's contracts-test; owners are
+# derived from raw touched paths and never de-escalated.
 schema: project/v1
 name: repo
 type: other
+prose:
+  - "!docs/spec/**"          # contract schemas: runfiles of platform's contract tests
+  - "!docs/cli-contract.md"  # agentsmd drift-test input
+  - "**/*.md"
+  - LICENSE
+  - docs/images/**
 root_invalidation:
   - go.mod
   - go.sum
@@ -30,7 +41,11 @@ root_invalidation:
   - sqlc.yaml
   - .github/**
   - scripts/**
+# The content tier: prose-attributed paths (and root glue like .gitignore)
+# need a real, fast check for default-deny (§13.5) - the link checker, not
+# the build graph. Build-sensitive root files hit root_invalidation above
+# and run everything anyway.
 ci:
   checks:
-    - name: bazel-check
-      command: make check-bazel
+    - name: docs-check
+      command: make check-docs
