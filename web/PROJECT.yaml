@@ -6,7 +6,9 @@ language: ts
 # change must re-run web-check via the affected closure.
 dependencies:
   - proto
+# The command runs from the repo root (the §14.9 executor contract gives
+# checks no working-directory of their own), so it scopes itself.
 ci:
   checks:
     - name: web-check
-      command: npm run check
+      command: cd web && npm ci && npm run check

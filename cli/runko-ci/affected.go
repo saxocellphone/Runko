@@ -41,11 +41,54 @@ var knownEngines = map[string]buildadapter.Engine{
 // WHOLE output, not just its own BuildRefinement sub-field, mirroring how a
 // root-invalidation pattern already escalates affected.Result today.
 func Affected(repoDir, base, head string, rootInvalidationPatterns []string, engineName, universePattern string, engineTimeout time.Duration) (AffectedOutput, error) {
+	out, indexed, err := affectedWithIndex(repoDir, base, head, rootInvalidationPatterns)
+	if err != nil {
+		return AffectedOutput{}, err
+	}
+
+	if engineName == "" {
+		return out, nil
+	}
+	changedPaths := out.Result.Paths
+	engine, ok := knownEngines[engineName]
+	if !ok {
+		return AffectedOutput{}, &clierr.Error{
+			Code:       "unknown_engine",
+			Field:      "--engine",
+			Message:    fmt.Sprintf("unknown build-graph engine %q", engineName),
+			Suggestion: "supported engines: bazel",
+			DocURL:     "docs/spec/build-adapter/README.md",
+		}
+	}
+
+	engineProjects := make([]buildadapter.ProjectInfo, len(indexed))
+	for i, p := range indexed {
+		engineProjects[i] = buildadapter.ProjectInfo{Name: p.Name, Path: p.Path}
+	}
+	refinement := buildadapter.Refine(context.Background(), engine, engineName, buildadapter.QueryRequest{
+		RepoDir:         repoDir,
+		UniversePattern: universePattern,
+		ChangedPaths:    changedPaths,
+		Timeout:         engineTimeout,
+	}, engineProjects)
+	out.BuildRefinement = &refinement
+	if refinement.RunEverything {
+		out.Result.RunEverything = true
+	}
+	return out, nil
+}
+
+// affectedWithIndex is Affected's platform-floor core, shared with
+// `runko-ci checks`: scan the head tree, diff, compute the closure with
+// tree-declared root-invalidation patterns (§9.4) plus any flag-supplied
+// ones - and hand back the indexed projects so callers can resolve
+// manifest-declared policy (check definitions) from the same scan.
+func affectedWithIndex(repoDir, base, head string, rootInvalidationPatterns []string) (AffectedOutput, []index.IndexedProject, error) {
 	store := gitstore.New(repoDir)
 
 	indexed, err := index.Scan(store, core.Revision(head), nil)
 	if err != nil {
-		return AffectedOutput{}, clierr.WrapRevisionError(fmt.Errorf("scan projects at %s: %w", head, err), "--head", head)
+		return AffectedOutput{}, nil, clierr.WrapRevisionError(fmt.Errorf("scan projects at %s: %w", head, err), "--head", head)
 	}
 	projects := make([]affected.ProjectInfo, len(indexed))
 	for i, p := range indexed {
@@ -62,44 +105,14 @@ func Affected(repoDir, base, head string, rootInvalidationPatterns []string, eng
 		// whichever candidate a map iteration happened to visit first,
 		// rather than the one git's own message actually names.
 		if wrapped := clierr.WrapRevisionErrorAmong(err, map[string]string{"--base": base, "--head": head}); wrapped != err {
-			return AffectedOutput{}, wrapped
+			return AffectedOutput{}, nil, wrapped
 		}
-		return AffectedOutput{}, fmt.Errorf("diff %s..%s: %w", base, head, err)
+		return AffectedOutput{}, nil, fmt.Errorf("diff %s..%s: %w", base, head, err)
 	}
 
 	result := affected.Compute(projects, changedPaths, affected.Options{
 		// Tree-declared patterns (root manifest, §9.4) plus the flag's.
 		RootInvalidationPatterns: append(index.RootInvalidation(indexed), rootInvalidationPatterns...),
 	})
-	out := AffectedOutput{Result: result}
-
-	if engineName == "" {
-		return out, nil
-	}
-	engine, ok := knownEngines[engineName]
-	if !ok {
-		return AffectedOutput{}, &clierr.Error{
-			Code:       "unknown_engine",
-			Field:      "--engine",
-			Message:    fmt.Sprintf("unknown build-graph engine %q", engineName),
-			Suggestion: "supported engines: bazel",
-			DocURL:     "docs/spec/build-adapter/README.md",
-		}
-	}
-
-	engineProjects := make([]buildadapter.ProjectInfo, len(projects))
-	for i, p := range projects {
-		engineProjects[i] = buildadapter.ProjectInfo{Name: p.Name, Path: p.Path}
-	}
-	refinement := buildadapter.Refine(context.Background(), engine, engineName, buildadapter.QueryRequest{
-		RepoDir:         repoDir,
-		UniversePattern: universePattern,
-		ChangedPaths:    changedPaths,
-		Timeout:         engineTimeout,
-	}, engineProjects)
-	out.BuildRefinement = &refinement
-	if refinement.RunEverything {
-		out.Result.RunEverything = true
-	}
-	return out, nil
+	return AffectedOutput{Result: result}, indexed, nil
 }

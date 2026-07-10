@@ -32,6 +32,8 @@ func main() {
 	switch os.Args[1] {
 	case "affected":
 		err = cmdAffected(os.Args[2:])
+	case "checks":
+		err = cmdChecks(os.Args[2:])
 	case "checkout":
 		err = cmdCheckout(os.Args[2:])
 	case "report-check":
@@ -56,6 +58,7 @@ func printUsage() {
 
 commands:
   affected       compute the affected project set for a base..head range (JSON always)
+  checks         resolve affected projects' manifest-declared checks (name+command) for a generic CI executor (JSON always)
   checkout       partial-clone + sparse-checkout a rev for CI [--json]
   report-check   POST a CheckRun result to the platform's Checks API [--json]
 
@@ -79,6 +82,28 @@ func cmdAffected(args []string) error {
 	}
 
 	result, err := Affected(*repoDir, *base, *head, splitNonEmpty(*rootPatterns), *engine, *universe, *engineTimeout)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+func cmdChecks(args []string) error {
+	fs := flag.NewFlagSet("checks", flag.ExitOnError)
+	repoDir := fs.String("repo", ".", "path to the local repo")
+	base := fs.String("base", "", "base revision")
+	head := fs.String("head", "HEAD", "head revision")
+	rootPatterns := fs.String("root-invalidation", "", "comma-separated root-invalidation glob patterns (additive to the tree's)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *base == "" {
+		return fmt.Errorf("checks: --base is required")
+	}
+
+	result, err := Checks(*repoDir, *base, *head, splitNonEmpty(*rootPatterns))
 	if err != nil {
 		return err
 	}

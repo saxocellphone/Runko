@@ -1,19 +1,32 @@
-# Pre-land checks for Runko-hosted Changes (§14.4 Mode C).
+# Pre-land checks for Runko-hosted Changes (§14.4 Mode C) - the GENERIC
+# EXECUTOR of tree-declared policy (§14.9 encapsulation):
 #
-# AFFECTED-SCOPED (§14.5): a `setup` job computes the change's affected
-# projects (runko-ci affected over base..head - the SAME computation the
-# server's merge gate uses) and every check job is gated + scoped to it.
-# A cli-only change runs `go test ./cli/...`, not the whole suite; a
-# docs-only change runs only bazel-check; a web-only change runs only
-# web-check. Check NAMES are unchanged (platform-check/-race/-db/
-# bazel-check/web-check), so the merge gate is untouched - only what each
-# job EXECUTES narrows. See docs/design.md §14.5.
+#   setup: runko-ci checks --base --head   -> [{project, name, command}]
+#   run:   one matrix job per check        -> bash -c "$command", report by name
+#
+# This workflow knows NO project names, NO check commands, and NO per-check
+# environments - each project's PROJECT.yaml owns its checks, and the merge
+# gate resolves required names from the SAME head tree runko-ci reads here,
+# so the two can never disagree. Adding or renaming a check is a
+# single-manifest change; this file only changes when the executor contract
+# does.
+#
+# The runner contract every check command may rely on: repo checked out at
+# the change head; go / bazelisk / node / jj / psql installed; a postgres:16
+# service with RUNKO_TEST_DATABASE_URL exported (checks opt in by reading
+# it - pg-gated tests skip where it's absent, e.g. locally).
 #
 # Flow: change pushed to the runko org -> runkod webhook -> runko-bridge ->
-# repository_dispatch here -> each job fetches the change ref FROM THE
-# MIRROR (this repo), runs its (scoped) check, and reports back with
-# runko-ci report-check. repository_dispatch only ever runs the DEFAULT
-# branch's copy, so this must land on GitHub main before it takes effect.
+# repository_dispatch here -> jobs fetch the change ref FROM THE MIRROR
+# (this repo; the webhook can beat the debounced mirror push, hence the
+# fetch retry), run, and report back with runko-ci report-check (retrying
+# transient 5xx, migration-findings #33). repository_dispatch runs the
+# DEFAULT branch's copy of this file - but since check definitions live in
+# the manifests, that coupling now covers only the executor itself.
+#
+# A setup failure means no checks report and the gate stays pending -
+# visible, rerunnable, and fail-closed (a required check is never silently
+# skipped; run_everything resolves every project's checks).
 #
 # Secrets: RUNKO_URL (e.g. https://<host>/o/runko), RUNKO_CI_TOKEN.
 name: Runko checks
@@ -35,19 +48,11 @@ env:
   RUNKO_CI_TOKEN: ${{ secrets.RUNKO_CI_TOKEN }}
 
 jobs:
-  # Compute what the change actually affects, once, and hand every other
-  # job a scope. run_everything (an unowned root path, or an engine
-  # escalation) fails OPEN to the whole repo - the same fail-closed bias
-  # the merge gate takes.
   setup:
     runs-on: ubuntu-latest
     outputs:
-      go_needed: ${{ steps.scope.outputs.go_needed }}
-      web_needed: ${{ steps.scope.outputs.web_needed }}
-      docs_needed: ${{ steps.scope.outputs.docs_needed }}
-      repo_needed: ${{ steps.scope.outputs.repo_needed }}
-      go_scope: ${{ steps.scope.outputs.go_scope }}
-      bazel_scope: ${{ steps.scope.outputs.bazel_scope }}
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      has_checks: ${{ steps.resolve.outputs.has_checks }}
     steps:
       - uses: actions/checkout@v4
       - name: fetch the change ref (mirror-lag retry)
@@ -63,157 +68,28 @@ jobs:
         run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
-      - name: compute affected scope
-        id: scope
+      - name: resolve the check matrix from the manifests
+        id: resolve
         run: |
-          # Fail OPEN to the whole repo on ANY uncertainty - an empty base
-          # (first change on an unborn trunk) or an affected error must run
-          # every check, never skip them all (which would deadlock the
-          # gate: required checks with no job to report them).
-          run_everything() {
-            {
-              echo "go_needed=true"; echo "web_needed=true"; echo "docs_needed=true"; echo "repo_needed=true"
-              echo "go_scope=./..."; echo "bazel_scope=//..."
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          }
-          [ -n "$BASE_SHA" ] || run_everything
-          # base_sha is an ancestor of head (merge-base with trunk), so it
-          # is already present after fetching the change ref.
-          AFF=$(go run "$RUNKO_CI_PKG" affected --base "$BASE_SHA" --head "$HEAD_SHA") || run_everything
-          echo "$AFF"
-          RE=$(echo "$AFF" | jq -r '.RunEverything')
-          if [ "$RE" != "false" ]; then
-            run_everything
-          fi
-          GO_SCOPE=""; BZL_SCOPE=""; GO_NEEDED=false; WEB_NEEDED=false; DOCS_NEEDED=false; REPO_NEEDED=false
-          while IFS=$'\t' read -r name path; do
-            case "$name" in
-              # repo = root glue. Its CONTENT (README, CLAUDE.md...) needs
-              # only bazel-check; the BUILD-SENSITIVE root files escalate
-              # via the manifest's root_invalidation patterns to
-              # run_everything, handled above - so no Go scope here.
-              repo)                         REPO_NEEDED=true ;;
-              platform|runkod|cli|internal|proto)
-                                            GO_SCOPE="$GO_SCOPE ./$path/..."; BZL_SCOPE="$BZL_SCOPE //$path/..."; GO_NEEDED=true ;;
-              web)                          WEB_NEEDED=true ;;
-              docs)                         DOCS_NEEDED=true ;;
-              db)                           : ;;  # SQL only; its Go consumers are pulled in via the dep closure
-            esac
-          done < <(echo "$AFF" | jq -r '.Projects[] | [.Name, .Path] | @tsv')
-          # A root/repo change scopes to everything - drop the redundant
-          # per-project globs to keep the runners from double-listing.
-          case " $GO_SCOPE " in *" ./... "*) GO_SCOPE="./..." ;; esac
-          case " $BZL_SCOPE " in *" //... "*) BZL_SCOPE="//..." ;; esac
-          {
-            echo "go_needed=$GO_NEEDED"; echo "web_needed=$WEB_NEEDED"; echo "docs_needed=$DOCS_NEEDED"; echo "repo_needed=$REPO_NEEDED"
-            echo "go_scope=$(echo $GO_SCOPE | xargs)"
-            echo "bazel_scope=$(echo $BZL_SCOPE | xargs)"
-          } >> "$GITHUB_OUTPUT"
+          # An empty base (first change on an unborn trunk) has no diff
+          # range; `checks` itself fails closed to run_everything on any
+          # unowned path, and a hard failure here leaves the gate pending
+          # (never green), so no fallback matrix is needed.
+          OUT=$(go run "$RUNKO_CI_PKG" checks --base "$BASE_SHA" --head "$HEAD_SHA")
+          echo "$OUT" | jq .
+          echo "matrix=$(echo "$OUT" | jq -c '.checks')" >> "$GITHUB_OUTPUT"
+          echo "has_checks=$(echo "$OUT" | jq -r '.checks | length > 0')" >> "$GITHUB_OUTPUT"
 
-  platform-check:
+  run-checks:
     needs: setup
-    if: needs.setup.outputs.go_needed == 'true'
+    if: needs.setup.outputs.has_checks == 'true'
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: fetch the change ref (mirror-lag retry)
-        run: |
-          for i in $(seq 1 30); do
-            if git fetch origin "$GIT_REF" 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ]; then
-              git checkout -q FETCH_HEAD; break
-            fi
-            sleep 5
-          done
-          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
-      - name: locate runko-ci
-        # success() || failure(): the report-result step needs this even
-        # when the change-ref fetch failed - a skipped locate left
-        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
-        # the failure path, so runkod showed pending forever (found live).
-        if: success() || failure()
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@v5
-        if: success() || failure()
-        with: { go-version: '1.25', cache: true }
-      - name: report in_progress
-        run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name platform-check --external-id "${{ github.run_id }}-check" \
-            --status in_progress --reporter github-actions
-      - name: Install jj (jj-first client tests)
-        run: |
-          curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.43.0/jj-v0.43.0-x86_64-unknown-linux-musl.tar.gz \
-            | tar -xz -C /usr/local/bin ./jj
-      - uses: bazel-contrib/setup-bazel@0.15.0
-        with:
-          bazelisk-cache: true
-          disk-cache: bazel-tests
-          repository-cache: true
-      - name: gofmt (nogo covers vet inside every bazel build)
-        run: gofmt -l . | (! grep .)
-      - name: bazel test (scoped - §14.5.4 golden path)
-        run: bazel test --test_output=errors ${{ needs.setup.outputs.bazel_scope }}
-      - name: report result
-        # success() || failure() excludes CANCELLED (migration-findings #28).
-        if: success() || failure()
-        run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name platform-check --external-id "${{ github.run_id }}-check" \
-            --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
-            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --reporter github-actions
-
-  platform-race:
-    needs: setup
-    if: needs.setup.outputs.go_needed == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: fetch the change ref (mirror-lag retry)
-        run: |
-          for i in $(seq 1 30); do
-            if git fetch origin "$GIT_REF" 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ]; then
-              git checkout -q FETCH_HEAD; break
-            fi
-            sleep 5
-          done
-          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
-      - name: locate runko-ci
-        # success() || failure(): the report-result step needs this even
-        # when the change-ref fetch failed - a skipped locate left
-        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
-        # the failure path, so runkod showed pending forever (found live).
-        if: success() || failure()
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@v5
-        if: success() || failure()
-        with: { go-version: '1.25', cache: true }
-      - name: report in_progress
-        run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name platform-race --external-id "${{ github.run_id }}-race" \
-            --status in_progress --reporter github-actions
-      - uses: bazel-contrib/setup-bazel@0.15.0
-        with:
-          bazelisk-cache: true
-          disk-cache: bazel-tests-race
-          repository-cache: true
-      - name: bazel test -race (scoped)
-        run: bazel test --@rules_go//go/config:race --test_output=errors ${{ needs.setup.outputs.bazel_scope }}
-      - name: report result
-        if: success() || failure()
-        run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name platform-race --external-id "${{ github.run_id }}-race" \
-            --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
-            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --reporter github-actions
-
-  platform-db:
-    needs: setup
-    if: needs.setup.outputs.go_needed == 'true'
-    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
     services:
       postgres:
         image: postgres:16
@@ -228,6 +104,8 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+    env:
+      RUNKO_TEST_DATABASE_URL: postgres://runko:runko@localhost:5432/runko_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - name: fetch the change ref (mirror-lag retry)
@@ -249,137 +127,35 @@ jobs:
       - uses: actions/setup-go@v5
         if: success() || failure()
         with: { go-version: '1.25', cache: true }
-      - name: report in_progress
-        run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name platform-db --external-id "${{ github.run_id }}-db" \
-            --status in_progress --reporter github-actions
-      - name: Ensure psql client is installed
-        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      # Runner-contract toolchains: one fixed set for every check for now; a
+      # `tools:` field on ci.checks is the declarative narrowing path.
       - uses: bazel-contrib/setup-bazel@0.15.0
         with:
           bazelisk-cache: true
-          disk-cache: bazel-tests-db
+          disk-cache: bazel-${{ matrix.name }}
           repository-cache: true
-      - name: db integration tests (bazel, scoped)
-        env:
-          RUNKO_TEST_DATABASE_URL: postgres://runko:runko@localhost:5432/runko_test?sslmode=disable
-        run: |
-          bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_filter=Postgres \
-            --local_test_jobs=1 --nocache_test_results --test_output=errors \
-            ${{ needs.setup.outputs.bazel_scope }}
-      - name: report result
-        if: success() || failure()
-        run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name platform-db --external-id "${{ github.run_id }}-db" \
-            --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
-            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --reporter github-actions
-
-  # Build-graph health: inherently whole-repo (gazelle drift is global), so
-  # it is NOT scoped. Runs when Go OR docs is affected - docs declares
-  # bazel-check as its cheap always-relevant gate (a docs change may touch
-  # a BUILD file; pure prose is a fast no-op).
-  bazel-check:
-    needs: setup
-    if: needs.setup.outputs.go_needed == 'true' || needs.setup.outputs.docs_needed == 'true' || needs.setup.outputs.repo_needed == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: fetch the change ref (mirror-lag retry)
-        run: |
-          for i in $(seq 1 30); do
-            if git fetch origin "$GIT_REF" 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ]; then
-              git checkout -q FETCH_HEAD; break
-            fi
-            sleep 5
-          done
-          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
-      - name: locate runko-ci
-        # success() || failure(): the report-result step needs this even
-        # when the change-ref fetch failed - a skipped locate left
-        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
-        # the failure path, so runkod showed pending forever (found live).
-        if: success() || failure()
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@v5
-        if: success() || failure()
-        with: { go-version: '1.25', cache: true }
-      - uses: bazel-contrib/setup-bazel@0.15.0
-        with:
-          bazelisk-cache: true
-          disk-cache: bazel-${{ github.workflow }}
-          repository-cache: true
-      - name: report in_progress
-        run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name bazel-check --external-id "${{ github.run_id }}-bazel" \
-            --status in_progress --reporter github-actions
-      - run: make check-bazel
-      - name: runko-ci affected --engine bazel smoke
-        run: |
-          git config user.name ci && git config user.email ci@localhost
-          printf '\n// bazel-smoke\n' >> platform/land/land.go
-          git commit -am bazel-smoke
-          go run "$RUNKO_CI_PKG" affected --base HEAD~1 --head HEAD \
-            --engine bazel --universe //... --engine-timeout 300s | tee affected.json
-          jq -e '.build_refinement.run_everything == false and (.build_refinement.targets | length > 0)' affected.json
-          jq -e '.RunEverything == false and ([.Projects[].Name] | index("platform") != null)' affected.json
-          git reset --hard HEAD~1
-      - name: report result
-        if: success() || failure()
-        run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name bazel-check --external-id "${{ github.run_id }}-bazel" \
-            --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
-            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --reporter github-actions
-
-  web-check:
-    needs: setup
-    if: needs.setup.outputs.web_needed == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: fetch the change ref (mirror-lag retry)
-        run: |
-          for i in $(seq 1 30); do
-            if git fetch origin "$GIT_REF" 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ]; then
-              git checkout -q FETCH_HEAD; break
-            fi
-            sleep 5
-          done
-          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
-      - name: locate runko-ci
-        # success() || failure(): the report-result step needs this even
-        # when the change-ref fetch failed - a skipped locate left
-        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
-        # the failure path, so runkod showed pending forever (found live).
-        if: success() || failure()
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@v5
-        if: success() || failure()
-        with: { go-version: '1.25', cache: true }
-      - name: report in_progress
-        run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name web-check --external-id "${{ github.run_id }}-web" \
-            --status in_progress --reporter github-actions
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm ci
-        working-directory: web
-      - run: npm run check
-        working-directory: web
+      - name: install jj + ensure psql (runner contract)
+        run: |
+          command -v jj >/dev/null || curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.43.0/jj-v0.43.0-x86_64-unknown-linux-musl.tar.gz | sudo tar -xz -C /usr/local/bin ./jj
+          command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: report in_progress
+        run: |
+          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+            --token "$RUNKO_CI_TOKEN" --name "${{ matrix.name }}" --external-id "${{ github.run_id }}-${{ strategy.job-index }}" \
+            --status in_progress --reporter github-actions
+      - name: run ${{ matrix.name }} (declared by ${{ matrix.project }})
+        run: bash -c "${{ matrix.command }}"
       - name: report result
+        # success() || failure() excludes CANCELLED (migration-findings #28).
         if: success() || failure()
         run: |
           go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
-            --token "$RUNKO_CI_TOKEN" --name web-check --external-id "${{ github.run_id }}-web" \
+            --token "$RUNKO_CI_TOKEN" --name "${{ matrix.name }}" --external-id "${{ github.run_id }}-${{ strategy.job-index }}" \
             --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --reporter github-actions

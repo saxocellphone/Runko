@@ -78,6 +78,7 @@ schemas are.
 | `runko org list` | `[]OrgInfo` - needs a live runkod. The shared default org (the root-mounted repo) is always first, marked `default`; store-backed accounts additionally see their memberships, operators see everything |
 | `runko org add-member` | `{"org", "name", "role"}` - needs a live runkod; org admins and operators only (`not_org_admin` otherwise), and the account must already exist (`unknown_principal` - membership is not an invitation system). Non-members of an org get a structured 403 `not_org_member` (never 401) on every surface, git transport included |
 | `runko-ci affected` | `affected.Result` (always JSON - no human mode exists for this command; it is CI-facing by design) |
+| `runko-ci checks` | `{"run_everything", "checks": [{"project", "name", "command"}]}` (always JSON, like `affected`) - the §14.9 executor contract: the affected closure's manifest-declared `ci.checks`, deduped by name; the same name declared with different commands is a structured `ambiguous_check` error. `run_everything` resolves every project's checks (fail closed) |
 | `runko-ci checkout` | `{"rev", "dest"}` |
 | `runko-ci report-check` | `{"name", "status", "external_id"}` |
 

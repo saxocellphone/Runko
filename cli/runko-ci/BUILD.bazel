@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "affected.go",
         "checkout.go",
+        "checks.go",
         "git.go",
         "main.go",
         "reportcheck.go",
@@ -33,6 +34,7 @@ go_test(
     srcs = [
         "affected_test.go",
         "checkout_test.go",
+        "checks_test.go",
         "main_test.go",
         "reportcheck_test.go",
     ],

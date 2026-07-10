@@ -43,6 +43,7 @@ var Commands = []Command{
 	{"runko", "org add-member --org <org> --name <account> [--role member] [--json]", "grant an account org access (org admins/operators) - needs a live runkod", `{"org","name","role"}`},
 	{"runko", "agents-md [--out AGENTS.md] [--json]", "regenerate this file from the CLI's own command inventory (§8.8)", `{"path"}`},
 	{"runko-ci", "affected --base <rev> [--head HEAD] [--engine bazel]", "compute the affected project set for a base..head range (§13.3)", "affected.Result (always JSON)"},
+	{"runko-ci", "checks --base <rev> [--head HEAD]", "resolve the affected closure's manifest-declared ci.checks for a CI executor (§14.9)", `{"run_everything","checks":[{"project","name","command"}]} (always JSON)`},
 	{"runko-ci", "checkout --remote <url> --dest <dir> --rev <rev> [--json]", "partial-clone + sparse-checkout a rev for CI (§14.4.4)", `{"rev","dest"}`},
 	{"runko-ci", "report-check --url <u> --name <n> --external-id <id> --reporter <r> [--json]", "POST a CheckRun result to the Checks API (§14.4.1)", `{"name","status","external_id"}`},
 }

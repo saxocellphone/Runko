@@ -30,8 +30,14 @@ type IndexedProject struct {
 	// (root-manifest-oriented; see index.RootInvalidation). Not persisted
 	// by Sync - live consumers scan the tree, which is the §10.3 truth.
 	RootInvalidation []string
-	Visibility       string
-	Owners           []OwnerEntry
+	// Checks are the manifest's full ci.checks definitions (name AND
+	// command) - the encapsulation contract §14.9's generic CI executor
+	// consumes (`runko-ci checks`). RequiredChecks above stays the
+	// names-only view the merge gate uses. Not persisted by Sync, like
+	// RootInvalidation.
+	Checks     []CheckDef
+	Visibility string
+	Owners     []OwnerEntry
 	// RequiredChecks are the check names PROJECT.yaml's L2/opt-in `ci.checks`
 	// declares for this project (§14.9). Empty/nil when the manifest has no
 	// `ci` block at all - an unset ci.checks means "no checks required",
@@ -127,9 +133,11 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 	}
 
 	var requiredChecks []string
+	var checks []CheckDef
 	if manifest.CI != nil {
 		for _, c := range manifest.CI.Checks {
 			requiredChecks = append(requiredChecks, c.Name)
+			checks = append(checks, CheckDef{Name: c.Name, Command: c.Command})
 		}
 	}
 
@@ -143,6 +151,7 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		Visibility:           visibility,
 		Owners:               owners,
 		RequiredChecks:       requiredChecks,
+		Checks:               checks,
 	}, nil
 }
 
@@ -232,4 +241,11 @@ func RootInvalidation(projects []IndexedProject) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// CheckDef is one declared check: the name the merge gate requires and the
+// command a CI executor runs, both owned by the project's manifest.
+type CheckDef struct {
+	Name    string
+	Command string
 }
