@@ -40,7 +40,9 @@ remote is named `github` and is the OUTBOUND MIRROR — **never push to it**
 - Landing mirrors to GitHub `main` automatically, which still triggers
   `ci.yml` (post-land safety net — the only CI that builds the
   actually-landed, post-rebase tree) and `release-images` (affected-scoped
-  image builds + the rolling `cli-latest` binary release).
+  image builds + the rolling `cli-latest` binary release + GitOps digest
+  write-back to `k8s-cluster`, which Argo CD auto-deploys — no manual
+  rollout).
 - Default-deny is ON (no unpoliced lands). The `operator` principal (admin)
   exists for force-land/mirror-unfreeze; agents can never force.
 - The migration record lives in `docs/migration-findings.md`.

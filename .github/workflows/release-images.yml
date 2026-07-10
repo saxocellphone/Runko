@@ -1,7 +1,10 @@
 # Build + push the deployable images to GHCR on every push to main
-# (consumed by the k8s-cluster GitOps repo's apps/monorepo-platform).
-# Tags: :latest (dev-follow) and :sha-<commit> (pinnable). Uses the
-# workflow's own GITHUB_TOKEN - no PAT.
+# (consumed by the k8s-cluster GitOps repo's apps/monorepo-platform),
+# then pin the new digests INTO that repo (deploy-bump below) so Argo CD
+# deploys them - no manual rollout step. Tags: :latest (dev-follow) and
+# :sha-<commit> (pinnable); the cluster runs the digest pins. Image
+# builds use the workflow's own GITHUB_TOKEN; only the k8s-cluster
+# write-back needs a PAT (K8S_CLUSTER_TOKEN).
 #
 # AFFECTED-SCOPED (§14.5): a `scope` job computes which projects the landed
 # range touched (runko-ci affected, the same computation the pre-land
@@ -118,6 +121,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - if: matrix.needed == 'true'
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -129,6 +133,99 @@ jobs:
             ghcr.io/saxocellphone/runko/${{ matrix.name }}:sha-${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+      # Hand the digest to deploy-bump below. An artifact per matrix leg,
+      # not a job output - matrix legs writing the same output clobber
+      # each other.
+      - if: matrix.needed == 'true'
+        name: record image digest for the GitOps bump
+        run: |
+          mkdir -p digest
+          printf '%s' "${{ steps.build.outputs.digest }}" > "digest/${{ matrix.name }}"
+      - if: matrix.needed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.name }}
+          path: digest/${{ matrix.name }}
+
+  # GitOps write-back - §14.10.2's image-bump-bot pattern applied to our
+  # own deploy loop: pin the just-built digests into the k8s-cluster repo's
+  # kustomization, and Argo CD (auto-sync + selfHeal on the
+  # monorepo-platform app) rolls the deployments. Event-driven and audited:
+  # every deploy is a k8s-cluster commit naming the runko commit that
+  # produced it, and rollback is `git revert` there. Replaces the manual
+  # `kubectl rollout restart` step; the deployments' manifests keep
+  # `:latest` as the readable name while kustomize's images transformer
+  # pins the digest actually served (runko-bridge rides the runkod image
+  # and bumps with it). Mid-push daemon restarts are self-healing
+  # (PruneDanglingChangeRefs at boot, migration-findings #34).
+  #
+  # No-ops with a notice until the K8S_CLUSTER_TOKEN secret exists: a
+  # fine-grained PAT with Contents read/write on saxocellphone/k8s-cluster.
+  deploy-bump:
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - name: check for the k8s-cluster token
+        id: tok
+        env:
+          TOKEN: ${{ secrets.K8S_CLUSTER_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::K8S_CLUSTER_TOKEN not configured - skipping the GitOps image bump (deploys stay manual)"
+          fi
+      - if: steps.tok.outputs.have == 'true'
+        uses: actions/download-artifact@v4
+        # Fails when no artifact matches (nothing was rebuilt) - that is
+        # the no-op case, tolerated and re-checked in the next step.
+        continue-on-error: true
+        with:
+          pattern: digest-*
+          path: digests
+      - if: steps.tok.outputs.have == 'true'
+        name: anything rebuilt?
+        id: any
+        run: |
+          if ls digests/digest-*/* >/dev/null 2>&1; then
+            echo "yes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::no images rebuilt by this landing - nothing to bump"
+          fi
+      - if: steps.any.outputs.yes == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: saxocellphone/k8s-cluster
+          token: ${{ secrets.K8S_CLUSTER_TOKEN }}
+          path: k8s-cluster
+      - if: steps.any.outputs.yes == 'true'
+        name: pin digests and push
+        run: |
+          curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" | tar -xz -C "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE/k8s-cluster/apps/monorepo-platform"
+          for f in "$GITHUB_WORKSPACE"/digests/digest-*/*; do
+            name=$(basename "$f"); digest=$(cat "$f")
+            [ -n "$digest" ] || continue
+            "$GITHUB_WORKSPACE/kustomize" edit set image \
+              "ghcr.io/saxocellphone/runko/${name}=ghcr.io/saxocellphone/runko/${name}@${digest}"
+            echo "pinned ${name} -> ${digest}"
+          done
+          cd "$GITHUB_WORKSPACE/k8s-cluster"
+          git diff --quiet && { echo "digests unchanged (image content identical) - no commit"; exit 0; }
+          git config user.name "runko-release"
+          git config user.email "runko-release@users.noreply.github.com"
+          git add apps/monorepo-platform/kustomization.yaml
+          git commit -m "monorepo-platform: image bump from runko@${GITHUB_SHA:0:9}" \
+            -m "Automated GitOps write-back from the Runko release-images run: pins the just-built image digest(s); Argo CD rolls the deployments. Provenance: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # This workflow's concurrency group serializes its own runs; the
+          # rebase-retry covers a human pushing to k8s-cluster concurrently.
+          for i in 1 2 3; do
+            git push && exit 0
+            git pull --rebase
+          done
+          echo "could not push the bump after 3 attempts" >&2
+          exit 1
 
   # Rolling GitHub binary release for the CLIs (runko + runko-ci): rebuilt
   # whenever the cli input set changed, published as the `cli-latest`
