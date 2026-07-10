@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -172,10 +173,44 @@ func (w *MirrorWorker) syncTrunk(ctx context.Context) error {
 // namespace is server-owned on both sides, tags are append-only by
 // convention and a rejected tag rewrite surfaces as the recorded error).
 func (w *MirrorWorker) syncNamespace(ctx context.Context, name, refspec string) error {
+	// Self-heal dangling refs first (found live, a full CI outage): a
+	// stable change ref can end up pointing at an object the repo never
+	// kept - the pre-receive hook writes refs while objects are still in
+	// git's push QUARANTINE, and an aborted push discards the quarantine
+	// but not our ref. One such corpse makes the whole wildcard push die
+	// with "fatal: bad object", killing the mirror stream for EVERY
+	// change. The ref is unusable garbage (its object is gone; a re-push
+	// recreates it), so deleting it - loudly - is strictly better than
+	// letting it poison the namespace.
+	namespace := strings.TrimSuffix(name, "/*")
+	if out, err := gitOutput(w.Remote.RepoDir, "for-each-ref", "--format=%(refname) %(objectname)", namespace); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			ref, obj, ok := strings.Cut(line, " ")
+			if !ok {
+				continue
+			}
+			if err := gitRun(w.Remote.RepoDir, "cat-file", "-e", obj); err != nil {
+				log.Printf("runkod: mirror: %s points at missing object %.12s (aborted push's quarantine?) - deleting the dangling ref; a re-push recreates it", ref, obj)
+				if delErr := gitRun(w.Remote.RepoDir, "update-ref", "-d", ref); delErr != nil {
+					log.Printf("runkod: mirror: could not delete dangling %s: %v", ref, delErr)
+				}
+			}
+		}
+	}
 	if err := w.Remote.PushRefspecs(refspec); err != nil {
 		return fmt.Errorf("mirror: push %s: %w", name, err)
 	}
 	return w.Store.UpsertMirrorCursor(ctx, mirrorRemoteName, name, "")
+}
+
+func gitOutput(dir string, args ...string) (string, error) {
+	p := &Processor{RepoDir: dir}
+	return p.runGit(nil, args...)
+}
+
+func gitRun(dir string, args ...string) error {
+	_, err := gitOutput(dir, args...)
+	return err
 }
 
 // mirrorStatus is GET /api/mirror/status's shape.

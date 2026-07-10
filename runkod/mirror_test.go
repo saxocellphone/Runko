@@ -8,6 +8,8 @@ package runkod
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -173,5 +175,46 @@ func TestMirrorNeverPushesWorkspaceSnapshots(t *testing.T) {
 	}
 	if _, err := gitfixtureRunGit(target, "rev-parse", "--verify", "refs/workspaces/w1/head"); err == nil {
 		t.Fatal("workspace snapshots are personal WIP and must never reach the mirror (§12.2)")
+	}
+}
+
+// TestMirrorSelfHealsDanglingChangeRefs pins the fix for a live full-CI
+// outage: a stable change ref pointing at a missing object (the
+// pre-receive hook writes refs while objects are still in git's push
+// quarantine; an aborted push discards the quarantine but not the ref)
+// made the whole refs/changes/* wildcard push die with "fatal: bad
+// object" - no change could reach the mirror, so no CI could fetch
+// anything. The mirror now deletes such corpses loudly and pushes the
+// healthy rest.
+func TestMirrorSelfHealsDanglingChangeRefs(t *testing.T) {
+	f, w, target := newMirrorFixture(t)
+	ctx := context.Background()
+
+	// A healthy change ref...
+	head, _ := gitRevParse(f.bare, "refs/heads/main")
+	if _, err := gitfixtureRunGit(f.bare, "update-ref", "refs/changes/Igood/head", head); err != nil {
+		t.Fatalf("plant healthy ref: %v", err)
+	}
+	// ...and a dangling one: git update-ref refuses missing objects, so
+	// write the loose ref file directly - exactly the on-disk state an
+	// aborted quarantine leaves behind.
+	danglingSHA := "beefbeefbeefbeefbeefbeefbeefbeefbeefbeef"
+	refPath := filepath.Join(f.bare, "refs", "changes", "Ibad")
+	if err := os.MkdirAll(refPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(refPath, "head"), []byte(danglingSHA+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := w.SyncOnce(ctx); err != nil {
+		t.Fatalf("SyncOnce should heal, not die: %v", err)
+	}
+	// The healthy ref reached the mirror; the corpse is gone locally.
+	if _, err := gitfixtureRunGit(target, "rev-parse", "--verify", "refs/changes/Igood/head"); err != nil {
+		t.Fatal("healthy change ref should have been mirrored")
+	}
+	if _, err := gitfixtureRunGit(f.bare, "rev-parse", "--verify", "refs/changes/Ibad/head"); err == nil {
+		t.Fatal("the dangling ref should have been deleted")
 	}
 }

@@ -47,8 +47,14 @@ jobs:
       # postdate the cmd/ -> cli/ restructure, and repository_dispatch
       # always runs the DEFAULT branch's copy of this workflow.
       - name: locate runko-ci
+        # success() || failure(): the report-result step needs this even
+        # when the change-ref fetch failed - a skipped locate left
+        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
+        # the failure path, so runkod showed pending forever (found live).
+        if: success() || failure()
         run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
+        if: success() || failure()
         with: { go-version: '1.25', cache: true }
       - name: report in_progress
         run: |
@@ -88,8 +94,14 @@ jobs:
       # postdate the cmd/ -> cli/ restructure, and repository_dispatch
       # always runs the DEFAULT branch's copy of this workflow.
       - name: locate runko-ci
+        # success() || failure(): the report-result step needs this even
+        # when the change-ref fetch failed - a skipped locate left
+        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
+        # the failure path, so runkod showed pending forever (found live).
+        if: success() || failure()
         run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
+        if: success() || failure()
         with: { go-version: '1.25', cache: true }
       - name: report in_progress
         run: |
@@ -139,8 +151,14 @@ jobs:
       # postdate the cmd/ -> cli/ restructure, and repository_dispatch
       # always runs the DEFAULT branch's copy of this workflow.
       - name: locate runko-ci
+        # success() || failure(): the report-result step needs this even
+        # when the change-ref fetch failed - a skipped locate left
+        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
+        # the failure path, so runkod showed pending forever (found live).
+        if: success() || failure()
         run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
+        if: success() || failure()
         with: { go-version: '1.25', cache: true }
       - name: report in_progress
         run: |
@@ -186,8 +204,14 @@ jobs:
       # postdate the cmd/ -> cli/ restructure, and repository_dispatch
       # always runs the DEFAULT branch's copy of this workflow.
       - name: locate runko-ci
+        # success() || failure(): the report-result step needs this even
+        # when the change-ref fetch failed - a skipped locate left
+        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
+        # the failure path, so runkod showed pending forever (found live).
+        if: success() || failure()
         run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
+        if: success() || failure()
         with: { go-version: '1.25', cache: true }
       - uses: bazel-contrib/setup-bazel@0.15.0
         with:
@@ -247,8 +271,14 @@ jobs:
       # postdate the cmd/ -> cli/ restructure, and repository_dispatch
       # always runs the DEFAULT branch's copy of this workflow.
       - name: locate runko-ci
+        # success() || failure(): the report-result step needs this even
+        # when the change-ref fetch failed - a skipped locate left
+        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
+        # the failure path, so runkod showed pending forever (found live).
+        if: success() || failure()
         run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
+        if: success() || failure()
         with: { go-version: '1.25', cache: true }
       - name: report in_progress
         run: |
