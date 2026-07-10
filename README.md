@@ -80,6 +80,17 @@ land it. `scripts/compose-smoke.sh` drives that loop end to end; CI times
 it on every landing. The web UI runs separately for now:
 `cd web && VITE_RUNKO_URL=http://localhost:8080 npm install && npm run dev`.
 
+## Installing the CLI
+
+Prebuilt `runko` and `runko-ci` binaries (Linux/macOS/Windows) are on the
+[releases page](https://github.com/saxocellphone/Runko/releases/tag/cli-latest),
+rebuilt automatically whenever a landing affects the CLI. From source:
+
+```bash
+go install github.com/saxocellphone/runko/cli/runko@latest
+go install github.com/saxocellphone/runko/cli/runko-ci@latest
+```
+
 ## Building and testing
 
 ```bash

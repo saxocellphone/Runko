@@ -11,6 +11,8 @@
 # Image input sets (a project + its transitive dependencies):
 #   runkod  <- runkod, platform, internal, db, proto, repo
 #   web     <- web, proto, repo
+#   cli     <- cli, platform, internal, db, repo (GitHub binary release,
+#              not an image - the rolling `cli-latest` release below)
 name: Release images
 
 on:
@@ -18,7 +20,9 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  # contents: write is for the rolling cli-latest release (tag + assets);
+  # main itself stays untouchable (the freeze ruleset targets the branch).
+  contents: write
   packages: write
 
 concurrency:
@@ -31,6 +35,7 @@ jobs:
     outputs:
       runkod: ${{ steps.affected.outputs.runkod }}
       web: ${{ steps.affected.outputs.web }}
+      cli: ${{ steps.affected.outputs.cli }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,15 +50,15 @@ jobs:
           # First push to a branch, a forced push, or an unknown base: build
           # everything. github.event.before is all-zeros in those cases.
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; echo "cli=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           AFF=$(go run "$RUNKO_CI_PKG" affected --base "$BEFORE" --head '${{ github.sha }}')
           echo "$AFF"
           if [ "$(echo "$AFF" | jq -r '.RunEverything')" = "true" ]; then
-            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; echo "cli=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           NAMES=$(echo "$AFF" | jq -r '[.Projects[].Name] | join(" ")')
-          runkod=false; web=false
+          runkod=false; web=false; cli=false
           for n in $NAMES; do
             case "$n" in
               runkod|platform|internal|db|proto|repo) runkod=true ;;
@@ -61,9 +66,13 @@ jobs:
             case "$n" in
               web|proto|repo) web=true ;;
             esac
+            case "$n" in
+              cli|platform|internal|db|repo) cli=true ;;
+            esac
           done
           echo "runkod=$runkod" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "cli=$cli" >> "$GITHUB_OUTPUT"
 
   images:
     needs: scope
@@ -116,3 +125,42 @@ jobs:
             ghcr.io/saxocellphone/runko/${{ matrix.name }}:sha-${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+  # Rolling GitHub binary release for the CLIs (runko + runko-ci): rebuilt
+  # whenever the cli input set changed, published as the `cli-latest`
+  # release with per-platform assets + checksums. The tag exists only on
+  # GitHub (the mirror pushes runko-side tags and never prunes foreign
+  # ones, so no divergence is possible). `go install .../cli/runko@latest`
+  # remains the from-source alternative.
+  cli-release:
+    needs: scope
+    if: needs.scope.outputs.cli == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: cross-compile runko + runko-ci
+        run: |
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            GOOS=${target%/*}; GOARCH=${target#*/}
+            EXT=""; [ "$GOOS" = "windows" ] && EXT=".exe"
+            for bin in runko runko-ci; do
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH \
+                go build -trimpath -ldflags="-s -w" \
+                -o "dist/${bin}_${GOOS}_${GOARCH}${EXT}" "./cli/${bin}"
+            done
+          done
+          (cd dist && sha256sum * > checksums.txt)
+          ls -la dist/
+      - name: publish rolling cli-latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete cli-latest --cleanup-tag -y || true
+          gh release create cli-latest \
+            --target "${{ github.sha }}" \
+            --title "runko CLI (rolling, main @ ${GITHUB_SHA:0:9})" \
+            --notes "Rolling build of the \`runko\` and \`runko-ci\` CLIs from main @ ${GITHUB_SHA:0:9}. Updated automatically whenever a landing affects the CLI or its dependencies. Verify with checksums.txt. From source: \`go install github.com/saxocellphone/runko/cli/runko@latest\`." \
+            dist/*
