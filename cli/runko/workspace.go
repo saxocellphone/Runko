@@ -368,48 +368,28 @@ func WorkspaceBranch(dir, name string) (ref string, err error) {
 // just names the problem before a network round-trip (§6.5).
 var workspaceBranchPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
-// WorkspaceUpdateBase is §12.3's "sync base" row: fetch trunk, rebase the
-// workspace onto its tip, and record the new base in the registry. On
-// conflict the rebase is aborted and the conflicted paths are named -
-// never a half-rebased tree (§6.6's conflict UX bar).
+// WorkspaceUpdateBase is §12.3's "sync base" row, surfaced as `runko
+// workspace sync` (`update-base` stays as an alias): sync the workspace
+// onto the trunk tip via SyncToTrunk (jj-aware; plain-git rebase with
+// §6.6's abort-and-name-the-files conflict UX) and record the new base
+// in the registry. Reads runko.workspace like `change push` does (plain
+// config lookup, so worktree AND standalone jj-colocated bindings work).
 func WorkspaceUpdateBase(ctx context.Context, client *http.Client, runkodURL, token, dir string) (newBase string, err error) {
-	id, err := runGit(dir, "config", "--worktree", "runko.workspace")
+	id, err := runGit(dir, "config", "runko.workspace")
 	if err != nil || id == "" {
 		return "", &clierr.Error{
 			Code: "not_a_workspace", Field: "dir",
-			Message: fmt.Sprintf("%s is not a runko workspace worktree", dir),
+			Message:    fmt.Sprintf("%s is not bound to a runko workspace", dir),
+			Suggestion: "runko workspace create/attach, or bind an existing checkout: git config runko.workspace <id>",
 		}
 	}
-	trunk, err := runGit(dir, "config", "--worktree", "runko.trunk")
+	trunk, err := runGit(dir, "config", "runko.trunk")
 	if err != nil || trunk == "" {
 		trunk = "main"
 	}
-	if _, err := runGit(dir, "fetch", "origin", trunk); err != nil {
-		return "", fmt.Errorf("fetch trunk: %w", err)
-	}
-	newBase, err = runGit(dir, "rev-parse", "FETCH_HEAD")
+	newBase, err = SyncToTrunk(dir, "origin", trunk)
 	if err != nil {
 		return "", err
-	}
-	// Same identity fallback as WorkspaceSnapshot: rebase re-commits, so it
-	// needs a committer even on an unconfigured machine.
-	rebaseArgs := []string{"rebase", newBase}
-	if email, _ := runGit(dir, "config", "user.email"); email == "" {
-		rebaseArgs = append([]string{"-c", "user.name=Runko Workspace", "-c", "user.email=runko-workspace@localhost"}, rebaseArgs...)
-	}
-	if _, rebaseErr := runGit(dir, rebaseArgs...); rebaseErr != nil {
-		conflicts, _ := runGit(dir, "diff", "--name-only", "--diff-filter=U")
-		runGit(dir, "rebase", "--abort")
-		if conflicts == "" {
-			// Not a content conflict - surface the real failure, never a
-			// misleading "conflicts in:" with an empty list.
-			return "", fmt.Errorf("rebase onto %s: %w", short(newBase), rebaseErr)
-		}
-		return "", &clierr.Error{
-			Code: "rebase_conflict", Field: "workspace",
-			Message:    fmt.Sprintf("rebasing onto trunk tip %s conflicts in: %s", short(newBase), strings.ReplaceAll(conflicts, "\n", ", ")),
-			Suggestion: "resolve by hand: git rebase " + short(newBase) + ", fix conflicts, then run update-base again",
-		}
 	}
 	err = apiJSON(ctx, client, http.MethodPost,
 		strings.TrimSuffix(runkodURL, "/")+"/api/workspaces/"+id+"/base", token,

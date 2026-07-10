@@ -56,10 +56,11 @@ URL-embedded basic auth), rebase with `jj rebase -d 'main@origin'`.
 3. Gate: `runko change requirements --change <Id>` until mergeable.
    A stacked child is NOT mergeable until its parent lands - land
    bottom-up.
-4. Land: `runko change land --change <Id>`. On "trunk has moved"
-   (optimistic revalidation): `git fetch origin && jj rebase -d
-   'main@origin'` (or `runko workspace update-base` in a worktree),
-   push, wait, land - tight loop; trunk is busy, wide waits lose races.
+4. Land: `runko change land --change <Id> --repo <checkout>`. On
+   "trunk has moved" (optimistic revalidation) it recovers BY ITSELF:
+   sync onto trunk, re-push, wait for checks, retry (bounded; see
+   --sync-timeout). `runko workspace sync` is the manual form, and
+   `change push` already auto-syncs a stale base before pushing.
    Keep the change's touched-path footprint small: fewer required
    checks = a smaller race window.
 5. Deploy (this repo): landing mirrors trunk to GitHub, Release images
@@ -86,5 +87,5 @@ URL-embedded basic auth), rebase with `jj rebase -d 'main@origin'`.
   FIRST; if you contaminated the working copy, `jj duplicate @` gives
   the content a fresh identity.
 - Raw git is for transport only (fetch, the bound-clone plumbing).
-  Verbs that exist - use them: snapshot, branch, attach, update-base,
+  Verbs that exist - use them: snapshot, branch, attach, sync,
   change create/push/land/abandon/requirements.

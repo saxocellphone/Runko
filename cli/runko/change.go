@@ -30,6 +30,19 @@ var warnWriter io.Writer = os.Stderr
 // here since the ref is meant to always reflect the Change's latest commit,
 // never a history to preserve.
 func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
+	return pushChange(repoDir, remote, trunk, true)
+}
+
+// pushChange with autoSync=true rebases a stale base onto the remote
+// trunk tip BEFORE pushing (2026-07-10, the sync feature): a stale base
+// only postpones the same rebase to the §13.5 revalidation loop, with a
+// round of checks wasted in between. --no-sync opts out.
+func pushChange(repoDir, remote, trunk string, autoSync bool) (changeID string, err error) {
+	if autoSync && staleBase(repoDir, remote, trunk) {
+		if _, err := SyncToTrunk(repoDir, remote, trunk); err != nil {
+			return "", err
+		}
+	}
 	if _, err := runGit(repoDir, "rev-parse", "--git-dir"); err != nil {
 		return "", &clierr.Error{
 			Code:       "not_a_repo",

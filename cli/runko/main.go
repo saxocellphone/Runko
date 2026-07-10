@@ -28,6 +28,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/saxocellphone/runko/platform/land"
 	"text/tabwriter"
 
 	"github.com/saxocellphone/runko/platform/agentsmd"
@@ -106,7 +109,7 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
   workspace attach <id> --runkod-url <url> --token <t> [--branch <b>]   restore a workspace branch from its snapshot ref [--json]
   workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir .]                           fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
-  workspace update-base --runkod-url <url> --token <t> [--dir .]   fetch + rebase onto trunk tip [--json]
+  workspace sync --runkod-url <url> --token <t> [--dir .]    sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: six read-only tools (§8.3, §17.4)
 
   auth login --runkod-url <url> [--name <you>] [--token <t>]   store a credential; every command below then needs no flags
@@ -274,12 +277,13 @@ func cmdChange(args []string) error {
 	repoDir := fs.String("repo", ".", "path to the local repo")
 	remote := fs.String("remote", "origin", "git remote to push to")
 	trunk := fs.String("trunk", "main", "trunk ref name")
+	noSync := fs.Bool("no-sync", false, "push as-is even when the base is stale (skip the automatic rebase onto the trunk tip)")
 	jsonOut := fs.Bool("json", false, "emit {change_id, ref} as JSON instead of a human summary")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
 
-	changeID, err := PushChange(*repoDir, *remote, *trunk)
+	changeID, err := pushChange(*repoDir, *remote, *trunk, !*noSync)
 	if err != nil {
 		return err
 	}
@@ -408,6 +412,11 @@ func cmdChangeLand(args []string) error {
 	token := fs.String("token", "", "deploy token")
 	changeID := fs.String("change", "", "Change-Id to land")
 	force := fs.Bool("force", false, "admin override (docs/design.md 13.5): bypass owner/check gates and revalidation; audited as landed_forced")
+	repoDir := fs.String("repo", ".", "local checkout used by --sync to rebase and re-push on requires_revalidation")
+	remote := fs.String("remote", "origin", "git remote --sync pushes to")
+	trunk := fs.String("trunk", "main", "trunk ref name")
+	sync := fs.Bool("sync", true, "on requires_revalidation, run the 13.5 recovery loop here: sync onto trunk, re-push, wait for checks, retry")
+	syncTimeout := fs.Duration("sync-timeout", 15*time.Minute, "wall-clock bound on the --sync recovery loop")
 	jsonOut := fs.Bool("json", false, "emit the land.Outcome as JSON instead of a human summary")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -419,7 +428,14 @@ func cmdChangeLand(args []string) error {
 	if err != nil {
 		return err
 	}
-	outcome, err := LandChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *changeID, *force)
+	// The recovery loop needs a checkout to rebase; without one (or with
+	// --force, which bypasses revalidation anyway) land is a single shot.
+	var outcome land.Outcome
+	if _, gitErr := runGit(*repoDir, "rev-parse", "--git-dir"); *sync && !*force && gitErr == nil {
+		outcome, err = LandWithSync(context.Background(), http.DefaultClient, cred, *changeID, *repoDir, *remote, *trunk, *syncTimeout, os.Stderr)
+	} else {
+		outcome, err = LandChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *changeID, *force)
+	}
 	if err != nil {
 		return err
 	}
@@ -588,7 +604,7 @@ func (s *stringSliceFlag) Set(v string) error {
 // mechanics; this is flag parsing and output shaping only.
 func cmdWorkspace(args []string) error {
 	if len(args) < 1 {
-		return usageError("usage: runko workspace create|list|attach|snapshot|branch|update-base ...")
+		return usageError("usage: runko workspace create|list|attach|snapshot|branch|sync ...")
 	}
 	sub, rest := args[0], args[1:]
 	ctx := context.Background()
@@ -756,8 +772,8 @@ func cmdWorkspace(args []string) error {
 		fmt.Printf("branched: snapshots from here go to %s\n", ref)
 		return nil
 
-	case "update-base":
-		fs := flag.NewFlagSet("workspace update-base", flag.ExitOnError)
+	case "sync", "update-base": // sync is the verb (12.3, the CitC "sync to head"); update-base is the original 12b name
+		fs := flag.NewFlagSet("workspace sync", flag.ExitOnError)
 		runkodURL := fs.String("runkod-url", "", "runkod base URL")
 		token := fs.String("token", "", "deploy token")
 		dir := fs.String("dir", ".", "workspace worktree directory")
@@ -776,11 +792,11 @@ func cmdWorkspace(args []string) error {
 		if *jsonOut {
 			return json.NewEncoder(os.Stdout).Encode(map[string]string{"base_revision": newBase})
 		}
-		fmt.Printf("rebased onto trunk tip %s\n", short(newBase))
+		fmt.Printf("synced onto trunk tip %s\n", short(newBase))
 		return nil
 
 	default:
-		return usageError("usage: runko workspace create|list|attach|snapshot|branch|update-base ...")
+		return usageError("usage: runko workspace create|list|attach|snapshot|branch|sync ...")
 	}
 }
 
