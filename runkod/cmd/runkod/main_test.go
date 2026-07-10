@@ -26,8 +26,35 @@ import (
 // same spirit applies to testing our own daemon as a black box, not via
 // in-process shortcuts that could hide real wiring bugs like the auth gap
 // found while building this package - see runkod/api.go).
+// binaryFromRunfiles resolves a bazel-built go_binary when running under
+// `bazel test` (§14.5.4: this repo's tests run under bazel as the golden
+// path's reference implementation): TEST_SRCDIR is the runfiles root and
+// rules_go lands a binary at <workspace>/<pkg>/<name>_/<name>. Returns ""
+// under plain `go test`, where the callers fall back to `go build` - one
+// test source, both runners. The binaries are declared as `data` on this
+// package's go_test target (BUILD.bazel), which is what puts them in the
+// runfiles at all.
+func binaryFromRunfiles(pkg, name string) string {
+	root := os.Getenv("TEST_SRCDIR")
+	if root == "" {
+		return ""
+	}
+	ws := os.Getenv("TEST_WORKSPACE")
+	if ws == "" {
+		ws = "_main"
+	}
+	p := filepath.Join(root, ws, pkg, name+"_", name)
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return ""
+}
+
 func buildRunkod(t *testing.T) string {
 	t.Helper()
+	if p := binaryFromRunfiles("runkod/cmd/runkod", "runkod"); p != "" {
+		return p
+	}
 	bin := filepath.Join(t.TempDir(), "runkod")
 	cmd := exec.Command("go", "build", "-o", bin, ".")
 	cmd.Dir = "."
@@ -41,6 +68,9 @@ func buildRunkod(t *testing.T) string {
 // as a subprocess, exactly the way a user would.
 func buildRunko(t *testing.T) string {
 	t.Helper()
+	if p := binaryFromRunfiles("cli/runko", "runko"); p != "" {
+		return p
+	}
 	bin := filepath.Join(t.TempDir(), "runko")
 	cmd := exec.Command("go", "build", "-o", bin, "../../../cli/runko")
 	cmd.Dir = "."

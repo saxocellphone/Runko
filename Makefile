@@ -1,4 +1,4 @@
-.PHONY: check fmt vet test build check-db check-race check-web check-bazel
+.PHONY: check fmt vet test build check-db check-race check-web check-bazel check-bazel-test check-bazel-race
 
 check: fmt vet test
 
@@ -65,6 +65,19 @@ check-bazel:
 	bazel run //:gazelle
 	git diff --exit-code -- '**/BUILD.bazel'
 	go test -tags bazel_integration ./platform/buildadapter/bazel/
+
+# The test suite under bazel (§14.5.4 golden path, adopted 2026-07-10:
+# this repo is the reference implementation, so its checks run the way
+# the spec tells customers to run theirs). CI's platform-check/-race run
+# exactly these, scoped to the affected projects; `check` stays the
+# fast plain-go inner loop - both runners exercise the same tests, and
+# the e2e suites resolve their subject binaries from bazel runfiles with
+# a `go build` fallback (runkod/cmd/runkod/main_test.go).
+check-bazel-test:
+	bazel test //...
+
+check-bazel-race:
+	bazel test --@rules_go//go/config:race //...
 
 # The §16.4 measured eval loop (docker compose v2 + go required): compose
 # up -> create -> change -> land, twice, timed against §3.3's budget. CI

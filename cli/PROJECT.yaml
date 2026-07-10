@@ -10,9 +10,9 @@ dependencies:
 ci:
   checks:
     - name: platform-check
-      command: make check
+      command: make check-bazel-test
     - name: platform-race
-      command: make check-race
+      command: make check-bazel-race
     - name: platform-db
       command: make check-db
     - name: bazel-check

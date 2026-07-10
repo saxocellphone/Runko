@@ -22,6 +22,10 @@ go_binary(
 go_test(
     name = "runkod_test",
     srcs = ["main_test.go"],
+    data = [
+        "//cli/runko",
+        "//runkod/cmd/runkod",
+    ],
     embed = [":runkod_lib"],
     deps = ["//internal/dbtest"],
 )

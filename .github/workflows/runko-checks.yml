@@ -46,6 +46,7 @@ jobs:
       web_needed: ${{ steps.scope.outputs.web_needed }}
       docs_needed: ${{ steps.scope.outputs.docs_needed }}
       go_scope: ${{ steps.scope.outputs.go_scope }}
+      bazel_scope: ${{ steps.scope.outputs.bazel_scope }}
     steps:
       - uses: actions/checkout@v4
       - name: fetch the change ref (mirror-lag retry)
@@ -71,7 +72,7 @@ jobs:
           run_everything() {
             {
               echo "go_needed=true"; echo "web_needed=true"; echo "docs_needed=true"
-              echo "go_scope=./..."
+              echo "go_scope=./..."; echo "bazel_scope=//..."
             } >> "$GITHUB_OUTPUT"
             exit 0
           }
@@ -84,23 +85,25 @@ jobs:
           if [ "$RE" != "false" ]; then
             run_everything
           fi
-          GO_SCOPE=""; GO_NEEDED=false; WEB_NEEDED=false; DOCS_NEEDED=false
+          GO_SCOPE=""; BZL_SCOPE=""; GO_NEEDED=false; WEB_NEEDED=false; DOCS_NEEDED=false
           while IFS=$'\t' read -r name path; do
             case "$name" in
-              repo)                         GO_SCOPE="./..."; GO_NEEDED=true ;;
+              repo)                         GO_SCOPE="./..."; BZL_SCOPE="//..."; GO_NEEDED=true ;;
               platform|runkod|cli|internal|proto)
-                                            GO_SCOPE="$GO_SCOPE ./$path/..."; GO_NEEDED=true ;;
+                                            GO_SCOPE="$GO_SCOPE ./$path/..."; BZL_SCOPE="$BZL_SCOPE //$path/..."; GO_NEEDED=true ;;
               web)                          WEB_NEEDED=true ;;
               docs)                         DOCS_NEEDED=true ;;
               db)                           : ;;  # SQL only; its Go consumers are pulled in via the dep closure
             esac
           done < <(echo "$AFF" | jq -r '.Projects[] | [.Name, .Path] | @tsv')
           # A root/repo change scopes to everything - drop the redundant
-          # per-project globs to keep `go test` from double-listing.
+          # per-project globs to keep the runners from double-listing.
           case " $GO_SCOPE " in *" ./... "*) GO_SCOPE="./..." ;; esac
+          case " $BZL_SCOPE " in *" //... "*) BZL_SCOPE="//..." ;; esac
           {
             echo "go_needed=$GO_NEEDED"; echo "web_needed=$WEB_NEEDED"; echo "docs_needed=$DOCS_NEEDED"
             echo "go_scope=$(echo $GO_SCOPE | xargs)"
+            echo "bazel_scope=$(echo $BZL_SCOPE | xargs)"
           } >> "$GITHUB_OUTPUT"
 
   platform-check:
@@ -137,11 +140,17 @@ jobs:
         run: |
           curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.43.0/jj-v0.43.0-x86_64-unknown-linux-musl.tar.gz \
             | tar -xz -C /usr/local/bin ./jj
-      - name: fmt + vet + test (scoped)
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: bazel-tests
+          repository-cache: true
+      - name: fmt + vet (native, fast)
         run: |
           gofmt -l . | (! grep .)
           go vet ${{ needs.setup.outputs.go_scope }}
-          go test ${{ needs.setup.outputs.go_scope }}
+      - name: bazel test (scoped - §14.5.4 golden path)
+        run: bazel test --test_output=errors ${{ needs.setup.outputs.bazel_scope }}
       - name: report result
         # success() || failure() excludes CANCELLED (migration-findings #28).
         if: success() || failure()
@@ -182,8 +191,13 @@ jobs:
           go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name platform-race --external-id "${{ github.run_id }}-race" \
             --status in_progress --reporter github-actions
-      - name: race (scoped)
-        run: go test -race ${{ needs.setup.outputs.go_scope }}
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: bazel-tests-race
+          repository-cache: true
+      - name: bazel test -race (scoped)
+        run: bazel test --@rules_go//go/config:race --test_output=errors ${{ needs.setup.outputs.bazel_scope }}
       - name: report result
         if: success() || failure()
         run: |

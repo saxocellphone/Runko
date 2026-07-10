@@ -1,0 +1,11 @@
+# Hand-written (gazelle generates nothing for non-Go trees): the contract
+# artifacts several test suites read at runtime - checks' webhook-schema
+# contract tests, mcp's catalog drift/validation tests, agentsmd's
+# CLI-contract cross-check. Declared as runfiles `data` on those go_test
+# targets so `bazel test` sandboxes can see them; plain `go test` keeps
+# reading the same files via the package-relative paths.
+filegroup(
+    name = "contracts",
+    srcs = ["cli-contract.md"] + glob(["spec/**"]),
+    visibility = ["//visibility:public"],
+)

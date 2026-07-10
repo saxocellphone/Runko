@@ -40,6 +40,13 @@ func requireJJ(t *testing.T) {
 	if _, err := exec.LookPath("jj"); err != nil {
 		t.Skip("jj binary not installed; skipping jj client tests")
 	}
+	// Hermetic HOME: jj resolves its "secure config" under the user's
+	// config dir, which is read-only inside a bazel test sandbox and
+	// pollutes results with the developer's real jj config under plain
+	// `go test`. Point both at a throwaway dir.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
 }
 
 // newColocatedJJRepo initializes a colocated jj workspace (jj + .git side

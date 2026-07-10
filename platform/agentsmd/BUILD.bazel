@@ -13,5 +13,6 @@ go_library(
 go_test(
     name = "agentsmd_test",
     srcs = ["generate_test.go"],
+    data = ["//docs:contracts"],
     embed = [":agentsmd"],
 )

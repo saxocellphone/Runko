@@ -24,6 +24,7 @@ go_test(
         "catalog_drift_test.go",
         "protocol_test.go",
     ],
+    data = ["//docs:contracts"],
     embed = [":mcp"],
     deps = [
         "//platform/receive",

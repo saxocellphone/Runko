@@ -33,6 +33,7 @@ go_test(
         "requirements_test.go",
         "staleness_test.go",
     ],
+    data = ["//docs:contracts"],
     embed = [":checks"],
     deps = [
         "//internal/dbgen",
