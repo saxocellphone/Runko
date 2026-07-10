@@ -1340,17 +1340,17 @@ rebuild *only* the artifacts it feeds — not the whole suite, not every
 image, every time. Runko's own CI is the reference implementation:
 
 - **Scoped checks.** The pre-land workflow's `setup` job runs
-  `runko-ci affected` over the change's `base..head` — the *same*
-  computation the server's merge gate uses — and every check job is gated
-  and scoped to the result. A `cli`-only change runs `go test ./cli/...`;
-  a `docs`-only change runs only the build-graph check; a `web`-only
-  change runs only `web-check`. Check **names** are unchanged
-  (`platform-check`/`-race`/`-db`, `bazel-check`, `web-check`), so the
-  merge gate — which resolves required checks from the affected projects'
-  manifests — is untouched; only what each job *executes* narrows. A
+  `runko-ci checks` over the change's `base..head` — the affected
+  computation is the *same* one the server's merge gate uses — and
+  executes exactly the matrix it returns (§14.9.1): each affected
+  project's own manifest-declared commands, themselves scoped to their
+  project's subtree. A `cli`-only change runs `cli-test`
+  (`bazel test //cli/...`); a `docs`-only change runs only the
+  build-graph check; a `web`-only change runs only `web-check`. A
   `run_everything` result (unowned root path, or an engine escalation)
-  fails **open** to the whole repo, matching the gate's fail-closed bias:
-  the workflow must never skip a job the gate will require.
+  fails **open** to every project's checks, matching the gate's
+  fail-closed bias: the workflow must never skip a check the gate will
+  require.
 - **Scoped releases.** The post-land image build computes affected over
   the landed range and rebuilds each image only when its own input set (a
   project plus its transitive dependencies) intersects — a docs-only
@@ -1478,6 +1478,48 @@ ci:
 Templates map `checks[].name` → required Checks. **Default template** from project type (`go-service` → `unit` + `lint`) applied at create—users override rarely.
 
 Org can define **global required checks** (e.g. `secrets-scan` always).
+
+#### 14.9.1 Encapsulation: the CI system is a generic executor (decided 2026-07-10)
+
+A project's tests belong to the project — `ci.checks[].command` is the
+check's *definition*, not a hint. The CI side consumes it through one
+subcommand:
+
+```
+runko-ci checks --base <sha> --head <sha>
+  -> {run_everything, checks: [{project, name, command}]}
+```
+
+the affected closure's manifest-declared checks, **deduped by name** (a
+shared check like a repo-wide build-graph gate may be declared by several
+projects and runs once); the same name declared with *different* commands
+is a structured `ambiguous_check` error, never silent first-wins.
+`run_everything` resolves every project's checks — fail closed.
+
+The CI workflow that consumes this knows **no project names, no commands,
+no per-check environments**: resolve the matrix, run each `command`,
+report each result under its `name`. Two properties make this safe:
+
+- **Gate/executor agreement by construction.** The merge gate resolves
+  required check names from the change's own head-tree manifests, and the
+  executor resolves names+commands from a checkout of the same head — so
+  adding or renaming a check is one manifest change; the two sides cannot
+  disagree, even mid-rename.
+- **Runner contract instead of per-check config.** The executor provides
+  one documented environment to every check: the repo at the change head,
+  the org's toolchains installed, and shared services up with their DSNs
+  exported (e.g. `RUNKO_TEST_DATABASE_URL` over an always-on Postgres).
+  Checks opt in by reading what they need; DB-gated tests skip where the
+  DSN is absent. Shared mutable services put the serialization burden on
+  the *test harness* (Runko's own `internal/dbtest` holds a session-level
+  Postgres advisory lock per test), not on runner flags — that is what
+  lets one project's check carry its own integration tests without a
+  dedicated "db lane" in the workflow.
+
+A matrix-resolution failure means no checks report and the gate stays
+pending — visible, rerunnable, fail-closed. Future (noted, not built):
+a `tools:`/`services:` field on checks to narrow the runner contract
+declaratively, and `runko-ci checks --run` as a local executor.
 
 ### 14.10 Deploy / CD hooks — Runko as the GitOps source of record
 
@@ -2106,6 +2148,8 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-10 | **`bazel test` becomes the test runner (reverses the 2026-07-08 graph-only stance; user direction: "the runko repo is the canonical standard - use bazel test as much as possible even though it doesn't speed things up")**: platform-check/-race now run `bazel test` over the affected bazel scope (`make check-bazel-test`/`check-bazel-race` locally) - the §14.5.4 golden-path check command, demonstrated on the least Bazel-friendly suite imaginable (subprocess git everywhere, compiled-daemon e2e tests, jj). What it took, as reference material: contract artifacts became runfiles `data` (a hand-written `//docs:contracts` filegroup; gazelle preserves unmanaged attrs), jj tests gained a hermetic HOME (sandbox-required, better hygiene under plain go test too), and the e2e suites resolve their subject binaries from bazel runfiles (`TEST_SRCDIR` + go_binary `data` deps) with a `go build` fallback so one test source serves both runners. Kept native: `make check` (the <30s inner loop), gofmt/vet (fast pre-steps; nogo is the noted follow-up), and check-db (external stateful Postgres wants `-p 1` semantics bazel's parallel targets don't give). All 21 targets pass under both `bazel test` and `--@rules_go//go/config:race` |
 | 2026-07-10 | **Bazel conversion round two: check-db + vet move in**: `internal/dbtest` now applies migrations from the SAME embedded FS the product ships (`db.Migrations`, fed to psql over stdin) instead of repo-root file discovery - the harness works identically under plain `go test` and sandboxed `bazel test`, and gained a no-database inventory test (pairing/order of embedded migrations). `make check-bazel-db` = `bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_filter=Postgres --local_test_jobs=1 --nocache_test_results` (env passthrough, the -p 1 serialization the shared-schema resets need, and no result caching because a mutable external database is not a hermetic input); CI's platform-db runs it scoped. `go vet` retired from CI: rules_go nogo (`//:runko_nogo`, vet analyzer set) rides every compilation, so a vet violation fails the build itself. Deliberately still native, by doctrine: web (§14.5.5 territory sovereignty), the bazel-in-bazel integration test (recursion buys nothing), compose (docker), gofmt (one fast step), and `make check` as the <30s inner loop |
 | 2026-07-10 | **Tree-borne root invalidation + two-tier root gating (§14.5.2 relocated into the tree per §9.4; prompted by a README edit running the full CI matrix)**: `PROJECT.yaml` gains `root_invalidation` - glob patterns naming BUILD-SENSITIVE paths whose change escalates affected computation to run_everything - read from the indexed manifests by the daemon (funnel, merge gate, land) and `runko-ci affected` alike, with the old `--root-invalidation` flag demoted to an additive override; policy now rides the same review gates as the code it protects. The root `repo` project drops the Go check matrix down to bazel-check (a prose edit at the root now gates like a docs edit) while its manifest enumerates go.mod/MODULE.bazel/Dockerfile/.github/** etc. as invalidation patterns - fail-closed exactly where it matters; workflows stop treating "repo affected" as "everything", and release input sets drop `repo` (RunEverything covers the dangerous files). Companion bazel-adapter fix closes finding #6: paths outside any bazel package (no BUILD in ancestry - a filesystem test) are skipped instead of erroring the whole rdeps query, so refinement survives mixed code+prose changes; an all-non-package change reports zero targets without invoking the engine |
+| 2026-07-10 | **Encapsulated checks, phase 1 (§14.9.1, new; user direction: "each project's test should be part of the project - like encapsulation in OOP")**: `runko-ci checks --base --head` resolves the affected closure's manifest-declared `ci.checks` into `{project, name, command}` rows - deduped by name, same-name-different-command a structured `ambiguous_check` error - and `.github/workflows/runko-checks.yml` collapses to a generic executor: a `setup` job resolves the matrix, one matrix job per check runs `command` and reports under `name`. The workflow now contains zero project names, zero commands, zero per-check environments; the runner contract (go/bazel/node/jj/psql + an always-on postgres with `RUNKO_TEST_DATABASE_URL`) is the only thing it owns. Gate/executor agreement is by construction: both read the change's own head tree. `index.IndexedProject` gains `Checks` (name+command) beside the gate's name-only `RequiredChecks`; `web-check`'s command self-scopes (`cd web && ...`) since the executor grants no working-directory |
+| 2026-07-10 | **Encapsulated checks, phase 2 (§14.9.1): manifests own everything, db lane dissolved**: `internal/dbtest.Connect` self-serializes with a session-level Postgres advisory lock held per test (key distinct from the migrator's - daemon e2e tests boot a migrating daemon while holding it), replacing the external `-p 1`/`--local_test_jobs=1` runner flags; pg tests are now safe inside ANY test invocation, so the dedicated db lane disappears into each project's own check via `--test_env` passthrough. The re-carve: `platform-test`/`platform-race`, `runkod-test`/`runkod-race`, `cli-test` (no race - sequential CLIs; race-where-it-matters), `internal-test` (new: consumers' scoped commands never covered `//internal/...` itself), each `bazel test //<dir>/...` scoped to its own subtree; `bazel-check` stays declared across the Go projects deliberately - gazelle drift is repo-wide, and dedupe-by-name makes it one job regardless. The old `platform-check`/`platform-race`/`platform-db` names retire in the same change that lands the executor reading the new ones from the head tree - the rename-safety property §14.9.1 exists to provide |
 
 ---
 

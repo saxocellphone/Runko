@@ -1,6 +1,10 @@
 # The write-path daemon (smart-HTTP git, pre-receive funnel, REST/Connect
 # APIs, webhook outbox, mirror worker) plus its binaries under cmd/
 # (runkod itself and the runko-bridge CI shim).
+#
+# Checks are OWNED here (§14.9): scoped to //runkod/..., pg tests ride
+# runkod-test via the DSN passthrough. -race matters here - the daemon is
+# the concurrent surface (land races, outbox worker, mirror worker).
 schema: project/v1
 name: runkod
 type: service
@@ -12,11 +16,9 @@ dependencies:
   - proto
 ci:
   checks:
-    - name: platform-check
-      command: make check-bazel-test
-    - name: platform-race
-      command: make check-bazel-race
-    - name: platform-db
-      command: make check-bazel-db
+    - name: runkod-test
+      command: bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_output=errors //runkod/...
+    - name: runkod-race
+      command: bazel test --@rules_go//go/config:race --test_output=errors //runkod/...
     - name: bazel-check
       command: make check-bazel

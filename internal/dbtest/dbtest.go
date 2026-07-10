@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/saxocellphone/runko/db"
@@ -38,15 +39,40 @@ import (
 // check-db target.
 const envVar = "RUNKO_TEST_DATABASE_URL"
 
+// harnessLockKey serializes every Connect-using test across processes: they
+// all share one database and resetSchema drops it flat, so two tests running
+// concurrently (bazel runs test targets as parallel processes; go test runs
+// packages in parallel) would clobber each other mid-flight. A session-level
+// advisory lock held for the test's lifetime replaces the external runner
+// flags (-p 1 / --local_test_jobs=1) that used to do this. Distinct from
+// runkod's migrationLockKey ("RUNKO") - the daemon e2e tests boot a real
+// daemon (which takes that lock during ApplyMigrations) WHILE the test holds
+// this one.
+const harnessLockKey = 0x52554e4b4f5f4442 // "RUNKO_DB"
+
 // Connect returns a pool against RUNKO_TEST_DATABASE_URL with the schema
 // reset to a clean, freshly-migrated state, or skips the test if the env
-// var isn't set.
+// var isn't set. It blocks until every other Connect-holding test (in any
+// process) finishes; call it once per test (a second Connect in the same
+// test would self-deadlock on the session lock).
 func Connect(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv(envVar)
 	if dsn == "" {
 		t.Skipf("%s not set - skipping live-Postgres test (see db/README.md, `make check-db`)", envVar)
 	}
+
+	lock, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("dbtest: connect for harness lock: %v", err)
+	}
+	if _, err := lock.Exec(context.Background(), "SELECT pg_advisory_lock($1)", int64(harnessLockKey)); err != nil {
+		lock.Close(context.Background())
+		t.Fatalf("dbtest: acquire harness lock: %v", err)
+	}
+	// Closing the session releases the lock; registered before resetSchema
+	// so even a Fatalf below unblocks the next waiter.
+	t.Cleanup(func() { lock.Close(context.Background()) })
 
 	resetSchema(t, dsn)
 

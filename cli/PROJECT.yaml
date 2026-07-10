@@ -1,5 +1,10 @@
 # The client binaries: runko (human/agent CLI) and runko-ci (CI-facing
 # CLI). Pure main packages over the platform libraries.
+#
+# Checks are OWNED here (§14.9): scoped to //cli/... . No -race check on
+# purpose (race-where-it-matters): these are sequential CLIs - the
+# concurrent surfaces (land engine, daemon) carry their own race checks,
+# and a change touching platform code pulls those in via the closure.
 schema: project/v1
 name: cli
 type: app
@@ -9,11 +14,7 @@ dependencies:
   - internal
 ci:
   checks:
-    - name: platform-check
-      command: make check-bazel-test
-    - name: platform-race
-      command: make check-bazel-race
-    - name: platform-db
-      command: make check-bazel-db
+    - name: cli-test
+      command: bazel test --test_output=errors //cli/...
     - name: bazel-check
       command: make check-bazel

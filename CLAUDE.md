@@ -15,16 +15,22 @@ remote is named `github` and is the OUTBOUND MIRROR — **never push to it**
   work in a jj colocated repo — trailer-less pushes get a server-minted id
   per push.
 - Required checks come from the tree (re-carved 2026-07-09 into
-  folder-per-project manifests): `repo` (root glue), `platform/`, `runkod/`,
-  and `cli/` declare `platform-check`/`platform-race`/`platform-db`/
-  `bazel-check` (= `make check`/`check-race`/`check-db`/`check-bazel`),
-  `docs/` declares only `platform-check`, `web/PROJECT.yaml` declares
-  `web-check`; `internal/`, `db/`, and `proto/` declare none and are gated
-  via `dependencies:` edges (the affected closure pulls in their
-  dependents' checks). GitHub Actions runs checks via the
-  webhook→`runko-bridge`→`repository_dispatch` chain
-  (`.github/workflows/runko-checks.yml`) and reports back; land with
-  `runko change land` or `POST /o/runko/api/changes/<id>/land` once green.
+  folder-per-project manifests; encapsulated 2026-07-10 per §14.9.1 —
+  each project OWNS its check commands, CI is a generic executor):
+  `platform/` declares `platform-test`/`platform-race`, `runkod/` declares
+  `runkod-test`/`runkod-race`, `cli/` declares `cli-test`, `internal/`
+  declares `internal-test` (all scoped `bazel test //<dir>/...`; pg tests
+  ride the `-test` checks via `--test_env=RUNKO_TEST_DATABASE_URL` and
+  `internal/dbtest`'s advisory-lock self-serialization — no db lane);
+  `bazel-check` (= `make check-bazel`, gazelle drift, repo-wide by nature)
+  is declared by `repo`/`docs`/the Go projects and dedupes by name;
+  `web/PROJECT.yaml` declares `web-check`; `db/` and `proto/` declare none
+  and are gated via `dependencies:` edges. GitHub Actions is the executor:
+  webhook→`runko-bridge`→`repository_dispatch`→
+  `.github/workflows/runko-checks.yml` resolves the matrix with
+  `runko-ci checks --base --head` and runs each returned command; land
+  with `runko change land` or `POST /o/runko/api/changes/<id>/land` once
+  green.
   Landing mirrors to GitHub `main` automatically, which still triggers
   `ci.yml` (post-land safety net — the only CI that builds the
   actually-landed, post-rebase tree) and `release-images`.

@@ -1,6 +1,15 @@
 # The control-plane domain libraries (receive funnel, land engine,
 # affected computation, checks/merge requirements, tree indexer, project
 # templates, search, build adapters, MCP). Consumed by runkod and cli.
+#
+# Checks are OWNED here (§14.9 encapsulation): each command is scoped to
+# this project's own subtree and self-contained - CI is a generic executor
+# that runs whatever this manifest declares. The pg-gated tests ride
+# platform-test via the DSN passthrough (they skip wherever it's unset;
+# internal/dbtest self-serializes cross-process with an advisory lock).
+# bazel-check is shared repo-wide (dedupes by name): the gazelle-drift
+# check is inherently global, and without it a change here could add a
+# package whose tests //platform/... never sees.
 schema: project/v1
 name: platform
 type: library
@@ -9,11 +18,9 @@ dependencies:
   - internal
 ci:
   checks:
-    - name: platform-check
-      command: make check-bazel-test
+    - name: platform-test
+      command: make fmt && bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_output=errors //platform/...
     - name: platform-race
-      command: make check-bazel-race
-    - name: platform-db
-      command: make check-bazel-db
+      command: bazel test --@rules_go//go/config:race --test_output=errors //platform/...
     - name: bazel-check
       command: make check-bazel

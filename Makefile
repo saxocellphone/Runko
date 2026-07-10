@@ -29,23 +29,19 @@ check-race:
 # configured. Requires RUNKO_TEST_DATABASE_URL (a Postgres the test may
 # freely wipe - see db/README.md) and `psql` on PATH.
 #
-# -p 1: every *_pg_test.go package independently resets the WHOLE shared
-# schema (internal/dbtest.Connect does DROP-then-CREATE) against the SAME
-# database - `go test ./...` otherwise runs different packages' test
-# binaries concurrently (bounded by GOMAXPROCS), so two packages' resets can
-# interleave and race (one package's DROP mid-flight under another's
-# already-running test, or two concurrent CREATE TABLE attempts). Harmless
-# with few live-DB packages and easy to not notice locally; became a real,
-# reproducible CI failure the moment a 4th and 5th package (runkod,
-# cmd/runkod) gained *_pg_test.go files. -p 1 forces one package's test
-# binary at a time, which is what these tests need given they share
-# external, stateful infrastructure instead of being hermetic.
+# Serialization: every *_pg_test.go package independently resets the WHOLE
+# shared schema (internal/dbtest.Connect does DROP-then-CREATE) against the
+# SAME database, while go/bazel both run test binaries concurrently. The
+# harness self-serializes with a session-level Postgres advisory lock held
+# per test (internal/dbtest), so no -p 1 / --local_test_jobs=1 runner flag
+# is needed - pg tests are safe inside ANY test invocation, which is what
+# lets the §14.9 per-project checks carry their own pg tests.
 check-db:
 	@if [ -z "$$RUNKO_TEST_DATABASE_URL" ]; then \
 		echo "RUNKO_TEST_DATABASE_URL is not set - see db/README.md"; \
 		exit 1; \
 	fi
-	go test ./... -run Postgres -v -p 1
+	go test ./... -run Postgres -v
 
 # Frontend checks (web/): typecheck + lint + vitest + production build.
 # Needs Node >= 22 (this sandbox: ~/.local/node/bin). Separate from
@@ -68,11 +64,14 @@ check-bazel:
 
 # The test suite under bazel (§14.5.4 golden path, adopted 2026-07-10:
 # this repo is the reference implementation, so its checks run the way
-# the spec tells customers to run theirs). CI's platform-check/-race run
-# exactly these, scoped to the affected projects; `check` stays the
-# fast plain-go inner loop - both runners exercise the same tests, and
-# the e2e suites resolve their subject binaries from bazel runfiles with
-# a `go build` fallback (runkod/cmd/runkod/main_test.go).
+# the spec tells customers to run theirs). The manifests' per-project
+# checks (platform-test/-race, runkod-test/-race, cli-test,
+# internal-test) run these same invocations scoped to their own
+# subtrees; these whole-repo targets stay as the local convenience.
+# `check` stays the fast plain-go inner loop - both runners exercise the
+# same tests, and the e2e suites resolve their subject binaries from
+# bazel runfiles with a `go build` fallback
+# (runkod/cmd/runkod/main_test.go).
 check-bazel-test:
 	bazel test //...
 
@@ -81,16 +80,16 @@ check-bazel-race:
 
 # The live-Postgres integration tests under bazel: env passthrough for the
 # DSN, --test_filter narrows to the Postgres-gated tests (targets without
-# any simply pass), --local_test_jobs=1 gives the -p 1 serialization the
-# shared-schema resets need, and --nocache_test_results because a mutable
-# external database is not a hermetic input.
+# any simply pass), and --nocache_test_results because a mutable external
+# database is not a hermetic input. Cross-process serialization comes from
+# the harness's own advisory lock (see check-db above), not a runner flag.
 check-bazel-db:
 	@if [ -z "$$RUNKO_TEST_DATABASE_URL" ]; then \
 		echo "RUNKO_TEST_DATABASE_URL is not set - see db/README.md"; \
 		exit 1; \
 	fi
 	bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_filter=Postgres \
-		--local_test_jobs=1 --nocache_test_results //...
+		--nocache_test_results //...
 
 # The §16.4 measured eval loop (docker compose v2 + go required): compose
 # up -> create -> change -> land, twice, timed against §3.3's budget. CI

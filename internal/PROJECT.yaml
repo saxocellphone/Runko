@@ -1,12 +1,20 @@
 # Shared internal packages (dbgen, gitstore, gitfixture, clierr,
 # gitversion, dbtest). Must stay at the module root for Go's internal/
 # visibility rule to keep them importable by platform/, runkod/, and cli/.
-# No ci.checks on purpose: every consumer declares a dependency on this
-# project, so a change here pulls in their checks via the affected
-# closure - dogfooding closure-derived gating (docs/design.md section 13.3).
+#
+# internal-test covers //internal/... itself (§14.9): every consumer's
+# checks arrive via the affected closure (platform/runkod/cli all depend
+# on this project), but their commands are scoped to their OWN subtrees,
+# so without this check internal's own tests would never run. pg tests
+# (dbtest's own harness tests) ride the DSN passthrough. bazel-check comes
+# along via the closure - platform always rides with internal changes.
 schema: project/v1
 name: internal
 type: library
 language: go
 dependencies:
   - db
+ci:
+  checks:
+    - name: internal-test
+      command: bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_output=errors //internal/...
