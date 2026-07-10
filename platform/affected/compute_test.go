@@ -213,3 +213,20 @@ func reasonSet(r Result) reasons {
 	}
 	return out
 }
+
+// Root invalidation must win over ownership (§14.5.2): a root glue
+// project at path "" owns every root file by longest-prefix, which
+// previously made root-invalidation patterns unreachable for exactly the
+// files they exist for (go.mod). Found by a live proof, not a test.
+func TestRootInvalidationBeatsOwnership(t *testing.T) {
+	projects := []ProjectInfo{{Name: "repo", Path: ""}, {Name: "svc", Path: "svc"}}
+	res := Compute(projects, []string{"go.mod"}, Options{RootInvalidationPatterns: []string{"go.mod"}})
+	if !res.RunEverything {
+		t.Fatalf("go.mod matching a root-invalidation pattern must escalate even though the root project owns it, got %+v", res)
+	}
+	// A non-matching root file stays a plain direct hit on the owner.
+	res = Compute(projects, []string{"README.md"}, Options{RootInvalidationPatterns: []string{"go.mod"}})
+	if res.RunEverything || len(res.Projects) != 1 || res.Projects[0].Name != "repo" {
+		t.Fatalf("README must stay a direct repo hit, got %+v", res)
+	}
+}

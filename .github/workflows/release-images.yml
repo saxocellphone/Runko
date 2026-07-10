@@ -8,10 +8,14 @@
 # checks use) and each image builds ONLY when its own inputs changed - a
 # docs-only landing rebuilds nothing, a web-only landing rebuilds only web.
 # run_everything (or a first push with no `before`) rebuilds everything.
-# Image input sets (a project + its transitive dependencies):
-#   runkod  <- runkod, platform, internal, db, proto, repo
-#   web     <- web, proto, repo
-#   cli     <- cli, platform, internal, db, repo (GitHub binary release,
+# Image input sets (a project + its transitive dependencies). `repo` is
+# deliberately absent: root CONTENT (README...) affects no artifact, and
+# root BUILD-SENSITIVE files (Dockerfile, go.mod, .github/**) escalate to
+# run_everything via the root manifest's root_invalidation patterns, which
+# rebuilds everything through the RunEverything branch:
+#   runkod  <- runkod, platform, internal, db, proto
+#   web     <- web, proto
+#   cli     <- cli, platform, internal, db (GitHub binary release,
 #              not an image - the rolling `cli-latest` release below)
 name: Release images
 
@@ -61,13 +65,13 @@ jobs:
           runkod=false; web=false; cli=false
           for n in $NAMES; do
             case "$n" in
-              runkod|platform|internal|db|proto|repo) runkod=true ;;
+              runkod|platform|internal|db|proto) runkod=true ;;
             esac
             case "$n" in
-              web|proto|repo) web=true ;;
+              web|proto) web=true ;;
             esac
             case "$n" in
-              cli|platform|internal|db|repo) cli=true ;;
+              cli|platform|internal|db) cli=true ;;
             esac
           done
           echo "runkod=$runkod" >> "$GITHUB_OUTPUT"

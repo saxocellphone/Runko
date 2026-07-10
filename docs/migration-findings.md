@@ -53,7 +53,12 @@ planning; entries marked `[observed]` happened during execution.
    means any Change touching a non-Bazel file degrades refinement to the
    declared floor). The CI smoke deliberately touches a Go file.
    → §14.5.4 follow-up: package-aware label filtering (skip paths outside
-   any Bazel package instead of erroring the whole query).
+   any Bazel package instead of erroring the whole query). **Closed
+   2026-07-10**: the adapter now skips non-package paths (no BUILD file in
+   any ancestor dir - a filesystem check, no query round-trip); their
+   gating stays with the platform floor, and the build-sensitive
+   non-package files (go.mod, MODULE.bazel...) are covered by tree-borne
+   root_invalidation patterns.
 
 7. **[observed] Stray tool caches confuse workspace walkers.** A `.vite/`
    dep-cache had leaked out of `web/` into the repo root (untracked,

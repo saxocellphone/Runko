@@ -332,9 +332,9 @@ func (r *rpcServer) GetAffected(ctx context.Context, req *connect.Request[runkov
 		for i, p := range indexed {
 			projects[i] = affected.ProjectInfo{Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies}
 		}
-		var rootInvalidation []string
+		rootInvalidation := index.RootInvalidation(indexed)
 		if r.s.Processor != nil {
-			rootInvalidation = r.s.Processor.RootInvalidationPatterns
+			rootInvalidation = append(rootInvalidation, r.s.Processor.RootInvalidationPatterns...)
 		}
 		result := affected.Compute(projects, paths, affected.Options{RootInvalidationPatterns: rootInvalidation})
 		return connect.NewResponse(&runkov1.GetAffectedResponse{Affected: protoAffected(result, indexed)}), nil

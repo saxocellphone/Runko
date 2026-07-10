@@ -60,6 +60,12 @@
       },
       "description": "L2/L3, optional, rare. Explicitly DECLARED dependency edges (other project names) that participate in affected-computation gating (§13.3). Most dependency data should come from the async inferred-dependency indexer, which is advisory-only and never written here; promoting an inferred edge to declared is a deliberate action, not automatic sync."
     },
+    "root_invalidation": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" },
+      "description": "L3, root-manifest-oriented. Glob patterns (path.Match plus 'prefix/**' subtrees) naming BUILD-SENSITIVE paths whose change invalidates every project: toolchain manifests (go.mod, MODULE.bazel), build entrypoints (Makefile, Dockerfile), CI definitions (.github/**). A matching path escalates affected computation to run_everything (§14.5.2). Tree-borne per §9.4 ('the tree owns policy' - relocated from the daemon's --root-invalidation flag, which remains as an additive override): the platform and runko-ci read these from the indexed manifests, so policy rides the same review gates as the code it protects."
+    },
     "visibility": {
       "type": "string",
       "enum": ["default", "restricted"],

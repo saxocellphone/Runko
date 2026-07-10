@@ -32,7 +32,7 @@ func TestQueryParsesLabelOutput(t *testing.T) {
 echo "//commerce/checkout/internal:helpers_test"
 `)
 	e := Engine{Bin: bin}
-	result, err := e.Query(context.Background(), buildQueryRequest("commerce/checkout/main.go"))
+	result, err := e.Query(context.Background(), buildQueryRequest(t, "commerce/checkout/main.go"))
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestQueryFailsOnNonZeroExit(t *testing.T) {
 exit 1
 `)
 	e := Engine{Bin: bin}
-	_, err := e.Query(context.Background(), buildQueryRequest("commerce/checkout/main.go"))
+	_, err := e.Query(context.Background(), buildQueryRequest(t, "commerce/checkout/main.go"))
 	if err == nil {
 		t.Fatalf("expected an error on non-zero exit")
 	}
@@ -60,7 +60,7 @@ func TestQueryFailsOnTimeout(t *testing.T) {
 echo "//should:not-appear"
 `)
 	e := Engine{Bin: bin}
-	req := buildQueryRequest("commerce/checkout/main.go")
+	req := buildQueryRequest(t, "commerce/checkout/main.go")
 	req.Timeout = 50 * time.Millisecond
 
 	start := time.Now()
@@ -109,7 +109,7 @@ func TestQueryUsesRdepsRecipeWithConvertedLabels(t *testing.T) {
 	bin := scriptedBazel(t, `printf '%s\n' "$*" > `+recorded+`
 `)
 	e := Engine{Bin: bin}
-	req := buildQueryRequest("commerce/checkout/main.go")
+	req := buildQueryRequest(t, "commerce/checkout/main.go")
 	req.UniversePattern = "//commerce/..."
 
 	if _, err := e.Query(context.Background(), req); err != nil {
@@ -132,6 +132,60 @@ func TestQueryUsesRdepsRecipeWithConvertedLabels(t *testing.T) {
 	}
 }
 
-func buildQueryRequest(changedPath string) buildadapter.QueryRequest {
-	return buildadapter.QueryRequest{ChangedPaths: []string{changedPath}}
+func buildQueryRequest(t *testing.T, changedPath string) buildadapter.QueryRequest {
+	t.Helper()
+	// The changed path must live inside a bazel PACKAGE within RepoDir:
+	// Query skips non-package paths (migration-findings #6). An unset
+	// RepoDir resolved BUILD lookups against the test process cwd, which
+	// under plain `go test` is the real package dir - so these fixtures
+	// accidentally found the REAL repo's BUILD files and passed, while
+	// bazel's runfiles sandbox (no BUILD files) failed deterministically.
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, filepath.Dir(changedPath))
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "BUILD.bazel"), []byte("filegroup(name = \"x\")\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return buildadapter.QueryRequest{RepoDir: dir, ChangedPaths: []string{changedPath}}
+}
+
+// Package-aware filtering (migration-findings #6): non-package paths are
+// skipped instead of erroring the whole query, and an all-non-package
+// change reports no targets without invoking the engine at all.
+func TestQuerySkipsPathsOutsideAnyBazelPackage(t *testing.T) {
+	dir := t.TempDir()
+	// A package dir with a BUILD file, and root content without one.
+	if err := os.MkdirAll(filepath.Join(dir, "svc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for f, c := range map[string]string{
+		"svc/BUILD.bazel": "filegroup(name='x')",
+		"svc/main.go":     "package main",
+		"README.md":       "hi",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// All-non-package change: no engine call needed - the scripted fake
+	// would fail loudly if invoked (it exits 1).
+	failing := scriptedBazel(t, "#!/bin/sh\nexit 1\n")
+	res, err := Engine{Bin: failing}.Query(context.Background(), buildadapter.QueryRequest{
+		RepoDir: dir, UniversePattern: "//...", ChangedPaths: []string{"README.md"},
+	})
+	if err != nil || len(res.Targets) != 0 {
+		t.Fatalf("all-non-package change must report no targets without querying, got %v / %v", res.Targets, err)
+	}
+
+	// Mixed change: only the in-package label reaches the query.
+	echoing := scriptedBazel(t, "#!/bin/sh\necho \"$@\" >&2\necho //svc:svc_test\n")
+	res, err = Engine{Bin: echoing}.Query(context.Background(), buildadapter.QueryRequest{
+		RepoDir: dir, UniversePattern: "//...", ChangedPaths: []string{"README.md", "svc/main.go"},
+	})
+	if err != nil || len(res.Targets) != 1 {
+		t.Fatalf("mixed change must query the package path only, got %v / %v", res.Targets, err)
+	}
 }

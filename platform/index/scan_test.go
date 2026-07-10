@@ -214,3 +214,22 @@ func TestScanDefaultVisibility(t *testing.T) {
 		t.Fatalf("visibility: want %q, got %q", "default", projects[0].Visibility)
 	}
 }
+
+// root_invalidation is tree-borne policy (§9.4): Scan surfaces it and the
+// union helper dedupes across manifests.
+func TestScanRootInvalidation(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("PROJECT.yaml", "schema: project/v1\nname: repo\ntype: other\nroot_invalidation:\n  - go.mod\n  - .github/**\n")
+	repo.WriteFile("svc/PROJECT.yaml", "schema: project/v1\nname: svc\ntype: service\nroot_invalidation:\n  - go.mod\n")
+	rev := repo.Commit("seed")
+
+	indexed, err := Scan(gitstore.New(repo.Dir), core.Revision(rev), nil)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	got := RootInvalidation(indexed)
+	want := []string{".github/**", "go.mod"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("expected deduped sorted union %v, got %v", want, got)
+	}
+}

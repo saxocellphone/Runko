@@ -86,6 +86,8 @@ func (s *Server) attemptLand(ctx context.Context, change Change, scope land.Reva
 		rootInvalidation = s.Processor.RootInvalidationPatterns
 	}
 	opts := affected.Options{RootInvalidationPatterns: rootInvalidation}
+	// Tree-declared patterns join once the scan below runs (opts is
+	// re-set per attempt with the freshly scanned tree - §9.4).
 
 	for attempt := 0; attempt < maxLandRaceRetries; attempt++ {
 		var projects []affected.ProjectInfo
@@ -94,6 +96,7 @@ func (s *Server) attemptLand(ctx context.Context, change Change, scope land.Reva
 			if err != nil {
 				return land.Outcome{}, fmt.Errorf("land: scan projects: %w", err)
 			}
+			opts.RootInvalidationPatterns = append(index.RootInvalidation(indexed), rootInvalidation...)
 			projects = make([]affected.ProjectInfo, len(indexed))
 			for i, p := range indexed {
 				projects[i] = affected.ProjectInfo{Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies}

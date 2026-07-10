@@ -856,7 +856,9 @@ func (p *Processor) computeAffectedAndEnqueue(ctx context.Context, change Change
 	for i, ip := range indexed {
 		projects[i] = affected.ProjectInfo{Name: ip.Name, Path: ip.Path, DeclaredDependencies: ip.DeclaredDependencies}
 	}
-	result := affected.Compute(projects, changedPaths, affected.Options{RootInvalidationPatterns: p.RootInvalidationPatterns})
+	result := affected.Compute(projects, changedPaths, affected.Options{
+		RootInvalidationPatterns: append(index.RootInvalidation(indexed), p.RootInvalidationPatterns...),
+	})
 
 	// Actor attribution and Change numbering need real AuthN/a persistent
 	// counter, neither built yet (doc.go's scope boundary) - placeholders

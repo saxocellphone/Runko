@@ -48,6 +48,7 @@ type Manifest struct {
 	Capabilities     []string               `yaml:"capabilities,omitempty"`
 	CapabilityConfig map[string]interface{} `yaml:"capability_config,omitempty"`
 	Dependencies     []string               `yaml:"dependencies,omitempty"`
+	RootInvalidation []string               `yaml:"root_invalidation,omitempty"`
 	Visibility       string                 `yaml:"visibility,omitempty"`
 	CI               *CIConfig              `yaml:"ci,omitempty"`
 }

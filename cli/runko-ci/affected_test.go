@@ -113,6 +113,10 @@ func TestAffectedWithEngineAddsBuildRefinement(t *testing.T) {
 
 	repo := gitfixture.New(t)
 	repo.WriteFile("commerce/checkout/PROJECT.yaml", manifest("checkout-api", "service"))
+	// The changed file must live in a bazel PACKAGE (BUILD in its dir):
+	// the adapter skips non-package paths (migration-findings #6), so an
+	// engine fixture without one never reaches the engine at all.
+	repo.WriteFile("commerce/checkout/BUILD.bazel", "filegroup(name = \"x\")\n")
 	base := repo.Commit("initial")
 	repo.WriteFile("commerce/checkout/main.go", "package main\n")
 	head := repo.Commit("add main.go")
@@ -146,6 +150,10 @@ func TestAffectedEngineFailureEscalatesRunEverything(t *testing.T) {
 
 	repo := gitfixture.New(t)
 	repo.WriteFile("commerce/checkout/PROJECT.yaml", manifest("checkout-api", "service"))
+	// The changed file must live in a bazel PACKAGE (BUILD in its dir):
+	// the adapter skips non-package paths (migration-findings #6), so an
+	// engine fixture without one never reaches the engine at all.
+	repo.WriteFile("commerce/checkout/BUILD.bazel", "filegroup(name = \"x\")\n")
 	base := repo.Commit("initial")
 	repo.WriteFile("commerce/checkout/main.go", "package main\n")
 	head := repo.Commit("add main.go")

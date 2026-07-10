@@ -45,6 +45,7 @@ jobs:
       go_needed: ${{ steps.scope.outputs.go_needed }}
       web_needed: ${{ steps.scope.outputs.web_needed }}
       docs_needed: ${{ steps.scope.outputs.docs_needed }}
+      repo_needed: ${{ steps.scope.outputs.repo_needed }}
       go_scope: ${{ steps.scope.outputs.go_scope }}
       bazel_scope: ${{ steps.scope.outputs.bazel_scope }}
     steps:
@@ -71,7 +72,7 @@ jobs:
           # gate: required checks with no job to report them).
           run_everything() {
             {
-              echo "go_needed=true"; echo "web_needed=true"; echo "docs_needed=true"
+              echo "go_needed=true"; echo "web_needed=true"; echo "docs_needed=true"; echo "repo_needed=true"
               echo "go_scope=./..."; echo "bazel_scope=//..."
             } >> "$GITHUB_OUTPUT"
             exit 0
@@ -85,10 +86,14 @@ jobs:
           if [ "$RE" != "false" ]; then
             run_everything
           fi
-          GO_SCOPE=""; BZL_SCOPE=""; GO_NEEDED=false; WEB_NEEDED=false; DOCS_NEEDED=false
+          GO_SCOPE=""; BZL_SCOPE=""; GO_NEEDED=false; WEB_NEEDED=false; DOCS_NEEDED=false; REPO_NEEDED=false
           while IFS=$'\t' read -r name path; do
             case "$name" in
-              repo)                         GO_SCOPE="./..."; BZL_SCOPE="//..."; GO_NEEDED=true ;;
+              # repo = root glue. Its CONTENT (README, CLAUDE.md...) needs
+              # only bazel-check; the BUILD-SENSITIVE root files escalate
+              # via the manifest's root_invalidation patterns to
+              # run_everything, handled above - so no Go scope here.
+              repo)                         REPO_NEEDED=true ;;
               platform|runkod|cli|internal|proto)
                                             GO_SCOPE="$GO_SCOPE ./$path/..."; BZL_SCOPE="$BZL_SCOPE //$path/..."; GO_NEEDED=true ;;
               web)                          WEB_NEEDED=true ;;
@@ -101,7 +106,7 @@ jobs:
           case " $GO_SCOPE " in *" ./... "*) GO_SCOPE="./..." ;; esac
           case " $BZL_SCOPE " in *" //... "*) BZL_SCOPE="//..." ;; esac
           {
-            echo "go_needed=$GO_NEEDED"; echo "web_needed=$WEB_NEEDED"; echo "docs_needed=$DOCS_NEEDED"
+            echo "go_needed=$GO_NEEDED"; echo "web_needed=$WEB_NEEDED"; echo "docs_needed=$DOCS_NEEDED"; echo "repo_needed=$REPO_NEEDED"
             echo "go_scope=$(echo $GO_SCOPE | xargs)"
             echo "bazel_scope=$(echo $BZL_SCOPE | xargs)"
           } >> "$GITHUB_OUTPUT"
@@ -278,7 +283,7 @@ jobs:
   # a BUILD file; pure prose is a fast no-op).
   bazel-check:
     needs: setup
-    if: needs.setup.outputs.go_needed == 'true' || needs.setup.outputs.docs_needed == 'true'
+    if: needs.setup.outputs.go_needed == 'true' || needs.setup.outputs.docs_needed == 'true' || needs.setup.outputs.repo_needed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

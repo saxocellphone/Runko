@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -45,9 +47,24 @@ func (e Engine) Query(ctx context.Context, req buildadapter.QueryRequest) (build
 		universe = "//..."
 	}
 
-	labels := make([]string, len(req.ChangedPaths))
-	for i, p := range req.ChangedPaths {
-		labels[i] = fileLabel(p)
+	// Package-aware filtering (§14.5.4 follow-up; migration-findings #6):
+	// a path with no BUILD file in any ancestor directory belongs to no
+	// bazel package, and its file label would ERROR the whole query -
+	// previously escalating every mixed change (code + a README) to
+	// run_everything. Such paths contribute no build targets by
+	// definition, so they are skipped; the platform-floor project
+	// computation still owns their gating (root_invalidation covers the
+	// build-sensitive non-package files like go.mod). A change with ONLY
+	// non-package paths yields no labels: report "no targets" rather than
+	// querying with an empty set.
+	labels := make([]string, 0, len(req.ChangedPaths))
+	for _, p := range req.ChangedPaths {
+		if inBazelPackage(req.RepoDir, p) {
+			labels = append(labels, fileLabel(p))
+		}
+	}
+	if len(labels) == 0 {
+		return buildadapter.QueryResult{}, nil
 	}
 	query := fmt.Sprintf("rdeps(%s, set(%s))", universe, strings.Join(labels, " "))
 
@@ -93,4 +110,23 @@ func fileLabel(changedPath string) string {
 		return "//:" + base
 	}
 	return "//" + dir + ":" + base
+}
+
+// inBazelPackage reports whether some ancestor directory of changedPath
+// (including its own) contains a BUILD file - the definition of "this file
+// belongs to a bazel package". Filesystem-only: no query round-trip, and
+// deleted files resolve via their surviving ancestor directories.
+func inBazelPackage(repoDir, changedPath string) bool {
+	dir := filepath.Dir(changedPath)
+	for {
+		for _, name := range [2]string{"BUILD.bazel", "BUILD"} {
+			if _, err := os.Stat(filepath.Join(repoDir, dir, name)); err == nil {
+				return true
+			}
+		}
+		if dir == "." || dir == "/" {
+			return false
+		}
+		dir = filepath.Dir(dir)
+	}
 }

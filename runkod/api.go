@@ -689,9 +689,11 @@ func (s *Server) computeAffected(change Change) (affected.Result, []index.Indexe
 		return affected.Result{}, nil, fmt.Errorf("diff: %w", err)
 	}
 
-	var rootInvalidation []string
+	// Tree-declared patterns first (§9.4: the tree owns policy), daemon
+	// flags as an additive override.
+	rootInvalidation := index.RootInvalidation(indexed)
 	if s.Processor != nil {
-		rootInvalidation = s.Processor.RootInvalidationPatterns
+		rootInvalidation = append(rootInvalidation, s.Processor.RootInvalidationPatterns...)
 	}
 	result := affected.Compute(projects, changedPaths, affected.Options{RootInvalidationPatterns: rootInvalidation})
 	return result, indexed, nil
@@ -1059,9 +1061,9 @@ func (s *Server) handleAffectedByPaths(w http.ResponseWriter, r *http.Request) {
 	for i, p := range indexed {
 		projects[i] = affected.ProjectInfo{Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies}
 	}
-	var rootInvalidation []string
+	rootInvalidation := index.RootInvalidation(indexed)
 	if s.Processor != nil {
-		rootInvalidation = s.Processor.RootInvalidationPatterns
+		rootInvalidation = append(rootInvalidation, s.Processor.RootInvalidationPatterns...)
 	}
 	result := affected.Compute(projects, paths, affected.Options{RootInvalidationPatterns: rootInvalidation})
 	writeJSON(w, http.StatusOK, result)

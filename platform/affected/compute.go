@@ -83,14 +83,19 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 	direct := map[string]bool{}
 
 	for _, cp := range paths {
-		if owner, ok := findOwner(projects, cp); ok {
-			direct[owner.Name] = true
-			reasons[ReasonDirectPath] = true
-			continue
-		}
+		// Root invalidation BEFORE ownership: §14.5.2's semantic is
+		// "this path invalidates every project", which must hold even
+		// when a project (typically a root glue manifest at path "")
+		// happens to own the path by longest-prefix. Owner-first made
+		// tree-declared patterns dead the moment a root project existed.
 		if matchesAny(opts.RootInvalidationPatterns, cp) {
 			runEverything = true
 			reasons[ReasonRootInvalidation] = true
+			continue
+		}
+		if owner, ok := findOwner(projects, cp); ok {
+			direct[owner.Name] = true
+			reasons[ReasonDirectPath] = true
 			continue
 		}
 		if opts.Strictness != StrictnessAggressive {

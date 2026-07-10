@@ -68,7 +68,8 @@ func Affected(repoDir, base, head string, rootInvalidationPatterns []string, eng
 	}
 
 	result := affected.Compute(projects, changedPaths, affected.Options{
-		RootInvalidationPatterns: rootInvalidationPatterns,
+		// Tree-declared patterns (root manifest, §9.4) plus the flag's.
+		RootInvalidationPatterns: append(index.RootInvalidation(indexed), rootInvalidationPatterns...),
 	})
 	out := AffectedOutput{Result: result}
 

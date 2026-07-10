@@ -3,6 +3,7 @@ package index
 import (
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -25,8 +26,12 @@ type IndexedProject struct {
 	Type                 string
 	Capabilities         []string
 	DeclaredDependencies []string
-	Visibility           string
-	Owners               []OwnerEntry
+	// RootInvalidation is the manifest's tree-borne §14.5.2 pattern list
+	// (root-manifest-oriented; see index.RootInvalidation). Not persisted
+	// by Sync - live consumers scan the tree, which is the §10.3 truth.
+	RootInvalidation []string
+	Visibility       string
+	Owners           []OwnerEntry
 	// RequiredChecks are the check names PROJECT.yaml's L2/opt-in `ci.checks`
 	// declares for this project (§14.9). Empty/nil when the manifest has no
 	// `ci` block at all - an unset ci.checks means "no checks required",
@@ -134,6 +139,7 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		Type:                 manifest.Type,
 		Capabilities:         manifest.Capabilities,
 		DeclaredDependencies: manifest.Dependencies,
+		RootInvalidation:     manifest.RootInvalidation,
 		Visibility:           visibility,
 		Owners:               owners,
 		RequiredChecks:       requiredChecks,
@@ -206,4 +212,24 @@ func parseOwnersFile(content []byte) []string {
 		owners = append(owners, line)
 	}
 	return owners
+}
+
+// RootInvalidation unions every indexed project's tree-declared
+// root-invalidation patterns (§14.5.2; §9.4 "the tree owns policy" -
+// relocated here from daemon flags, which remain an additive override).
+// In practice the root manifest declares them; accepting them from any
+// project keeps the semantics monorepo-wide rather than path-magic.
+func RootInvalidation(projects []IndexedProject) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range projects {
+		for _, pat := range p.RootInvalidation {
+			if !seen[pat] {
+				seen[pat] = true
+				out = append(out, pat)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
