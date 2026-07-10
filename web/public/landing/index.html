@@ -122,6 +122,7 @@
       </span>
       <span class="links">
         <a href="#projects">Projects</a>
+        <a href="#cli">CLI</a>
         <a href="#agents">Agents</a>
         <a href="#landing">Landing</a>
         <a href="#selfhost">Self-host</a>
@@ -195,6 +196,30 @@
 &nbsp;&nbsp;create&nbsp; payments-api/main.go&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c"># org template skeleton</span><br>
 &nbsp;&nbsp;create&nbsp; payments-api/BUILD.bazel&nbsp;&nbsp;<span class="c"># zero hand-authored lines</span><br>
 <span class="g">$</span> runko change push&nbsp;<span class="c"># the new project lands like any other change</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="cli">
+    <div class="wrap">
+      <h2>The whole platform is a CLI</h2>
+      <p class="sectionsub">Web UI optional. Every flow — projects, workspaces, review, landing — is a command that speaks JSON and tells you what to do next when it refuses.</p>
+      <div class="split">
+        <div class="terminal">
+<span class="g">$</span> runko workspace create <span class="v">--name</span> fix-sku <span class="v">--project</span> payments-api<br>
+&nbsp;&nbsp;materialized payments-api/&nbsp;<span class="c"># one shared clone; ms, not minutes</span><br>
+<span class="g">$</span> $EDITOR payments-api/sku.go<br>
+<span class="g">$</span> runko change push<br>
+&nbsp;&nbsp;I4f2a…e1 → review&nbsp;<span class="c"># checks scoped to the change</span><br>
+<span class="g">$</span> runko change requirements <span class="v">--json</span><br>
+&nbsp;&nbsp;{ "checks": {"pending": []}, "mergeable": true }<br>
+<span class="g">$</span> runko change land&nbsp;<span class="c"># rebase-lands behind the gates</span>
+        </div>
+        <div class="copy">
+          <p><b>Refusals are answers.</b> Every failure is structured — <code>{code, message, suggestion}</code> — and the suggestion is a command you can type. Exit codes mean something. <code>--json</code> is everywhere, so piping to <code>jq</code> replaces screen-scraping.</p>
+          <p><b>One interface, three audiences.</b> Engineers, coding agents, and CI use the same two binaries: <code>runko</code> for people and agents (a generated <code>AGENTS.md</code> teaches it), <code>runko-ci</code> for pipelines — <code>affected</code> computes what a change touches offline, <code>checkout</code> does partial-clone sparse checkouts, <code>report-check</code> posts results back with retries.</p>
+          <p>Prebuilt binaries for Linux, macOS, and Windows ship on <a href="https://github.com/saxocellphone/Runko/releases/tag/cli-latest">every CLI-affecting landing</a>; the <a href="/runko/browse/docs/cli-contract.md">CLI contract</a> is a versioned document, not folklore.</p>
         </div>
       </div>
     </div>

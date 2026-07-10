@@ -80,7 +80,29 @@ land it. `scripts/compose-smoke.sh` drives that loop end to end; CI times
 it on every landing. The web UI runs separately for now:
 `cd web && VITE_RUNKO_URL=http://localhost:8080 npm install && npm run dev`.
 
-## Installing the CLI
+## The CLI
+
+Everything the platform does is a command — the web UI is a view, not the
+interface. The daily loop:
+
+```bash
+runko project create --name payments-api --type service --lang go
+runko workspace create --name fix-sku --project payments-api  # your slice, from one shared clone
+runko change push                        # -> review; checks scoped to what changed
+runko change requirements --json         # owners + checks outstanding, machine-readable
+runko change land                        # rebase-lands once the gates are green
+```
+
+Design rules, documented in [`docs/cli-contract.md`](docs/cli-contract.md):
+every command takes `--json`; exit codes are 0/1/2 (success / failure /
+usage); every refusal is a structured `{code, message, suggestion}` where
+the suggestion is a command you can type. Coding agents use the same
+binary, taught by a generated `AGENTS.md` (`runko agents-md`); CI uses
+`runko-ci` (`affected` computes impact offline from the tree, `checkout`
+does partial-clone sparse checkouts, `report-check` posts results with
+retries).
+
+### Installing
 
 Prebuilt `runko` and `runko-ci` binaries (Linux/macOS/Windows) are on the
 [releases page](https://github.com/saxocellphone/Runko/releases/tag/cli-latest),
