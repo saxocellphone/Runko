@@ -4,7 +4,10 @@ type: other
 # docs has no dependents and no owners (solo-dev: self-approval is
 # hard-denied), so without at least one declared check a docs-only change
 # would hit the default-deny "no merge policy" blocker and be unlandable.
+# bazel-check is the cheapest always-relevant gate under affected-scoped CI
+# (§14.5): the Go test jobs are skipped for a docs-only change, but the
+# build-graph check (gazelle drift) is repo-wide and fast for pure prose.
 ci:
   checks:
-    - name: platform-check
-      command: make check
+    - name: bazel-check
+      command: make check-bazel

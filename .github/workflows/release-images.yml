@@ -2,6 +2,15 @@
 # (consumed by the k8s-cluster GitOps repo's apps/monorepo-platform).
 # Tags: :latest (dev-follow) and :sha-<commit> (pinnable). Uses the
 # workflow's own GITHUB_TOKEN - no PAT.
+#
+# AFFECTED-SCOPED (§14.5): a `scope` job computes which projects the landed
+# range touched (runko-ci affected, the same computation the pre-land
+# checks use) and each image builds ONLY when its own inputs changed - a
+# docs-only landing rebuilds nothing, a web-only landing rebuilds only web.
+# run_everything (or a first push with no `before`) rebuilds everything.
+# Image input sets (a project + its transitive dependencies):
+#   runkod  <- runkod, platform, internal, db, proto, repo
+#   web     <- web, proto, repo
 name: Release images
 
 on:
@@ -17,7 +26,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      runkod: ${{ steps.affected.outputs.runkod }}
+      web: ${{ steps.affected.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: which images need rebuilding
+        id: affected
+        run: |
+          RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)
+          BEFORE='${{ github.event.before }}'
+          # First push to a branch, a forced push, or an unknown base: build
+          # everything. github.event.before is all-zeros in those cases.
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          AFF=$(go run "$RUNKO_CI_PKG" affected --base "$BEFORE" --head '${{ github.sha }}')
+          echo "$AFF"
+          if [ "$(echo "$AFF" | jq -r '.RunEverything')" = "true" ]; then
+            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          NAMES=$(echo "$AFF" | jq -r '[.Projects[].Name] | join(" ")')
+          runkod=false; web=false
+          for n in $NAMES; do
+            case "$n" in
+              runkod|platform|internal|db|proto|repo) runkod=true ;;
+            esac
+            case "$n" in
+              web|proto|repo) web=true ;;
+            esac
+          done
+          echo "runkod=$runkod" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+
   images:
+    needs: scope
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -26,6 +75,7 @@ jobs:
             context: .
             dockerfile: Dockerfile
             build_args: ""
+            needed: ${{ needs.scope.outputs.runkod }}
           - name: web
             context: web
             dockerfile: web/Dockerfile
@@ -36,18 +86,26 @@ jobs:
             # into the public bundle; tokens are per-browser at runtime.
             build_args: |
               VITE_RUNKO_URL=/
+            needed: ${{ needs.scope.outputs.web }}
     steps:
-      - uses: actions/checkout@v4
+      - if: matrix.needed != 'true'
+        run: echo "::notice::${{ matrix.name }} image unaffected by this landing - skipping rebuild"
 
-      - uses: docker/setup-buildx-action@v3
+      - if: matrix.needed == 'true'
+        uses: actions/checkout@v4
 
-      - uses: docker/login-action@v3
+      - if: matrix.needed == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - if: matrix.needed == 'true'
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - if: matrix.needed == 'true'
+        uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}

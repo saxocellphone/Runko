@@ -1332,6 +1332,36 @@ capability is a structured `invalid_combination` error, not a silent
 downgrade. `none` scaffolds nothing (hand-managed territories). Unknown
 values are a structured `unsupported_build_engine` naming the choices.
 
+#### 14.5.6 Affected-scoped CI: the platform dogfoods its own affected set (decided 2026-07-09)
+
+The point of carving a repo into projects with dependency edges is that a
+change to one project should run *only* the tests it can affect and
+rebuild *only* the artifacts it feeds — not the whole suite, not every
+image, every time. Runko's own CI is the reference implementation:
+
+- **Scoped checks.** The pre-land workflow's `setup` job runs
+  `runko-ci affected` over the change's `base..head` — the *same*
+  computation the server's merge gate uses — and every check job is gated
+  and scoped to the result. A `cli`-only change runs `go test ./cli/...`;
+  a `docs`-only change runs only the build-graph check; a `web`-only
+  change runs only `web-check`. Check **names** are unchanged
+  (`platform-check`/`-race`/`-db`, `bazel-check`, `web-check`), so the
+  merge gate — which resolves required checks from the affected projects'
+  manifests — is untouched; only what each job *executes* narrows. A
+  `run_everything` result (unowned root path, or an engine escalation)
+  fails **open** to the whole repo, matching the gate's fail-closed bias:
+  the workflow must never skip a job the gate will require.
+- **Scoped releases.** The post-land image build computes affected over
+  the landed range and rebuilds each image only when its own input set (a
+  project plus its transitive dependencies) intersects — a docs-only
+  landing rebuilds nothing, a web-only landing rebuilds only the web
+  image. Build-graph health (`bazel-check`, gazelle drift) stays
+  repo-wide by nature and is not scoped.
+
+This is the §14.5.1 "affected → CI scoping" contract turned on the
+platform itself; the mechanism is entirely `runko-ci affected` +
+`PROJECT.yaml` dependency edges, no new machinery.
+
 ### 14.6 Plugins vs templates (delivery model)
 
 We ship **both**—they solve different problems:
@@ -2071,6 +2101,7 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-09 | **Re-carve: folder-per-project + first live `dependencies:` edges** (user direction: "one folder per project; project relationships; platform is too coarse"). The coarse root catch-all manifest (path `""` owning every path) is replaced by 9 real projects — `repo` (root glue only: go.mod/Makefile/.github/scripts), `platform/` (the control-plane libraries: receive/land/affected/checks/index/project/search/mirror/mcp/buildadapter/agentsmd/core, all moved under one folder), `runkod/` (daemon + its binaries at runkod/cmd/), `cli/` (runko + runko-ci), `internal`, `db`, `proto` (now owning its generated Go at proto/gen/), `web`, `docs`. §13.3's declared-dependency closure goes live for the first time: `internal`, `db`, and `proto` declare no checks and are gated purely via reverse edges (their dependents' checks); `web` depends on `proto` so proto changes re-run web-check. Landing mechanics recorded in migration-findings #26-29 (mirror PAT workflow scope, non-org-scoped outbox triple-delivery, cancelled-run false failure reports, the default-branch-workflow two-phase dance) |
 | 2026-07-09 | **Multi-engine monorepos decided (§14.5.5) + create-time build-system selection** (user direction, prompted by "is Bazel right for the frontend?" — it isn't, and that's now spec): one build graph per repo is a non-goal — sovereign per-territory engines over the engine-independent declared floor, cross-engine deps expressed as declared edges + committed boundary artifacts (the proto/gen ↔ web/src/gen pattern this repo already runs), §14.5.4's admission criteria reaffirmed (Vite/Nx/Turbo never get adapters or `build` bindings — territory scaffolds, not engines). `project create` gains `build_engine` (`bazel\|vite\|none`), defaulting by language (`ts` → vite, else bazel): vite emits a generated package.json + vite.config.ts (the sanctioned exception to §10.4's no-package.json rule — for a Vite territory that IS the build declaration) with no `build` capability; explicit `build` capability + vite is a structured `invalid_combination`. Wired through Intent/CLI (`--build-engine`), the CreateProjectIntent schema + proto, and the web create form |
 | 2026-07-09 | **Public read-only orgs (§15.2, decided + built)**: org setting `public_read` opens anonymous READ access on every surface, allowlist-scoped and fail-closed — git `upload-pack` only (anonymous advertisement hides `refs/workspaces` and `refs/for` via per-request `GIT_CONFIG` injection; `refs/changes/*` stays public by design), an explicit REST GET allowlist, and the Connect read-procedure allowlist; presented-but-wrong credentials never downgrade to the anonymous view; enabling is refused while any trunk manifest declares `visibility: restricted` (no per-principal fetch filtering until §12.3 Phase B). Known sharp edge recorded: URL-embedded credentials never see a 401 on a public org, so reads get the anonymous view unless the client forces auth (`http.proactiveAuth`, stamped into workspace clones). E2E-tested over the real transport: anonymous clone flips with the setting, WIP refs hidden anonymously + visible authenticated, anonymous push refused |
+| 2026-07-09 | **Affected-scoped CI (§14.5.6, built)**: the platform's own pre-land checks and post-land image builds now consume `runko-ci affected` — a `setup`/`scope` job computes the change's affected projects (the same computation the merge gate uses) and every check job is gated + scoped to it (a cli change runs `go test ./cli/...`, docs runs only bazel-check, web runs only web-check), while each image rebuilds only when its input set intersects the landed range (docs-only lands rebuild nothing, web-only lands rebuild only web). Check NAMES are unchanged so the gate is untouched; `run_everything` fails open to the whole repo so a required check is never left unreported. Scope logic validated against real historical changes; the only unscoped checks are build-graph health (bazel/gazelle, repo-wide by nature) |
 
 ---
 
