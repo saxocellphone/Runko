@@ -151,6 +151,71 @@ path (a target's package directory is matched the same way a changed file's
 directory is), rather than a second Bazel invocation, since project
 boundaries are already known from `index.Scan`.
 
+## 5b. Snapshot-diff strategy (§14.5.8; second engine capability)
+
+`rdeps` above answers "which targets depend on these changed files?" at one
+revision - which is blind to *configuration* changes: a `MODULE.bazel`,
+`BUILD.bazel`, or `.bazelrc` edit changes target definitions, not source
+files, so root invalidation historically escalated those paths to
+`run_everything`. The snapshot-diff strategy (the bazel-diff /
+target-determinator technique) evaluates the graph at BOTH revisions and
+diffs it:
+
+```go
+// OPTIONAL second capability - engines advertise it by implementing the
+// interface; runko-ci type-asserts.
+type SnapshotDiffer interface {
+    SnapshotDiff(ctx context.Context, req SnapshotDiffRequest) (QueryResult, error)
+}
+
+type SnapshotDiffRequest struct {
+    RepoDir         string // object store with BOTH revs; NEVER mutated (see below)
+    BaseRev         string
+    HeadRev         string
+    UniversePattern string
+    Timeout         time.Duration
+}
+```
+
+`RefineSnapshot(ctx, differ, engineName, req, projects)` is the fail-closed
+wrapper, with two rules beyond `Refine`'s table:
+
+- **Unmapped targets fail closed.** Snapshot-diff output *stands in* for a
+  `run_everything` escalation, so a returned target that maps to no project
+  would silently drop its checks - `RefineSnapshot` returns
+  `run_everything=true` instead. (`Refine`'s rdeps output is additive, where
+  dropping an unmapped target is harmless.)
+- **The caller's checkout is sacrosanct.** Diff tools check revisions out
+  while they work; implementations run against a disposable local clone
+  (`git clone --shared`), never `req.RepoDir` itself.
+
+**When runko-ci applies it** (`affected`/`checks --engine <name>`): only
+when the floor's `run_everything` comes from *refinable* root-invalidation
+patterns alone (`{pattern: MODULE.bazel, refinable: true}` in
+PROJECT.yaml - see project.schema.json). On success the floor is recomputed
+with those escalations handled (their paths re-enter prose/ownership
+attribution) and unioned with the diff-impacted projects' **declared
+dependents closure** - cross-territory edges (web → proto) included, which
+no build graph sees. Any blunt match, any unowned path, any engine error:
+`run_everything` stands, no partial success.
+
+**Gate warning:** the merge gate does NOT consume this narrowing (gate-grade
+refinement is a separate org opt-in, §14.5.4). Pass `--engine` to `checks`
+only where nothing gates on the output - post-land CI (§14.5.8's dogfood
+ground) - or the executor will run fewer checks than the gate requires.
+
+**v1 implementation** (bazel engine): shells out to a
+`target-determinator`-class binary (`bazel-contrib/target-determinator` - a
+static Go binary; an external process per the lean-deps rule):
+
+```sh
+target-determinator -working-directory <disposable-clone> \
+  -bazel <bazel> -targets <universe> <base-rev>
+```
+
+stdout is one affected target label per line. The clone is checked out at
+`HeadRev` first; the tool diffs against the positional base revision.
+
 ## 6. Buck2 mapping notes (contract-shaped from day one, not implemented yet)
 
 Buck2's `buck2 uquery` exposes the same shape:

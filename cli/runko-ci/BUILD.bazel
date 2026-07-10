@@ -37,6 +37,7 @@ go_test(
         "checks_test.go",
         "main_test.go",
         "reportcheck_test.go",
+        "snapshot_test.go",
     ],
     embed = [":runko-ci_lib"],
     deps = [

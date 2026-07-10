@@ -96,6 +96,9 @@ func cmdChecks(args []string) error {
 	base := fs.String("base", "", "base revision")
 	head := fs.String("head", "HEAD", "head revision")
 	rootPatterns := fs.String("root-invalidation", "", "comma-separated root-invalidation glob patterns (additive to the tree's)")
+	engine := fs.String("engine", "", "optional build-graph adapter engine: enables §14.5.8 snapshot-diff narrowing of refinable-only escalations - pass ONLY where nothing gates on the output (post-land CI)")
+	universe := fs.String("universe", "", "build-graph universe pattern, e.g. //... (default when --engine is set)")
+	engineTimeout := fs.Duration("engine-timeout", 10*time.Minute, "timeout for the build-graph engine query")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -103,7 +106,7 @@ func cmdChecks(args []string) error {
 		return fmt.Errorf("checks: --base is required")
 	}
 
-	result, err := Checks(*repoDir, *base, *head, splitNonEmpty(*rootPatterns))
+	result, err := Checks(*repoDir, *base, *head, splitNonEmpty(*rootPatterns), *engine, *universe, *engineTimeout)
 	if err != nil {
 		return err
 	}

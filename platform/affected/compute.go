@@ -54,6 +54,21 @@ type Options struct {
 	// patterns are appended after the tree's and so can never override a
 	// tree-declared exception's precedence (additive escalation only).
 	RootInvalidationPatterns []string
+	// RefinablePatterns is the subset of RootInvalidationPatterns the
+	// manifests mark {refinable: true} (§14.5.8): GRAPH-VISIBLE patterns
+	// whose escalation a successful build-graph snapshot diff may replace.
+	// Matched by string identity against the deciding pattern, so entries
+	// must be spelled exactly as they appear in RootInvalidationPatterns.
+	// Only informs Result.EscalationRefinableOnly (and the RefinableHandled
+	// mode below); escalation itself is unchanged.
+	RefinablePatterns []string
+	// RefinableHandled treats a refinable-pattern escalation as already
+	// handled by a SUCCESSFUL snapshot diff: the matching path does not
+	// escalate and instead falls through to prose/ownership attribution,
+	// exactly like a "!" exception. Callers may set this ONLY after a
+	// snapshot diff succeeded (runko-ci's orchestration) - the fail-closed
+	// default is false, and blunt patterns escalate regardless.
+	RefinableHandled bool
 	// Strictness is StrictnessConservative (default) or StrictnessAggressive.
 	// Conservative treats any changed path that matches no project and no
 	// root-invalidation pattern as if it had - fail closed, never fail open
@@ -83,6 +98,12 @@ type Result struct {
 	// Projects/Paths remain informational even when this is true - they may
 	// be an incomplete view of the world, which is precisely why it's true.
 	RunEverything bool
+	// EscalationRefinableOnly is meaningful only when RunEverything is
+	// true: every escalation event was a refinable-pattern match (§14.5.8)
+	// - no blunt pattern, no unowned-path conservative escalation. It is
+	// the precondition for attempting a snapshot diff; anything mixed
+	// stays run_everything with no refinement attempted.
+	EscalationRefinableOnly bool
 }
 
 // Compute implements the v1 affected algorithm (§13.3): paths -> projects by
@@ -100,8 +121,15 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 
 	rootProject, hasRoot := findRootProject(projects)
 
+	refinable := make(map[string]bool, len(opts.RefinablePatterns))
+	for _, p := range opts.RefinablePatterns {
+		refinable[p] = true
+	}
+
 	reasons := map[string]bool{}
 	runEverything := false
+	escalatedBlunt := false
+	escalatedRefinable := false
 	direct := map[string]bool{}
 
 	for _, cp := range paths {
@@ -110,10 +138,21 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 		// when a project (typically a root glue manifest at path "")
 		// happens to own the path by longest-prefix. Owner-first made
 		// tree-declared patterns dead the moment a root project existed.
-		if MatchOrdered(opts.RootInvalidationPatterns, cp) {
-			runEverything = true
-			reasons[ReasonRootInvalidation] = true
-			continue
+		if pat, escalates := MatchOrderedWhich(opts.RootInvalidationPatterns, cp); escalates {
+			if refinable[pat] && opts.RefinableHandled {
+				// A successful snapshot diff already owns this path's
+				// build impact; it re-enters the normal pipeline below
+				// exactly like a "!" exception (§14.5.8).
+			} else {
+				if refinable[pat] {
+					escalatedRefinable = true
+				} else {
+					escalatedBlunt = true
+				}
+				runEverything = true
+				reasons[ReasonRootInvalidation] = true
+				continue
+			}
 		}
 		// Prose AFTER invalidation, BEFORE ownership (§14.5.7): content
 		// paths gate as root-project content instead of running their
@@ -132,8 +171,11 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 		}
 		if opts.Strictness != StrictnessAggressive {
 			// Conservative default: an unowned path we can't scope is treated
-			// like an (implicit) root/tooling change, per §14.5.3.
+			// like an (implicit) root/tooling change, per §14.5.3 - and never
+			// a refinable one: no manifest vouched for it, so no graph diff
+			// may stand in for it.
 			runEverything = true
+			escalatedBlunt = true
 			reasons[ReasonRootInvalidation] = true
 		}
 	}
@@ -158,12 +200,40 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 	}
 
 	return Result{
-		ComputationID: computationID(paths),
-		Projects:      refs,
-		Paths:         paths,
-		ReasonCodes:   reasonList,
-		RunEverything: runEverything,
+		ComputationID:           computationID(paths),
+		Projects:                refs,
+		Paths:                   paths,
+		ReasonCodes:             reasonList,
+		RunEverything:           runEverything,
+		EscalationRefinableOnly: runEverything && escalatedRefinable && !escalatedBlunt,
 	}
+}
+
+// CloseOverDependentNames returns the named projects plus every transitive
+// dependent (the same reverse-edge walk Compute performs), as sorted refs.
+// Exported for §14.5.8's snapshot-diff orchestration: diff-impacted targets
+// map to project names, and those projects' declared dependents - including
+// cross-territory ones the build graph cannot see (web -> proto) - must
+// ride along exactly as they would for a changed path. Unknown names are
+// dropped (a caller-side mapping bug must not invent projects).
+func CloseOverDependentNames(projects []ProjectInfo, names []string) []ProjectRef {
+	byName := make(map[string]ProjectInfo, len(projects))
+	for _, p := range projects {
+		byName[p.Name] = p
+	}
+	seed := map[string]bool{}
+	for _, n := range names {
+		if _, ok := byName[n]; ok {
+			seed[n] = true
+		}
+	}
+	closed, _ := closeOverDependents(projects, seed)
+	refs := make([]ProjectRef, 0, len(closed))
+	for name := range closed {
+		refs = append(refs, ProjectRef{Name: name, Path: byName[name].Path})
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].Name < refs[j].Name })
+	return refs
 }
 
 // findRootProject returns the repo-root project (Path == ""), if any.
@@ -186,16 +256,27 @@ func findRootProject(projects []ProjectInfo) (ProjectInfo, bool) {
 // means false. Exported beside MatchPath for the same reason: one
 // implementation of the dialect, not one per package.
 func MatchOrdered(orderedPatterns []string, changedPath string) bool {
-	for _, pat := range orderedPatterns {
+	_, matched := MatchOrderedWhich(orderedPatterns, changedPath)
+	return matched
+}
+
+// MatchOrderedWhich is MatchOrdered plus WHICH entry decided: the deciding
+// pattern exactly as written in the list (a "!"-negated decider reports
+// matched=false and is returned with its "!" prefix intact). §14.5.8's
+// refinable check keys on this - Options.RefinablePatterns entries are
+// compared by string identity against the deciding pattern.
+func MatchOrderedWhich(orderedPatterns []string, changedPath string) (decidingPattern string, matched bool) {
+	for _, entry := range orderedPatterns {
+		pat := entry
 		negated := strings.HasPrefix(pat, "!")
 		if negated {
 			pat = pat[1:]
 		}
 		if MatchPath(pat, changedPath) {
-			return !negated
+			return entry, !negated
 		}
 	}
-	return false
+	return "", false
 }
 
 // findOwner returns the project owning changedPath by longest-path-prefix

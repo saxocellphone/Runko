@@ -15,6 +15,7 @@ go_test(
     srcs = [
         "compute_test.go",
         "prose_test.go",
+        "refinable_test.go",
     ],
     embed = [":affected"],
 )

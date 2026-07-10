@@ -24,7 +24,7 @@ func TestChecksResolvesScopedManifestChecks(t *testing.T) {
 	repo.WriteFile("svc/main.go", "package main\n")
 	head := repo.Commit("touch svc")
 
-	out, err := Checks(repo.Dir, base, head, nil)
+	out, err := Checks(repo.Dir, base, head, nil, "", "", 0)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestChecksFollowsDependencyClosure(t *testing.T) {
 	repo.WriteFile("lib/lib.go", "package lib\n")
 	head := repo.Commit("touch lib")
 
-	out, err := Checks(repo.Dir, base, head, nil)
+	out, err := Checks(repo.Dir, base, head, nil, "", "", 0)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestChecksRunEverythingResolvesAll(t *testing.T) {
 	repo.WriteFile("orphan.txt", "x\n")
 	head := repo.Commit("orphan")
 
-	out, err := Checks(repo.Dir, base, head, nil)
+	out, err := Checks(repo.Dir, base, head, nil, "", "", 0)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestChecksSharedNameDedupesAndConflictErrors(t *testing.T) {
 	repo.WriteFile("b/x.go", "package b\n")
 	head := repo.Commit("touch both")
 
-	out, err := Checks(repo.Dir, base, head, nil)
+	out, err := Checks(repo.Dir, base, head, nil, "", "", 0)
 	if err != nil || len(out.Checks) != 1 {
 		t.Fatalf("identical shared checks must dedupe to one run, got %+v / %v", out, err)
 	}
@@ -94,7 +94,7 @@ func TestChecksSharedNameDedupesAndConflictErrors(t *testing.T) {
 	// Same name, different command: loud structured refusal.
 	repo.WriteFile("b/PROJECT.yaml", checksManifest("b", "shared", "make other"))
 	head2 := repo.Commit("conflict")
-	_, err = Checks(repo.Dir, base, head2, nil)
+	_, err = Checks(repo.Dir, base, head2, nil, "", "", 0)
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "ambiguous_check" || !strings.Contains(ce.Message, "shared") {
 		t.Fatalf("expected ambiguous_check naming the check, got %v", err)
@@ -115,7 +115,7 @@ func TestChecksProseEditResolvesContentTierOnly(t *testing.T) {
 
 	repo.WriteFile("lib/README.md", "# lib\n")
 	head := repo.Commit("doc edit inside lib")
-	out, err := Checks(repo.Dir, base, head, nil)
+	out, err := Checks(repo.Dir, base, head, nil, "", "", 0)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestChecksProseEditResolvesContentTierOnly(t *testing.T) {
 
 	repo.WriteFile("docs/contract.md", "load-bearing\n")
 	head2 := repo.Commit("contract doc edit")
-	out, err = Checks(repo.Dir, base, head2, nil)
+	out, err = Checks(repo.Dir, base, head2, nil, "", "", 0)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}

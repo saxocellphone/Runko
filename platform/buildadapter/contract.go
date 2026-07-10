@@ -41,6 +41,31 @@ type QueryResult struct {
 	Targets []string
 }
 
+// SnapshotDiffer is the OPTIONAL second engine capability (§14.5.8): where
+// Query asks "which targets depend on these changed files?" at one
+// revision, SnapshotDiff compares the evaluated graph at two revisions and
+// returns every target whose definition, inputs, or configuration changed
+// - which is what makes GRAPH-VISIBLE root-invalidation paths (MODULE.bazel,
+// BUILD.bazel, .bazelrc, go.mod) precise instead of run-everything blunt.
+// Same error discipline as Engine.Query: any ambiguity is an error, never a
+// guess; RefineSnapshot turns errors into fail-closed run_everything.
+type SnapshotDiffer interface {
+	SnapshotDiff(ctx context.Context, req SnapshotDiffRequest) (QueryResult, error)
+}
+
+// SnapshotDiffRequest is one snapshot-diff invocation.
+type SnapshotDiffRequest struct {
+	// RepoDir is a repository whose object store contains BOTH revisions.
+	// Unlike QueryRequest.RepoDir, implementations must NOT assume they may
+	// mutate it: diff tools check revisions out, so implementations work on
+	// a disposable local clone of RepoDir, never RepoDir itself.
+	RepoDir         string
+	BaseRev         string // the "before" revision (commit-ish)
+	HeadRev         string // the "after" revision the caller is gating
+	UniversePattern string // e.g. "//..."; engines should default this if empty
+	Timeout         time.Duration
+}
+
 // ProjectInfo is the minimal project shape Refine needs to resolve target
 // labels back to project names - deliberately independent of affected.
 // ProjectInfo/index.IndexedProject so this package has no dependency on
@@ -56,6 +81,7 @@ type ProjectInfo struct {
 // own JSON output).
 type Refinement struct {
 	Engine          string            `json:"engine"`
+	Strategy        string            `json:"strategy,omitempty"` // "rdeps" (Refine) | "snapshot_diff" (RefineSnapshot)
 	UniversePattern string            `json:"universe_pattern,omitempty"`
 	Targets         []string          `json:"targets,omitempty"`
 	TargetProjects  map[string]string `json:"target_projects,omitempty"` // target label -> project name
@@ -75,6 +101,7 @@ func Refine(ctx context.Context, engine Engine, engineName string, req QueryRequ
 	if err != nil {
 		return Refinement{
 			Engine:        engineName,
+			Strategy:      "rdeps",
 			RunEverything: true,
 			FailureReason: err.Error(),
 		}
@@ -86,11 +113,74 @@ func Refine(ctx context.Context, engine Engine, engineName string, req QueryRequ
 	}
 	return Refinement{
 		Engine:          engineName,
+		Strategy:        "rdeps",
 		UniversePattern: universe,
 		Targets:         result.Targets,
 		TargetProjects:  mapTargetsToProjects(result.Targets, projects),
 		RunEverything:   false,
 	}
+}
+
+// RefineSnapshot is SnapshotDiff's fail-closed wrapper, with exactly
+// Refine's table: ANY error - missing diff binary, dirty clone, timeout,
+// unparseable output - produces RunEverything=true, and there is no
+// partial-success path. Unlike Refine, a target that maps to NO project is
+// also treated as failure here: snapshot-diff output stands in for a
+// run_everything escalation (§14.5.8), so a target the platform cannot
+// attribute to a project would silently drop its checks - the exact
+// under-gating this contract exists to prevent. (Refine's rdeps output is
+// additive/advisory, where dropping an unmapped target is harmless.)
+func RefineSnapshot(ctx context.Context, differ SnapshotDiffer, engineName string, req SnapshotDiffRequest, projects []ProjectInfo) Refinement {
+	result, err := differ.SnapshotDiff(ctx, req)
+	if err != nil {
+		return Refinement{
+			Engine:        engineName,
+			Strategy:      "snapshot_diff",
+			RunEverything: true,
+			FailureReason: err.Error(),
+		}
+	}
+
+	universe := req.UniversePattern
+	if universe == "" {
+		universe = "//..."
+	}
+	targets := dedupeStrings(result.Targets)
+	mapped := mapTargetsToProjects(targets, projects)
+	if len(mapped) != len(targets) {
+		return Refinement{
+			Engine:          engineName,
+			Strategy:        "snapshot_diff",
+			UniversePattern: universe,
+			Targets:         targets,
+			RunEverything:   true,
+			FailureReason:   "snapshot diff returned target(s) outside every project boundary - cannot attribute their checks",
+		}
+	}
+	return Refinement{
+		Engine:          engineName,
+		Strategy:        "snapshot_diff",
+		UniversePattern: universe,
+		Targets:         targets,
+		TargetProjects:  mapped,
+		RunEverything:   false,
+	}
+}
+
+// dedupeStrings preserves first-occurrence order.
+func dedupeStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // mapTargetsToProjects resolves each target label's package directory back

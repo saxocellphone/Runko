@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "bazel",
-    srcs = ["bazel.go"],
+    srcs = [
+        "bazel.go",
+        "determinator.go",
+    ],
     importpath = "github.com/saxocellphone/runko/platform/buildadapter/bazel",
     visibility = ["//visibility:public"],
     deps = ["//platform/buildadapter"],
@@ -10,7 +13,13 @@ go_library(
 
 go_test(
     name = "bazel_test",
-    srcs = ["bazel_test.go"],
+    srcs = [
+        "bazel_test.go",
+        "determinator_test.go",
+    ],
     embed = [":bazel"],
-    deps = ["//platform/buildadapter"],
+    deps = [
+        "//internal/gitfixture",
+        "//platform/buildadapter",
+    ],
 )

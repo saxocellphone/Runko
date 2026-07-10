@@ -20,9 +20,11 @@ import (
 
 // Engine shells out to the `bazel` binary. The zero value uses "bazel" from
 // PATH; set Bin to point at a specific binary (tests use this to point at a
-// scripted fake).
+// scripted fake). DeterminatorBin is SnapshotDiff's tool (§14.5.8,
+// determinator.go), defaulting to DefaultDeterminatorBin from PATH.
 type Engine struct {
-	Bin string
+	Bin             string
+	DeterminatorBin string
 }
 
 var _ buildadapter.Engine = Engine{}

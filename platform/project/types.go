@@ -1,6 +1,11 @@
 package project
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Intent is the L0-only create request (docs/design.md §10.1, §8.5), mirroring
 // docs/spec/mcp-tools/common.schema.json#/$defs/CreateProjectIntent.
@@ -40,18 +45,61 @@ type CICheck struct {
 // order matches the schema's example ordering, since yaml.Marshal preserves
 // struct field order.
 type Manifest struct {
-	Schema           string                 `yaml:"schema"`
-	Name             string                 `yaml:"name"`
-	Type             string                 `yaml:"type"`
-	Language         string                 `yaml:"language,omitempty"`
-	Owners           []string               `yaml:"owners,omitempty"`
-	Capabilities     []string               `yaml:"capabilities,omitempty"`
-	CapabilityConfig map[string]interface{} `yaml:"capability_config,omitempty"`
-	Dependencies     []string               `yaml:"dependencies,omitempty"`
-	RootInvalidation []string               `yaml:"root_invalidation,omitempty"`
-	Prose            []string               `yaml:"prose,omitempty"`
-	Visibility       string                 `yaml:"visibility,omitempty"`
-	CI               *CIConfig              `yaml:"ci,omitempty"`
+	Schema           string                  `yaml:"schema"`
+	Name             string                  `yaml:"name"`
+	Type             string                  `yaml:"type"`
+	Language         string                  `yaml:"language,omitempty"`
+	Owners           []string                `yaml:"owners,omitempty"`
+	Capabilities     []string                `yaml:"capabilities,omitempty"`
+	CapabilityConfig map[string]interface{}  `yaml:"capability_config,omitempty"`
+	Dependencies     []string                `yaml:"dependencies,omitempty"`
+	RootInvalidation []RootInvalidationEntry `yaml:"root_invalidation,omitempty"`
+	Prose            []string                `yaml:"prose,omitempty"`
+	Visibility       string                  `yaml:"visibility,omitempty"`
+	CI               *CIConfig               `yaml:"ci,omitempty"`
+}
+
+// RootInvalidationEntry is one root_invalidation list entry (§14.5.8). YAML
+// accepts two forms: a bare pattern string (blunt - the default and the
+// fail-closed reading), or {pattern: ..., refinable: true} marking the
+// pattern GRAPH-VISIBLE - eligible to have its run_everything escalation
+// replaced by a successful build-graph snapshot diff, runner-side only. A
+// "!" exception cannot be refinable (there is no escalation to refine away)
+// and is rejected at parse.
+type RootInvalidationEntry struct {
+	Pattern   string `yaml:"pattern"`
+	Refinable bool   `yaml:"refinable,omitempty"`
+}
+
+func (e *RootInvalidationEntry) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		e.Pattern = node.Value
+		e.Refinable = false
+		return nil
+	}
+	// Plain struct alias so Decode doesn't recurse into this method.
+	type entry RootInvalidationEntry
+	var raw entry
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	if raw.Pattern == "" {
+		return fmt.Errorf("root_invalidation: entry object needs a non-empty pattern")
+	}
+	if raw.Refinable && strings.HasPrefix(raw.Pattern, "!") {
+		return fmt.Errorf("root_invalidation: exception %q cannot be refinable - a '!' entry removes escalation, there is nothing for a graph diff to refine", raw.Pattern)
+	}
+	*e = RootInvalidationEntry(raw)
+	return nil
+}
+
+// MarshalYAML round-trips the compact form: blunt entries stay bare strings.
+func (e RootInvalidationEntry) MarshalYAML() (interface{}, error) {
+	if !e.Refinable {
+		return e.Pattern, nil
+	}
+	type entry RootInvalidationEntry
+	return entry(e), nil
 }
 
 // Plan is the output of the intent -> files pipeline (§10.1): the resolved

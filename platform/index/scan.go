@@ -30,6 +30,12 @@ type IndexedProject struct {
 	// per §14.5.8; see index.RootInvalidation). Not persisted by Sync -
 	// live consumers scan the tree, which is the §10.3 truth.
 	RootInvalidation []string
+	// RootInvalidationRefinable is the subset of RootInvalidation the
+	// manifest marks {refinable: true} (§14.5.8): GRAPH-VISIBLE patterns
+	// whose escalation a successful build-graph snapshot diff may replace,
+	// runner-side only (runko-ci) - the daemon's merge gate never consumes
+	// this (gate-grade narrowing is a separate org opt-in, §14.5.4).
+	RootInvalidationRefinable []string
 	// Prose is the manifest's tree-borne §14.5.7 de-escalation list
 	// (ordered, first-match-wins, ! exceptions; see index.Prose). Not
 	// persisted by Sync, like RootInvalidation.
@@ -145,18 +151,27 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		}
 	}
 
+	var rootInvalidation, refinable []string
+	for _, e := range manifest.RootInvalidation {
+		rootInvalidation = append(rootInvalidation, e.Pattern)
+		if e.Refinable {
+			refinable = append(refinable, e.Pattern)
+		}
+	}
+
 	return IndexedProject{
-		Name:                 manifest.Name,
-		Path:                 dir,
-		Type:                 manifest.Type,
-		Capabilities:         manifest.Capabilities,
-		DeclaredDependencies: manifest.Dependencies,
-		RootInvalidation:     manifest.RootInvalidation,
-		Prose:                manifest.Prose,
-		Visibility:           visibility,
-		Owners:               owners,
-		RequiredChecks:       requiredChecks,
-		Checks:               checks,
+		Name:                      manifest.Name,
+		Path:                      dir,
+		Type:                      manifest.Type,
+		Capabilities:              manifest.Capabilities,
+		DeclaredDependencies:      manifest.Dependencies,
+		RootInvalidation:          rootInvalidation,
+		RootInvalidationRefinable: refinable,
+		Prose:                     manifest.Prose,
+		Visibility:                visibility,
+		Owners:                    owners,
+		RequiredChecks:            requiredChecks,
+		Checks:                    checks,
 	}, nil
 }
 
@@ -243,6 +258,19 @@ func RootInvalidation(projects []IndexedProject) []string {
 	var out []string
 	for _, p := range projects {
 		out = append(out, p.RootInvalidation...)
+	}
+	return out
+}
+
+// RootInvalidationRefinable concatenates the patterns every indexed project
+// marks {refinable: true} (§14.5.8), in the same scan order as
+// RootInvalidation. Consumed only runner-side (runko-ci) to decide whether
+// a run_everything escalation may be replaced by a build-graph snapshot
+// diff; the daemon's merge gate deliberately never reads this.
+func RootInvalidationRefinable(projects []IndexedProject) []string {
+	var out []string
+	for _, p := range projects {
+		out = append(out, p.RootInvalidationRefinable...)
 	}
 	return out
 }

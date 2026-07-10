@@ -63,7 +63,24 @@
     "root_invalidation": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "type": "string" },
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["pattern"],
+            "additionalProperties": false,
+            "properties": {
+              "pattern": { "type": "string" },
+              "refinable": {
+                "type": "boolean",
+                "default": false,
+                "description": "Marks the pattern GRAPH-VISIBLE (§14.5.8): its run_everything escalation may be replaced, runner-side only, by a successful build-graph snapshot diff (runko-ci checks --engine ...). Blunt (false, the default and the bare-string reading) is permanent for out-of-graph paths - CI workflows, scripts, Docker. A '!' exception cannot be refinable (rejected at parse). The daemon's merge gate never consumes this marking; gate-grade narrowing is a separate org opt-in (§14.5.4)."
+              }
+            }
+          }
+        ]
+      },
       "description": "L3, root-manifest-oriented; ORDERED, first match wins (§14.5.8). Glob patterns (path.Match plus 'prefix/**' subtrees, same dialect as prose) naming BUILD-SENSITIVE paths whose change invalidates every project: toolchain manifests (go.mod, MODULE.bazel), build entrypoints (Makefile, Dockerfile), CI definitions (.github/**). A matching path escalates affected computation to run_everything (§14.5.2); a gitignore-style '!' prefix excepts a path from a later, broader pattern (the exception must precede the pattern it carves) - the excepted path falls through to prose/ownership attribution and keeps failing closed when unowned. Exceptions carry §14.5.7's obligation: name what still gates the excepted path (e.g. '!.github/workflows/ci.yml' - post-land-only, gated by owner review, docs-check, and its own post-land execution). Manifests concatenate in scan order, root first, so root exceptions outrank deeper manifests' patterns. Tree-borne per §9.4 ('the tree owns policy' - relocated from the daemon's --root-invalidation flag, which remains an additive override appended AFTER the tree's patterns): the platform and runko-ci read these from the indexed manifests, so policy rides the same review gates as the code it protects."
     },
     "prose": {

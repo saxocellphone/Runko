@@ -15,6 +15,11 @@
       "enum": ["bazel", "buck2"],
       "description": "Which engine produced this refinement (§14.5.4's engine matrix)."
     },
+    "strategy": {
+      "type": "string",
+      "enum": ["rdeps", "snapshot_diff"],
+      "description": "How the engine was consulted (§14.5.8). 'rdeps' (the default when absent - pre-§14.5.8 producers): reverse-dependency query over the changed files at head, additive/advisory only. 'snapshot_diff': the graph was evaluated at BOTH base and head and diffed - the strategy that may REPLACE a refinable-only run_everything escalation, runner-side, where nothing gates on the result."
+    },
     "universe_pattern": { "type": "string", "description": "e.g. '//...'. Absent when run_everything is true and no query was attempted." },
     "run_everything": {
       "type": "boolean",

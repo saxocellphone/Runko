@@ -25,6 +25,7 @@ go_test(
         "buildengine_test.go",
         "language_test.go",
         "project_test.go",
+        "rootinvalidation_test.go",
     ],
     data = glob(["testdata/**"]),
     embed = [":project"],
@@ -32,5 +33,6 @@ go_test(
         "//internal/gitfixture",
         "//internal/gitstore",
         "//platform/core",
+        "@in_gopkg_yaml_v3//:yaml_v3",
     ],
 )
