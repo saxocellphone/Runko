@@ -74,3 +74,50 @@ func TestGitHTTPHandlerLocatesBackend(t *testing.T) {
 		t.Fatalf("expected a resolved git-http-backend path")
 	}
 }
+
+// TestPruneDanglingChangeRefs: a change ref pointing at a missing object
+// bricks the repo (git connectivity check rejects every push); boot-time
+// pruning heals it. migration-findings #34.
+func TestPruneDanglingChangeRefs(t *testing.T) {
+	repo := newBareRepo(t)
+	work := t.TempDir()
+	run := func(dir string, args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.dev", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.dev")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	run(work, "clone", repo, ".")
+	run(work, "commit", "--allow-empty", "-m", "real")
+	run(work, "push", "origin", "HEAD:refs/heads/main")
+	realSHA := strings.TrimSpace(run(work, "rev-parse", "HEAD"))
+
+	// A healthy change ref (kept) and a dangling one pointing at a SHA the
+	// repo does not have (pruned).
+	run(repo, "update-ref", "refs/changes/Ihealthy/head", realSHA)
+	// A dangling ref can't be made via update-ref (git validates the
+	// object); write the loose ref file directly, exactly the on-disk
+	// state a crash-after-ref-write-before-quarantine-migration leaves.
+	danglingDir := filepath.Join(repo, "refs", "changes", "Idangling")
+	if err := os.MkdirAll(danglingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(danglingDir, "head"), []byte("0000000000000000000000000000000000000001\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := PruneDanglingChangeRefs(repo); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	refs := run(repo, "for-each-ref", "refs/changes/")
+	if !strings.Contains(refs, "Ihealthy") {
+		t.Fatalf("healthy change ref must survive, got:\n%s", refs)
+	}
+	if strings.Contains(refs, "Idangling") {
+		t.Fatalf("dangling change ref must be pruned, got:\n%s", refs)
+	}
+}

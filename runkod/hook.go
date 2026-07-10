@@ -2,9 +2,11 @@ package runkod
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // EnsureBareRepo creates a bare repo at repoDir (with trunkRef as the
@@ -12,6 +14,9 @@ import (
 // smart-HTTP push. Safe to call on an existing repo - a no-op past init.
 func EnsureBareRepo(repoDir, trunkRef string) error {
 	if _, err := os.Stat(filepath.Join(repoDir, "HEAD")); err == nil {
+		if err := PruneDanglingChangeRefs(repoDir); err != nil {
+			return err
+		}
 		return EnableHTTPReceivePack(repoDir)
 	}
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
@@ -22,6 +27,42 @@ func EnsureBareRepo(repoDir, trunkRef string) error {
 		return fmt.Errorf("runkod: git init --bare: %w: %s", err, out)
 	}
 	return EnableHTTPReceivePack(repoDir)
+}
+
+// PruneDanglingChangeRefs deletes any refs/changes/<id>/head that points at
+// an object no longer present in the store. Such a ref is a repo-level
+// hazard: git receive-pack's connectivity check fails the WHOLE repo when
+// ANY ref is unreachable, so a single dangling change ref rejects EVERY
+// push with "missing necessary objects" (and freezes the outbound mirror
+// the same way). They arise when a push's pre-receive handler writes the
+// change ref (referencing a still-quarantined object) and the daemon is
+// then killed before git migrates quarantine to the object store - e.g. a
+// `kubectl rollout restart` racing an in-flight push. Running this at boot
+// makes that crash self-healing rather than a manual `git update-ref -d`
+// in the pod (docs/migration-findings.md #34).
+func PruneDanglingChangeRefs(repoDir string) error {
+	out, err := exec.Command("git", "-C", repoDir,
+		"for-each-ref", "--format=%(refname) %(objectname)", "refs/changes/").Output()
+	if err != nil {
+		return fmt.Errorf("runkod: list change refs: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		ref, sha, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		if exec.Command("git", "-C", repoDir, "cat-file", "-e", sha+"^{commit}").Run() == nil {
+			continue // object present - a healthy ref
+		}
+		if out, err := exec.Command("git", "-C", repoDir, "update-ref", "-d", ref).CombinedOutput(); err != nil {
+			return fmt.Errorf("runkod: prune dangling change ref %s: %w: %s", ref, err, out)
+		}
+		log.Printf("runkod: pruned dangling change ref %s (object %s missing - crash-recovery, migration-findings #34)", ref, sha)
+	}
+	return nil
 }
 
 // preReceiveHookScript renders the pre-receive hook installed into a served

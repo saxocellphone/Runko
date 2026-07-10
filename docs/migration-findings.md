@@ -293,6 +293,27 @@ planning; entries marked `[observed]` happened during execution.
     and mirror-freeze alerting (a /metrics gauge exists) belongs in the
     ops floor.
 
+34. **[observed, live incident] A push racing a daemon restart leaves a
+    dangling change ref that bricks the whole repo.** The pre-receive
+    funnel writes `refs/changes/<id>/head` via `git update-ref` during the
+    hook, referencing an object still in git's push quarantine; git
+    migrates quarantine to the object store only when the hook exits 0.
+    A `kubectl rollout restart` (or any kill) mid-hook leaves the ref on
+    disk pointing at an object that is then discarded with the quarantine.
+    git receive-pack's connectivity check fails the ENTIRE repo when ANY
+    ref is unreachable, so from then on EVERY push - from anyone - is
+    rejected with "missing necessary objects", and the outbound mirror
+    loops forever on the same bad object. Concurrent deploy pipelines +
+    active pushing (two agents) made this reachable. Recovery is deleting
+    the dangling refs in the repo (`git update-ref -d`); fixed forward
+    with `runkod.PruneDanglingChangeRefs`, run at boot from
+    `EnsureBareRepo`, so the crash self-heals on the next start instead
+    of needing a manual `kubectl exec`. → §18.3 note: an import/serving
+    repo needs a boot-time integrity sweep; longer term the change-ref
+    write belongs in POST-receive (after quarantine migration), where a
+    crash cannot leave a dangling ref at all. Also: deploy tooling should
+    drain in-flight pushes before restarting a single-replica daemon.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
