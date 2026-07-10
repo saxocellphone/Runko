@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/saxocellphone/runko/internal/dbtest"
 )
 
 // TestPostgresApplyMigrationsFromEmptyDatabase is stage 14's schema-upgrade
@@ -15,10 +17,16 @@ import (
 // BootstrapPostgresStore works end to end on the result. Named to match
 // check-db's -run Postgres filter, like every live-Postgres test here.
 func TestPostgresApplyMigrationsFromEmptyDatabase(t *testing.T) {
+	// dbtest.Connect both skips without a DSN and - critically - holds the
+	// cross-process harness lock for this test's lifetime. This test drops
+	// and recreates the whole schema on the SHARED test database; it was
+	// the one live-Postgres test that took the DSN directly, so it could
+	// run concurrently with another package's freshly-reset schema and
+	// re-create tables under it (post-land CI 2026-07-10: platform/checks
+	// failed its reset with "orgs already exists" - this test's
+	// ApplyMigrations had landed between checks' teardown and its 0001).
+	dbtest.Connect(t)
 	dsn := os.Getenv("RUNKO_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skipf("RUNKO_TEST_DATABASE_URL not set - skipping live-Postgres test (see db/README.md, `make check-db`)")
-	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
