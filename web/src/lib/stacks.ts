@@ -52,6 +52,11 @@ export function buildStackForest(changes: ChangeSummary[]): StackNode[] {
 // rendered as the shared "main" anchor row, never as a change.
 export const TRUNK_NODE_ID = "__trunk__";
 
+// HOME_BRANCH is the workspace's mainline branch name (§12.2: snapshots
+// default to refs/workspaces/<id>/head) - the branch the inbox leaves
+// unchipped and the rail draws straight into the trunk anchor.
+export const HOME_BRANCH = "head";
+
 export interface WorkspaceCard {
   // The origin workspace, or undefined for the legacy fallback (changes
   // with no recorded workspace group by ancestry alone, one card per
@@ -193,6 +198,7 @@ export interface StackLayout {
 //    offset by the total width of the subtrees between it and the parent,
 //    which is what makes crossings impossible in a tree.
 export function layoutStack(root: StackNode): StackLayout {
+  root = orderForLayout(root);
   const width = (n: StackNode): number =>
     n.children.length === 0 ? 1 : n.children.reduce((s, c) => s + width(c), 0);
 
@@ -240,6 +246,28 @@ export function layoutStack(root: StackNode): StackLayout {
   collect(root);
 
   return { rows, lanes, edges };
+}
+
+// orderForLayout: the straight line through a fork should follow BRANCH
+// identity, not push order - the child continuing its parent's branch
+// (the home branch, at the trunk anchor) moves last so it renders
+// directly above the parent and inherits its lane; other branches fork
+// into outer lanes. Regression (2026-07-09, prod parallel-demo card):
+// with roots ordered newest-first, side-x drew straight into main and
+// the workspace's own head change forked off it. Branchless nodes
+// (legacy pre-provenance changes, unit fixtures) keep their order.
+function orderForLayout(n: StackNode): StackNode {
+  const kids = n.children.map(orderForLayout);
+  const mine =
+    n.change.id === TRUNK_NODE_ID ? HOME_BRANCH : n.change.originBranch;
+  if (mine !== "" && kids.length > 1) {
+    const idx = kids.findIndex((k) => k.change.originBranch === mine);
+    if (idx >= 0 && idx !== kids.length - 1) {
+      const [home] = kids.splice(idx, 1);
+      kids.push(home!);
+    }
+  }
+  return { change: n.change, children: kids };
 }
 
 // ------------------------------------------------------------- rail cells

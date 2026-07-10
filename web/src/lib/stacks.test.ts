@@ -70,6 +70,45 @@ describe("layoutStack + railCells", () => {
     expect(layout.lanes).toBe(2);
   });
 
+  // Regression (prod parallel-demo card): the straight line into the
+  // trunk anchor must follow BRANCH identity, not push order. Here the
+  // head-branch change is the newest root, so newest-first ordering put
+  // it first and the side-x chain drew straight into main, with the
+  // workspace's own mainline forking off it.
+  it("the home branch runs straight into the trunk anchor; side branches fork", () => {
+    const cb = (id: string, base: string, head: string, number: number, branch: string, state = ChangeState.OPEN): ChangeSummary =>
+      create(ChangeSummarySchema, {
+        id,
+        state,
+        baseSha: base,
+        headSha: head,
+        number: BigInt(number),
+        originWorkspace: "parallel-demo",
+        originBranch: branch,
+        baseOnTrunk: true,
+      });
+    const roots = buildStackForest([
+      cb("head-work", "T", "A", 3, "head"),
+      cb("side-part1", "T", "B", 1, "side-x", ChangeState.ABANDONED),
+      cb("side-part2", "B", "C", 2, "side-x"),
+    ]);
+    // Newest-first root order puts the head change FIRST - the layout
+    // must still give it the straight lane 0 above the trunk anchor.
+    expect(roots.map((r) => r.change.id)).toEqual(["head-work", "side-part1"]);
+    const layout = layoutForest(roots);
+    expect(layout.rows.map((r) => `${r.change.id}@${r.lane}`)).toEqual([
+      "side-part2@1",
+      "side-part1@1",
+      "head-work@0",
+      `${TRUNK_NODE_ID}@0`,
+    ]);
+    // And the side-x fork merges into the anchor row with a corner.
+    expect(railCells(layout, 3)).toEqual([
+      { kind: "dot", up: true, down: true, right: true },
+      { kind: "corner", right: false },
+    ]);
+  });
+
   it("draws pass-through verticals and a merge corner that line up", () => {
     const layout = layoutStack(fork());
     // left's row: dot in lane 1, nothing in lane 0 yet.

@@ -5,6 +5,7 @@ import { ChangeState, type ChangeSummary, type MergeRequirements } from "../gen/
 import { changeNumberLabel, shortChangeId } from "../lib/format";
 import {
   buildWorkspaceCards,
+  HOME_BRANCH,
   layoutForest,
   layoutStack,
   stackHasFork,
@@ -200,7 +201,7 @@ function StackRow({
           <span>{changeNumberLabel(c.number)}</span>
           <span className="mono">{shortChangeId(c.id)}</span>
           <AuthorChip author={c.authoredBy} />
-          {c.originBranch && c.originBranch !== "head" && (
+          {c.originBranch && c.originBranch !== HOME_BRANCH && (
             <OriginChip workspace={c.originWorkspace} branch={c.originBranch} branchOnly />
           )}
         </span>
