@@ -6,8 +6,23 @@
 # only CI that ever builds the actually-landed tree. A failure here means
 # "trunk is red, fix forward", never a blocked land. The pull_request /
 # merge_group triggers died with the cutover (no PRs, no GitHub merge
-# queue); the bazel job moved to runko-checks.yml as the tree-declared
-# `bazel-check` (make check-bazel).
+# queue).
+#
+# GENERIC EXECUTOR, same as runko-checks.yml (§14.9.1, decided 2026-07-10:
+# "one runner on both sides of the land"): the matrix is resolved from the
+# LANDED tree by `runko-ci checks` over the push's before..after delta, so
+# this file knows NO project names and NO commands - what gated pre-land is
+# exactly what re-runs on the landed, post-rebase tree, and a shared bazel
+# cache (per-check disk cache today, RBE later) is common to both sides by
+# construction. An unusable `before` (first push, operator force) falls
+# back to the empty tree: every path differs, root invalidation escalates,
+# run_everything resolves every project's checks - fail closed.
+#
+# This workflow owns only the runner contract (go / bazelisk / node / jj /
+# psql + postgres service with RUNKO_TEST_DATABASE_URL) and the one job no
+# manifest declares: compose-smoke (§16.4's measured eval loop - Docker
+# territory, native by doctrine). `make check` (plain go test) stays the
+# LOCAL <30s inner loop only (§28.2 rule 3), no longer executed in CI.
 name: CI
 
 on:
@@ -15,13 +30,39 @@ on:
     branches: [main]
 
 jobs:
-  check:
+  resolve:
     runs-on: ubuntu-latest
-    # Real Postgres service container (docs/design.md §28.3 stage 9d) - the
-    # live-Postgres tests added in stage 9a (internal/dbtest, index/receive/
-    # checks' *_pg_test.go) could not be executed in the sandbox this repo
-    # was originally built in (no Docker/Postgres there - see CLAUDE.md).
-    # This is the first environment that actually runs them.
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      has_checks: ${{ steps.resolve.outputs.has_checks }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the before..after diff needs the pre-push tip
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: resolve the check matrix from the landed tree
+        id: resolve
+        run: |
+          BASE="${{ github.event.before }}"
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            BASE=$(git hash-object -t tree /dev/null) # git's empty tree
+          fi
+          OUT=$(go run ./cli/runko-ci checks --base "$BASE" --head "$GITHUB_SHA")
+          echo "$OUT" | jq .
+          echo "matrix=$(echo "$OUT" | jq -c '.checks')" >> "$GITHUB_OUTPUT"
+          echo "has_checks=$(echo "$OUT" | jq -r '.checks | length > 0')" >> "$GITHUB_OUTPUT"
+
+  run-checks:
+    needs: resolve
+    if: needs.resolve.outputs.has_checks == 'true'
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     services:
       postgres:
         image: postgres:16
@@ -36,65 +77,39 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-
+    env:
+      RUNKO_TEST_DATABASE_URL: postgres://runko:runko@localhost:5432/runko_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      # Same disk-cache keys as runko-checks.yml, deliberately: the pre-land
+      # run of a check warms the post-land run of the same check (and vice
+      # versa) through the shared actions cache - the pre-RBE cache story.
+      - uses: bazel-contrib/setup-bazel@0.15.0
         with:
-          go-version: '1.25'
-          cache: true
-
-      # jj is the primary client (§7.4, decided 2026-07-08): cmd/runko's jj
-      # tests skip without the binary, so install it here to run them for
-      # real - otherwise CI would silently never execute the evolve
-      # workflow tests.
-      - name: Install jj (jj-first client tests)
-        run: |
-          curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.43.0/jj-v0.43.0-x86_64-unknown-linux-musl.tar.gz \
-            | tar -xz -C /usr/local/bin ./jj
-          jj --version
-
-      - name: make check (fmt + vet + test, no live Postgres needed)
-        run: make check
-
-      - name: make check-race (race detector over the whole suite)
-        run: make check-race
-
-      - name: Ensure psql client is installed
-        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
-
-      - name: make check-db (live-Postgres integration tests, §28.3 stage 9a)
-        env:
-          RUNKO_TEST_DATABASE_URL: postgres://runko:runko@localhost:5432/runko_test?sslmode=disable
-        run: make check-db
-
-  # Web frontend (§28.3 stage 13): typecheck + lint + vitest + build.
-  web:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@v4
-
+          bazelisk-cache: true
+          disk-cache: bazel-${{ matrix.name }}
+          repository-cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
-
-      - run: npm ci
-
-      - run: npm run check
+      - name: install jj + ensure psql (runner contract)
+        run: |
+          command -v jj >/dev/null || curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.43.0/jj-v0.43.0-x86_64-unknown-linux-musl.tar.gz | sudo tar -xz -C /usr/local/bin ./jj
+          command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      - name: run ${{ matrix.name }} (declared by ${{ matrix.project }})
+        run: bash -c "${{ matrix.command }}"
 
   # The §16.4 measured eval loop (§28.3 stage 14): compose up -> create
   # project -> change -> land (twice - the second pass is the "edit" leg),
-  # timed end to end against §3.3's < 15 min budget, gated by real policy
+  # timed end to end against §3.3's budget, gated by real policy
   # (owner approval with self-approval denied + a required check). Runs on
-  # every push so the claim cannot rot. This job is the loop's FIRST real
-  # execution environment - the sandbox this repo is developed in has no
-  # Docker (see CLAUDE.md), the same gap CI already closes for Postgres.
+  # every push so the claim cannot rot. Not a manifest check: Docker
+  # territory, native by doctrine, and its subject is the deployment
+  # artifact rather than any one project.
   compose-smoke:
     runs-on: ubuntu-latest
     steps:
