@@ -319,6 +319,45 @@ planning; entries marked `[observed]` happened during execution.
     crash cannot leave a dangling ref at all. Also: deploy tooling should
     drain in-flight pushes before restarting a single-replica daemon.
 
+35. **[observed, §14.5.8 phase 2 rollout] A head tree the deployed
+    daemon cannot parse degrades SILENTLY at receive.** The first change
+    carrying the new `{pattern, refinable}` manifest syntax was pushed
+    while prod still ran the pre-parser binary: the push was ACCEPTED
+    (Change created, snapshot durable), but `computeAffectedAndEnqueue`
+    logs the head-tree scan error and returns — no affected computation,
+    no webhook, no CI dispatch, gates pending forever; and
+    `merge-requirements` (which re-scans strictly) answered a raw HTTP
+    500, not a §6.5 structured error. Same invisibility class as #30/#33:
+    "pending forever" is indistinguishable from "slow CI". → two fixes
+    owed: receive should either reject a scan-failing head tree with a
+    structured "your manifests don't parse under the deployed daemon
+    (version skew?)" error, or degrade LOUDLY (fail-closed
+    run_everything webhook carrying the scan error); merge-requirements
+    must return structured errors on scan failure. Recovery wrinkle: the
+    prereceive comment claims "a same-head re-push is the documented way
+    to re-trigger CI with a full payload," but a same-head re-push after
+    the rollout produced NO processing at all (no log line, no webhook) -
+    the working recovery was `runko change rerun-check --name <check>`
+    per required check. Either make same-head re-pushes actually re-emit,
+    or fix the comment and document rerun-check as the recovery verb.
+    Sequencing lesson for the record: any manifest-SYNTAX change is a
+    two-step deploy (parser lands + rolls out, THEN the first manifest
+    using it) - the parser binary in CI comes from the change's own tree,
+    but the daemon's parser is whatever is deployed.
+
+36. **[observed, same rollout] The GitOps digest write-back is dormant
+    until `K8S_CLUSTER_TOKEN` exists; nothing red says so.** 9b3118e4's
+    deploy-bump job skips with a green ✓ and a log-only notice when the
+    Actions secret is missing — release-images succeeds, no k8s-cluster
+    commit happens, Argo stays Synced on the old digest, and the only
+    symptom is a pod quietly running last week's binary. `kubectl
+    rollout restart deploy/{runkod,runko-web} -n maas-dev` remains the
+    real deploy path until the user mints the fine-grained PAT
+    (Contents R/W on k8s-cluster). → the deploy-bump skip should be a
+    visible warning annotation at minimum; better, a required
+    "deploys-are-wired" preflight in the release workflow once the
+    token is expected to exist.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
