@@ -1887,7 +1887,11 @@ a.chip-origin:hover {
   flex-direction: column;
   gap: 2px;
 }
-/* Mini stack rail: trunk at the bottom, like the changes inbox. */
+/* Mini stack rail: trunk at the bottom, like the changes inbox. Dot and
+   connector share one center x (3 + 5/2 = 4.75 + 1.5/2 = 5.5) - the same
+   share-a-center rule the lane graph's rg-* segments follow; the old
+   left:5px line centered at 5.75, and pixel snapping turned that quarter
+   pixel into a line hugging the dots' right edge. */
 .ws-branch-stack li {
   position: relative;
   padding-left: 14px;
@@ -1905,8 +1909,8 @@ a.chip-origin:hover {
 .ws-branch-stack li:not(:last-child)::after {
   content: "";
   position: absolute;
-  left: 5px;
-  top: 13px;
+  left: 4.75px;
+  top: 12px;
   bottom: -9px;
   width: 1.5px;
   background: var(--border);
