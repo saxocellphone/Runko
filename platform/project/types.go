@@ -39,6 +39,11 @@ type CIConfig struct {
 type CICheck struct {
 	Name    string `yaml:"name"`
 	Command string `yaml:"command"`
+	// RunWhen is §14.5.9's check class: "affected" (default - runs
+	// whenever this project is in the affected closure) or "direct" (runs
+	// only when this project's own paths were touched, not when it's
+	// pulled in via depends_on edges - the unit-lane class).
+	RunWhen string `yaml:"run_when,omitempty"`
 }
 
 // Manifest mirrors docs/spec/project.schema.json (PROJECT.yaml v1). Field

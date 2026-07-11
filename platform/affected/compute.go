@@ -36,6 +36,14 @@ type ProjectInfo struct {
 type ProjectRef struct {
 	Name string
 	Path string
+	// Direct marks a project whose OWN paths were touched (or that a
+	// snapshot diff named as impacted), as opposed to one pulled into the
+	// closure purely via depends_on edges. Feeds §14.5.9's per-check
+	// run_when classes: direct-only checks (unit lanes) skip
+	// closure-affected dependents. When Result.RunEverything is true,
+	// consumers MUST treat every project as direct (fail closed) - the
+	// flag here reflects only what path attribution proved.
+	Direct bool
 }
 
 // Options configures Compute. The zero value is the conservative default.
@@ -188,7 +196,7 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 	refs := make([]ProjectRef, 0, len(affectedSet))
 	for name := range affectedSet {
 		p := byName[name]
-		refs = append(refs, ProjectRef{Name: p.Name, Path: p.Path})
+		refs = append(refs, ProjectRef{Name: p.Name, Path: p.Path, Direct: direct[name]})
 	}
 	sort.Slice(refs, func(i, j int) bool { return refs[i].Name < refs[j].Name })
 
@@ -230,7 +238,10 @@ func CloseOverDependentNames(projects []ProjectInfo, names []string) []ProjectRe
 	closed, _ := closeOverDependents(projects, seed)
 	refs := make([]ProjectRef, 0, len(closed))
 	for name := range closed {
-		refs = append(refs, ProjectRef{Name: name, Path: byName[name].Path})
+		// Seed projects were named impacted by the graph diff - the moral
+		// equivalent of touched paths, so their direct-class checks run;
+		// dependents added by the walk are closure-shaped (§14.5.9).
+		refs = append(refs, ProjectRef{Name: name, Path: byName[name].Path, Direct: seed[name]})
 	}
 	sort.Slice(refs, func(i, j int) bool { return refs[i].Name < refs[j].Name })
 	return refs

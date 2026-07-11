@@ -1076,27 +1076,39 @@ func owningProject(indexed []index.IndexedProject, path string) (index.IndexedPr
 // nothing (anti-Boq, §6.2), but a project that DOES declare checks now
 // actually gates on them, reported or not.
 func requiredCheckNames(result affected.Result, indexed []index.IndexedProject) []string {
-	scoped := indexed
-	if !result.RunEverything {
+	type scopedProject struct {
+		p      index.IndexedProject
+		direct bool
+	}
+	var scoped []scopedProject
+	if result.RunEverything {
+		// Fail closed (§14.5.9): under run_everything every project counts
+		// as direct, so both check classes gate.
+		for _, p := range indexed {
+			scoped = append(scoped, scopedProject{p: p, direct: true})
+		}
+	} else {
 		byName := make(map[string]index.IndexedProject, len(indexed))
 		for _, p := range indexed {
 			byName[p.Name] = p
 		}
-		scoped = make([]index.IndexedProject, 0, len(result.Projects))
 		for _, ref := range result.Projects {
 			if p, ok := byName[ref.Name]; ok {
-				scoped = append(scoped, p)
+				scoped = append(scoped, scopedProject{p: p, direct: ref.Direct})
 			}
 		}
 	}
 
 	seen := map[string]bool{}
 	var names []string
-	for _, p := range scoped {
-		for _, c := range p.RequiredChecks {
-			if !seen[c] {
-				seen[c] = true
-				names = append(names, c)
+	for _, sp := range scoped {
+		// index.ChecksFor is the shared §14.5.9 rule - the executor
+		// (runko-ci checks) resolves through the same function, so the
+		// gate can never require a check the matrix won't run.
+		for _, c := range index.ChecksFor(sp.p, sp.direct) {
+			if !seen[c.Name] {
+				seen[c.Name] = true
+				names = append(names, c.Name)
 			}
 		}
 	}

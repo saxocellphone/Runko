@@ -13,6 +13,7 @@ go_library(
 go_test(
     name = "affected_test",
     srcs = [
+        "compute_direct_test.go",
         "compute_test.go",
         "prose_test.go",
         "refinable_test.go",

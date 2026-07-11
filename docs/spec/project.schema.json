@@ -114,6 +114,11 @@
               "command": {
                 "type": "string",
                 "description": "Template-defined by default; override only to deviate from the golden path."
+              },
+              "run_when": {
+                "type": "string",
+                "enum": ["direct", "affected"],
+                "description": "§14.5.9 check class (added 2026-07-11). 'affected' (the default): runs whenever this project is in the affected closure. 'direct': runs only when this project's OWN paths were touched, never when it rides in via dependencies - the unit-lane class. Declaring direct is this project's assertion that the lane doesn't guard cross-project behavior. run_everything treats every project as direct (fail closed: both classes run)."
               }
             }
           }

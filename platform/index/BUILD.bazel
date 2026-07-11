@@ -21,6 +21,7 @@ go_library(
 go_test(
     name = "index_test",
     srcs = [
+        "runwhen_test.go",
         "scan_test.go",
         "sync_pg_test.go",
     ],

@@ -58,21 +58,33 @@ func Checks(repoDir, base, head string, rootInvalidationPatterns []string, engin
 		byName[p.Name] = p
 	}
 
-	var scoped []index.IndexedProject
+	type scopedProject struct {
+		p      index.IndexedProject
+		direct bool
+	}
+	var scoped []scopedProject
 	if out.RunEverything {
-		scoped = indexed
+		// Fail closed (§14.5.9): run_everything treats every project as
+		// direct - both check classes execute.
+		for _, p := range indexed {
+			scoped = append(scoped, scopedProject{p: p, direct: true})
+		}
 	} else {
 		for _, ref := range out.Projects {
 			if p, ok := byName[ref.Name]; ok {
-				scoped = append(scoped, p)
+				scoped = append(scoped, scopedProject{p: p, direct: ref.Direct})
 			}
 		}
 	}
 
 	seen := map[string]CheckRun{}
 	var runs []CheckRun
-	for _, p := range scoped {
-		for _, c := range p.Checks {
+	for _, sp := range scoped {
+		p := sp.p
+		// index.ChecksFor is the shared §14.5.9 rule the merge gate also
+		// resolves through (runkod requiredCheckNames) - one function, so
+		// gate and executor can never disagree on a change's check set.
+		for _, c := range index.ChecksFor(p, sp.direct) {
 			if prev, ok := seen[c.Name]; ok {
 				if prev.Command != c.Command {
 					return ChecksOutput{}, &clierr.Error{

@@ -147,7 +147,15 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 	if manifest.CI != nil {
 		for _, c := range manifest.CI.Checks {
 			requiredChecks = append(requiredChecks, c.Name)
-			checks = append(checks, CheckDef{Name: c.Name, Command: c.Command})
+			// Unknown run_when values normalize to the affected default at
+			// read time (§14.5.9): the schema polices authoring; the
+			// scanner feeds the merge gate and must fail closed (running a
+			// check too often is safe, silently dropping one is not).
+			runWhen := c.RunWhen
+			if runWhen != RunWhenDirect {
+				runWhen = RunWhenAffected
+			}
+			checks = append(checks, CheckDef{Name: c.Name, Command: c.Command, RunWhen: runWhen})
 		}
 	}
 
@@ -294,4 +302,40 @@ func Prose(projects []IndexedProject) []string {
 type CheckDef struct {
 	Name    string
 	Command string
+	// RunWhen is the §14.5.9 check class, normalized at scan time to
+	// exactly RunWhenAffected or RunWhenDirect.
+	RunWhen string
+}
+
+// The §14.5.9 check classes.
+const (
+	// RunWhenAffected (the default): the check runs whenever its project
+	// is in the affected closure - today's semantics, the integration
+	// class.
+	RunWhenAffected = "affected"
+	// RunWhenDirect: the check runs only when its project's own paths
+	// were touched, never when the project rides in via depends_on edges
+	// - the unit-lane class. Declaring it is the project's assertion that
+	// this lane doesn't guard cross-project behavior.
+	RunWhenDirect = "direct"
+)
+
+// ChecksFor is THE run_when rule (§14.5.9), shared by the merge gate
+// (runkod requiredCheckNames) and the CI executor (runko-ci checks) so the
+// two can never disagree about which checks a change owes - a mismatch
+// deadlocks changes as required-but-never-run (§14.9.1's lockstep
+// requirement, now with a second axis). direct says whether p's own paths
+// were touched; callers MUST pass true for every project under
+// run_everything (fail closed: both classes run).
+func ChecksFor(p IndexedProject, direct bool) []CheckDef {
+	if direct {
+		return p.Checks
+	}
+	var out []CheckDef
+	for _, c := range p.Checks {
+		if c.RunWhen != RunWhenDirect {
+			out = append(out, c)
+		}
+	}
+	return out
 }

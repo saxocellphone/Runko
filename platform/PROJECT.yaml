@@ -22,5 +22,7 @@ ci:
       command: make fmt && bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_output=errors //platform/...
     - name: platform-race
       command: bazel test --@rules_go//go/config:race --test_output=errors //platform/...
+      # §14.5.9: race lanes run only when platform's own code changes.
+      run_when: direct
     - name: bazel-check
       command: make check-bazel

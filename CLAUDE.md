@@ -23,7 +23,11 @@ remote is named `github` and is the OUTBOUND MIRROR — **never push to it**
   `cli-test`, `internal/` declares `internal-test` (all scoped
   `bazel test //<dir>/...`; pg tests ride the `-test` checks via
   `--test_env=RUNKO_TEST_DATABASE_URL` and `internal/dbtest`'s
-  advisory-lock self-serialization — no db lane); `bazel-check`
+  advisory-lock self-serialization — no db lane). Check classes (§14.5.9):
+  the race lanes are `run_when: direct` — they run only when their own
+  project's paths change, never for closure-affected dependents; the
+  `-test` lanes stay affected-class (the integration surface); the filter
+  is `index.ChecksFor`, shared by gate and executor; `bazel-check`
   (= `make check-bazel`, gazelle drift, repo-wide by nature) is declared by
   the Go projects and dedupes by name; `web/PROJECT.yaml`
   declares `web-check`; `db/` and `proto/` declare none and are gated via

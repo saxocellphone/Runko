@@ -87,6 +87,7 @@ go_test(
         "publicread_test.go",
         "release_test.go",
         "rpc_test.go",
+        "runwhen_test.go",
         "signup_test.go",
         "singleuse_test.go",
         "snapshot_test.go",

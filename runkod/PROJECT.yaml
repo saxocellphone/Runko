@@ -20,5 +20,9 @@ ci:
       command: bazel test --test_env=RUNKO_TEST_DATABASE_URL --test_output=errors //runkod/...
     - name: runkod-race
       command: bazel test --@rules_go//go/config:race --test_output=errors //runkod/...
+      # §14.5.9: race verification is an own-code class - the -test lane
+      # stays affected-class and remains the integration surface dependents
+      # exercise (httptest + compiled-binary e2e + pg).
+      run_when: direct
     - name: bazel-check
       command: make check-bazel
