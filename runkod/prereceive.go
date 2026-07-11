@@ -77,6 +77,7 @@ type verdict struct {
 	extraEnv     []string
 	author       string // pushing principal's name (REMOTE_USER); "" for the anonymous deploy token
 	evalErr      string // set on an I/O failure evaluating this ref (git diff/log failed)
+	advice       string // advisory remote: lines printed on ACCEPTED pushes (e.g. the near-cap split nudge)
 	// origin* is push provenance for magic-ref pushes (§12.2's branch ↔
 	// stack mapping): the workspace branch the pusher declared via push
 	// options, validated against the registry before acceptance.
@@ -315,7 +316,16 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		// agent-token run: agents could snapshot but never SUBMIT - the
 		// policy refused their change pushes even from their own
 		// workspace, because this branch predated validated provenance.)
-		req.Principal = receive.Principal{IsAgent: true, Policy: pr.Policy}
+		// Size caps are enforced PER CHANGE after series resolution
+		// (enforcePerChangeCaps below), never against the whole push: a
+		// push is often a stack, and measuring the stack's SUM against a
+		// per-change cap punished exactly the splitting the cap exists to
+		// encourage - ten small stacked changes tripped the same wall one
+		// monolith did. Affinity/denylist/owners stay whole-push here
+		// (the union of the members' paths - equivalent and cheaper).
+		wholePush := pr.Policy
+		wholePush.MaxChangedFiles, wholePush.MaxDiffBytes = 0, 0
+		req.Principal = receive.Principal{IsAgent: true, Policy: wholePush}
 		req.DiffBytes = totalContentBytes(files)
 		req.ModifiesOwners = modifiesOwners(changedPaths)
 		if originWS != "" && author != "" && originWorkspace.Owner == author {
@@ -348,7 +358,105 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 			return *rej
 		}
 	}
+	if decision.Accepted && isMagicRef {
+		if rej := p.enforcePerChangeCaps(ctx, &v); rej != nil {
+			return *rej
+		}
+	}
 	return v
+}
+
+// enforcePerChangeCaps applies the agent policy's size caps to each series
+// member's OWN delta (commit vs first parent) - the per-change measurement
+// that makes the cap pro-stacking: one over-cap change is refused BY NAME
+// with the split workflow in the refusal, while the same content as a
+// stack of small changes passes. Below the hard cap, a change over HALF
+// of it earns an advisory line on the accepted push (git relays remote:
+// lines on success) - the nudge arrives before the wall does.
+func (p *Processor) enforcePerChangeCaps(ctx context.Context, v *verdict) *verdict {
+	pr := p.principalByName(v.author)
+	if pr == nil || !pr.IsAgent {
+		return nil
+	}
+	maxFiles, maxBytes := pr.Policy.MaxChangedFiles, pr.Policy.MaxDiffBytes
+	if maxFiles == 0 && maxBytes == 0 {
+		return nil
+	}
+	caps := receive.AgentPolicy{MaxChangedFiles: maxFiles, MaxDiffBytes: maxBytes}
+
+	var advice strings.Builder
+	var prev *seriesMember
+	var prevPaths []string
+	for _, m := range p.seriesMembers(ctx, *v, v.decision) {
+		m := m
+		parent := m.sha + "^"
+		if _, err := p.runGit(v.extraEnv, "rev-parse", "--verify", "-q", parent); err != nil {
+			parent = emptyTreeOID
+		}
+		paths, files, err := p.diff(parent, m.sha, v.extraEnv)
+		if err != nil {
+			rej := *v
+			rej.evalErr = fmt.Sprintf("remote: could not measure change %s: %v\n", m.changeID, err)
+			return &rej
+		}
+		bytes := totalContentBytes(files)
+
+		// DAG nudge (advisory, agents): a stacked step that touches
+		// nothing its parent step touches is often not a dependency at
+		// all - as PARALLEL branches the two would review and land
+		// independently instead of the upper one waiting out the lower.
+		// Top-level-directory disjointness is a deliberately quiet proxy
+		// (shared prefix = silence): it errs toward not nagging, and the
+		// wording stays conditional because file overlap is not semantic
+		// dependence.
+		if prev != nil && disjointTopDirs(prevPaths, paths) {
+			fmt.Fprintf(&advice, "remote: note: change %s (%q) touches nothing %s (%q) touches - if they are independent, put them on PARALLEL branches so neither waits for the other (runko workspace branch <name>; jj: a separate `jj new 'main@origin'` line per change)\n",
+				m.changeID, m.title, prev.changeID, prev.title)
+		}
+		prev, prevPaths = &m, paths
+
+		if violations := receive.EvaluatePolicy(caps, receive.PushSummary{ChangedFiles: paths, DiffBytes: bytes}); len(violations) > 0 {
+			rej := *v
+			var b strings.Builder
+			fmt.Fprintf(&b, "remote: change %s (%q) is too big as ONE change (§8.7 agent policy):\n", m.changeID, m.title)
+			for _, viol := range violations {
+				fmt.Fprintf(&b, "remote:   %s\n", viol.Message)
+			}
+			b.WriteString("remote:   -> split it into a stack of smaller changes - one reviewable step each (jj split, or jj new between steps)\n")
+			b.WriteString("remote:   -> one `runko change push` still pushes the whole stack; smaller changes scope checks narrower and land faster (§7.4)\n")
+			rej.decision = receive.Decision{Accepted: false, RejectionMessage: b.String()}
+			return &rej
+		}
+
+		if (maxFiles > 0 && len(paths)*2 > maxFiles) || (maxBytes > 0 && bytes*2 > maxBytes) {
+			fmt.Fprintf(&advice, "remote: note: change %s (%q) touches %d files / %d bytes - over half the agent cap; consider splitting into a stack (§7.4)\n",
+				m.changeID, m.title, len(paths), bytes)
+		}
+	}
+	v.advice = advice.String()
+	return nil
+}
+
+// disjointTopDirs reports whether two changed-path sets share NO top-level
+// directory - the stack-shape advisory's orthogonality proxy. Empty sets
+// are never "disjoint" (nothing to conclude from a rename-only or
+// unmeasurable member).
+func disjointTopDirs(a, b []string) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	tops := map[string]bool{}
+	for _, p := range a {
+		top, _, _ := strings.Cut(p, "/")
+		tops[top] = true
+	}
+	for _, p := range b {
+		top, _, _ := strings.Cut(p, "/")
+		if tops[top] {
+			return false
+		}
+	}
+	return true
 }
 
 // enforceOneStackPerBranch is §12.2's "one workspace branch ↔ one stack"
@@ -634,6 +742,7 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 	members := p.seriesMembers(ctx, v, d)
 	var tip Change
 	var msg strings.Builder
+	msg.WriteString(v.advice) // the near-cap split nudge, when one accrued
 	for _, m := range members {
 		// A stable per-Change ref, independent of whatever rotating ref the
 		// client pushed to: refs/for/<trunk> is a single ref every Change

@@ -85,15 +85,17 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 
 	if policy.MaxChangedFiles > 0 && len(summary.ChangedFiles) > policy.MaxChangedFiles {
 		v = append(v, PolicyViolation{
-			Code:    "max_changed_files_exceeded",
-			Message: fmt.Sprintf("changed %d files, agent policy allows at most %d", len(summary.ChangedFiles), policy.MaxChangedFiles),
+			Code:       "max_changed_files_exceeded",
+			Message:    fmt.Sprintf("changed %d files, agent policy allows at most %d", len(summary.ChangedFiles), policy.MaxChangedFiles),
+			Suggestion: "split the work into a stack of smaller changes - one reviewable step each; a single push carries the whole stack (§7.4)",
 		})
 	}
 
 	if policy.MaxDiffBytes > 0 && summary.DiffBytes > policy.MaxDiffBytes {
 		v = append(v, PolicyViolation{
-			Code:    "max_diff_bytes_exceeded",
-			Message: fmt.Sprintf("diff is %d bytes, agent policy allows at most %d", summary.DiffBytes, policy.MaxDiffBytes),
+			Code:       "max_diff_bytes_exceeded",
+			Message:    fmt.Sprintf("diff is %d bytes, agent policy allows at most %d", summary.DiffBytes, policy.MaxDiffBytes),
+			Suggestion: "split the work into a stack of smaller changes - one reviewable step each; a single push carries the whole stack (§7.4)",
 		})
 	}
 

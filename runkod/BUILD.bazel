@@ -91,6 +91,7 @@ go_test(
         "singleuse_test.go",
         "snapshot_test.go",
         "stack_test.go",
+        "stacksize_test.go",
         "statemachine_test.go",
         "store_test.go",
         "tags_test.go",

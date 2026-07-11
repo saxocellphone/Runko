@@ -22,6 +22,19 @@ an afternoon of structured rejections.
   any further push into them, so reusing yesterday's workspace is a
   dead end, not a shortcut. A task can still hold several changes
   (a stack) and parallel branches - that's what branches are for.
+- **Stack small changes; never push one big one.** One reviewable step
+  per change: `jj new` between steps while working, `jj split` to carve
+  up something that grew. One `runko change push` pushes the whole
+  stack. Agent size caps are PER CHANGE - a monolith is refused where
+  the same work as a stack passes - and smaller changes scope required
+  checks narrower, so stacks genuinely land faster.
+- **Stack only what depends; parallelize the rest (DAG, not line).**
+  If step B doesn't build on step A, they belong on PARALLEL workspace
+  branches (`runko workspace branch <name>`; jj: a separate
+  `jj new 'main@origin'` line per independent change) - each reviews
+  and lands on its own, neither waits for the other, and the workspace
+  card renders the fork honestly. The push output nudges you when a
+  stacked step touches nothing its parent touches.
 - **One branch = one stack = one reviewable line.** `head` is the
   default. Parallel/unrelated work in the same workstream gets
   `runko workspace branch <name>`. The server refuses a second
