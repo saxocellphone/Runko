@@ -1,0 +1,21 @@
+# runko-watchdog - the CI reconciler (§14.4.2's staleness rule grown an
+# actor): a required check stuck non-terminal in Runko while its GitHub
+# Actions run already finished gets its REAL conclusion force-reported;
+# a check whose dispatch was lost entirely (never reported at all) gets
+# one rescue rerun. Closes the "CI failed on GitHub but Runko never
+# heard" failure mode observed twice in dogfood (2026-07-08/10).
+#
+# Checks are OWNED here (§14.9): scoped to //watchdog/... . No -race
+# check on purpose: one sequential sweep loop, no concurrent surface.
+schema: project/v1
+name: watchdog
+type: service
+language: go
+dependencies:
+  - platform
+ci:
+  checks:
+    - name: watchdog-test
+      command: bazel test --test_output=errors //watchdog/...
+    - name: bazel-check
+      command: make check-bazel

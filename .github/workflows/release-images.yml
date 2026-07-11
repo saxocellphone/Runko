@@ -68,7 +68,7 @@ jobs:
           runkod=false; web=false; cli=false
           for n in $NAMES; do
             case "$n" in
-              runkod|platform|internal|db|proto) runkod=true ;;
+              runkod|platform|internal|db|proto|watchdog) runkod=true ;;
             esac
             case "$n" in
               web|proto) web=true ;;
