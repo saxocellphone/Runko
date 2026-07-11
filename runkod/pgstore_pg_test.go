@@ -234,6 +234,23 @@ func TestPostgresStoreWorkspaceRoundTrip(t *testing.T) {
 	if err != nil || updated.BaseRevision != "def456" {
 		t.Fatalf("UpdateWorkspaceBase: %+v err=%v", updated, err)
 	}
+
+	// Deletion is a hard delete: the row is gone and the id reusable.
+	if err := store.DeleteWorkspace(ctx, "bare-ws"); err != nil {
+		t.Fatalf("DeleteWorkspace: %v", err)
+	}
+	if _, ok, _ := store.GetWorkspace(ctx, "bare-ws"); ok {
+		t.Fatalf("deleted workspace must be gone")
+	}
+	if err := store.DeleteWorkspace(ctx, "bare-ws"); err == nil {
+		t.Fatalf("deleting an unknown workspace must error")
+	}
+	if _, err := store.CreateWorkspace(ctx, Workspace{
+		ID: "bare-ws", Owner: "bob", BaseRevision: "abc123",
+		SnapshotRef: "refs/workspaces/bare-ws/head", Status: "active",
+	}); err != nil {
+		t.Fatalf("recreate after delete: %v", err)
+	}
 }
 
 func TestPostgresStoreWebhookOutboxLifecycle(t *testing.T) {

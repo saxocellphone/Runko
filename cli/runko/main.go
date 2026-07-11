@@ -108,6 +108,7 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace create --name <n> --project <p>... --by <who> --runkod-url <url> --token <t>   worktree + sparse cone + registry row (§12.3) [--json]
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
   workspace attach <id> --runkod-url <url> --token <t> [--branch <b>]   restore a workspace branch from its snapshot ref [--json]
+  workspace delete <id> --runkod-url <url> --token <t>       delete the registry row + snapshot refs (refused while it has open changes) [--json]
   workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir .]                           fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
   workspace sync --runkod-url <url> --token <t> [--dir .]    sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)
@@ -616,7 +617,7 @@ func (s *stringSliceFlag) Set(v string) error {
 // mechanics; this is flag parsing and output shaping only.
 func cmdWorkspace(args []string) error {
 	if len(args) < 1 {
-		return usageError("usage: runko workspace create|list|attach|snapshot|branch|sync ...")
+		return usageError("usage: runko workspace create|list|attach|snapshot|branch|sync|delete ...")
 	}
 	sub, rest := args[0], args[1:]
 	ctx := context.Background()
@@ -656,6 +657,37 @@ func cmdWorkspace(args []string) error {
 			return json.NewEncoder(os.Stdout).Encode(info)
 		}
 		fmt.Printf("workspace %s ready at %s (base %s, cone: %s)\n", info.ID, *dir, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
+		return nil
+
+	case "delete":
+		fs := flag.NewFlagSet("workspace delete", flag.ExitOnError)
+		runkodURL := fs.String("runkod-url", "", "runkod base URL")
+		token := fs.String("token", "", "deploy token")
+		jsonOut := fs.Bool("json", false, "emit the result as JSON")
+		// id-first documented form: pop the positional before flag parsing
+		// (stdlib flag stops at the first positional - the workspace attach
+		// live-test lesson).
+		var id string
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			id, rest = rest[0], rest[1:]
+		}
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		if id == "" {
+			return usageError("usage: runko workspace delete <id> [--runkod-url <url> --token <t>]")
+		}
+		cred, err := resolveCredential(*runkodURL, *token)
+		if err != nil {
+			return err
+		}
+		if err := WorkspaceDelete(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id); err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"deleted": id})
+		}
+		fmt.Printf("deleted workspace %s (registry row + snapshot refs; local checkouts are yours to remove)\n", id)
 		return nil
 
 	case "list":
@@ -808,7 +840,7 @@ func cmdWorkspace(args []string) error {
 		return nil
 
 	default:
-		return usageError("usage: runko workspace create|list|attach|snapshot|branch|sync ...")
+		return usageError("usage: runko workspace create|list|attach|snapshot|branch|sync|delete ...")
 	}
 }
 

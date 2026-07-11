@@ -17,6 +17,11 @@ service WorkspaceService {
   rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
   rpc GetWorkspace(GetWorkspaceRequest) returns (GetWorkspaceResponse);
   rpc UpdateWorkspaceBase(UpdateWorkspaceBaseRequest) returns (UpdateWorkspaceBaseResponse);
+  // DeleteWorkspace removes the registry row and every
+  // refs/workspaces/<id>/* snapshot ref. Owner-only for named principals
+  // (operators exempt); refused while the workspace has OPEN changes -
+  // land or abandon them first (§12.2).
+  rpc DeleteWorkspace(DeleteWorkspaceRequest) returns (DeleteWorkspaceResponse);
 }
 
 message CreateWorkspaceRequest {
@@ -34,6 +39,12 @@ message ListWorkspacesResponse {
 message GetWorkspaceRequest {
   string id = 1;
 }
+
+message DeleteWorkspaceRequest {
+  string id = 1;
+}
+
+message DeleteWorkspaceResponse {}
 
 message UpdateWorkspaceBaseRequest {
   string id = 1;

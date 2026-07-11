@@ -58,6 +58,7 @@ import {
   GetWorkspaceResponseSchema,
   ListWorkspacesResponseSchema,
   UpdateWorkspaceBaseResponseSchema,
+  DeleteWorkspaceResponseSchema,
 } from "../../gen/runko/v1/workspaces_pb";
 import { SearchService, SearchCodeResponseSchema } from "../../gen/runko/v1/search_pb";
 import {
@@ -899,6 +900,24 @@ export function createFakeTransport(): Transport {
         if (!w) throw notFound("workspace", req.id);
         w.baseRevision = req.baseRevision || TRUNK_SHA;
         return create(UpdateWorkspaceBaseResponseSchema, { workspace: w });
+      },
+
+      // Mirrors deleteWorkspaceCore's open-changes guard so the playground
+      // teaches the real refusal, not a silent success.
+      async deleteWorkspace(req) {
+        await delay();
+        if (!state.workspaces.has(req.id)) throw notFound("workspace", req.id);
+        const blocking = [...state.changes.values()]
+          .filter((c) => c.state === ChangeState.OPEN && c.originWorkspace === req.id)
+          .map((c) => c.id);
+        if (blocking.length > 0) {
+          throw new ConnectError(
+            `workspace_has_open_changes: workspace ${req.id} still has open changes: ${blocking.join(", ")} (land or abandon them first)`,
+            Code.FailedPrecondition,
+          );
+        }
+        state.workspaces.delete(req.id);
+        return create(DeleteWorkspaceResponseSchema, {});
       },
     });
 

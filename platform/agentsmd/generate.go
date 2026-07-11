@@ -39,6 +39,7 @@ var Commands = []Command{
 	{"runko", "workspace create --name <n> --project <p> --by <who> --runkod-url <url> --token <t> [--json]", "worktree + sparse cone + registry row (§12.3) - needs a live runkod", "WorkspaceInfo"},
 	{"runko", "workspace list --runkod-url <url> --token <t> [--json]", "list workstreams, their cones and base revisions - needs a live runkod", "[]WorkspaceInfo"},
 	{"runko", "workspace attach <id> --runkod-url <url> --token <t> [--branch <b>] [--json]", "restore a workspace branch from its snapshot ref (§12.2) - needs a live runkod", "WorkspaceInfo"},
+	{"runko", "workspace delete <id> --runkod-url <url> --token <t> [--json]", "delete the registry row + snapshot refs - refused while the workspace has open changes; owner-only (§12.2) - needs a live runkod", `{"deleted"}`},
 	{"runko", "workspace snapshot [--dir .] [-m <msg>] [--json]", "make WIP durable: commit -> refs/workspaces/<id>/<branch> (§12.2)", `{"ref"}`},
 	{"runko", "workspace branch <name> [--dir .] [--json]", "fork a parallel line of work: snapshots now target refs/workspaces/<id>/<name> (§12.2)", `{"ref"}`},
 	{"runko", "workspace sync --runkod-url <url> --token <t> [--dir .] [--json]", "sync onto the trunk tip - fetch + rebase (jj-aware), record the new base (§12.3) - needs a live runkod", `{"base_revision"}`},

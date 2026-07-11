@@ -400,6 +400,16 @@ func WorkspaceUpdateBase(ctx context.Context, client *http.Client, runkodURL, to
 	return newBase, nil
 }
 
+// WorkspaceDelete removes the workspace server-side: registry row + every
+// refs/workspaces/<id>/* snapshot ref. The server refuses while the
+// workspace has open changes (land or abandon first) and enforces
+// owner-only for named principals. Local checkouts are the caller's to
+// remove - the CLI never deletes directories it didn't create this run.
+func WorkspaceDelete(ctx context.Context, client *http.Client, runkodURL, token, id string) error {
+	return apiJSON(ctx, client, http.MethodDelete,
+		strings.TrimSuffix(runkodURL, "/")+"/api/workspaces/"+id, token, nil, nil)
+}
+
 // WorkspaceList fetches the registry listing.
 func WorkspaceList(ctx context.Context, client *http.Client, runkodURL, token string) ([]WorkspaceInfo, error) {
 	var list []WorkspaceInfo

@@ -66,6 +66,18 @@ func (q *Queries) CreateWorkspace(ctx context.Context, db DBTX, arg CreateWorksp
 	return &i, err
 }
 
+const deleteWorkspace = `-- name: DeleteWorkspace :exec
+DELETE FROM workspaces WHERE id = $1
+`
+
+// Hard delete (workspace deletion, stage 15+): the registry row is
+// metadata only (§12.2) - content durability is the snapshot refs, which
+// the caller deletes alongside. A deleted id becomes reusable.
+func (q *Queries) DeleteWorkspace(ctx context.Context, db DBTX, id uuid.UUID) error {
+	_, err := db.Exec(ctx, deleteWorkspace, id)
+	return err
+}
+
 const getWorkspace = `-- name: GetWorkspace :one
 SELECT id, org_id, monorepo_id, principal_actor_id, coding_session_id, base_revision, project_affinity, write_allowlist, snapshot_ref, mode, status, created_at, updated_at FROM workspaces WHERE id = $1
 `

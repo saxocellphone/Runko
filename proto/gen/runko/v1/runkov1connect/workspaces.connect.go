@@ -45,6 +45,9 @@ const (
 	// WorkspaceServiceUpdateWorkspaceBaseProcedure is the fully-qualified name of the
 	// WorkspaceService's UpdateWorkspaceBase RPC.
 	WorkspaceServiceUpdateWorkspaceBaseProcedure = "/runko.v1.WorkspaceService/UpdateWorkspaceBase"
+	// WorkspaceServiceDeleteWorkspaceProcedure is the fully-qualified name of the WorkspaceService's
+	// DeleteWorkspace RPC.
+	WorkspaceServiceDeleteWorkspaceProcedure = "/runko.v1.WorkspaceService/DeleteWorkspace"
 )
 
 // WorkspaceServiceClient is a client for the runko.v1.WorkspaceService service.
@@ -53,6 +56,11 @@ type WorkspaceServiceClient interface {
 	ListWorkspaces(context.Context, *connect.Request[v1.ListWorkspacesRequest]) (*connect.Response[v1.ListWorkspacesResponse], error)
 	GetWorkspace(context.Context, *connect.Request[v1.GetWorkspaceRequest]) (*connect.Response[v1.GetWorkspaceResponse], error)
 	UpdateWorkspaceBase(context.Context, *connect.Request[v1.UpdateWorkspaceBaseRequest]) (*connect.Response[v1.UpdateWorkspaceBaseResponse], error)
+	// DeleteWorkspace removes the registry row and every
+	// refs/workspaces/<id>/* snapshot ref. Owner-only for named principals
+	// (operators exempt); refused while the workspace has OPEN changes -
+	// land or abandon them first (§12.2).
+	DeleteWorkspace(context.Context, *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[v1.DeleteWorkspaceResponse], error)
 }
 
 // NewWorkspaceServiceClient constructs a client for the runko.v1.WorkspaceService service. By
@@ -90,6 +98,12 @@ func NewWorkspaceServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(workspaceServiceMethods.ByName("UpdateWorkspaceBase")),
 			connect.WithClientOptions(opts...),
 		),
+		deleteWorkspace: connect.NewClient[v1.DeleteWorkspaceRequest, v1.DeleteWorkspaceResponse](
+			httpClient,
+			baseURL+WorkspaceServiceDeleteWorkspaceProcedure,
+			connect.WithSchema(workspaceServiceMethods.ByName("DeleteWorkspace")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -99,6 +113,7 @@ type workspaceServiceClient struct {
 	listWorkspaces      *connect.Client[v1.ListWorkspacesRequest, v1.ListWorkspacesResponse]
 	getWorkspace        *connect.Client[v1.GetWorkspaceRequest, v1.GetWorkspaceResponse]
 	updateWorkspaceBase *connect.Client[v1.UpdateWorkspaceBaseRequest, v1.UpdateWorkspaceBaseResponse]
+	deleteWorkspace     *connect.Client[v1.DeleteWorkspaceRequest, v1.DeleteWorkspaceResponse]
 }
 
 // CreateWorkspace calls runko.v1.WorkspaceService.CreateWorkspace.
@@ -121,12 +136,22 @@ func (c *workspaceServiceClient) UpdateWorkspaceBase(ctx context.Context, req *c
 	return c.updateWorkspaceBase.CallUnary(ctx, req)
 }
 
+// DeleteWorkspace calls runko.v1.WorkspaceService.DeleteWorkspace.
+func (c *workspaceServiceClient) DeleteWorkspace(ctx context.Context, req *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[v1.DeleteWorkspaceResponse], error) {
+	return c.deleteWorkspace.CallUnary(ctx, req)
+}
+
 // WorkspaceServiceHandler is an implementation of the runko.v1.WorkspaceService service.
 type WorkspaceServiceHandler interface {
 	CreateWorkspace(context.Context, *connect.Request[v1.CreateWorkspaceRequest]) (*connect.Response[v1.CreateWorkspaceResponse], error)
 	ListWorkspaces(context.Context, *connect.Request[v1.ListWorkspacesRequest]) (*connect.Response[v1.ListWorkspacesResponse], error)
 	GetWorkspace(context.Context, *connect.Request[v1.GetWorkspaceRequest]) (*connect.Response[v1.GetWorkspaceResponse], error)
 	UpdateWorkspaceBase(context.Context, *connect.Request[v1.UpdateWorkspaceBaseRequest]) (*connect.Response[v1.UpdateWorkspaceBaseResponse], error)
+	// DeleteWorkspace removes the registry row and every
+	// refs/workspaces/<id>/* snapshot ref. Owner-only for named principals
+	// (operators exempt); refused while the workspace has OPEN changes -
+	// land or abandon them first (§12.2).
+	DeleteWorkspace(context.Context, *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[v1.DeleteWorkspaceResponse], error)
 }
 
 // NewWorkspaceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -160,6 +185,12 @@ func NewWorkspaceServiceHandler(svc WorkspaceServiceHandler, opts ...connect.Han
 		connect.WithSchema(workspaceServiceMethods.ByName("UpdateWorkspaceBase")),
 		connect.WithHandlerOptions(opts...),
 	)
+	workspaceServiceDeleteWorkspaceHandler := connect.NewUnaryHandler(
+		WorkspaceServiceDeleteWorkspaceProcedure,
+		svc.DeleteWorkspace,
+		connect.WithSchema(workspaceServiceMethods.ByName("DeleteWorkspace")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/runko.v1.WorkspaceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case WorkspaceServiceCreateWorkspaceProcedure:
@@ -170,6 +201,8 @@ func NewWorkspaceServiceHandler(svc WorkspaceServiceHandler, opts ...connect.Han
 			workspaceServiceGetWorkspaceHandler.ServeHTTP(w, r)
 		case WorkspaceServiceUpdateWorkspaceBaseProcedure:
 			workspaceServiceUpdateWorkspaceBaseHandler.ServeHTTP(w, r)
+		case WorkspaceServiceDeleteWorkspaceProcedure:
+			workspaceServiceDeleteWorkspaceHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -193,4 +226,8 @@ func (UnimplementedWorkspaceServiceHandler) GetWorkspace(context.Context, *conne
 
 func (UnimplementedWorkspaceServiceHandler) UpdateWorkspaceBase(context.Context, *connect.Request[v1.UpdateWorkspaceBaseRequest]) (*connect.Response[v1.UpdateWorkspaceBaseResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.WorkspaceService.UpdateWorkspaceBase is not implemented"))
+}
+
+func (UnimplementedWorkspaceServiceHandler) DeleteWorkspace(context.Context, *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[v1.DeleteWorkspaceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.WorkspaceService.DeleteWorkspace is not implemented"))
 }

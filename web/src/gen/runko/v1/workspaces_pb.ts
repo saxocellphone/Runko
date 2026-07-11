@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file runko/v1/workspaces.proto.
  */
 export const file_runko_v1_workspaces: GenFile = /*@__PURE__*/
-  fileDesc("ChlydW5rby92MS93b3Jrc3BhY2VzLnByb3RvEghydW5rby52MSJHChZDcmVhdGVXb3Jrc3BhY2VSZXF1ZXN0EgwKBG5hbWUYASABKAkSDQoFb3duZXIYAiABKAkSEAoIcHJvamVjdHMYAyADKAkiFwoVTGlzdFdvcmtzcGFjZXNSZXF1ZXN0IkgKFkxpc3RXb3Jrc3BhY2VzUmVzcG9uc2USLgoKd29ya3NwYWNlcxgBIAMoCzIaLnJ1bmtvLnYxLldvcmtzcGFjZVN1bW1hcnkiIQoTR2V0V29ya3NwYWNlUmVxdWVzdBIKCgJpZBgBIAEoCSI/ChpVcGRhdGVXb3Jrc3BhY2VCYXNlUmVxdWVzdBIKCgJpZBgBIAEoCRIVCg1iYXNlX3JldmlzaW9uGAIgASgJIkgKF0NyZWF0ZVdvcmtzcGFjZVJlc3BvbnNlEi0KCXdvcmtzcGFjZRgBIAEoCzIaLnJ1bmtvLnYxLldvcmtzcGFjZVN1bW1hcnkiRQoUR2V0V29ya3NwYWNlUmVzcG9uc2USLQoJd29ya3NwYWNlGAEgASgLMhoucnVua28udjEuV29ya3NwYWNlU3VtbWFyeSJMChtVcGRhdGVXb3Jrc3BhY2VCYXNlUmVzcG9uc2USLQoJd29ya3NwYWNlGAEgASgLMhoucnVua28udjEuV29ya3NwYWNlU3VtbWFyeTLyAgoQV29ya3NwYWNlU2VydmljZRJWCg9DcmVhdGVXb3Jrc3BhY2USIC5ydW5rby52MS5DcmVhdGVXb3Jrc3BhY2VSZXF1ZXN0GiEucnVua28udjEuQ3JlYXRlV29ya3NwYWNlUmVzcG9uc2USUwoOTGlzdFdvcmtzcGFjZXMSHy5ydW5rby52MS5MaXN0V29ya3NwYWNlc1JlcXVlc3QaIC5ydW5rby52MS5MaXN0V29ya3NwYWNlc1Jlc3BvbnNlEk0KDEdldFdvcmtzcGFjZRIdLnJ1bmtvLnYxLkdldFdvcmtzcGFjZVJlcXVlc3QaHi5ydW5rby52MS5HZXRXb3Jrc3BhY2VSZXNwb25zZRJiChNVcGRhdGVXb3Jrc3BhY2VCYXNlEiQucnVua28udjEuVXBkYXRlV29ya3NwYWNlQmFzZVJlcXVlc3QaJS5ydW5rby52MS5VcGRhdGVXb3Jrc3BhY2VCYXNlUmVzcG9uc2VCO1o5Z2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3Byb3RvL2dlbi9ydW5rby92MTtydW5rb3YxYgZwcm90bzM", [file_runko_v1_common]);
+  fileDesc("ChlydW5rby92MS93b3Jrc3BhY2VzLnByb3RvEghydW5rby52MSJHChZDcmVhdGVXb3Jrc3BhY2VSZXF1ZXN0EgwKBG5hbWUYASABKAkSDQoFb3duZXIYAiABKAkSEAoIcHJvamVjdHMYAyADKAkiFwoVTGlzdFdvcmtzcGFjZXNSZXF1ZXN0IkgKFkxpc3RXb3Jrc3BhY2VzUmVzcG9uc2USLgoKd29ya3NwYWNlcxgBIAMoCzIaLnJ1bmtvLnYxLldvcmtzcGFjZVN1bW1hcnkiIQoTR2V0V29ya3NwYWNlUmVxdWVzdBIKCgJpZBgBIAEoCSIkChZEZWxldGVXb3Jrc3BhY2VSZXF1ZXN0EgoKAmlkGAEgASgJIhkKF0RlbGV0ZVdvcmtzcGFjZVJlc3BvbnNlIj8KGlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXF1ZXN0EgoKAmlkGAEgASgJEhUKDWJhc2VfcmV2aXNpb24YAiABKAkiSAoXQ3JlYXRlV29ya3NwYWNlUmVzcG9uc2USLQoJd29ya3NwYWNlGAEgASgLMhoucnVua28udjEuV29ya3NwYWNlU3VtbWFyeSJFChRHZXRXb3Jrc3BhY2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5IkwKG1VwZGF0ZVdvcmtzcGFjZUJhc2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5MsoDChBXb3Jrc3BhY2VTZXJ2aWNlElYKD0NyZWF0ZVdvcmtzcGFjZRIgLnJ1bmtvLnYxLkNyZWF0ZVdvcmtzcGFjZVJlcXVlc3QaIS5ydW5rby52MS5DcmVhdGVXb3Jrc3BhY2VSZXNwb25zZRJTCg5MaXN0V29ya3NwYWNlcxIfLnJ1bmtvLnYxLkxpc3RXb3Jrc3BhY2VzUmVxdWVzdBogLnJ1bmtvLnYxLkxpc3RXb3Jrc3BhY2VzUmVzcG9uc2USTQoMR2V0V29ya3NwYWNlEh0ucnVua28udjEuR2V0V29ya3NwYWNlUmVxdWVzdBoeLnJ1bmtvLnYxLkdldFdvcmtzcGFjZVJlc3BvbnNlEmIKE1VwZGF0ZVdvcmtzcGFjZUJhc2USJC5ydW5rby52MS5VcGRhdGVXb3Jrc3BhY2VCYXNlUmVxdWVzdBolLnJ1bmtvLnYxLlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXNwb25zZRJWCg9EZWxldGVXb3Jrc3BhY2USIC5ydW5rby52MS5EZWxldGVXb3Jrc3BhY2VSZXF1ZXN0GiEucnVua28udjEuRGVsZXRlV29ya3NwYWNlUmVzcG9uc2VCO1o5Z2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3Byb3RvL2dlbi9ydW5rby92MTtydW5rb3YxYgZwcm90bzM", [file_runko_v1_common]);
 
 /**
  * @generated from message runko.v1.CreateWorkspaceRequest
@@ -91,6 +91,36 @@ export const GetWorkspaceRequestSchema: GenMessage<GetWorkspaceRequest> = /*@__P
   messageDesc(file_runko_v1_workspaces, 3);
 
 /**
+ * @generated from message runko.v1.DeleteWorkspaceRequest
+ */
+export type DeleteWorkspaceRequest = Message<"runko.v1.DeleteWorkspaceRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message runko.v1.DeleteWorkspaceRequest.
+ * Use `create(DeleteWorkspaceRequestSchema)` to create a new message.
+ */
+export const DeleteWorkspaceRequestSchema: GenMessage<DeleteWorkspaceRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 4);
+
+/**
+ * @generated from message runko.v1.DeleteWorkspaceResponse
+ */
+export type DeleteWorkspaceResponse = Message<"runko.v1.DeleteWorkspaceResponse"> & {
+};
+
+/**
+ * Describes the message runko.v1.DeleteWorkspaceResponse.
+ * Use `create(DeleteWorkspaceResponseSchema)` to create a new message.
+ */
+export const DeleteWorkspaceResponseSchema: GenMessage<DeleteWorkspaceResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 5);
+
+/**
  * @generated from message runko.v1.UpdateWorkspaceBaseRequest
  */
 export type UpdateWorkspaceBaseRequest = Message<"runko.v1.UpdateWorkspaceBaseRequest"> & {
@@ -110,7 +140,7 @@ export type UpdateWorkspaceBaseRequest = Message<"runko.v1.UpdateWorkspaceBaseRe
  * Use `create(UpdateWorkspaceBaseRequestSchema)` to create a new message.
  */
 export const UpdateWorkspaceBaseRequestSchema: GenMessage<UpdateWorkspaceBaseRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_workspaces, 4);
+  messageDesc(file_runko_v1_workspaces, 6);
 
 /**
  * @generated from message runko.v1.CreateWorkspaceResponse
@@ -127,7 +157,7 @@ export type CreateWorkspaceResponse = Message<"runko.v1.CreateWorkspaceResponse"
  * Use `create(CreateWorkspaceResponseSchema)` to create a new message.
  */
 export const CreateWorkspaceResponseSchema: GenMessage<CreateWorkspaceResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_workspaces, 5);
+  messageDesc(file_runko_v1_workspaces, 7);
 
 /**
  * @generated from message runko.v1.GetWorkspaceResponse
@@ -144,7 +174,7 @@ export type GetWorkspaceResponse = Message<"runko.v1.GetWorkspaceResponse"> & {
  * Use `create(GetWorkspaceResponseSchema)` to create a new message.
  */
 export const GetWorkspaceResponseSchema: GenMessage<GetWorkspaceResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_workspaces, 6);
+  messageDesc(file_runko_v1_workspaces, 8);
 
 /**
  * @generated from message runko.v1.UpdateWorkspaceBaseResponse
@@ -161,7 +191,7 @@ export type UpdateWorkspaceBaseResponse = Message<"runko.v1.UpdateWorkspaceBaseR
  * Use `create(UpdateWorkspaceBaseResponseSchema)` to create a new message.
  */
 export const UpdateWorkspaceBaseResponseSchema: GenMessage<UpdateWorkspaceBaseResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_workspaces, 7);
+  messageDesc(file_runko_v1_workspaces, 9);
 
 /**
  * WorkspaceService mirrors runkod's workspace registry API (§12.2/§12.3,
@@ -205,6 +235,19 @@ export const WorkspaceService: GenService<{
     methodKind: "unary";
     input: typeof UpdateWorkspaceBaseRequestSchema;
     output: typeof UpdateWorkspaceBaseResponseSchema;
+  },
+  /**
+   * DeleteWorkspace removes the registry row and every
+   * refs/workspaces/<id>/* snapshot ref. Owner-only for named principals
+   * (operators exempt); refused while the workspace has OPEN changes -
+   * land or abandon them first (§12.2).
+   *
+   * @generated from rpc runko.v1.WorkspaceService.DeleteWorkspace
+   */
+  deleteWorkspace: {
+    methodKind: "unary";
+    input: typeof DeleteWorkspaceRequestSchema;
+    output: typeof DeleteWorkspaceResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_runko_v1_workspaces, 0);

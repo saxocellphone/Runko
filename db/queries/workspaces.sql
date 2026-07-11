@@ -23,3 +23,9 @@ SELECT * FROM workspaces WHERE monorepo_id = $1 AND snapshot_ref = $2;
 
 -- name: ListWorkspacesByMonorepo :many
 SELECT * FROM workspaces WHERE monorepo_id = $1 ORDER BY created_at;
+
+-- name: DeleteWorkspace :exec
+-- Hard delete (workspace deletion, stage 15+): the registry row is
+-- metadata only (§12.2) - content durability is the snapshot refs, which
+-- the caller deletes alongside. A deleted id becomes reusable.
+DELETE FROM workspaces WHERE id = $1;

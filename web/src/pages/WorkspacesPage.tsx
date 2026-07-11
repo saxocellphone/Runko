@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { changesClient, workspacesClient } from "../api/client";
+import { ConnectError } from "@connectrpc/connect";
+import { changesClient, publicBrowse, workspacesClient } from "../api/client";
 import { ChangeState, WorkspaceStatus } from "../gen/runko/v1/common_pb";
 import { shortSha } from "../lib/format";
 import { branchesForWorkspace, changesByOrigin } from "../lib/stacks";
@@ -13,7 +14,7 @@ const statusLabel: Record<number, string> = {
 };
 
 export function WorkspacesPage() {
-  const { data, error, loading } = useRpc(async () => {
+  const { data, error, loading, reload } = useRpc(async () => {
     // Open changes join to workspaces via their recorded push provenance
     // (§12.2): each workspace branch is expected to carry exactly one
     // stack, and this page is where that mapping is made visible.
@@ -23,6 +24,21 @@ export function WorkspacesPage() {
     ]);
     return { workspaces: ws.workspaces, stacks: changesByOrigin(open.changes) };
   }, "workspaces");
+
+  // Deletion refuses server-side while the workspace has open changes
+  // (workspace_has_open_changes) and enforces owner-only - surface the
+  // server's own §6.5 message rather than pre-judging client-side.
+  const onDelete = async (id: string) => {
+    if (!window.confirm(`Delete workspace ${id}?\n\nRemoves the registry row and its snapshot refs. Open changes block deletion; local checkouts are not touched.`)) {
+      return;
+    }
+    try {
+      await workspacesClient.deleteWorkspace({ id });
+      reload();
+    } catch (err) {
+      window.alert(ConnectError.from(err).rawMessage);
+    }
+  };
 
   return (
     <div className="page">
@@ -57,6 +73,7 @@ export function WorkspacesPage() {
                   <InfoTip text="Parallel lines of work inside this one workspace: each branch is a Git ref (refs/workspaces/<id>/<branch>) WIP is durably pushed to; 'head' is the default. One branch carries one stack - the open changes listed under each branch were pushed from it (recorded at push time, validated against this registry)." />
                 </th>
                 <th>Status</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -92,6 +109,17 @@ export function WorkspacesPage() {
                     >
                       {statusLabel[w.status] ?? "unknown"}
                     </span>
+                  </td>
+                  <td>
+                    {!publicBrowse && (
+                      <button
+                        className="btn btn-sm btn-danger"
+                        title="Delete this workspace (registry row + snapshot refs). Refused while it has open changes."
+                        onClick={() => void onDelete(w.id)}
+                      >
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
                 );

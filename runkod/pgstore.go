@@ -820,6 +820,19 @@ func (s *PostgresStore) UpdateWorkspaceBase(ctx context.Context, id, baseRevisio
 	return s.dbWorkspaceToWorkspace(ctx, updated)
 }
 
+// DeleteWorkspace hard-deletes the registry row (metadata only, §12.2);
+// the id lives inside snapshot_ref, so resolve the row through the same
+// lookup every other workspace verb uses.
+func (s *PostgresStore) DeleteWorkspace(ctx context.Context, id string) error {
+	row, err := s.Queries.GetWorkspaceBySnapshotRef(ctx, s.Pool, dbgen.GetWorkspaceBySnapshotRefParams{
+		MonorepoID: s.MonorepoID, SnapshotRef: "refs/workspaces/" + id + "/head",
+	})
+	if err != nil {
+		return fmt.Errorf("runkod: no such workspace %q: %w", id, err)
+	}
+	return s.Queries.DeleteWorkspace(ctx, s.Pool, row.ID)
+}
+
 func (s *PostgresStore) dbWorkspaceToWorkspace(ctx context.Context, row *dbgen.Workspace) (Workspace, error) {
 	id, ok := SnapshotRefWorkspaceID(row.SnapshotRef)
 	if !ok {

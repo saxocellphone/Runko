@@ -757,6 +757,14 @@ func (r *rpcServer) UpdateWorkspaceBase(ctx context.Context, req *connect.Reques
 	return connect.NewResponse(&runkov1.UpdateWorkspaceBaseResponse{Workspace: r.s.protoWorkspace(ws)}), nil
 }
 
+func (r *rpcServer) DeleteWorkspace(ctx context.Context, req *connect.Request[runkov1.DeleteWorkspaceRequest]) (*connect.Response[runkov1.DeleteWorkspaceResponse], error) {
+	principal := r.s.principalForAuthHeader(req.Header().Get("Authorization"))
+	if apiErr := r.s.deleteWorkspaceCore(ctx, req.Msg.Id, principal); apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	return connect.NewResponse(&runkov1.DeleteWorkspaceResponse{}), nil
+}
+
 // ---- SearchService ----
 
 func (r *rpcServer) SearchCode(ctx context.Context, req *connect.Request[runkov1.SearchCodeRequest]) (*connect.Response[runkov1.SearchCodeResponse], error) {

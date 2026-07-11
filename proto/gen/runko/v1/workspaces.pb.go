@@ -205,6 +205,86 @@ func (x *GetWorkspaceRequest) GetId() string {
 	return ""
 }
 
+type DeleteWorkspaceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteWorkspaceRequest) Reset() {
+	*x = DeleteWorkspaceRequest{}
+	mi := &file_runko_v1_workspaces_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteWorkspaceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteWorkspaceRequest) ProtoMessage() {}
+
+func (x *DeleteWorkspaceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_workspaces_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteWorkspaceRequest.ProtoReflect.Descriptor instead.
+func (*DeleteWorkspaceRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DeleteWorkspaceRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DeleteWorkspaceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteWorkspaceResponse) Reset() {
+	*x = DeleteWorkspaceResponse{}
+	mi := &file_runko_v1_workspaces_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteWorkspaceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteWorkspaceResponse) ProtoMessage() {}
+
+func (x *DeleteWorkspaceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_workspaces_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteWorkspaceResponse.ProtoReflect.Descriptor instead.
+func (*DeleteWorkspaceResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{5}
+}
+
 type UpdateWorkspaceBaseRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -215,7 +295,7 @@ type UpdateWorkspaceBaseRequest struct {
 
 func (x *UpdateWorkspaceBaseRequest) Reset() {
 	*x = UpdateWorkspaceBaseRequest{}
-	mi := &file_runko_v1_workspaces_proto_msgTypes[4]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -227,7 +307,7 @@ func (x *UpdateWorkspaceBaseRequest) String() string {
 func (*UpdateWorkspaceBaseRequest) ProtoMessage() {}
 
 func (x *UpdateWorkspaceBaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_workspaces_proto_msgTypes[4]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -240,7 +320,7 @@ func (x *UpdateWorkspaceBaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateWorkspaceBaseRequest.ProtoReflect.Descriptor instead.
 func (*UpdateWorkspaceBaseRequest) Descriptor() ([]byte, []int) {
-	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{4}
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *UpdateWorkspaceBaseRequest) GetId() string {
@@ -266,7 +346,7 @@ type CreateWorkspaceResponse struct {
 
 func (x *CreateWorkspaceResponse) Reset() {
 	*x = CreateWorkspaceResponse{}
-	mi := &file_runko_v1_workspaces_proto_msgTypes[5]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -278,7 +358,7 @@ func (x *CreateWorkspaceResponse) String() string {
 func (*CreateWorkspaceResponse) ProtoMessage() {}
 
 func (x *CreateWorkspaceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_workspaces_proto_msgTypes[5]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -291,7 +371,7 @@ func (x *CreateWorkspaceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateWorkspaceResponse.ProtoReflect.Descriptor instead.
 func (*CreateWorkspaceResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{5}
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateWorkspaceResponse) GetWorkspace() *WorkspaceSummary {
@@ -310,7 +390,7 @@ type GetWorkspaceResponse struct {
 
 func (x *GetWorkspaceResponse) Reset() {
 	*x = GetWorkspaceResponse{}
-	mi := &file_runko_v1_workspaces_proto_msgTypes[6]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -322,7 +402,7 @@ func (x *GetWorkspaceResponse) String() string {
 func (*GetWorkspaceResponse) ProtoMessage() {}
 
 func (x *GetWorkspaceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_workspaces_proto_msgTypes[6]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -335,7 +415,7 @@ func (x *GetWorkspaceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetWorkspaceResponse.ProtoReflect.Descriptor instead.
 func (*GetWorkspaceResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{6}
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetWorkspaceResponse) GetWorkspace() *WorkspaceSummary {
@@ -354,7 +434,7 @@ type UpdateWorkspaceBaseResponse struct {
 
 func (x *UpdateWorkspaceBaseResponse) Reset() {
 	*x = UpdateWorkspaceBaseResponse{}
-	mi := &file_runko_v1_workspaces_proto_msgTypes[7]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -366,7 +446,7 @@ func (x *UpdateWorkspaceBaseResponse) String() string {
 func (*UpdateWorkspaceBaseResponse) ProtoMessage() {}
 
 func (x *UpdateWorkspaceBaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_workspaces_proto_msgTypes[7]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -379,7 +459,7 @@ func (x *UpdateWorkspaceBaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateWorkspaceBaseResponse.ProtoReflect.Descriptor instead.
 func (*UpdateWorkspaceBaseResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{7}
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *UpdateWorkspaceBaseResponse) GetWorkspace() *WorkspaceSummary {
@@ -404,7 +484,10 @@ const file_runko_v1_workspaces_proto_rawDesc = "" +
 	"workspaces\x18\x01 \x03(\v2\x1a.runko.v1.WorkspaceSummaryR\n" +
 	"workspaces\"%\n" +
 	"\x13GetWorkspaceRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"Q\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"(\n" +
+	"\x16DeleteWorkspaceRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x19\n" +
+	"\x17DeleteWorkspaceResponse\"Q\n" +
 	"\x1aUpdateWorkspaceBaseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
 	"\rbase_revision\x18\x02 \x01(\tR\fbaseRevision\"S\n" +
@@ -413,12 +496,13 @@ const file_runko_v1_workspaces_proto_rawDesc = "" +
 	"\x14GetWorkspaceResponse\x128\n" +
 	"\tworkspace\x18\x01 \x01(\v2\x1a.runko.v1.WorkspaceSummaryR\tworkspace\"W\n" +
 	"\x1bUpdateWorkspaceBaseResponse\x128\n" +
-	"\tworkspace\x18\x01 \x01(\v2\x1a.runko.v1.WorkspaceSummaryR\tworkspace2\xf2\x02\n" +
+	"\tworkspace\x18\x01 \x01(\v2\x1a.runko.v1.WorkspaceSummaryR\tworkspace2\xca\x03\n" +
 	"\x10WorkspaceService\x12V\n" +
 	"\x0fCreateWorkspace\x12 .runko.v1.CreateWorkspaceRequest\x1a!.runko.v1.CreateWorkspaceResponse\x12S\n" +
 	"\x0eListWorkspaces\x12\x1f.runko.v1.ListWorkspacesRequest\x1a .runko.v1.ListWorkspacesResponse\x12M\n" +
 	"\fGetWorkspace\x12\x1d.runko.v1.GetWorkspaceRequest\x1a\x1e.runko.v1.GetWorkspaceResponse\x12b\n" +
-	"\x13UpdateWorkspaceBase\x12$.runko.v1.UpdateWorkspaceBaseRequest\x1a%.runko.v1.UpdateWorkspaceBaseResponseB;Z9github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1b\x06proto3"
+	"\x13UpdateWorkspaceBase\x12$.runko.v1.UpdateWorkspaceBaseRequest\x1a%.runko.v1.UpdateWorkspaceBaseResponse\x12V\n" +
+	"\x0fDeleteWorkspace\x12 .runko.v1.DeleteWorkspaceRequest\x1a!.runko.v1.DeleteWorkspaceResponseB;Z9github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1b\x06proto3"
 
 var (
 	file_runko_v1_workspaces_proto_rawDescOnce sync.Once
@@ -432,36 +516,40 @@ func file_runko_v1_workspaces_proto_rawDescGZIP() []byte {
 	return file_runko_v1_workspaces_proto_rawDescData
 }
 
-var file_runko_v1_workspaces_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_runko_v1_workspaces_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_runko_v1_workspaces_proto_goTypes = []any{
 	(*CreateWorkspaceRequest)(nil),      // 0: runko.v1.CreateWorkspaceRequest
 	(*ListWorkspacesRequest)(nil),       // 1: runko.v1.ListWorkspacesRequest
 	(*ListWorkspacesResponse)(nil),      // 2: runko.v1.ListWorkspacesResponse
 	(*GetWorkspaceRequest)(nil),         // 3: runko.v1.GetWorkspaceRequest
-	(*UpdateWorkspaceBaseRequest)(nil),  // 4: runko.v1.UpdateWorkspaceBaseRequest
-	(*CreateWorkspaceResponse)(nil),     // 5: runko.v1.CreateWorkspaceResponse
-	(*GetWorkspaceResponse)(nil),        // 6: runko.v1.GetWorkspaceResponse
-	(*UpdateWorkspaceBaseResponse)(nil), // 7: runko.v1.UpdateWorkspaceBaseResponse
-	(*WorkspaceSummary)(nil),            // 8: runko.v1.WorkspaceSummary
+	(*DeleteWorkspaceRequest)(nil),      // 4: runko.v1.DeleteWorkspaceRequest
+	(*DeleteWorkspaceResponse)(nil),     // 5: runko.v1.DeleteWorkspaceResponse
+	(*UpdateWorkspaceBaseRequest)(nil),  // 6: runko.v1.UpdateWorkspaceBaseRequest
+	(*CreateWorkspaceResponse)(nil),     // 7: runko.v1.CreateWorkspaceResponse
+	(*GetWorkspaceResponse)(nil),        // 8: runko.v1.GetWorkspaceResponse
+	(*UpdateWorkspaceBaseResponse)(nil), // 9: runko.v1.UpdateWorkspaceBaseResponse
+	(*WorkspaceSummary)(nil),            // 10: runko.v1.WorkspaceSummary
 }
 var file_runko_v1_workspaces_proto_depIdxs = []int32{
-	8, // 0: runko.v1.ListWorkspacesResponse.workspaces:type_name -> runko.v1.WorkspaceSummary
-	8, // 1: runko.v1.CreateWorkspaceResponse.workspace:type_name -> runko.v1.WorkspaceSummary
-	8, // 2: runko.v1.GetWorkspaceResponse.workspace:type_name -> runko.v1.WorkspaceSummary
-	8, // 3: runko.v1.UpdateWorkspaceBaseResponse.workspace:type_name -> runko.v1.WorkspaceSummary
-	0, // 4: runko.v1.WorkspaceService.CreateWorkspace:input_type -> runko.v1.CreateWorkspaceRequest
-	1, // 5: runko.v1.WorkspaceService.ListWorkspaces:input_type -> runko.v1.ListWorkspacesRequest
-	3, // 6: runko.v1.WorkspaceService.GetWorkspace:input_type -> runko.v1.GetWorkspaceRequest
-	4, // 7: runko.v1.WorkspaceService.UpdateWorkspaceBase:input_type -> runko.v1.UpdateWorkspaceBaseRequest
-	5, // 8: runko.v1.WorkspaceService.CreateWorkspace:output_type -> runko.v1.CreateWorkspaceResponse
-	2, // 9: runko.v1.WorkspaceService.ListWorkspaces:output_type -> runko.v1.ListWorkspacesResponse
-	6, // 10: runko.v1.WorkspaceService.GetWorkspace:output_type -> runko.v1.GetWorkspaceResponse
-	7, // 11: runko.v1.WorkspaceService.UpdateWorkspaceBase:output_type -> runko.v1.UpdateWorkspaceBaseResponse
-	8, // [8:12] is the sub-list for method output_type
-	4, // [4:8] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	10, // 0: runko.v1.ListWorkspacesResponse.workspaces:type_name -> runko.v1.WorkspaceSummary
+	10, // 1: runko.v1.CreateWorkspaceResponse.workspace:type_name -> runko.v1.WorkspaceSummary
+	10, // 2: runko.v1.GetWorkspaceResponse.workspace:type_name -> runko.v1.WorkspaceSummary
+	10, // 3: runko.v1.UpdateWorkspaceBaseResponse.workspace:type_name -> runko.v1.WorkspaceSummary
+	0,  // 4: runko.v1.WorkspaceService.CreateWorkspace:input_type -> runko.v1.CreateWorkspaceRequest
+	1,  // 5: runko.v1.WorkspaceService.ListWorkspaces:input_type -> runko.v1.ListWorkspacesRequest
+	3,  // 6: runko.v1.WorkspaceService.GetWorkspace:input_type -> runko.v1.GetWorkspaceRequest
+	6,  // 7: runko.v1.WorkspaceService.UpdateWorkspaceBase:input_type -> runko.v1.UpdateWorkspaceBaseRequest
+	4,  // 8: runko.v1.WorkspaceService.DeleteWorkspace:input_type -> runko.v1.DeleteWorkspaceRequest
+	7,  // 9: runko.v1.WorkspaceService.CreateWorkspace:output_type -> runko.v1.CreateWorkspaceResponse
+	2,  // 10: runko.v1.WorkspaceService.ListWorkspaces:output_type -> runko.v1.ListWorkspacesResponse
+	8,  // 11: runko.v1.WorkspaceService.GetWorkspace:output_type -> runko.v1.GetWorkspaceResponse
+	9,  // 12: runko.v1.WorkspaceService.UpdateWorkspaceBase:output_type -> runko.v1.UpdateWorkspaceBaseResponse
+	5,  // 13: runko.v1.WorkspaceService.DeleteWorkspace:output_type -> runko.v1.DeleteWorkspaceResponse
+	9,  // [9:14] is the sub-list for method output_type
+	4,  // [4:9] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_runko_v1_workspaces_proto_init() }
@@ -476,7 +564,7 @@ func file_runko_v1_workspaces_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runko_v1_workspaces_proto_rawDesc), len(file_runko_v1_workspaces_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

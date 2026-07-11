@@ -297,6 +297,82 @@ func (s *Server) handleUpdateWorkspaceBase(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, ws)
 }
 
+// deleteWorkspaceCore is workspace deletion's decision core, shared by
+// DELETE /api/workspaces/{id} and the Connect DeleteWorkspace RPC. Three
+// guards, then two effects:
+//
+//   - Owner-only for named principals (operators exempt), the same rule
+//     snapshot pushes enforce; the anonymous deploy token passes - it IS
+//     the everyone-credential until retired (§15.1).
+//   - A workspace with OPEN changes cannot be deleted: their provenance
+//     would dangle and any re-push would fail workspace validation
+//     (§12.2's changes-are-born-in-workspaces invariant). Land or abandon
+//     first; landed/abandoned changes keep their origin strings as
+//     history and never block.
+//   - Effects, in recoverable order: snapshot refs first (each ref
+//     deleted individually; a partial failure leaves the row present, so
+//     retrying the delete resumes), registry row last. Blobs stay in the
+//     object store until git gc - deletion removes reachability, not
+//     history.
+func (s *Server) deleteWorkspaceCore(ctx context.Context, id string, principal *Principal) *apiError {
+	ws, ok, err := s.Store.GetWorkspace(ctx, id)
+	if err != nil {
+		return internalErr(err)
+	}
+	if !ok {
+		return typedErr(http.StatusNotFound, clierr.Error{
+			Code: "workspace_not_found", Field: "id",
+			Message:    fmt.Sprintf("no workspace %q is registered", id),
+			Suggestion: "runko workspace list",
+		})
+	}
+	if principal != nil && !principal.Admin && ws.Owner != "" && principal.Name != ws.Owner {
+		return typedErr(http.StatusForbidden, clierr.Error{
+			Code: "not_workspace_owner", Field: "id",
+			Message:    fmt.Sprintf("workspace %q belongs to %s (§12.2)", id, ws.Owner),
+			Suggestion: "only the owner or an operator may delete it",
+		})
+	}
+
+	open, err := s.Store.ListChanges(ctx, "open")
+	if err != nil {
+		return internalErr(err)
+	}
+	var blocking []string
+	for _, c := range open {
+		if c.OriginWorkspace == id {
+			blocking = append(blocking, c.ChangeKey)
+		}
+	}
+	if len(blocking) > 0 {
+		sort.Strings(blocking)
+		return typedErr(http.StatusConflict, clierr.Error{
+			Code: "workspace_has_open_changes", Field: "id",
+			Message:    fmt.Sprintf("workspace %q still has open changes: %s", id, strings.Join(blocking, ", ")),
+			Suggestion: "land or abandon them first (runko change land / runko change abandon)",
+		})
+	}
+
+	for _, branch := range s.workspaceBranches(id) {
+		ref := "refs/workspaces/" + id + "/" + branch
+		if out, err := exec.Command("git", "--git-dir", s.RepoDir, "update-ref", "-d", ref).CombinedOutput(); err != nil {
+			return internalErr(fmt.Errorf("delete %s: %v: %s", ref, err, strings.TrimSpace(string(out))))
+		}
+	}
+	if err := s.Store.DeleteWorkspace(ctx, id); err != nil {
+		return internalErr(err)
+	}
+	return nil
+}
+
+func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	if apiErr := s.deleteWorkspaceCore(r.Context(), r.PathValue("id"), s.principalFor(r)); apiErr != nil {
+		writeAPIError(w, apiErr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": r.PathValue("id")})
+}
+
 // handleSparsePatterns is §12.4's `GET /sparse-patterns?projects=…` - cone
 // patterns from the project graph, for clients configuring a checkout
 // without creating a workspace.

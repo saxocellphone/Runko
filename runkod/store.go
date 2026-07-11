@@ -234,6 +234,11 @@ type Store interface {
 	GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error)
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	UpdateWorkspaceBase(ctx context.Context, id, baseRevision string) (Workspace, error)
+	// DeleteWorkspace removes the registry row outright - the id becomes
+	// reusable. The row is metadata only (§12.2); the caller owns deleting
+	// the workspace's snapshot refs beside it (deleteWorkspaceCore does
+	// both, guards included). Deleting an unknown id is an error.
+	DeleteWorkspace(ctx context.Context, id string) error
 
 	// Ping reports whether the Store's backing service is reachable -
 	// /readyz's dependency probe (§9.4's stage-14 conventions). Cheap
@@ -692,6 +697,16 @@ func (s *MemStore) UpdateWorkspaceBase(ctx context.Context, id, baseRevision str
 	ws.BaseRevision = baseRevision
 	s.workspaces[id] = ws
 	return ws, nil
+}
+
+func (s *MemStore) DeleteWorkspace(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.workspaces[id]; !ok {
+		return fmt.Errorf("runkod: no such workspace %q", id)
+	}
+	delete(s.workspaces, id)
+	return nil
 }
 
 func (s *MemStore) EnqueueWebhook(ctx context.Context, eventType string, payload []byte) (string, error) {

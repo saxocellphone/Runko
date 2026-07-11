@@ -188,6 +188,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/workspaces", s.requireAuth(s.handleListWorkspaces))
 	mux.HandleFunc("GET /api/workspaces/{id}", s.requireAuth(s.handleGetWorkspace))
 	mux.HandleFunc("POST /api/workspaces/{id}/base", s.requireAuth(s.handleUpdateWorkspaceBase))
+	mux.HandleFunc("DELETE /api/workspaces/{id}", s.requireAuth(s.handleDeleteWorkspace))
 	mux.HandleFunc("GET /api/sparse-patterns", s.requireAuth(s.handleSparsePatterns))
 
 	// The Connect RPC surface for the web frontend (proto/runko/v1, §17.4;

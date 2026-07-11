@@ -91,6 +91,7 @@ go_test(
         "webhook_org_test.go",
         "workspace_test.go",
         "workspacebranch_test.go",
+        "workspacedelete_test.go",
         "zoekt_test.go",
     ],
     embed = [":runkod"],
