@@ -9,6 +9,7 @@ import {
 import { CommentSide } from "../gen/runko/v1/common_pb";
 import { publicBrowse } from "../api/client";
 import { lineKey, type Thread } from "../lib/comments";
+import { diffLineCount, initialFolds, isLargeDiff, threadPathSet } from "../lib/difffold";
 import { CommentComposer, ThreadCard, type ReviewActions } from "./ReviewThreads";
 
 // Review conversation anchoring (§13.4.1, stage 16b): current-head
@@ -26,6 +27,16 @@ export interface DiffReview {
 export function DiffView({ files, review }: { files: FileDiff[]; review?: DiffReview }) {
   const additions = files.reduce((n, f) => n + f.additions, 0);
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
+  // Fold state lives here so expand/collapse-all works (difffold.ts owns
+  // the policy): oversized files and many-file changes start collapsed;
+  // files carrying review threads never do. Collapsed content is not
+  // mounted at all - the point is rendering cost, not just screen space.
+  const [folds, setFolds] = useState<Record<string, boolean>>(() =>
+    initialFolds(files, review ? threadPathSet(review.byLine, review.byFile) : new Set()),
+  );
+  const setAll = (collapsed: boolean) =>
+    setFolds(Object.fromEntries(files.map((f) => [f.path, collapsed])));
+  const anyExpanded = files.some((f) => !folds[f.path]);
   return (
     <div>
       <div className="diff-summary">
@@ -34,9 +45,26 @@ export function DiffView({ files, review }: { files: FileDiff[]; review?: DiffRe
         </span>
         <span className="added-count">+{additions}</span>
         <span className="deleted-count">−{deletions}</span>
+        <span className="spacer" />
+        {files.length > 1 &&
+          (anyExpanded ? (
+            <button className="btn btn-sm" onClick={() => setAll(true)}>
+              Collapse all
+            </button>
+          ) : (
+            <button className="btn btn-sm" onClick={() => setAll(false)}>
+              Expand all
+            </button>
+          ))}
       </div>
       {files.map((f) => (
-        <FileDiffCard key={f.path} file={f} review={review} />
+        <FileDiffCard
+          key={f.path}
+          file={f}
+          review={review}
+          collapsed={!!folds[f.path]}
+          onToggle={() => setFolds((prev) => ({ ...prev, [f.path]: !prev[f.path] }))}
+        />
       ))}
     </div>
   );
@@ -48,15 +76,24 @@ const statusChip: Record<number, { label: string; cls: string } | undefined> = {
   [FileDiffStatus.RENAMED]: { label: "renamed", cls: "chip-violet" },
 };
 
-function FileDiffCard({ file, review }: { file: FileDiff; review?: DiffReview }) {
-  const [collapsed, setCollapsed] = useState(false);
+function FileDiffCard({
+  file,
+  review,
+  collapsed,
+  onToggle,
+}: {
+  file: FileDiff;
+  review?: DiffReview;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   // The one line-level composer open in this file, keyed like the threads.
   const [composerAt, setComposerAt] = useState<{ side: CommentSide; line: number } | null>(null);
   const chip = statusChip[file.status];
   const fileThreads = review?.byFile.get(file.path) ?? [];
   return (
     <section className={`card file-diff${collapsed ? " collapsed" : ""}`}>
-      <header className="file-head" onClick={() => setCollapsed(!collapsed)}>
+      <header className="file-head" onClick={onToggle}>
         <span className="chevron">{collapsed ? "▶" : "▼"}</span>
         <span className="file-path">
           {file.oldPath && <span className="file-old-path">{file.oldPath}</span>}
@@ -74,6 +111,14 @@ function FileDiffCard({ file, review }: { file: FileDiff; review?: DiffReview })
           )}
         </span>
         {chip && <span className={`chip ${chip.cls}`}>{chip.label}</span>}
+        {isLargeDiff(file) && (
+          <span
+            className="chip"
+            title={`${diffLineCount(file)} diff lines - large diffs start collapsed; click the header to expand`}
+          >
+            large diff
+          </span>
+        )}
         <span className="spacer" />
         {file.project && (
           <Link

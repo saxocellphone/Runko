@@ -2095,3 +2095,9 @@ tr.thread-row > td {
   color: var(--text-3);
   font-size: 13px;
 }
+
+/* Diff folding (large-change ergonomics): the expand/collapse-all control
+   sits right-aligned in the summary row. */
+.diff-summary .spacer {
+  flex: 1;
+}
