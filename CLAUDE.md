@@ -146,7 +146,7 @@ platform/affected/  # pure function: paths/deps -> affected projects, + property
 platform/buildadapter/ # build-graph adapter contract (fail-closed); bazel/ is the v1 engine
 platform/checks/    # Checks API, merge requirements, check-set policies, webhook envelopes
 platform/project/   # intent -> files pipeline, templates, preview
-platform/mcp/       # MCP stdio server: six read-only v1 tools over runkod's REST API (§8.3)
+platform/mcp/       # MCP stdio server: seven read-only v1 tools over runkod's REST API (§8.3, §13.4.1)
 platform/core/      # shared interfaces (MonorepoStore, etc.)
 platform/search/    # Zoekt code-search integration (process, not library)
 platform/mirror/    # outbound mirror to any git host (git protocol only; docs/mirror.md)

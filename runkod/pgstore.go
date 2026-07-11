@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -452,6 +453,189 @@ func (s *PostgresStore) ListApprovals(ctx context.Context, changeKey string) ([]
 		out = append(out, a)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].OwnerRef < out[j].OwnerRef })
+	return out, nil
+}
+
+// commentFromRow maps a dbgen row to the Store's Comment, resolving the
+// author actor (name + agent badge) the way ListApprovals resolves
+// approvers - comments must stay attributed (§8.6).
+func (s *PostgresStore) commentFromRow(ctx context.Context, row *dbgen.ChangeComment) (Comment, error) {
+	c := Comment{
+		ID:       row.ID.String(),
+		Body:     row.Body,
+		Resolved: row.Resolved,
+	}
+	if row.Path != nil {
+		c.Path = *row.Path
+	}
+	if row.Side != nil {
+		c.Side = *row.Side
+	}
+	if row.Line != nil {
+		c.Line = int(*row.Line)
+	}
+	if row.HeadSha != nil {
+		c.HeadSHA = *row.HeadSha
+	}
+	if row.ParentID.Valid {
+		c.ParentID = uuid.UUID(row.ParentID.Bytes).String()
+	}
+	if row.CreatedAt.Valid {
+		c.CreatedAt = row.CreatedAt.Time
+	}
+	actor, err := s.Queries.GetActor(ctx, s.Pool, row.AuthorActorID)
+	if err != nil {
+		return Comment{}, fmt.Errorf("runkod: resolve comment author for %s: %w", c.ID, err)
+	}
+	c.Author = actor.ExternalRef
+	c.AuthorIsAgent = actor.Type == dbgen.ActorTypeAgent
+	return c, nil
+}
+
+func (s *PostgresStore) CreateComment(ctx context.Context, changeKey string, c Comment) (Comment, error) {
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return Comment{}, err
+	}
+	actorType := dbgen.ActorTypeUser
+	if c.AuthorIsAgent {
+		actorType = dbgen.ActorTypeAgent
+	}
+	actor, err := s.Queries.UpsertActor(ctx, s.Pool, dbgen.UpsertActorParams{
+		OrgID: s.OrgID, Type: actorType, ExternalRef: c.Author, Metadata: []byte("{}"),
+	})
+	if err != nil {
+		return Comment{}, fmt.Errorf("runkod: upsert comment author %q: %w", c.Author, err)
+	}
+	params := dbgen.CreateChangeCommentParams{
+		ChangeID:      changeID,
+		AuthorActorID: actor.ID,
+		Body:          c.Body,
+	}
+	if c.Path != "" {
+		params.Path = &c.Path
+	}
+	if c.Side != "" {
+		params.Side = &c.Side
+	}
+	if c.Line != 0 {
+		line := int32(c.Line)
+		params.Line = &line
+	}
+	if c.HeadSHA != "" {
+		params.HeadSha = &c.HeadSHA
+	}
+	if c.ParentID != "" {
+		parent, err := uuid.Parse(c.ParentID)
+		if err != nil {
+			return Comment{}, fmt.Errorf("runkod: bad parent comment id %q: %w", c.ParentID, err)
+		}
+		params.ParentID = pgtype.UUID{Bytes: parent, Valid: true}
+	}
+	row, err := s.Queries.CreateChangeComment(ctx, s.Pool, params)
+	if err != nil {
+		return Comment{}, err
+	}
+	return s.commentFromRow(ctx, row)
+}
+
+func (s *PostgresStore) ListComments(ctx context.Context, changeKey string, limit, offset int) ([]Comment, error) {
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return nil, err
+	}
+	lim := int32(limit)
+	if limit <= 0 {
+		lim = math.MaxInt32 // ListChangesPage's "unbounded" convention, SQL LIMIT needs a value
+	}
+	rows, err := s.Queries.ListChangeComments(ctx, s.Pool, dbgen.ListChangeCommentsParams{
+		ChangeID: changeID, Limit: lim, Offset: int32(offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Comment, 0, len(rows))
+	for _, row := range rows {
+		c, err := s.commentFromRow(ctx, row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) GetComment(ctx context.Context, changeKey, commentID string) (Comment, bool, error) {
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return Comment{}, false, err
+	}
+	id, err := uuid.Parse(commentID)
+	if err != nil {
+		return Comment{}, false, nil // not a UUID -> cannot exist
+	}
+	row, err := s.Queries.GetChangeComment(ctx, s.Pool, dbgen.GetChangeCommentParams{ID: id, ChangeID: changeID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Comment{}, false, nil
+		}
+		return Comment{}, false, err
+	}
+	c, err := s.commentFromRow(ctx, row)
+	if err != nil {
+		return Comment{}, false, err
+	}
+	return c, true, nil
+}
+
+func (s *PostgresStore) SetCommentResolved(ctx context.Context, changeKey, commentID string, resolved bool) error {
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return err
+	}
+	id, err := uuid.Parse(commentID)
+	if err != nil {
+		return fmt.Errorf("runkod: no such comment %q on change %q", commentID, changeKey)
+	}
+	n, err := s.Queries.ResolveChangeComment(ctx, s.Pool, dbgen.ResolveChangeCommentParams{
+		ID: id, ChangeID: changeID, Resolved: resolved,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("runkod: no such comment %q on change %q", commentID, changeKey)
+	}
+	return nil
+}
+
+func (s *PostgresStore) UpsertReviewRequest(ctx context.Context, changeKey, reviewer, requestedBy string) error {
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return err
+	}
+	return s.Queries.UpsertChangeReviewRequest(ctx, s.Pool, dbgen.UpsertChangeReviewRequestParams{
+		ChangeID: changeID, Reviewer: reviewer, RequestedBy: requestedBy,
+	})
+}
+
+func (s *PostgresStore) ListReviewRequests(ctx context.Context, changeKey string) ([]ReviewRequest, error) {
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.Queries.ListChangeReviewRequests(ctx, s.Pool, changeID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ReviewRequest, 0, len(rows))
+	for _, r := range rows {
+		rr := ReviewRequest{Reviewer: r.Reviewer, RequestedBy: r.RequestedBy}
+		if r.CreatedAt.Valid {
+			rr.CreatedAt = r.CreatedAt.Time
+		}
+		out = append(out, rr)
+	}
 	return out, nil
 }
 

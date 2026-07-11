@@ -670,3 +670,76 @@ func TestPostgresDirectoryMultiOrg(t *testing.T) {
 		t.Fatalf("acme should list its own change: %+v %v", list, err)
 	}
 }
+
+// TestPostgresStoreCommentRoundTrip exercises migration 0011 + the extended
+// CreateChangeComment through their first caller (§13.4.1, stage 16): every
+// new column survives Postgres (head_sha binding, side, one-level parent
+// edge, resolved bit), the author round-trips as a typed actors row (agent
+// badge included), and review requests upsert idempotently (§13.4.2).
+func TestPostgresStoreCommentRoundTrip(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+	if _, err := store.CreateOrUpdateChange(ctx, "Iabc", "base1", "head1", "refs/changes/1/head", "title", "", "", ""); err != nil {
+		t.Fatalf("CreateOrUpdateChange: %v", err)
+	}
+
+	root, err := store.CreateComment(ctx, "Iabc", Comment{
+		Author: "review-bot", AuthorIsAgent: true, Body: "nit: wrap this",
+		Path: "commerce/checkout/main.go", Side: "head", Line: 42, HeadSHA: "head1",
+	})
+	if err != nil {
+		t.Fatalf("CreateComment (root): %v", err)
+	}
+	if root.ID == "" || root.CreatedAt.IsZero() {
+		t.Fatalf("expected store-assigned id and created_at, got %+v", root)
+	}
+
+	if _, err := store.CreateComment(ctx, "Iabc", Comment{
+		Author: "alice", Body: "done", HeadSHA: "head1", ParentID: root.ID,
+	}); err != nil {
+		t.Fatalf("CreateComment (reply): %v", err)
+	}
+
+	list, err := store.ListComments(ctx, "Iabc", 0, 0)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 comments, got %+v", list)
+	}
+	got := list[0]
+	if got.ID != root.ID || got.Author != "review-bot" || !got.AuthorIsAgent ||
+		got.Path != "commerce/checkout/main.go" || got.Side != "head" || got.Line != 42 ||
+		got.HeadSHA != "head1" || got.Resolved {
+		t.Fatalf("root comment did not round-trip its columns: %+v", got)
+	}
+	if list[1].ParentID != root.ID || list[1].AuthorIsAgent {
+		t.Fatalf("reply did not round-trip parent/author: %+v", list[1])
+	}
+
+	if err := store.SetCommentResolved(ctx, "Iabc", root.ID, true); err != nil {
+		t.Fatalf("SetCommentResolved: %v", err)
+	}
+	back, ok, err := store.GetComment(ctx, "Iabc", root.ID)
+	if err != nil || !ok || !back.Resolved {
+		t.Fatalf("expected the resolved bit persisted, got ok=%v err=%v %+v", ok, err, back)
+	}
+	if err := store.SetCommentResolved(ctx, "Iabc", "00000000-0000-0000-0000-000000000000", true); err == nil {
+		t.Fatalf("expected resolving a missing comment to error")
+	}
+
+	// Review requests: idempotent upsert, latest requested_by wins, sorted reads.
+	if err := store.UpsertReviewRequest(ctx, "Iabc", "bob", "alice"); err != nil {
+		t.Fatalf("UpsertReviewRequest: %v", err)
+	}
+	if err := store.UpsertReviewRequest(ctx, "Iabc", "bob", "carol"); err != nil {
+		t.Fatalf("UpsertReviewRequest (repeat): %v", err)
+	}
+	requests, err := store.ListReviewRequests(ctx, "Iabc")
+	if err != nil {
+		t.Fatalf("ListReviewRequests: %v", err)
+	}
+	if len(requests) != 1 || requests[0].Reviewer != "bob" || requests[0].RequestedBy != "carol" {
+		t.Fatalf("expected one upserted request from carol, got %+v", requests)
+	}
+}

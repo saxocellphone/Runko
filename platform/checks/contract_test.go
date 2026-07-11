@@ -112,6 +112,86 @@ func TestWebhookRerunEnvelopeRequiresRerunField(t *testing.T) {
 	}
 }
 
+func TestWebhookCommentedEnvelopeRequiresCommentField(t *testing.T) {
+	sch := compileSchema(t, "webhooks/webhook-envelope.schema.json")
+
+	base := func() WebhookEnvelope {
+		return WebhookEnvelope{
+			SpecVersion: "1", DeliveryID: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+			Type: "change.commented", OccurredAt: time.Now().UTC(),
+			OrgID: "org_1", MonorepoID: "repo_1",
+			Change: WebhookChange{
+				ID: "chg_1", Number: 1, URL: "https://x/changes/1", State: "open",
+				BaseSHA: "a", HeadSHA: "b", GitRef: "refs/changes/1/head", Title: "t",
+				Actor: WebhookActor{Type: "user", ID: "u1"},
+			},
+			API: WebhookAPI{ChangeURL: "https://x", AffectedURL: "https://x", ChecksURL: "https://x"},
+		}
+	}
+
+	missing := base()
+	payload, err := MarshalEnvelope(missing)
+	if err != nil {
+		t.Fatalf("MarshalEnvelope: %v", err)
+	}
+	if err := validateJSON(t, sch, payload); err == nil {
+		t.Fatalf("expected schema to reject change.commented without a comment field")
+	}
+
+	with := base()
+	with.Comment = &WebhookComment{
+		ID: "cmt_1", Path: "commerce/checkout/handler.go", Side: "head", Line: 42,
+		Author: WebhookActor{Type: "agent", ID: "review-bot"},
+	}
+	payload2, err := MarshalEnvelope(with)
+	if err != nil {
+		t.Fatalf("MarshalEnvelope: %v", err)
+	}
+	if err := validateJSON(t, sch, payload2); err != nil {
+		t.Fatalf("expected schema to accept a commented envelope with the comment field populated: %v\npayload: %s", err, payload2)
+	}
+}
+
+func TestWebhookReviewRequestedEnvelopeRequiresReviewRequestField(t *testing.T) {
+	sch := compileSchema(t, "webhooks/webhook-envelope.schema.json")
+
+	base := func() WebhookEnvelope {
+		return WebhookEnvelope{
+			SpecVersion: "1", DeliveryID: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+			Type: "change.review_requested", OccurredAt: time.Now().UTC(),
+			OrgID: "org_1", MonorepoID: "repo_1",
+			Change: WebhookChange{
+				ID: "chg_1", Number: 1, URL: "https://x/changes/1", State: "open",
+				BaseSHA: "a", HeadSHA: "b", GitRef: "refs/changes/1/head", Title: "t",
+				Actor: WebhookActor{Type: "user", ID: "u1"},
+			},
+			API: WebhookAPI{ChangeURL: "https://x", AffectedURL: "https://x", ChecksURL: "https://x"},
+		}
+	}
+
+	missing := base()
+	payload, err := MarshalEnvelope(missing)
+	if err != nil {
+		t.Fatalf("MarshalEnvelope: %v", err)
+	}
+	if err := validateJSON(t, sch, payload); err == nil {
+		t.Fatalf("expected schema to reject change.review_requested without a review_request field")
+	}
+
+	with := base()
+	with.ReviewRequest = &WebhookReviewRequest{
+		Reviewer:    WebhookActor{Type: "group", ID: "commerce-eng"},
+		RequestedBy: WebhookActor{Type: "user", ID: "u1"},
+	}
+	payload2, err := MarshalEnvelope(with)
+	if err != nil {
+		t.Fatalf("MarshalEnvelope: %v", err)
+	}
+	if err := validateJSON(t, sch, payload2); err != nil {
+		t.Fatalf("expected schema to accept a review_requested envelope with the review_request field populated: %v\npayload: %s", err, payload2)
+	}
+}
+
 func TestWebhookEnvelopeRejectsUnknownType(t *testing.T) {
 	sch := compileSchema(t, "webhooks/webhook-envelope.schema.json")
 	env := WebhookEnvelope{

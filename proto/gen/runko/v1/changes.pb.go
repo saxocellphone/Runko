@@ -1245,6 +1245,324 @@ func (x *RerunCheckRequest) GetCheckName() string {
 	return ""
 }
 
+type ListCommentsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChangeId      string                 `protobuf:"bytes,1,opt,name=change_id,json=changeId,proto3" json:"change_id,omitempty"`
+	PageSize      int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCommentsRequest) Reset() {
+	*x = ListCommentsRequest{}
+	mi := &file_runko_v1_changes_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCommentsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCommentsRequest) ProtoMessage() {}
+
+func (x *ListCommentsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_changes_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCommentsRequest.ProtoReflect.Descriptor instead.
+func (*ListCommentsRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ListCommentsRequest) GetChangeId() string {
+	if x != nil {
+		return x.ChangeId
+	}
+	return ""
+}
+
+func (x *ListCommentsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListCommentsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListCommentsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Comments      []*Comment             `protobuf:"bytes,1,rep,name=comments,proto3" json:"comments,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCommentsResponse) Reset() {
+	*x = ListCommentsResponse{}
+	mi := &file_runko_v1_changes_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCommentsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCommentsResponse) ProtoMessage() {}
+
+func (x *ListCommentsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_changes_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCommentsResponse.ProtoReflect.Descriptor instead.
+func (*ListCommentsResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ListCommentsResponse) GetComments() []*Comment {
+	if x != nil {
+		return x.Comments
+	}
+	return nil
+}
+
+func (x *ListCommentsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type CreateCommentRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	ChangeId string                 `protobuf:"bytes,1,opt,name=change_id,json=changeId,proto3" json:"change_id,omitempty"`
+	Body     string                 `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	Path     string                 `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	Side     CommentSide            `protobuf:"varint,4,opt,name=side,proto3,enum=runko.v1.CommentSide" json:"side,omitempty"`
+	Line     int32                  `protobuf:"varint,5,opt,name=line,proto3" json:"line,omitempty"`
+	ParentId string                 `protobuf:"bytes,6,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"` // reply to this thread root; replies inherit its anchor
+	// author is client-asserted text honored only from the anonymous deploy
+	// token - the same v1 trust boundary as ApproveChangeRequest.approved_by.
+	Author        string `protobuf:"bytes,7,opt,name=author,proto3" json:"author,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateCommentRequest) Reset() {
+	*x = CreateCommentRequest{}
+	mi := &file_runko_v1_changes_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateCommentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateCommentRequest) ProtoMessage() {}
+
+func (x *CreateCommentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_changes_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateCommentRequest.ProtoReflect.Descriptor instead.
+func (*CreateCommentRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *CreateCommentRequest) GetChangeId() string {
+	if x != nil {
+		return x.ChangeId
+	}
+	return ""
+}
+
+func (x *CreateCommentRequest) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+func (x *CreateCommentRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *CreateCommentRequest) GetSide() CommentSide {
+	if x != nil {
+		return x.Side
+	}
+	return CommentSide_COMMENT_SIDE_UNSPECIFIED
+}
+
+func (x *CreateCommentRequest) GetLine() int32 {
+	if x != nil {
+		return x.Line
+	}
+	return 0
+}
+
+func (x *CreateCommentRequest) GetParentId() string {
+	if x != nil {
+		return x.ParentId
+	}
+	return ""
+}
+
+func (x *CreateCommentRequest) GetAuthor() string {
+	if x != nil {
+		return x.Author
+	}
+	return ""
+}
+
+type ResolveCommentRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChangeId      string                 `protobuf:"bytes,1,opt,name=change_id,json=changeId,proto3" json:"change_id,omitempty"`
+	CommentId     string                 `protobuf:"bytes,2,opt,name=comment_id,json=commentId,proto3" json:"comment_id,omitempty"` // must be a thread root
+	Resolved      bool                   `protobuf:"varint,3,opt,name=resolved,proto3" json:"resolved,omitempty"`                   // false to reopen
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveCommentRequest) Reset() {
+	*x = ResolveCommentRequest{}
+	mi := &file_runko_v1_changes_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveCommentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveCommentRequest) ProtoMessage() {}
+
+func (x *ResolveCommentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_changes_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveCommentRequest.ProtoReflect.Descriptor instead.
+func (*ResolveCommentRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ResolveCommentRequest) GetChangeId() string {
+	if x != nil {
+		return x.ChangeId
+	}
+	return ""
+}
+
+func (x *ResolveCommentRequest) GetCommentId() string {
+	if x != nil {
+		return x.CommentId
+	}
+	return ""
+}
+
+func (x *ResolveCommentRequest) GetResolved() bool {
+	if x != nil {
+		return x.Resolved
+	}
+	return false
+}
+
+type RequestReviewRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChangeId      string                 `protobuf:"bytes,1,opt,name=change_id,json=changeId,proto3" json:"change_id,omitempty"`
+	Reviewer      string                 `protobuf:"bytes,2,opt,name=reviewer,proto3" json:"reviewer,omitempty"` // principal name or group:<name>
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestReviewRequest) Reset() {
+	*x = RequestReviewRequest{}
+	mi := &file_runko_v1_changes_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestReviewRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestReviewRequest) ProtoMessage() {}
+
+func (x *RequestReviewRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_changes_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestReviewRequest.ProtoReflect.Descriptor instead.
+func (*RequestReviewRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *RequestReviewRequest) GetChangeId() string {
+	if x != nil {
+		return x.ChangeId
+	}
+	return ""
+}
+
+func (x *RequestReviewRequest) GetReviewer() string {
+	if x != nil {
+		return x.Reviewer
+	}
+	return ""
+}
+
 // Per-RPC response wrappers (buf STANDARD lint: unique response types per
 // RPC, so any one response can grow fields later without entangling the
 // others).
@@ -1257,7 +1575,7 @@ type GetChangeResponse struct {
 
 func (x *GetChangeResponse) Reset() {
 	*x = GetChangeResponse{}
-	mi := &file_runko_v1_changes_proto_msgTypes[18]
+	mi := &file_runko_v1_changes_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1269,7 +1587,7 @@ func (x *GetChangeResponse) String() string {
 func (*GetChangeResponse) ProtoMessage() {}
 
 func (x *GetChangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_changes_proto_msgTypes[18]
+	mi := &file_runko_v1_changes_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1282,7 +1600,7 @@ func (x *GetChangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetChangeResponse.ProtoReflect.Descriptor instead.
 func (*GetChangeResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_changes_proto_rawDescGZIP(), []int{18}
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetChangeResponse) GetChange() *ChangeSummary {
@@ -1301,7 +1619,7 @@ type GetAffectedResponse struct {
 
 func (x *GetAffectedResponse) Reset() {
 	*x = GetAffectedResponse{}
-	mi := &file_runko_v1_changes_proto_msgTypes[19]
+	mi := &file_runko_v1_changes_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1313,7 +1631,7 @@ func (x *GetAffectedResponse) String() string {
 func (*GetAffectedResponse) ProtoMessage() {}
 
 func (x *GetAffectedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_changes_proto_msgTypes[19]
+	mi := &file_runko_v1_changes_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1326,7 +1644,7 @@ func (x *GetAffectedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAffectedResponse.ProtoReflect.Descriptor instead.
 func (*GetAffectedResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_changes_proto_rawDescGZIP(), []int{19}
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetAffectedResponse) GetAffected() *AffectedComputation {
@@ -1345,7 +1663,7 @@ type GetMergeRequirementsResponse struct {
 
 func (x *GetMergeRequirementsResponse) Reset() {
 	*x = GetMergeRequirementsResponse{}
-	mi := &file_runko_v1_changes_proto_msgTypes[20]
+	mi := &file_runko_v1_changes_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1357,7 +1675,7 @@ func (x *GetMergeRequirementsResponse) String() string {
 func (*GetMergeRequirementsResponse) ProtoMessage() {}
 
 func (x *GetMergeRequirementsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_changes_proto_msgTypes[20]
+	mi := &file_runko_v1_changes_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1370,7 +1688,7 @@ func (x *GetMergeRequirementsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMergeRequirementsResponse.ProtoReflect.Descriptor instead.
 func (*GetMergeRequirementsResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_changes_proto_rawDescGZIP(), []int{20}
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *GetMergeRequirementsResponse) GetRequirements() *MergeRequirements {
@@ -1391,7 +1709,7 @@ type ApproveChangeResponse struct {
 
 func (x *ApproveChangeResponse) Reset() {
 	*x = ApproveChangeResponse{}
-	mi := &file_runko_v1_changes_proto_msgTypes[21]
+	mi := &file_runko_v1_changes_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1403,7 +1721,7 @@ func (x *ApproveChangeResponse) String() string {
 func (*ApproveChangeResponse) ProtoMessage() {}
 
 func (x *ApproveChangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_changes_proto_msgTypes[21]
+	mi := &file_runko_v1_changes_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1416,7 +1734,7 @@ func (x *ApproveChangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApproveChangeResponse.ProtoReflect.Descriptor instead.
 func (*ApproveChangeResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_changes_proto_rawDescGZIP(), []int{21}
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ApproveChangeResponse) GetRequirements() *MergeRequirements {
@@ -1435,7 +1753,7 @@ type AbandonChangeResponse struct {
 
 func (x *AbandonChangeResponse) Reset() {
 	*x = AbandonChangeResponse{}
-	mi := &file_runko_v1_changes_proto_msgTypes[22]
+	mi := &file_runko_v1_changes_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1447,7 +1765,7 @@ func (x *AbandonChangeResponse) String() string {
 func (*AbandonChangeResponse) ProtoMessage() {}
 
 func (x *AbandonChangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_changes_proto_msgTypes[22]
+	mi := &file_runko_v1_changes_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1460,7 +1778,7 @@ func (x *AbandonChangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbandonChangeResponse.ProtoReflect.Descriptor instead.
 func (*AbandonChangeResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_changes_proto_rawDescGZIP(), []int{22}
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *AbandonChangeResponse) GetChange() *ChangeSummary {
@@ -1479,7 +1797,7 @@ type RerunCheckResponse struct {
 
 func (x *RerunCheckResponse) Reset() {
 	*x = RerunCheckResponse{}
-	mi := &file_runko_v1_changes_proto_msgTypes[23]
+	mi := &file_runko_v1_changes_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1491,7 +1809,7 @@ func (x *RerunCheckResponse) String() string {
 func (*RerunCheckResponse) ProtoMessage() {}
 
 func (x *RerunCheckResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_changes_proto_msgTypes[23]
+	mi := &file_runko_v1_changes_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1504,7 +1822,7 @@ func (x *RerunCheckResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerunCheckResponse.ProtoReflect.Descriptor instead.
 func (*RerunCheckResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_changes_proto_rawDescGZIP(), []int{23}
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RerunCheckResponse) GetRequirements() *MergeRequirements {
@@ -1512,6 +1830,146 @@ func (x *RerunCheckResponse) GetRequirements() *MergeRequirements {
 		return x.Requirements
 	}
 	return nil
+}
+
+type CreateCommentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Comment       *Comment               `protobuf:"bytes,1,opt,name=comment,proto3" json:"comment,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateCommentResponse) Reset() {
+	*x = CreateCommentResponse{}
+	mi := &file_runko_v1_changes_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateCommentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateCommentResponse) ProtoMessage() {}
+
+func (x *CreateCommentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_changes_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateCommentResponse.ProtoReflect.Descriptor instead.
+func (*CreateCommentResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *CreateCommentResponse) GetComment() *Comment {
+	if x != nil {
+		return x.Comment
+	}
+	return nil
+}
+
+type ResolveCommentResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Comment       *Comment               `protobuf:"bytes,1,opt,name=comment,proto3" json:"comment,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveCommentResponse) Reset() {
+	*x = ResolveCommentResponse{}
+	mi := &file_runko_v1_changes_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveCommentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveCommentResponse) ProtoMessage() {}
+
+func (x *ResolveCommentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_changes_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveCommentResponse.ProtoReflect.Descriptor instead.
+func (*ResolveCommentResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ResolveCommentResponse) GetComment() *Comment {
+	if x != nil {
+		return x.Comment
+	}
+	return nil
+}
+
+type RequestReviewResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reviewer      string                 `protobuf:"bytes,1,opt,name=reviewer,proto3" json:"reviewer,omitempty"`
+	RequestedBy   string                 `protobuf:"bytes,2,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestReviewResponse) Reset() {
+	*x = RequestReviewResponse{}
+	mi := &file_runko_v1_changes_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestReviewResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestReviewResponse) ProtoMessage() {}
+
+func (x *RequestReviewResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_changes_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestReviewResponse.ProtoReflect.Descriptor instead.
+func (*RequestReviewResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_changes_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *RequestReviewResponse) GetReviewer() string {
+	if x != nil {
+		return x.Reviewer
+	}
+	return ""
+}
+
+func (x *RequestReviewResponse) GetRequestedBy() string {
+	if x != nil {
+		return x.RequestedBy
+	}
+	return ""
 }
 
 var File_runko_v1_changes_proto protoreflect.FileDescriptor
@@ -1593,7 +2051,31 @@ const file_runko_v1_changes_proto_rawDesc = "" +
 	"\x11RerunCheckRequest\x12\x1b\n" +
 	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12\x1d\n" +
 	"\n" +
-	"check_name\x18\x02 \x01(\tR\tcheckName\"D\n" +
+	"check_name\x18\x02 \x01(\tR\tcheckName\"n\n" +
+	"\x13ListCommentsRequest\x12\x1b\n" +
+	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"m\n" +
+	"\x14ListCommentsResponse\x12-\n" +
+	"\bcomments\x18\x01 \x03(\v2\x11.runko.v1.CommentR\bcomments\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xcf\x01\n" +
+	"\x14CreateCommentRequest\x12\x1b\n" +
+	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12\x12\n" +
+	"\x04body\x18\x02 \x01(\tR\x04body\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\x12)\n" +
+	"\x04side\x18\x04 \x01(\x0e2\x15.runko.v1.CommentSideR\x04side\x12\x12\n" +
+	"\x04line\x18\x05 \x01(\x05R\x04line\x12\x1b\n" +
+	"\tparent_id\x18\x06 \x01(\tR\bparentId\x12\x16\n" +
+	"\x06author\x18\a \x01(\tR\x06author\"o\n" +
+	"\x15ResolveCommentRequest\x12\x1b\n" +
+	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12\x1d\n" +
+	"\n" +
+	"comment_id\x18\x02 \x01(\tR\tcommentId\x12\x1a\n" +
+	"\bresolved\x18\x03 \x01(\bR\bresolved\"O\n" +
+	"\x14RequestReviewRequest\x12\x1b\n" +
+	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12\x1a\n" +
+	"\breviewer\x18\x02 \x01(\tR\breviewer\"D\n" +
 	"\x11GetChangeResponse\x12/\n" +
 	"\x06change\x18\x01 \x01(\v2\x17.runko.v1.ChangeSummaryR\x06change\"P\n" +
 	"\x13GetAffectedResponse\x129\n" +
@@ -1605,7 +2087,14 @@ const file_runko_v1_changes_proto_rawDesc = "" +
 	"\x15AbandonChangeResponse\x12/\n" +
 	"\x06change\x18\x01 \x01(\v2\x17.runko.v1.ChangeSummaryR\x06change\"U\n" +
 	"\x12RerunCheckResponse\x12?\n" +
-	"\frequirements\x18\x01 \x01(\v2\x1b.runko.v1.MergeRequirementsR\frequirements*\xa9\x01\n" +
+	"\frequirements\x18\x01 \x01(\v2\x1b.runko.v1.MergeRequirementsR\frequirements\"D\n" +
+	"\x15CreateCommentResponse\x12+\n" +
+	"\acomment\x18\x01 \x01(\v2\x11.runko.v1.CommentR\acomment\"E\n" +
+	"\x16ResolveCommentResponse\x12+\n" +
+	"\acomment\x18\x01 \x01(\v2\x11.runko.v1.CommentR\acomment\"V\n" +
+	"\x15RequestReviewResponse\x12\x1a\n" +
+	"\breviewer\x18\x01 \x01(\tR\breviewer\x12!\n" +
+	"\frequested_by\x18\x02 \x01(\tR\vrequestedBy*\xa9\x01\n" +
 	"\x0eFileDiffStatus\x12 \n" +
 	"\x1cFILE_DIFF_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16FILE_DIFF_STATUS_ADDED\x10\x01\x12\x1d\n" +
@@ -1616,7 +2105,7 @@ const file_runko_v1_changes_proto_rawDesc = "" +
 	"\x1aDIFF_LINE_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16DIFF_LINE_TYPE_CONTEXT\x10\x01\x12\x18\n" +
 	"\x14DIFF_LINE_TYPE_ADDED\x10\x02\x12\x1a\n" +
-	"\x16DIFF_LINE_TYPE_REMOVED\x10\x032\xb1\x06\n" +
+	"\x16DIFF_LINE_TYPE_REMOVED\x10\x032\xf9\b\n" +
 	"\rChangeService\x12D\n" +
 	"\tGetChange\x12\x1a.runko.v1.GetChangeRequest\x1a\x1b.runko.v1.GetChangeResponse\x12J\n" +
 	"\vListChanges\x12\x1c.runko.v1.ListChangesRequest\x1a\x1d.runko.v1.ListChangesResponse\x12S\n" +
@@ -1629,7 +2118,11 @@ const file_runko_v1_changes_proto_rawDesc = "" +
 	"LandChange\x12\x1b.runko.v1.LandChangeRequest\x1a\x1c.runko.v1.LandChangeResponse\x12P\n" +
 	"\rAbandonChange\x12\x1e.runko.v1.AbandonChangeRequest\x1a\x1f.runko.v1.AbandonChangeResponse\x12G\n" +
 	"\n" +
-	"RerunCheck\x12\x1b.runko.v1.RerunCheckRequest\x1a\x1c.runko.v1.RerunCheckResponseB;Z9github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1b\x06proto3"
+	"RerunCheck\x12\x1b.runko.v1.RerunCheckRequest\x1a\x1c.runko.v1.RerunCheckResponse\x12M\n" +
+	"\fListComments\x12\x1d.runko.v1.ListCommentsRequest\x1a\x1e.runko.v1.ListCommentsResponse\x12P\n" +
+	"\rCreateComment\x12\x1e.runko.v1.CreateCommentRequest\x1a\x1f.runko.v1.CreateCommentResponse\x12S\n" +
+	"\x0eResolveComment\x12\x1f.runko.v1.ResolveCommentRequest\x1a .runko.v1.ResolveCommentResponse\x12P\n" +
+	"\rRequestReview\x12\x1e.runko.v1.RequestReviewRequest\x1a\x1f.runko.v1.RequestReviewResponseB;Z9github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1b\x06proto3"
 
 var (
 	file_runko_v1_changes_proto_rawDescOnce sync.Once
@@ -1644,7 +2137,7 @@ func file_runko_v1_changes_proto_rawDescGZIP() []byte {
 }
 
 var file_runko_v1_changes_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_runko_v1_changes_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_runko_v1_changes_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_runko_v1_changes_proto_goTypes = []any{
 	(FileDiffStatus)(0),                  // 0: runko.v1.FileDiffStatus
 	(DiffLineType)(0),                    // 1: runko.v1.DiffLineType
@@ -1666,58 +2159,80 @@ var file_runko_v1_changes_proto_goTypes = []any{
 	(*LandChangeResponse)(nil),           // 17: runko.v1.LandChangeResponse
 	(*AbandonChangeRequest)(nil),         // 18: runko.v1.AbandonChangeRequest
 	(*RerunCheckRequest)(nil),            // 19: runko.v1.RerunCheckRequest
-	(*GetChangeResponse)(nil),            // 20: runko.v1.GetChangeResponse
-	(*GetAffectedResponse)(nil),          // 21: runko.v1.GetAffectedResponse
-	(*GetMergeRequirementsResponse)(nil), // 22: runko.v1.GetMergeRequirementsResponse
-	(*ApproveChangeResponse)(nil),        // 23: runko.v1.ApproveChangeResponse
-	(*AbandonChangeResponse)(nil),        // 24: runko.v1.AbandonChangeResponse
-	(*RerunCheckResponse)(nil),           // 25: runko.v1.RerunCheckResponse
-	(ChangeState)(0),                     // 26: runko.v1.ChangeState
-	(*ChangeSummary)(nil),                // 27: runko.v1.ChangeSummary
-	(*AffectedComputation)(nil),          // 28: runko.v1.AffectedComputation
-	(*MergeRequirements)(nil),            // 29: runko.v1.MergeRequirements
+	(*ListCommentsRequest)(nil),          // 20: runko.v1.ListCommentsRequest
+	(*ListCommentsResponse)(nil),         // 21: runko.v1.ListCommentsResponse
+	(*CreateCommentRequest)(nil),         // 22: runko.v1.CreateCommentRequest
+	(*ResolveCommentRequest)(nil),        // 23: runko.v1.ResolveCommentRequest
+	(*RequestReviewRequest)(nil),         // 24: runko.v1.RequestReviewRequest
+	(*GetChangeResponse)(nil),            // 25: runko.v1.GetChangeResponse
+	(*GetAffectedResponse)(nil),          // 26: runko.v1.GetAffectedResponse
+	(*GetMergeRequirementsResponse)(nil), // 27: runko.v1.GetMergeRequirementsResponse
+	(*ApproveChangeResponse)(nil),        // 28: runko.v1.ApproveChangeResponse
+	(*AbandonChangeResponse)(nil),        // 29: runko.v1.AbandonChangeResponse
+	(*RerunCheckResponse)(nil),           // 30: runko.v1.RerunCheckResponse
+	(*CreateCommentResponse)(nil),        // 31: runko.v1.CreateCommentResponse
+	(*ResolveCommentResponse)(nil),       // 32: runko.v1.ResolveCommentResponse
+	(*RequestReviewResponse)(nil),        // 33: runko.v1.RequestReviewResponse
+	(ChangeState)(0),                     // 34: runko.v1.ChangeState
+	(*ChangeSummary)(nil),                // 35: runko.v1.ChangeSummary
+	(*Comment)(nil),                      // 36: runko.v1.Comment
+	(CommentSide)(0),                     // 37: runko.v1.CommentSide
+	(*AffectedComputation)(nil),          // 38: runko.v1.AffectedComputation
+	(*MergeRequirements)(nil),            // 39: runko.v1.MergeRequirements
 }
 var file_runko_v1_changes_proto_depIdxs = []int32{
-	26, // 0: runko.v1.ListChangesRequest.state:type_name -> runko.v1.ChangeState
-	27, // 1: runko.v1.ListChangesResponse.changes:type_name -> runko.v1.ChangeSummary
+	34, // 0: runko.v1.ListChangesRequest.state:type_name -> runko.v1.ChangeState
+	35, // 1: runko.v1.ListChangesResponse.changes:type_name -> runko.v1.ChangeSummary
 	5,  // 2: runko.v1.GetAffectedRequest.paths:type_name -> runko.v1.ChangePaths
-	27, // 3: runko.v1.GetChangeStackResponse.changes:type_name -> runko.v1.ChangeSummary
+	35, // 3: runko.v1.GetChangeStackResponse.changes:type_name -> runko.v1.ChangeSummary
 	11, // 4: runko.v1.GetChangeDiffResponse.files:type_name -> runko.v1.FileDiff
 	0,  // 5: runko.v1.FileDiff.status:type_name -> runko.v1.FileDiffStatus
 	12, // 6: runko.v1.FileDiff.hunks:type_name -> runko.v1.DiffHunk
 	13, // 7: runko.v1.DiffHunk.lines:type_name -> runko.v1.DiffLine
 	1,  // 8: runko.v1.DiffLine.type:type_name -> runko.v1.DiffLineType
-	27, // 9: runko.v1.GetChangeResponse.change:type_name -> runko.v1.ChangeSummary
-	28, // 10: runko.v1.GetAffectedResponse.affected:type_name -> runko.v1.AffectedComputation
-	29, // 11: runko.v1.GetMergeRequirementsResponse.requirements:type_name -> runko.v1.MergeRequirements
-	29, // 12: runko.v1.ApproveChangeResponse.requirements:type_name -> runko.v1.MergeRequirements
-	27, // 13: runko.v1.AbandonChangeResponse.change:type_name -> runko.v1.ChangeSummary
-	29, // 14: runko.v1.RerunCheckResponse.requirements:type_name -> runko.v1.MergeRequirements
-	2,  // 15: runko.v1.ChangeService.GetChange:input_type -> runko.v1.GetChangeRequest
-	3,  // 16: runko.v1.ChangeService.ListChanges:input_type -> runko.v1.ListChangesRequest
-	7,  // 17: runko.v1.ChangeService.GetChangeStack:input_type -> runko.v1.GetChangeStackRequest
-	9,  // 18: runko.v1.ChangeService.GetChangeDiff:input_type -> runko.v1.GetChangeDiffRequest
-	6,  // 19: runko.v1.ChangeService.GetAffected:input_type -> runko.v1.GetAffectedRequest
-	14, // 20: runko.v1.ChangeService.GetMergeRequirements:input_type -> runko.v1.GetMergeRequirementsRequest
-	15, // 21: runko.v1.ChangeService.ApproveChange:input_type -> runko.v1.ApproveChangeRequest
-	16, // 22: runko.v1.ChangeService.LandChange:input_type -> runko.v1.LandChangeRequest
-	18, // 23: runko.v1.ChangeService.AbandonChange:input_type -> runko.v1.AbandonChangeRequest
-	19, // 24: runko.v1.ChangeService.RerunCheck:input_type -> runko.v1.RerunCheckRequest
-	20, // 25: runko.v1.ChangeService.GetChange:output_type -> runko.v1.GetChangeResponse
-	4,  // 26: runko.v1.ChangeService.ListChanges:output_type -> runko.v1.ListChangesResponse
-	8,  // 27: runko.v1.ChangeService.GetChangeStack:output_type -> runko.v1.GetChangeStackResponse
-	10, // 28: runko.v1.ChangeService.GetChangeDiff:output_type -> runko.v1.GetChangeDiffResponse
-	21, // 29: runko.v1.ChangeService.GetAffected:output_type -> runko.v1.GetAffectedResponse
-	22, // 30: runko.v1.ChangeService.GetMergeRequirements:output_type -> runko.v1.GetMergeRequirementsResponse
-	23, // 31: runko.v1.ChangeService.ApproveChange:output_type -> runko.v1.ApproveChangeResponse
-	17, // 32: runko.v1.ChangeService.LandChange:output_type -> runko.v1.LandChangeResponse
-	24, // 33: runko.v1.ChangeService.AbandonChange:output_type -> runko.v1.AbandonChangeResponse
-	25, // 34: runko.v1.ChangeService.RerunCheck:output_type -> runko.v1.RerunCheckResponse
-	25, // [25:35] is the sub-list for method output_type
-	15, // [15:25] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	36, // 9: runko.v1.ListCommentsResponse.comments:type_name -> runko.v1.Comment
+	37, // 10: runko.v1.CreateCommentRequest.side:type_name -> runko.v1.CommentSide
+	35, // 11: runko.v1.GetChangeResponse.change:type_name -> runko.v1.ChangeSummary
+	38, // 12: runko.v1.GetAffectedResponse.affected:type_name -> runko.v1.AffectedComputation
+	39, // 13: runko.v1.GetMergeRequirementsResponse.requirements:type_name -> runko.v1.MergeRequirements
+	39, // 14: runko.v1.ApproveChangeResponse.requirements:type_name -> runko.v1.MergeRequirements
+	35, // 15: runko.v1.AbandonChangeResponse.change:type_name -> runko.v1.ChangeSummary
+	39, // 16: runko.v1.RerunCheckResponse.requirements:type_name -> runko.v1.MergeRequirements
+	36, // 17: runko.v1.CreateCommentResponse.comment:type_name -> runko.v1.Comment
+	36, // 18: runko.v1.ResolveCommentResponse.comment:type_name -> runko.v1.Comment
+	2,  // 19: runko.v1.ChangeService.GetChange:input_type -> runko.v1.GetChangeRequest
+	3,  // 20: runko.v1.ChangeService.ListChanges:input_type -> runko.v1.ListChangesRequest
+	7,  // 21: runko.v1.ChangeService.GetChangeStack:input_type -> runko.v1.GetChangeStackRequest
+	9,  // 22: runko.v1.ChangeService.GetChangeDiff:input_type -> runko.v1.GetChangeDiffRequest
+	6,  // 23: runko.v1.ChangeService.GetAffected:input_type -> runko.v1.GetAffectedRequest
+	14, // 24: runko.v1.ChangeService.GetMergeRequirements:input_type -> runko.v1.GetMergeRequirementsRequest
+	15, // 25: runko.v1.ChangeService.ApproveChange:input_type -> runko.v1.ApproveChangeRequest
+	16, // 26: runko.v1.ChangeService.LandChange:input_type -> runko.v1.LandChangeRequest
+	18, // 27: runko.v1.ChangeService.AbandonChange:input_type -> runko.v1.AbandonChangeRequest
+	19, // 28: runko.v1.ChangeService.RerunCheck:input_type -> runko.v1.RerunCheckRequest
+	20, // 29: runko.v1.ChangeService.ListComments:input_type -> runko.v1.ListCommentsRequest
+	22, // 30: runko.v1.ChangeService.CreateComment:input_type -> runko.v1.CreateCommentRequest
+	23, // 31: runko.v1.ChangeService.ResolveComment:input_type -> runko.v1.ResolveCommentRequest
+	24, // 32: runko.v1.ChangeService.RequestReview:input_type -> runko.v1.RequestReviewRequest
+	25, // 33: runko.v1.ChangeService.GetChange:output_type -> runko.v1.GetChangeResponse
+	4,  // 34: runko.v1.ChangeService.ListChanges:output_type -> runko.v1.ListChangesResponse
+	8,  // 35: runko.v1.ChangeService.GetChangeStack:output_type -> runko.v1.GetChangeStackResponse
+	10, // 36: runko.v1.ChangeService.GetChangeDiff:output_type -> runko.v1.GetChangeDiffResponse
+	26, // 37: runko.v1.ChangeService.GetAffected:output_type -> runko.v1.GetAffectedResponse
+	27, // 38: runko.v1.ChangeService.GetMergeRequirements:output_type -> runko.v1.GetMergeRequirementsResponse
+	28, // 39: runko.v1.ChangeService.ApproveChange:output_type -> runko.v1.ApproveChangeResponse
+	17, // 40: runko.v1.ChangeService.LandChange:output_type -> runko.v1.LandChangeResponse
+	29, // 41: runko.v1.ChangeService.AbandonChange:output_type -> runko.v1.AbandonChangeResponse
+	30, // 42: runko.v1.ChangeService.RerunCheck:output_type -> runko.v1.RerunCheckResponse
+	21, // 43: runko.v1.ChangeService.ListComments:output_type -> runko.v1.ListCommentsResponse
+	31, // 44: runko.v1.ChangeService.CreateComment:output_type -> runko.v1.CreateCommentResponse
+	32, // 45: runko.v1.ChangeService.ResolveComment:output_type -> runko.v1.ResolveCommentResponse
+	33, // 46: runko.v1.ChangeService.RequestReview:output_type -> runko.v1.RequestReviewResponse
+	33, // [33:47] is the sub-list for method output_type
+	19, // [19:33] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_runko_v1_changes_proto_init() }
@@ -1736,7 +2251,7 @@ func file_runko_v1_changes_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runko_v1_changes_proto_rawDesc), len(file_runko_v1_changes_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   24,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

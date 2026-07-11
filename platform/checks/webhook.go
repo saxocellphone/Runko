@@ -12,17 +12,19 @@ import (
 // Keep in sync by hand until codegen exists (same debt as project.Manifest,
 // see project/doc.go).
 type WebhookEnvelope struct {
-	SpecVersion    string           `json:"spec_version"`
-	DeliveryID     string           `json:"delivery_id"`
-	Type           string           `json:"type"`
-	OccurredAt     time.Time        `json:"occurred_at"`
-	OrgID          string           `json:"org_id"`
-	MonorepoID     string           `json:"monorepo_id"`
-	Change         WebhookChange    `json:"change"`
-	Affected       *WebhookAffected `json:"affected,omitempty"`
-	ChecksExpected []string         `json:"checks_expected,omitempty"`
-	Rerun          *WebhookRerun    `json:"rerun,omitempty"`
-	API            WebhookAPI       `json:"api"`
+	SpecVersion    string                `json:"spec_version"`
+	DeliveryID     string                `json:"delivery_id"`
+	Type           string                `json:"type"`
+	OccurredAt     time.Time             `json:"occurred_at"`
+	OrgID          string                `json:"org_id"`
+	MonorepoID     string                `json:"monorepo_id"`
+	Change         WebhookChange         `json:"change"`
+	Affected       *WebhookAffected      `json:"affected,omitempty"`
+	ChecksExpected []string              `json:"checks_expected,omitempty"`
+	Rerun          *WebhookRerun         `json:"rerun,omitempty"`
+	Comment        *WebhookComment       `json:"comment,omitempty"`
+	ReviewRequest  *WebhookReviewRequest `json:"review_request,omitempty"`
+	API            WebhookAPI            `json:"api"`
 }
 
 type WebhookChange struct {
@@ -58,6 +60,26 @@ type WebhookAffected struct {
 
 type WebhookRerun struct {
 	CheckName   string       `json:"check_name"`
+	RequestedBy WebhookActor `json:"requested_by"`
+}
+
+// WebhookComment is change.commented's payload object (§13.4.1). It carries
+// ids and the anchor, NEVER the body - consumers fetch bodies via the API so
+// CI logs don't accumulate review text (the schema's own rule).
+type WebhookComment struct {
+	ID       string       `json:"id"`
+	ParentID string       `json:"parent_id,omitempty"`
+	Path     string       `json:"path,omitempty"`
+	Side     string       `json:"side,omitempty"`
+	Line     int          `json:"line,omitempty"`
+	Resolved bool         `json:"resolved,omitempty"`
+	Author   WebhookActor `json:"author"`
+}
+
+// WebhookReviewRequest is change.review_requested's payload object
+// (§13.4.2); the reviewer enters the derived attention set.
+type WebhookReviewRequest struct {
+	Reviewer    WebhookActor `json:"reviewer"`
 	RequestedBy WebhookActor `json:"requested_by"`
 }
 

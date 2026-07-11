@@ -171,6 +171,202 @@ func (s *Server) approveChangeCore(ctx context.Context, key string, change Chang
 	return reqs, nil
 }
 
+// commentInput is commentChangeCore's request shape across both transports
+// (§13.4.1). Author is only honored from the anonymous deploy token - the
+// same v1 trust boundary approve's approved_by lives with; a named
+// principal always comments as itself.
+type commentInput struct {
+	Body     string
+	Path     string
+	Side     string
+	Line     int
+	ParentID string
+	Author   string
+}
+
+// commentChangeCore is POST .../comments' decision core (§13.4.1): principal
+// attribution (agents ALLOWED, unlike approve - review output is exactly
+// what agent principals are for, the badge rides AuthorIsAgent), anchor
+// validation, the one-level thread rule, the server-side head_sha stamp,
+// and the change.commented webhook.
+func (s *Server) commentChangeCore(ctx context.Context, key string, change Change, in commentInput, principal *Principal) (Comment, *apiError) {
+	if apiErr := requireOpenChange(key, change, "comment"); apiErr != nil {
+		return Comment{}, apiErr
+	}
+	author := in.Author
+	isAgent := false
+	if principal != nil {
+		if in.Author != "" && in.Author != principal.Name {
+			return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+				Code: "author_mismatch", Field: "author",
+				Message:    fmt.Sprintf("authenticated as %q but author says %q", principal.Name, in.Author),
+				Suggestion: "drop author - your token already says who you are",
+			})
+		}
+		author = principal.Name
+		isAgent = principal.IsAgent
+	}
+	if author == "" {
+		return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "missing_field", Field: "author",
+			Message:    "author is required",
+			Suggestion: `POST {"body": "...", "author": "<you>"} - or authenticate as a named principal`,
+		})
+	}
+	if strings.TrimSpace(in.Body) == "" {
+		return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "missing_field", Field: "body",
+			Message:    "a comment needs a body",
+			Suggestion: `POST {"body": "..."}`,
+		})
+	}
+
+	// Anchor validation (§13.4.1): change-level (no path), file-level (path
+	// only), or line-level (path+side+line). Fail loud on shapes the model
+	// doesn't have rather than storing something no view can render.
+	if in.Line < 0 {
+		return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "invalid_anchor", Field: "line", Message: "line must be positive",
+		})
+	}
+	if in.Line > 0 && in.Path == "" {
+		return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "invalid_anchor", Field: "path",
+			Message:    "a line anchor needs a path",
+			Suggestion: "pass path with line, or drop line for a change-level comment",
+		})
+	}
+	side := in.Side
+	switch {
+	case side != "" && side != "base" && side != "head":
+		return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "invalid_anchor", Field: "side",
+			Message:    fmt.Sprintf("side must be \"base\" or \"head\", got %q", side),
+			Suggestion: "head = the change's version of the file (the usual case), base = the version it started from",
+		})
+	case side != "" && in.Line == 0:
+		return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "invalid_anchor", Field: "side",
+			Message: "side only applies to a line anchor - pass line too",
+		})
+	case side == "" && in.Line > 0:
+		side = "head" // the diff side a reviewer nearly always means
+	}
+
+	if in.ParentID != "" {
+		parent, ok, err := s.Store.GetComment(ctx, key, in.ParentID)
+		if err != nil {
+			return Comment{}, internalErr(err)
+		}
+		if !ok {
+			return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+				Code: "parent_not_found", Field: "parent_id",
+				Message:    fmt.Sprintf("no comment %q on change %s", in.ParentID, key),
+				Suggestion: "list the change's comments to find the thread root's id",
+			})
+		}
+		if parent.ParentID != "" {
+			// One-level threads (§13.4.1, the GitHub model): the thread is
+			// the root plus its replies, never a tree.
+			return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+				Code: "thread_depth_exceeded", Field: "parent_id",
+				Message:    "threads are one level deep - reply to the thread root",
+				Suggestion: fmt.Sprintf("use parent_id %q", parent.ParentID),
+			})
+		}
+		if in.Path != "" || in.Line > 0 || in.Side != "" {
+			return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+				Code: "invalid_anchor", Field: "parent_id",
+				Message:    "replies inherit the thread root's anchor",
+				Suggestion: "drop path/line/side when replying",
+			})
+		}
+	}
+
+	comment, err := s.Store.CreateComment(ctx, key, Comment{
+		Author: author, AuthorIsAgent: isAgent,
+		Body: in.Body, Path: in.Path, Side: side, Line: in.Line,
+		HeadSHA:  change.HeadSHA, // the binding: an amend outdates this comment (§13.4.1)
+		ParentID: in.ParentID,
+	})
+	if err != nil {
+		return Comment{}, internalErr(err)
+	}
+	s.enqueueCommentWebhook(ctx, change, comment)
+	return comment, nil
+}
+
+// resolveCommentCore is POST .../comments/{id}/resolve's core (§13.4.1):
+// resolved lives on the thread root and may be flipped by the thread
+// author, the Change author, an owner of the anchored path, or an admin.
+// The anonymous deploy token may always resolve - the documented v1 eval
+// boundary, same as approve's client-asserted identity.
+func (s *Server) resolveCommentCore(ctx context.Context, key string, change Change, commentID string, resolved bool, principal *Principal) (Comment, *apiError) {
+	if apiErr := requireOpenChange(key, change, "resolve review threads"); apiErr != nil {
+		return Comment{}, apiErr
+	}
+	comment, ok, err := s.Store.GetComment(ctx, key, commentID)
+	if err != nil {
+		return Comment{}, internalErr(err)
+	}
+	if !ok {
+		return Comment{}, plainErr(http.StatusNotFound, "comment not found")
+	}
+	if comment.ParentID != "" {
+		return Comment{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "not_a_thread_root", Field: "comment_id",
+			Message:    "resolved lives on the thread root, not on replies",
+			Suggestion: fmt.Sprintf("resolve %q instead", comment.ParentID),
+		})
+	}
+	if principal != nil && !principal.Admin &&
+		principal.Name != comment.Author && principal.Name != change.AuthoredBy {
+		allowed, err := s.principalOwnsAnchor(ctx, change, comment.Path, principal.Name)
+		if err != nil {
+			return Comment{}, internalErr(err)
+		}
+		if !allowed {
+			return Comment{}, typedErr(http.StatusForbidden, clierr.Error{
+				Code: "resolve_denied", Field: "comment_id",
+				Message:    fmt.Sprintf("%q may not resolve this thread", principal.Name),
+				Suggestion: "the thread author, the change author, or an owner of the commented path can resolve it",
+			})
+		}
+	}
+	if err := s.Store.SetCommentResolved(ctx, key, commentID, resolved); err != nil {
+		return Comment{}, internalErr(err)
+	}
+	comment.Resolved = resolved
+	return comment, nil
+}
+
+// requestReviewCore is POST .../request-review's core (§13.4.2): records
+// the request (idempotent upsert) and emits change.review_requested; the
+// reviewer enters the DERIVED attention set by existing, nothing else is
+// stored.
+func (s *Server) requestReviewCore(ctx context.Context, key string, change Change, reviewer string, principal *Principal) (ReviewRequest, *apiError) {
+	if apiErr := requireOpenChange(key, change, "request review"); apiErr != nil {
+		return ReviewRequest{}, apiErr
+	}
+	reviewer = strings.TrimSpace(reviewer)
+	if reviewer == "" {
+		return ReviewRequest{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "missing_field", Field: "reviewer",
+			Message:    "reviewer is required",
+			Suggestion: `POST {"reviewer": "<principal or group:name>"}`,
+		})
+	}
+	requestedBy := ""
+	if principal != nil {
+		requestedBy = principal.Name
+	}
+	if err := s.Store.UpsertReviewRequest(ctx, key, reviewer, requestedBy); err != nil {
+		return ReviewRequest{}, internalErr(err)
+	}
+	s.enqueueReviewRequestWebhook(ctx, change, reviewer, requestedBy)
+	return ReviewRequest{Reviewer: reviewer, RequestedBy: requestedBy}, nil
+}
+
 // landDecision is landChangeCore's outcome across both transports: exactly
 // one of Landed / RequiresRevalidation / non-empty Conflicts /
 // RaceRetryExhausted holds. REST encodes the non-landed cases as 409

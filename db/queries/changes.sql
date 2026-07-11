@@ -98,11 +98,25 @@ JOIN projects p ON p.id = cap.project_id
 WHERE cap.change_affected_id = $1;
 
 -- name: CreateChangeComment :one
-INSERT INTO change_comments (change_id, author_actor_id, body, path, line)
-VALUES ($1, $2, $3, $4, $5) RETURNING *;
+INSERT INTO change_comments (change_id, author_actor_id, body, path, line, side, head_sha, parent_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *;
 
 -- name: ListChangeComments :many
 SELECT * FROM change_comments WHERE change_id = $1 ORDER BY created_at LIMIT $2 OFFSET $3;
+
+-- name: GetChangeComment :one
+SELECT * FROM change_comments WHERE id = $1 AND change_id = $2;
+
+-- name: ResolveChangeComment :execrows
+UPDATE change_comments SET resolved = $3 WHERE id = $1 AND change_id = $2;
+
+-- name: UpsertChangeReviewRequest :exec
+INSERT INTO change_review_requests (change_id, reviewer, requested_by)
+VALUES ($1, $2, $3)
+ON CONFLICT (change_id, reviewer) DO UPDATE SET requested_by = EXCLUDED.requested_by;
+
+-- name: ListChangeReviewRequests :many
+SELECT * FROM change_review_requests WHERE change_id = $1 ORDER BY reviewer;
 
 -- name: SetChangeOwnerRequirement :exec
 INSERT INTO change_owner_requirements (change_id, owner_ref, satisfied)

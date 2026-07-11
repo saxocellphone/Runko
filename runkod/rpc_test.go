@@ -646,3 +646,82 @@ func TestRPCListChangesPagination(t *testing.T) {
 		t.Fatalf("garbage token: want CodeInvalidArgument, got %v", err)
 	}
 }
+
+// TestRPCReviewConversation drives §13.4.1-13.4.2 over Connect - the same
+// cores the REST comment tests exercise, through the transport the web UI
+// (stage 16b) will use: create an anchored comment, reply, hit the
+// one-level rule as InvalidArgument with the structured detail, resolve
+// the root, request review, and read the attention set off
+// GetMergeRequirements.
+func TestRPCReviewConversation(t *testing.T) {
+	srv, _, changeID, _ := newApproveTestServer(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := runkov1connect.NewChangeServiceClient(srv.Client(), srv.URL, rpcAuth("sekret"))
+
+	root, err := client.CreateComment(ctx, connect.NewRequest(&runkov1.CreateCommentRequest{
+		ChangeId: changeID, Body: "nit: wrap this", Author: "reviewer",
+		Path: "commerce/checkout/main.go", Line: 1,
+	}))
+	if err != nil {
+		t.Fatalf("CreateComment: %v", err)
+	}
+	rc := root.Msg.GetComment()
+	if rc.GetHeadSha() == "" || rc.GetSide() != runkov1.CommentSide_COMMENT_SIDE_HEAD || rc.GetAuthor().GetId() != "reviewer" {
+		t.Fatalf("root comment missing server stamps: %+v", rc)
+	}
+
+	reply, err := client.CreateComment(ctx, connect.NewRequest(&runkov1.CreateCommentRequest{
+		ChangeId: changeID, Body: "done", Author: "author", ParentId: rc.GetId(),
+	}))
+	if err != nil {
+		t.Fatalf("CreateComment(reply): %v", err)
+	}
+
+	_, err = client.CreateComment(ctx, connect.NewRequest(&runkov1.CreateCommentRequest{
+		ChangeId: changeID, Body: "nested", Author: "x", ParentId: reply.Msg.GetComment().GetId(),
+	}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("reply-to-reply: want InvalidArgument, got %v", err)
+	}
+	if detail := errorDetail(t, err); detail.GetCode() != "thread_depth_exceeded" {
+		t.Fatalf("detail code: want thread_depth_exceeded, got %q", detail.GetCode())
+	}
+
+	resolved, err := client.ResolveComment(ctx, connect.NewRequest(&runkov1.ResolveCommentRequest{
+		ChangeId: changeID, CommentId: rc.GetId(), Resolved: true,
+	}))
+	if err != nil {
+		t.Fatalf("ResolveComment: %v", err)
+	}
+	if !resolved.Msg.GetComment().GetResolved() {
+		t.Fatalf("expected resolved root, got %+v", resolved.Msg.GetComment())
+	}
+
+	list, err := client.ListComments(ctx, connect.NewRequest(&runkov1.ListCommentsRequest{ChangeId: changeID}))
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if got := list.Msg.GetComments(); len(got) != 2 || !got[0].GetResolved() || got[1].GetParentId() != rc.GetId() {
+		t.Fatalf("expected [resolved root, threaded reply], got %+v", got)
+	}
+
+	if _, err := client.RequestReview(ctx, connect.NewRequest(&runkov1.RequestReviewRequest{
+		ChangeId: changeID, Reviewer: "fresh-eyes",
+	})); err != nil {
+		t.Fatalf("RequestReview: %v", err)
+	}
+	reqs, err := client.GetMergeRequirements(ctx, connect.NewRequest(&runkov1.GetMergeRequirementsRequest{ChangeId: changeID}))
+	if err != nil {
+		t.Fatalf("GetMergeRequirements: %v", err)
+	}
+	found := false
+	for _, name := range reqs.Msg.GetRequirements().GetAttentionSet() {
+		if name == "fresh-eyes" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected fresh-eyes in the attention set, got %v", reqs.Msg.GetRequirements().GetAttentionSet())
+	}
+}

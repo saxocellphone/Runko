@@ -66,6 +66,39 @@ type Approval struct {
 	HeadSHA string
 }
 
+// Comment is one review-conversation comment on a Change (§13.4.1, decided
+// 2026-07-10). The anchor is change-level (Path empty), file-level (Path
+// only), or line-level (Path+Side+Line). HeadSHA binds the comment to the
+// Change head it was written against, exactly like Approval.HeadSHA - a
+// comment whose HeadSHA differs from the current head renders as
+// "outdated", never repositioned ("" reads as outdated, fail closed).
+// ParentID non-empty makes this a reply; threads are one level deep (the
+// core enforces root-only parents). Resolved is meaningful on root
+// comments only.
+type Comment struct {
+	ID            string
+	Author        string
+	AuthorIsAgent bool
+	Body          string
+	Path          string
+	Side          string // "base" | "head" | "" (non-line anchor)
+	Line          int
+	HeadSHA       string
+	ParentID      string
+	Resolved      bool
+	CreatedAt     time.Time
+}
+
+// ReviewRequest is one recorded request_review (§13.4.2). Reviewer and
+// RequestedBy are principal names (§15.1 interim registry). The attention
+// set is DERIVED at read time from these rows + approvals + comments +
+// head_sha; nothing else is stored.
+type ReviewRequest struct {
+	Reviewer    string
+	RequestedBy string
+	CreatedAt   time.Time
+}
+
 // MirrorCursor is one (remote, ref) sync cursor (§18.6): what the mirror
 // last agreed with us about, and whether mirroring that ref is frozen.
 type MirrorCursor struct {
@@ -133,6 +166,27 @@ type Store interface {
 	// ListApprovals returns every recorded approval for changeKey, sorted by
 	// OwnerRef for deterministic output.
 	ListApprovals(ctx context.Context, changeKey string) ([]Approval, error)
+
+	// CreateComment records one review comment (§13.4.1). The caller
+	// (commentChangeCore) has already validated the anchor, the one-level
+	// thread rule, and stamped HeadSHA; the Store assigns ID and CreatedAt
+	// and returns the completed row.
+	CreateComment(ctx context.Context, changeKey string, c Comment) (Comment, error)
+	// ListComments returns changeKey's comments oldest-first. limit <= 0
+	// means unbounded (offset still applies) - the ListChangesPage
+	// convention.
+	ListComments(ctx context.Context, changeKey string, limit, offset int) ([]Comment, error)
+	GetComment(ctx context.Context, changeKey, commentID string) (Comment, bool, error)
+	// SetCommentResolved flips the resolved bit. The core has already
+	// checked the comment is a root and the principal may resolve it; a
+	// missing comment is an error here (the row must exist).
+	SetCommentResolved(ctx context.Context, changeKey, commentID string, resolved bool) error
+
+	// UpsertReviewRequest records a request_review (§13.4.2) - idempotent,
+	// latest requestedBy wins. ListReviewRequests returns them sorted by
+	// Reviewer for deterministic output.
+	UpsertReviewRequest(ctx context.Context, changeKey, reviewer, requestedBy string) error
+	ListReviewRequests(ctx context.Context, changeKey string) ([]ReviewRequest, error)
 
 	// UpsertCheckRun creates a check run for (changeKey, headSHA, name) if
 	// none exists yet, or updates status/conclusion in place otherwise -
@@ -210,6 +264,8 @@ type MemStore struct {
 	changes    map[string]Change
 	checkRuns  map[string]map[string]checks.CheckRunView // changeKey|headSHA -> name -> run
 	approvals  map[string]map[string]Approval            // changeKey -> ownerRef -> approval
+	comments   map[string][]Comment                      // changeKey -> comments, creation order
+	reviewReqs map[string]map[string]ReviewRequest       // changeKey -> reviewer -> request
 	workspaces map[string]Workspace
 	principals map[string]StoredPrincipal
 	deliveries map[string]*memDelivery
@@ -245,6 +301,8 @@ func NewMemStore() *MemStore {
 		changes:    make(map[string]Change),
 		checkRuns:  make(map[string]map[string]checks.CheckRunView),
 		approvals:  make(map[string]map[string]Approval),
+		comments:   make(map[string][]Comment),
+		reviewReqs: make(map[string]map[string]ReviewRequest),
 		workspaces: make(map[string]Workspace),
 		deliveries: make(map[string]*memDelivery),
 		mirrors:    make(map[string]MirrorCursor),
@@ -429,6 +487,92 @@ func (s *MemStore) ListApprovals(ctx context.Context, changeKey string) ([]Appro
 		out = append(out, a)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].OwnerRef < out[j].OwnerRef })
+	return out, nil
+}
+
+func (s *MemStore) CreateComment(ctx context.Context, changeKey string, c Comment) (Comment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.changes[changeKey]; !ok {
+		return Comment{}, fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	s.nextID++
+	c.ID = fmt.Sprintf("cmt_%d", s.nextID)
+	c.CreatedAt = s.now()
+	s.comments[changeKey] = append(s.comments[changeKey], c)
+	return c, nil
+}
+
+func (s *MemStore) ListComments(ctx context.Context, changeKey string, limit, offset int) ([]Comment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all := s.comments[changeKey]
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(all) {
+		return []Comment{}, nil
+	}
+	rest := all[offset:]
+	if limit > 0 && limit < len(rest) {
+		rest = rest[:limit]
+	}
+	out := make([]Comment, len(rest))
+	copy(out, rest)
+	return out, nil
+}
+
+func (s *MemStore) GetComment(ctx context.Context, changeKey, commentID string) (Comment, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.comments[changeKey] {
+		if c.ID == commentID {
+			return c, true, nil
+		}
+	}
+	return Comment{}, false, nil
+}
+
+func (s *MemStore) SetCommentResolved(ctx context.Context, changeKey, commentID string, resolved bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list := s.comments[changeKey]
+	for i := range list {
+		if list[i].ID == commentID {
+			list[i].Resolved = resolved
+			return nil
+		}
+	}
+	return fmt.Errorf("runkod: no such comment %q on change %q", commentID, changeKey)
+}
+
+func (s *MemStore) UpsertReviewRequest(ctx context.Context, changeKey, reviewer, requestedBy string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.changes[changeKey]; !ok {
+		return fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	if s.reviewReqs[changeKey] == nil {
+		s.reviewReqs[changeKey] = make(map[string]ReviewRequest)
+	}
+	existing, ok := s.reviewReqs[changeKey][reviewer]
+	created := s.now()
+	if ok {
+		created = existing.CreatedAt
+	}
+	s.reviewReqs[changeKey][reviewer] = ReviewRequest{Reviewer: reviewer, RequestedBy: requestedBy, CreatedAt: created}
+	return nil
+}
+
+func (s *MemStore) ListReviewRequests(ctx context.Context, changeKey string) ([]ReviewRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	byReviewer := s.reviewReqs[changeKey]
+	out := make([]ReviewRequest, 0, len(byReviewer))
+	for _, r := range byReviewer {
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Reviewer < out[j].Reviewer })
 	return out, nil
 }
 

@@ -350,6 +350,55 @@ func (ChangeState) EnumDescriptor() ([]byte, []int) {
 	return file_runko_v1_common_proto_rawDescGZIP(), []int{5}
 }
 
+type CommentSide int32
+
+const (
+	CommentSide_COMMENT_SIDE_UNSPECIFIED CommentSide = 0
+	CommentSide_COMMENT_SIDE_BASE        CommentSide = 1
+	CommentSide_COMMENT_SIDE_HEAD        CommentSide = 2
+)
+
+// Enum value maps for CommentSide.
+var (
+	CommentSide_name = map[int32]string{
+		0: "COMMENT_SIDE_UNSPECIFIED",
+		1: "COMMENT_SIDE_BASE",
+		2: "COMMENT_SIDE_HEAD",
+	}
+	CommentSide_value = map[string]int32{
+		"COMMENT_SIDE_UNSPECIFIED": 0,
+		"COMMENT_SIDE_BASE":        1,
+		"COMMENT_SIDE_HEAD":        2,
+	}
+)
+
+func (x CommentSide) Enum() *CommentSide {
+	p := new(CommentSide)
+	*p = x
+	return p
+}
+
+func (x CommentSide) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CommentSide) Descriptor() protoreflect.EnumDescriptor {
+	return file_runko_v1_common_proto_enumTypes[6].Descriptor()
+}
+
+func (CommentSide) Type() protoreflect.EnumType {
+	return &file_runko_v1_common_proto_enumTypes[6]
+}
+
+func (x CommentSide) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CommentSide.Descriptor instead.
+func (CommentSide) EnumDescriptor() ([]byte, []int) {
+	return file_runko_v1_common_proto_rawDescGZIP(), []int{6}
+}
+
 type WorkspaceStatus int32
 
 const (
@@ -386,11 +435,11 @@ func (x WorkspaceStatus) String() string {
 }
 
 func (WorkspaceStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_runko_v1_common_proto_enumTypes[6].Descriptor()
+	return file_runko_v1_common_proto_enumTypes[7].Descriptor()
 }
 
 func (WorkspaceStatus) Type() protoreflect.EnumType {
-	return &file_runko_v1_common_proto_enumTypes[6]
+	return &file_runko_v1_common_proto_enumTypes[7]
 }
 
 func (x WorkspaceStatus) Number() protoreflect.EnumNumber {
@@ -399,7 +448,7 @@ func (x WorkspaceStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use WorkspaceStatus.Descriptor instead.
 func (WorkspaceStatus) EnumDescriptor() ([]byte, []int) {
-	return file_runko_v1_common_proto_rawDescGZIP(), []int{6}
+	return file_runko_v1_common_proto_rawDescGZIP(), []int{7}
 }
 
 // ErrorDetail mirrors common.schema.json#/$defs/Error and internal/clierr
@@ -1109,12 +1158,16 @@ func (x *ChangeSummary) GetBaseOnTrunk() bool {
 // per-principal - a bot-lane token sees the gate IT will be held to
 // (owners waived, lane checks added), §14.10.2.
 type MergeRequirements struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ChangeId      string                 `protobuf:"bytes,1,opt,name=change_id,json=changeId,proto3" json:"change_id,omitempty"`
-	Owners        *OwnerGate             `protobuf:"bytes,2,opt,name=owners,proto3" json:"owners,omitempty"`
-	Checks        *CheckGate             `protobuf:"bytes,3,opt,name=checks,proto3" json:"checks,omitempty"`
-	Mergeable     bool                   `protobuf:"varint,4,opt,name=mergeable,proto3" json:"mergeable,omitempty"`
-	Blockers      []string               `protobuf:"bytes,5,rep,name=blockers,proto3" json:"blockers,omitempty"` // plain language, §6.6
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ChangeId  string                 `protobuf:"bytes,1,opt,name=change_id,json=changeId,proto3" json:"change_id,omitempty"`
+	Owners    *OwnerGate             `protobuf:"bytes,2,opt,name=owners,proto3" json:"owners,omitempty"`
+	Checks    *CheckGate             `protobuf:"bytes,3,opt,name=checks,proto3" json:"checks,omitempty"`
+	Mergeable bool                   `protobuf:"varint,4,opt,name=mergeable,proto3" json:"mergeable,omitempty"`
+	Blockers  []string               `protobuf:"bytes,5,rep,name=blockers,proto3" json:"blockers,omitempty"` // plain language, §6.6
+	// §13.4.2's derived "whose turn is it" (stage 16): requested reviewers
+	// and required owners who haven't responded at the current head, plus
+	// the author once any reviewer has. Empty on bot-lane views.
+	AttentionSet  []string `protobuf:"bytes,6,rep,name=attention_set,json=attentionSet,proto3" json:"attention_set,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1184,6 +1237,135 @@ func (x *MergeRequirements) GetBlockers() []string {
 	return nil
 }
 
+func (x *MergeRequirements) GetAttentionSet() []string {
+	if x != nil {
+		return x.AttentionSet
+	}
+	return nil
+}
+
+// Comment mirrors docs/spec/mcp-tools/common.schema.json#/$defs/ChangeComment
+// (§13.4.1, stage 16). The anchor is change-level (no path), file-level
+// (path only), or line-level (path+side+line); head_sha is the Change head
+// the comment was written against - differing from the current head means
+// "outdated", never repositioned. parent_id non-empty marks a reply;
+// threads are one level deep. resolved is meaningful on thread roots only.
+type Comment struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Author        *Actor                 `protobuf:"bytes,2,opt,name=author,proto3" json:"author,omitempty"`
+	Body          string                 `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // unix seconds
+	Path          string                 `protobuf:"bytes,5,opt,name=path,proto3" json:"path,omitempty"`
+	Side          CommentSide            `protobuf:"varint,6,opt,name=side,proto3,enum=runko.v1.CommentSide" json:"side,omitempty"`
+	Line          int32                  `protobuf:"varint,7,opt,name=line,proto3" json:"line,omitempty"`
+	HeadSha       string                 `protobuf:"bytes,8,opt,name=head_sha,json=headSha,proto3" json:"head_sha,omitempty"`
+	ParentId      string                 `protobuf:"bytes,9,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
+	Resolved      bool                   `protobuf:"varint,10,opt,name=resolved,proto3" json:"resolved,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Comment) Reset() {
+	*x = Comment{}
+	mi := &file_runko_v1_common_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Comment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Comment) ProtoMessage() {}
+
+func (x *Comment) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_common_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Comment.ProtoReflect.Descriptor instead.
+func (*Comment) Descriptor() ([]byte, []int) {
+	return file_runko_v1_common_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *Comment) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Comment) GetAuthor() *Actor {
+	if x != nil {
+		return x.Author
+	}
+	return nil
+}
+
+func (x *Comment) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+func (x *Comment) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+func (x *Comment) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *Comment) GetSide() CommentSide {
+	if x != nil {
+		return x.Side
+	}
+	return CommentSide_COMMENT_SIDE_UNSPECIFIED
+}
+
+func (x *Comment) GetLine() int32 {
+	if x != nil {
+		return x.Line
+	}
+	return 0
+}
+
+func (x *Comment) GetHeadSha() string {
+	if x != nil {
+		return x.HeadSha
+	}
+	return ""
+}
+
+func (x *Comment) GetParentId() string {
+	if x != nil {
+		return x.ParentId
+	}
+	return ""
+}
+
+func (x *Comment) GetResolved() bool {
+	if x != nil {
+		return x.Resolved
+	}
+	return false
+}
+
 type OwnerGate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Required      []string               `protobuf:"bytes,1,rep,name=required,proto3" json:"required,omitempty"`
@@ -1195,7 +1377,7 @@ type OwnerGate struct {
 
 func (x *OwnerGate) Reset() {
 	*x = OwnerGate{}
-	mi := &file_runko_v1_common_proto_msgTypes[9]
+	mi := &file_runko_v1_common_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1207,7 +1389,7 @@ func (x *OwnerGate) String() string {
 func (*OwnerGate) ProtoMessage() {}
 
 func (x *OwnerGate) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_common_proto_msgTypes[9]
+	mi := &file_runko_v1_common_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1220,7 +1402,7 @@ func (x *OwnerGate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OwnerGate.ProtoReflect.Descriptor instead.
 func (*OwnerGate) Descriptor() ([]byte, []int) {
-	return file_runko_v1_common_proto_rawDescGZIP(), []int{9}
+	return file_runko_v1_common_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *OwnerGate) GetRequired() []string {
@@ -1261,7 +1443,7 @@ type CheckGate struct {
 
 func (x *CheckGate) Reset() {
 	*x = CheckGate{}
-	mi := &file_runko_v1_common_proto_msgTypes[10]
+	mi := &file_runko_v1_common_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1455,7 @@ func (x *CheckGate) String() string {
 func (*CheckGate) ProtoMessage() {}
 
 func (x *CheckGate) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_common_proto_msgTypes[10]
+	mi := &file_runko_v1_common_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1468,7 @@ func (x *CheckGate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckGate.ProtoReflect.Descriptor instead.
 func (*CheckGate) Descriptor() ([]byte, []int) {
-	return file_runko_v1_common_proto_rawDescGZIP(), []int{10}
+	return file_runko_v1_common_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CheckGate) GetRequired() []string {
@@ -1348,7 +1530,7 @@ type WorkspaceSummary struct {
 
 func (x *WorkspaceSummary) Reset() {
 	*x = WorkspaceSummary{}
-	mi := &file_runko_v1_common_proto_msgTypes[11]
+	mi := &file_runko_v1_common_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1360,7 +1542,7 @@ func (x *WorkspaceSummary) String() string {
 func (*WorkspaceSummary) ProtoMessage() {}
 
 func (x *WorkspaceSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_common_proto_msgTypes[11]
+	mi := &file_runko_v1_common_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1373,7 +1555,7 @@ func (x *WorkspaceSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceSummary.ProtoReflect.Descriptor instead.
 func (*WorkspaceSummary) Descriptor() ([]byte, []int) {
-	return file_runko_v1_common_proto_rawDescGZIP(), []int{11}
+	return file_runko_v1_common_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *WorkspaceSummary) GetId() string {
@@ -1499,13 +1681,27 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\x10origin_workspace\x18\f \x01(\tR\x0foriginWorkspace\x12#\n" +
 	"\rorigin_branch\x18\r \x01(\tR\foriginBranch\x12#\n" +
 	"\rlanded_forced\x18\x0e \x01(\bR\flandedForced\x12\"\n" +
-	"\rbase_on_trunk\x18\x0f \x01(\bR\vbaseOnTrunk\"\xc4\x01\n" +
+	"\rbase_on_trunk\x18\x0f \x01(\bR\vbaseOnTrunk\"\xe9\x01\n" +
 	"\x11MergeRequirements\x12\x1b\n" +
 	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12+\n" +
 	"\x06owners\x18\x02 \x01(\v2\x13.runko.v1.OwnerGateR\x06owners\x12+\n" +
 	"\x06checks\x18\x03 \x01(\v2\x13.runko.v1.CheckGateR\x06checks\x12\x1c\n" +
 	"\tmergeable\x18\x04 \x01(\bR\tmergeable\x12\x1a\n" +
-	"\bblockers\x18\x05 \x03(\tR\bblockers\"g\n" +
+	"\bblockers\x18\x05 \x03(\tR\bblockers\x12#\n" +
+	"\rattention_set\x18\x06 \x03(\tR\fattentionSet\"\x9c\x02\n" +
+	"\aComment\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
+	"\x06author\x18\x02 \x01(\v2\x0f.runko.v1.ActorR\x06author\x12\x12\n" +
+	"\x04body\x18\x03 \x01(\tR\x04body\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\x03R\tcreatedAt\x12\x12\n" +
+	"\x04path\x18\x05 \x01(\tR\x04path\x12)\n" +
+	"\x04side\x18\x06 \x01(\x0e2\x15.runko.v1.CommentSideR\x04side\x12\x12\n" +
+	"\x04line\x18\a \x01(\x05R\x04line\x12\x19\n" +
+	"\bhead_sha\x18\b \x01(\tR\aheadSha\x12\x1b\n" +
+	"\tparent_id\x18\t \x01(\tR\bparentId\x12\x1a\n" +
+	"\bresolved\x18\n" +
+	" \x01(\bR\bresolved\"g\n" +
 	"\tOwnerGate\x12\x1a\n" +
 	"\brequired\x18\x01 \x03(\tR\brequired\x12\x1c\n" +
 	"\tsatisfied\x18\x02 \x03(\tR\tsatisfied\x12 \n" +
@@ -1560,7 +1756,11 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\x18CHANGE_STATE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11CHANGE_STATE_OPEN\x10\x01\x12\x17\n" +
 	"\x13CHANGE_STATE_LANDED\x10\x02\x12\x1a\n" +
-	"\x16CHANGE_STATE_ABANDONED\x10\x03*\x8c\x01\n" +
+	"\x16CHANGE_STATE_ABANDONED\x10\x03*Y\n" +
+	"\vCommentSide\x12\x1c\n" +
+	"\x18COMMENT_SIDE_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11COMMENT_SIDE_BASE\x10\x01\x12\x15\n" +
+	"\x11COMMENT_SIDE_HEAD\x10\x02*\x8c\x01\n" +
 	"\x0fWorkspaceStatus\x12 \n" +
 	"\x1cWORKSPACE_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17WORKSPACE_STATUS_ACTIVE\x10\x01\x12\x1d\n" +
@@ -1579,8 +1779,8 @@ func file_runko_v1_common_proto_rawDescGZIP() []byte {
 	return file_runko_v1_common_proto_rawDescData
 }
 
-var file_runko_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_runko_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_runko_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_runko_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_runko_v1_common_proto_goTypes = []any{
 	(ActorType)(0),              // 0: runko.v1.ActorType
 	(ProjectType)(0),            // 1: runko.v1.ProjectType
@@ -1588,41 +1788,45 @@ var file_runko_v1_common_proto_goTypes = []any{
 	(OwnersSource)(0),           // 3: runko.v1.OwnersSource
 	(ReasonCode)(0),             // 4: runko.v1.ReasonCode
 	(ChangeState)(0),            // 5: runko.v1.ChangeState
-	(WorkspaceStatus)(0),        // 6: runko.v1.WorkspaceStatus
-	(*ErrorDetail)(nil),         // 7: runko.v1.ErrorDetail
-	(*Actor)(nil),               // 8: runko.v1.Actor
-	(*ProjectSummary)(nil),      // 9: runko.v1.ProjectSummary
-	(*Dependencies)(nil),        // 10: runko.v1.Dependencies
-	(*ProjectDetail)(nil),       // 11: runko.v1.ProjectDetail
-	(*OwnersResult)(nil),        // 12: runko.v1.OwnersResult
-	(*AffectedComputation)(nil), // 13: runko.v1.AffectedComputation
-	(*ChangeSummary)(nil),       // 14: runko.v1.ChangeSummary
-	(*MergeRequirements)(nil),   // 15: runko.v1.MergeRequirements
-	(*OwnerGate)(nil),           // 16: runko.v1.OwnerGate
-	(*CheckGate)(nil),           // 17: runko.v1.CheckGate
-	(*WorkspaceSummary)(nil),    // 18: runko.v1.WorkspaceSummary
-	nil,                         // 19: runko.v1.CheckGate.DetailsUrlsEntry
+	(CommentSide)(0),            // 6: runko.v1.CommentSide
+	(WorkspaceStatus)(0),        // 7: runko.v1.WorkspaceStatus
+	(*ErrorDetail)(nil),         // 8: runko.v1.ErrorDetail
+	(*Actor)(nil),               // 9: runko.v1.Actor
+	(*ProjectSummary)(nil),      // 10: runko.v1.ProjectSummary
+	(*Dependencies)(nil),        // 11: runko.v1.Dependencies
+	(*ProjectDetail)(nil),       // 12: runko.v1.ProjectDetail
+	(*OwnersResult)(nil),        // 13: runko.v1.OwnersResult
+	(*AffectedComputation)(nil), // 14: runko.v1.AffectedComputation
+	(*ChangeSummary)(nil),       // 15: runko.v1.ChangeSummary
+	(*MergeRequirements)(nil),   // 16: runko.v1.MergeRequirements
+	(*Comment)(nil),             // 17: runko.v1.Comment
+	(*OwnerGate)(nil),           // 18: runko.v1.OwnerGate
+	(*CheckGate)(nil),           // 19: runko.v1.CheckGate
+	(*WorkspaceSummary)(nil),    // 20: runko.v1.WorkspaceSummary
+	nil,                         // 21: runko.v1.CheckGate.DetailsUrlsEntry
 }
 var file_runko_v1_common_proto_depIdxs = []int32{
 	0,  // 0: runko.v1.Actor.type:type_name -> runko.v1.ActorType
 	1,  // 1: runko.v1.ProjectSummary.type:type_name -> runko.v1.ProjectType
 	1,  // 2: runko.v1.ProjectDetail.type:type_name -> runko.v1.ProjectType
 	2,  // 3: runko.v1.ProjectDetail.visibility:type_name -> runko.v1.Visibility
-	10, // 4: runko.v1.ProjectDetail.dependencies:type_name -> runko.v1.Dependencies
+	11, // 4: runko.v1.ProjectDetail.dependencies:type_name -> runko.v1.Dependencies
 	3,  // 5: runko.v1.OwnersResult.source:type_name -> runko.v1.OwnersSource
-	9,  // 6: runko.v1.AffectedComputation.projects:type_name -> runko.v1.ProjectSummary
+	10, // 6: runko.v1.AffectedComputation.projects:type_name -> runko.v1.ProjectSummary
 	4,  // 7: runko.v1.AffectedComputation.reason_codes:type_name -> runko.v1.ReasonCode
 	5,  // 8: runko.v1.ChangeSummary.state:type_name -> runko.v1.ChangeState
-	8,  // 9: runko.v1.ChangeSummary.authored_by:type_name -> runko.v1.Actor
-	16, // 10: runko.v1.MergeRequirements.owners:type_name -> runko.v1.OwnerGate
-	17, // 11: runko.v1.MergeRequirements.checks:type_name -> runko.v1.CheckGate
-	19, // 12: runko.v1.CheckGate.details_urls:type_name -> runko.v1.CheckGate.DetailsUrlsEntry
-	6,  // 13: runko.v1.WorkspaceSummary.status:type_name -> runko.v1.WorkspaceStatus
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	9,  // 9: runko.v1.ChangeSummary.authored_by:type_name -> runko.v1.Actor
+	18, // 10: runko.v1.MergeRequirements.owners:type_name -> runko.v1.OwnerGate
+	19, // 11: runko.v1.MergeRequirements.checks:type_name -> runko.v1.CheckGate
+	9,  // 12: runko.v1.Comment.author:type_name -> runko.v1.Actor
+	6,  // 13: runko.v1.Comment.side:type_name -> runko.v1.CommentSide
+	21, // 14: runko.v1.CheckGate.details_urls:type_name -> runko.v1.CheckGate.DetailsUrlsEntry
+	7,  // 15: runko.v1.WorkspaceSummary.status:type_name -> runko.v1.WorkspaceStatus
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_runko_v1_common_proto_init() }
@@ -1635,8 +1839,8 @@ func file_runko_v1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runko_v1_common_proto_rawDesc), len(file_runko_v1_common_proto_rawDesc)),
-			NumEnums:      7,
-			NumMessages:   13,
+			NumEnums:      8,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

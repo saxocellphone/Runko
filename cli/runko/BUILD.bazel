@@ -8,6 +8,7 @@ go_library(
         "change.go",
         "changecreate.go",
         "changelist.go",
+        "comments.go",
         "doctor.go",
         "git.go",
         "httperr.go",

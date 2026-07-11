@@ -149,6 +149,18 @@ func (c *Client) MergeRequirements(ctx context.Context, changeID string) (json.R
 	return raw, nil
 }
 
+// ListChangeComments fetches GET /api/changes/{id}/comments (§13.4.1) -
+// like MergeRequirements, a passthrough: the daemon's {comments,
+// next_page_token} JSON is already the tool's output_schema shape.
+func (c *Client) ListChangeComments(ctx context.Context, changeID string, limit, offset int) (json.RawMessage, error) {
+	path := fmt.Sprintf("/api/changes/%s/comments?limit=%d&offset=%d", url.PathEscape(changeID), limit, offset)
+	var raw json.RawMessage
+	if err := c.get(ctx, path, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
 // Search runs a code search (GET /api/search?q=...&num=...). Hits arrive
 // already project-tagged by the daemon's longest-prefix rule.
 func (c *Client) Search(ctx context.Context, query string, num int) (search.Result, error) {

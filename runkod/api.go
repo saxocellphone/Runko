@@ -174,6 +174,11 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /api/changes/{key}/checks", s.requireAuth(s.handlePostCheck))
 	mux.HandleFunc("POST /api/changes/{key}/approve", s.requireAuth(s.handleApproveChange))
 	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
+	mux.HandleFunc("GET /api/changes/{key}/comments", s.requireReadAuth(s.handleListComments))
+	mux.HandleFunc("POST /api/changes/{key}/comments", s.requireAuth(s.handleCreateComment))
+	mux.HandleFunc("POST /api/changes/{key}/comments/{id}/resolve", s.requireAuth(s.handleResolveComment))
+	mux.HandleFunc("POST /api/changes/{key}/request-review", s.requireAuth(s.handleRequestReview))
+	mux.HandleFunc("GET /api/changes/{key}/review-requests", s.requireReadAuth(s.handleListReviewRequests))
 	mux.HandleFunc("GET /api/search", s.requireReadAuth(s.handleSearch))
 
 	mux.HandleFunc("GET /api/projects", s.requireReadAuth(s.handleListProjects))
@@ -894,6 +899,36 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 		req.Mergeable = false
 		req.Blockers = append(req.Blockers,
 			"no merge policy resolves for this change: its touched paths require no checks (no ci.checks, no org global checks) and no owner approvals - landing unpoliced changes is refused outside the eval profile (start runkod with --insecure-allow-unpoliced-land to override, or declare owners/ci.checks in PROJECT.yaml)")
+	}
+
+	// Review conversation (§13.4.1-13.4.2): the unresolved-threads blocker
+	// (org opt-in, default off) and the derived attention set - same
+	// runkod-side post-aggregation seam as the stacked-base and default-deny
+	// overrides above. Bot lanes skip both: a lane's gate is its own check
+	// set, and "whose turn is it" has no meaning for an automated lander.
+	if lane == nil {
+		comments, err := s.Store.ListComments(ctx, key, 0, 0)
+		if err != nil {
+			return checks.MergeRequirements{}, err
+		}
+		if s.requireResolvedThreads(ctx) {
+			unresolved := 0
+			for _, c := range comments {
+				if c.ParentID == "" && !c.Resolved {
+					unresolved++
+				}
+			}
+			if unresolved > 0 {
+				req.Mergeable = false
+				req.Blockers = append(req.Blockers, fmt.Sprintf(
+					"%d unresolved review thread(s) - resolve them (this org sets require_resolved_threads)", unresolved))
+			}
+		}
+		requests, err := s.Store.ListReviewRequests(ctx, key)
+		if err != nil {
+			return checks.MergeRequirements{}, err
+		}
+		req.AttentionSet = attentionSet(change, owners, requests, comments)
 	}
 	return req, nil
 }

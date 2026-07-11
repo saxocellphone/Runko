@@ -95,6 +95,10 @@ type OrgSettings struct {
 	// (restricted-read must hold at every surface or not at all, and
 	// anonymous fetch has no per-principal filtering until §12.3 Phase B).
 	PublicRead bool `json:"public_read,omitempty"`
+	// RequireResolvedThreads makes unresolved review threads a §13.5 merge
+	// blocker (§13.4.1, decided 2026-07-10). Default off - the ceremony
+	// budget (§2.3); GitHub defaults the same knob off for the same reason.
+	RequireResolvedThreads bool `json:"require_resolved_threads,omitempty"`
 }
 
 // OrgMembership is one (org, role) pair for a principal. Roles: "admin"

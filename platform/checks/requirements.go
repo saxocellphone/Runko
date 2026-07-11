@@ -37,6 +37,13 @@ type MergeRequirements struct {
 	// Blockers are plain-language, per §6.6 ("Your workspace is 12 commits
 	// behind trunk; 2 of your files conflict" is the model to follow).
 	Blockers []string
+
+	// AttentionSet is §13.4.2's derived "whose turn is it": requested
+	// reviewers and required owners who haven't responded at the current
+	// head, plus the author once any reviewer has. Populated by the caller
+	// (runkod derives it from its store); optional on the wire - omitted
+	// when nil so pre-stage-16 consumers see byte-identical output.
+	AttentionSet []string
 }
 
 // CheckSet pairs a policy with the project list its scope resolves to -
@@ -176,6 +183,8 @@ type mergeRequirementsWire struct {
 	} `json:"checks"`
 	Mergeable bool     `json:"mergeable"`
 	Blockers  []string `json:"blockers"`
+	// AttentionSet is optional in the schema (§13.4.2); omitted when nil.
+	AttentionSet []string `json:"attention_set,omitempty"`
 }
 
 // MarshalJSON renders MergeRequirements in the schema's nested shape (see
@@ -195,6 +204,7 @@ func (m MergeRequirements) MarshalJSON() ([]byte, error) {
 	}
 	w.Mergeable = m.Mergeable
 	w.Blockers = nonNilStrings(m.Blockers)
+	w.AttentionSet = m.AttentionSet
 	return json.Marshal(w)
 }
 
@@ -218,6 +228,7 @@ func (m *MergeRequirements) UnmarshalJSON(data []byte) error {
 		CheckDetailsURLs:  w.Checks.DetailsURLs,
 		Mergeable:         w.Mergeable,
 		Blockers:          w.Blockers,
+		AttentionSet:      w.AttentionSet,
 	}
 	return nil
 }

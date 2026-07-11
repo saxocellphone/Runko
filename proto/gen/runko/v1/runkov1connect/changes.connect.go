@@ -62,6 +62,18 @@ const (
 	// ChangeServiceRerunCheckProcedure is the fully-qualified name of the ChangeService's RerunCheck
 	// RPC.
 	ChangeServiceRerunCheckProcedure = "/runko.v1.ChangeService/RerunCheck"
+	// ChangeServiceListCommentsProcedure is the fully-qualified name of the ChangeService's
+	// ListComments RPC.
+	ChangeServiceListCommentsProcedure = "/runko.v1.ChangeService/ListComments"
+	// ChangeServiceCreateCommentProcedure is the fully-qualified name of the ChangeService's
+	// CreateComment RPC.
+	ChangeServiceCreateCommentProcedure = "/runko.v1.ChangeService/CreateComment"
+	// ChangeServiceResolveCommentProcedure is the fully-qualified name of the ChangeService's
+	// ResolveComment RPC.
+	ChangeServiceResolveCommentProcedure = "/runko.v1.ChangeService/ResolveComment"
+	// ChangeServiceRequestReviewProcedure is the fully-qualified name of the ChangeService's
+	// RequestReview RPC.
+	ChangeServiceRequestReviewProcedure = "/runko.v1.ChangeService/RequestReview"
 )
 
 // ChangeServiceClient is a client for the runko.v1.ChangeService service.
@@ -86,6 +98,13 @@ type ChangeServiceClient interface {
 	LandChange(context.Context, *connect.Request[v1.LandChangeRequest]) (*connect.Response[v1.LandChangeResponse], error)
 	AbandonChange(context.Context, *connect.Request[v1.AbandonChangeRequest]) (*connect.Response[v1.AbandonChangeResponse], error)
 	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error)
+	// Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
+	// head they were written against and outdate on amend; threads are one
+	// level deep; agents comment (badge via author.type), never approve.
+	ListComments(context.Context, *connect.Request[v1.ListCommentsRequest]) (*connect.Response[v1.ListCommentsResponse], error)
+	CreateComment(context.Context, *connect.Request[v1.CreateCommentRequest]) (*connect.Response[v1.CreateCommentResponse], error)
+	ResolveComment(context.Context, *connect.Request[v1.ResolveCommentRequest]) (*connect.Response[v1.ResolveCommentResponse], error)
+	RequestReview(context.Context, *connect.Request[v1.RequestReviewRequest]) (*connect.Response[v1.RequestReviewResponse], error)
 }
 
 // NewChangeServiceClient constructs a client for the runko.v1.ChangeService service. By default, it
@@ -159,6 +178,30 @@ func NewChangeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(changeServiceMethods.ByName("RerunCheck")),
 			connect.WithClientOptions(opts...),
 		),
+		listComments: connect.NewClient[v1.ListCommentsRequest, v1.ListCommentsResponse](
+			httpClient,
+			baseURL+ChangeServiceListCommentsProcedure,
+			connect.WithSchema(changeServiceMethods.ByName("ListComments")),
+			connect.WithClientOptions(opts...),
+		),
+		createComment: connect.NewClient[v1.CreateCommentRequest, v1.CreateCommentResponse](
+			httpClient,
+			baseURL+ChangeServiceCreateCommentProcedure,
+			connect.WithSchema(changeServiceMethods.ByName("CreateComment")),
+			connect.WithClientOptions(opts...),
+		),
+		resolveComment: connect.NewClient[v1.ResolveCommentRequest, v1.ResolveCommentResponse](
+			httpClient,
+			baseURL+ChangeServiceResolveCommentProcedure,
+			connect.WithSchema(changeServiceMethods.ByName("ResolveComment")),
+			connect.WithClientOptions(opts...),
+		),
+		requestReview: connect.NewClient[v1.RequestReviewRequest, v1.RequestReviewResponse](
+			httpClient,
+			baseURL+ChangeServiceRequestReviewProcedure,
+			connect.WithSchema(changeServiceMethods.ByName("RequestReview")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -174,6 +217,10 @@ type changeServiceClient struct {
 	landChange           *connect.Client[v1.LandChangeRequest, v1.LandChangeResponse]
 	abandonChange        *connect.Client[v1.AbandonChangeRequest, v1.AbandonChangeResponse]
 	rerunCheck           *connect.Client[v1.RerunCheckRequest, v1.RerunCheckResponse]
+	listComments         *connect.Client[v1.ListCommentsRequest, v1.ListCommentsResponse]
+	createComment        *connect.Client[v1.CreateCommentRequest, v1.CreateCommentResponse]
+	resolveComment       *connect.Client[v1.ResolveCommentRequest, v1.ResolveCommentResponse]
+	requestReview        *connect.Client[v1.RequestReviewRequest, v1.RequestReviewResponse]
 }
 
 // GetChange calls runko.v1.ChangeService.GetChange.
@@ -226,6 +273,26 @@ func (c *changeServiceClient) RerunCheck(ctx context.Context, req *connect.Reque
 	return c.rerunCheck.CallUnary(ctx, req)
 }
 
+// ListComments calls runko.v1.ChangeService.ListComments.
+func (c *changeServiceClient) ListComments(ctx context.Context, req *connect.Request[v1.ListCommentsRequest]) (*connect.Response[v1.ListCommentsResponse], error) {
+	return c.listComments.CallUnary(ctx, req)
+}
+
+// CreateComment calls runko.v1.ChangeService.CreateComment.
+func (c *changeServiceClient) CreateComment(ctx context.Context, req *connect.Request[v1.CreateCommentRequest]) (*connect.Response[v1.CreateCommentResponse], error) {
+	return c.createComment.CallUnary(ctx, req)
+}
+
+// ResolveComment calls runko.v1.ChangeService.ResolveComment.
+func (c *changeServiceClient) ResolveComment(ctx context.Context, req *connect.Request[v1.ResolveCommentRequest]) (*connect.Response[v1.ResolveCommentResponse], error) {
+	return c.resolveComment.CallUnary(ctx, req)
+}
+
+// RequestReview calls runko.v1.ChangeService.RequestReview.
+func (c *changeServiceClient) RequestReview(ctx context.Context, req *connect.Request[v1.RequestReviewRequest]) (*connect.Response[v1.RequestReviewResponse], error) {
+	return c.requestReview.CallUnary(ctx, req)
+}
+
 // ChangeServiceHandler is an implementation of the runko.v1.ChangeService service.
 type ChangeServiceHandler interface {
 	GetChange(context.Context, *connect.Request[v1.GetChangeRequest]) (*connect.Response[v1.GetChangeResponse], error)
@@ -248,6 +315,13 @@ type ChangeServiceHandler interface {
 	LandChange(context.Context, *connect.Request[v1.LandChangeRequest]) (*connect.Response[v1.LandChangeResponse], error)
 	AbandonChange(context.Context, *connect.Request[v1.AbandonChangeRequest]) (*connect.Response[v1.AbandonChangeResponse], error)
 	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error)
+	// Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
+	// head they were written against and outdate on amend; threads are one
+	// level deep; agents comment (badge via author.type), never approve.
+	ListComments(context.Context, *connect.Request[v1.ListCommentsRequest]) (*connect.Response[v1.ListCommentsResponse], error)
+	CreateComment(context.Context, *connect.Request[v1.CreateCommentRequest]) (*connect.Response[v1.CreateCommentResponse], error)
+	ResolveComment(context.Context, *connect.Request[v1.ResolveCommentRequest]) (*connect.Response[v1.ResolveCommentResponse], error)
+	RequestReview(context.Context, *connect.Request[v1.RequestReviewRequest]) (*connect.Response[v1.RequestReviewResponse], error)
 }
 
 // NewChangeServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -317,6 +391,30 @@ func NewChangeServiceHandler(svc ChangeServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(changeServiceMethods.ByName("RerunCheck")),
 		connect.WithHandlerOptions(opts...),
 	)
+	changeServiceListCommentsHandler := connect.NewUnaryHandler(
+		ChangeServiceListCommentsProcedure,
+		svc.ListComments,
+		connect.WithSchema(changeServiceMethods.ByName("ListComments")),
+		connect.WithHandlerOptions(opts...),
+	)
+	changeServiceCreateCommentHandler := connect.NewUnaryHandler(
+		ChangeServiceCreateCommentProcedure,
+		svc.CreateComment,
+		connect.WithSchema(changeServiceMethods.ByName("CreateComment")),
+		connect.WithHandlerOptions(opts...),
+	)
+	changeServiceResolveCommentHandler := connect.NewUnaryHandler(
+		ChangeServiceResolveCommentProcedure,
+		svc.ResolveComment,
+		connect.WithSchema(changeServiceMethods.ByName("ResolveComment")),
+		connect.WithHandlerOptions(opts...),
+	)
+	changeServiceRequestReviewHandler := connect.NewUnaryHandler(
+		ChangeServiceRequestReviewProcedure,
+		svc.RequestReview,
+		connect.WithSchema(changeServiceMethods.ByName("RequestReview")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/runko.v1.ChangeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ChangeServiceGetChangeProcedure:
@@ -339,6 +437,14 @@ func NewChangeServiceHandler(svc ChangeServiceHandler, opts ...connect.HandlerOp
 			changeServiceAbandonChangeHandler.ServeHTTP(w, r)
 		case ChangeServiceRerunCheckProcedure:
 			changeServiceRerunCheckHandler.ServeHTTP(w, r)
+		case ChangeServiceListCommentsProcedure:
+			changeServiceListCommentsHandler.ServeHTTP(w, r)
+		case ChangeServiceCreateCommentProcedure:
+			changeServiceCreateCommentHandler.ServeHTTP(w, r)
+		case ChangeServiceResolveCommentProcedure:
+			changeServiceResolveCommentHandler.ServeHTTP(w, r)
+		case ChangeServiceRequestReviewProcedure:
+			changeServiceRequestReviewHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -386,4 +492,20 @@ func (UnimplementedChangeServiceHandler) AbandonChange(context.Context, *connect
 
 func (UnimplementedChangeServiceHandler) RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.RerunCheck is not implemented"))
+}
+
+func (UnimplementedChangeServiceHandler) ListComments(context.Context, *connect.Request[v1.ListCommentsRequest]) (*connect.Response[v1.ListCommentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.ListComments is not implemented"))
+}
+
+func (UnimplementedChangeServiceHandler) CreateComment(context.Context, *connect.Request[v1.CreateCommentRequest]) (*connect.Response[v1.CreateCommentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.CreateComment is not implemented"))
+}
+
+func (UnimplementedChangeServiceHandler) ResolveComment(context.Context, *connect.Request[v1.ResolveCommentRequest]) (*connect.Response[v1.ResolveCommentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.ResolveComment is not implemented"))
+}
+
+func (UnimplementedChangeServiceHandler) RequestReview(context.Context, *connect.Request[v1.RequestReviewRequest]) (*connect.Response[v1.RequestReviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.RequestReview is not implemented"))
 }

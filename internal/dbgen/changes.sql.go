@@ -148,16 +148,19 @@ func (q *Queries) CreateChange(ctx context.Context, db DBTX, arg CreateChangePar
 }
 
 const createChangeComment = `-- name: CreateChangeComment :one
-INSERT INTO change_comments (change_id, author_actor_id, body, path, line)
-VALUES ($1, $2, $3, $4, $5) RETURNING id, change_id, author_actor_id, body, path, line, created_at
+INSERT INTO change_comments (change_id, author_actor_id, body, path, line, side, head_sha, parent_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, change_id, author_actor_id, body, path, line, created_at, head_sha, side, parent_id, resolved
 `
 
 type CreateChangeCommentParams struct {
-	ChangeID      uuid.UUID `json:"change_id"`
-	AuthorActorID uuid.UUID `json:"author_actor_id"`
-	Body          string    `json:"body"`
-	Path          *string   `json:"path"`
-	Line          *int32    `json:"line"`
+	ChangeID      uuid.UUID   `json:"change_id"`
+	AuthorActorID uuid.UUID   `json:"author_actor_id"`
+	Body          string      `json:"body"`
+	Path          *string     `json:"path"`
+	Line          *int32      `json:"line"`
+	Side          *string     `json:"side"`
+	HeadSha       *string     `json:"head_sha"`
+	ParentID      pgtype.UUID `json:"parent_id"`
 }
 
 func (q *Queries) CreateChangeComment(ctx context.Context, db DBTX, arg CreateChangeCommentParams) (*ChangeComment, error) {
@@ -167,6 +170,9 @@ func (q *Queries) CreateChangeComment(ctx context.Context, db DBTX, arg CreateCh
 		arg.Body,
 		arg.Path,
 		arg.Line,
+		arg.Side,
+		arg.HeadSha,
+		arg.ParentID,
 	)
 	var i ChangeComment
 	err := row.Scan(
@@ -177,6 +183,10 @@ func (q *Queries) CreateChangeComment(ctx context.Context, db DBTX, arg CreateCh
 		&i.Path,
 		&i.Line,
 		&i.CreatedAt,
+		&i.HeadSha,
+		&i.Side,
+		&i.ParentID,
+		&i.Resolved,
 	)
 	return &i, err
 }
@@ -274,6 +284,34 @@ func (q *Queries) GetChangeByKey(ctx context.Context, db DBTX, arg GetChangeByKe
 		&i.OriginWorkspace,
 		&i.OriginBranch,
 		&i.LandedForced,
+	)
+	return &i, err
+}
+
+const getChangeComment = `-- name: GetChangeComment :one
+SELECT id, change_id, author_actor_id, body, path, line, created_at, head_sha, side, parent_id, resolved FROM change_comments WHERE id = $1 AND change_id = $2
+`
+
+type GetChangeCommentParams struct {
+	ID       uuid.UUID `json:"id"`
+	ChangeID uuid.UUID `json:"change_id"`
+}
+
+func (q *Queries) GetChangeComment(ctx context.Context, db DBTX, arg GetChangeCommentParams) (*ChangeComment, error) {
+	row := db.QueryRow(ctx, getChangeComment, arg.ID, arg.ChangeID)
+	var i ChangeComment
+	err := row.Scan(
+		&i.ID,
+		&i.ChangeID,
+		&i.AuthorActorID,
+		&i.Body,
+		&i.Path,
+		&i.Line,
+		&i.CreatedAt,
+		&i.HeadSha,
+		&i.Side,
+		&i.ParentID,
+		&i.Resolved,
 	)
 	return &i, err
 }
@@ -503,7 +541,7 @@ func (q *Queries) ListChangeAssistedBy(ctx context.Context, db DBTX, changeID uu
 }
 
 const listChangeComments = `-- name: ListChangeComments :many
-SELECT id, change_id, author_actor_id, body, path, line, created_at FROM change_comments WHERE change_id = $1 ORDER BY created_at LIMIT $2 OFFSET $3
+SELECT id, change_id, author_actor_id, body, path, line, created_at, head_sha, side, parent_id, resolved FROM change_comments WHERE change_id = $1 ORDER BY created_at LIMIT $2 OFFSET $3
 `
 
 type ListChangeCommentsParams struct {
@@ -529,6 +567,10 @@ func (q *Queries) ListChangeComments(ctx context.Context, db DBTX, arg ListChang
 			&i.Path,
 			&i.Line,
 			&i.CreatedAt,
+			&i.HeadSha,
+			&i.Side,
+			&i.ParentID,
+			&i.Resolved,
 		); err != nil {
 			return nil, err
 		}
@@ -560,6 +602,35 @@ func (q *Queries) ListChangeOwnerRequirements(ctx context.Context, db DBTX, chan
 			&i.SatisfiedByActorID,
 			&i.SatisfiedAt,
 			&i.SatisfiedForHeadSha,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChangeReviewRequests = `-- name: ListChangeReviewRequests :many
+SELECT change_id, reviewer, requested_by, created_at FROM change_review_requests WHERE change_id = $1 ORDER BY reviewer
+`
+
+func (q *Queries) ListChangeReviewRequests(ctx context.Context, db DBTX, changeID uuid.UUID) ([]*ChangeReviewRequest, error) {
+	rows, err := db.Query(ctx, listChangeReviewRequests, changeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*ChangeReviewRequest
+	for rows.Next() {
+		var i ChangeReviewRequest
+		if err := rows.Scan(
+			&i.ChangeID,
+			&i.Reviewer,
+			&i.RequestedBy,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -739,6 +810,24 @@ func (q *Queries) ListOpenChanges(ctx context.Context, db DBTX, arg ListOpenChan
 		return nil, err
 	}
 	return items, nil
+}
+
+const resolveChangeComment = `-- name: ResolveChangeComment :execrows
+UPDATE change_comments SET resolved = $3 WHERE id = $1 AND change_id = $2
+`
+
+type ResolveChangeCommentParams struct {
+	ID       uuid.UUID `json:"id"`
+	ChangeID uuid.UUID `json:"change_id"`
+	Resolved bool      `json:"resolved"`
+}
+
+func (q *Queries) ResolveChangeComment(ctx context.Context, db DBTX, arg ResolveChangeCommentParams) (int64, error) {
+	result, err := db.Exec(ctx, resolveChangeComment, arg.ID, arg.ChangeID, arg.Resolved)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const satisfyChangeOwnerRequirement = `-- name: SatisfyChangeOwnerRequirement :exec
@@ -930,4 +1019,21 @@ func (q *Queries) UpsertChangeAffected(ctx context.Context, db DBTX, arg UpsertC
 		&i.ComputedAt,
 	)
 	return &i, err
+}
+
+const upsertChangeReviewRequest = `-- name: UpsertChangeReviewRequest :exec
+INSERT INTO change_review_requests (change_id, reviewer, requested_by)
+VALUES ($1, $2, $3)
+ON CONFLICT (change_id, reviewer) DO UPDATE SET requested_by = EXCLUDED.requested_by
+`
+
+type UpsertChangeReviewRequestParams struct {
+	ChangeID    uuid.UUID `json:"change_id"`
+	Reviewer    string    `json:"reviewer"`
+	RequestedBy string    `json:"requested_by"`
+}
+
+func (q *Queries) UpsertChangeReviewRequest(ctx context.Context, db DBTX, arg UpsertChangeReviewRequestParams) error {
+	_, err := db.Exec(ctx, upsertChangeReviewRequest, arg.ChangeID, arg.Reviewer, arg.RequestedBy)
+	return err
 }

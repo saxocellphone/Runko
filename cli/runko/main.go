@@ -110,7 +110,7 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace attach <id> --runkod-url <url> --token <t> [--branch <b>]   restore a workspace branch from its snapshot ref [--json]
   workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir .]                           fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
   workspace sync --runkod-url <url> --token <t> [--dir .]    sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
-  mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: six read-only tools (§8.3, §17.4)
+  mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)
 
   auth login --runkod-url <url> [--name <you>] [--token <t>]   store a credential; every command below then needs no flags
   auth status | auth logout                                   who am I / forget the credential
@@ -119,6 +119,10 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   org add-member --org <org> --name <account> [--role member|admin]   grant an account access [--json]
   change create -m <msg> [--dir .]                            commit WIP as one Change (with its Change-Id) [--json]
   change requirements [--change <Id>] [--dir .]               the §13.5 gates for a Change (default: HEAD's) [--json]
+  change comment --change <id> -m <text> [--file <p> --line <n> --side head|base] [--reply-to <id>]   anchored review comment (§13.4.1) [--json]
+  change comments [--change <Id>]                             list review threads - resolved/outdated marked (§13.4.1) [--json]
+  change resolve <comment-id> [--undo] [--change <Id>]        resolve/reopen a review thread (§13.4.1) [--json]
+  change request-review <who> [--change <Id>]                 ask a principal or group to review - enters the attention set (§13.4.2) [--json]
 
 exit codes: 0 success, 1 command failed, 2 usage error (docs/cli-contract.md)`)
 }
@@ -252,9 +256,9 @@ func cmdProjectList(args []string) error {
 }
 
 func cmdChange(args []string) error {
-	valid := map[string]bool{"create": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "rerun-check": true}
+	valid := map[string]bool{"create": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "rerun-check": true, "comment": true, "comments": true, "resolve": true, "request-review": true}
 	if len(args) < 1 || !valid[args[0]] {
-		return usageError("usage: runko change create|push|requirements|land|approve|list|abandon|rerun-check ... (see docs/cli-contract.md)")
+		return usageError("usage: runko change create|push|requirements|land|approve|list|abandon|rerun-check|comment|comments|resolve|request-review ... (see docs/cli-contract.md)")
 	}
 	switch args[0] {
 	case "create":
@@ -271,6 +275,14 @@ func cmdChange(args []string) error {
 		return cmdChangeAbandon(args[1:])
 	case "rerun-check":
 		return cmdChangeRerunCheck(args[1:])
+	case "comment":
+		return cmdChangeComment(args[1:])
+	case "comments":
+		return cmdChangeComments(args[1:])
+	case "resolve":
+		return cmdChangeResolve(args[1:])
+	case "request-review":
+		return cmdChangeRequestReview(args[1:])
 	}
 
 	fs := flag.NewFlagSet("change push", flag.ExitOnError)

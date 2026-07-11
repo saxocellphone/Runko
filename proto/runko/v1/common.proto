@@ -179,6 +179,35 @@ message MergeRequirements {
   CheckGate checks = 3;
   bool mergeable = 4;
   repeated string blockers = 5;  // plain language, §6.6
+  // §13.4.2's derived "whose turn is it" (stage 16): requested reviewers
+  // and required owners who haven't responded at the current head, plus
+  // the author once any reviewer has. Empty on bot-lane views.
+  repeated string attention_set = 6;
+}
+
+// Comment mirrors docs/spec/mcp-tools/common.schema.json#/$defs/ChangeComment
+// (§13.4.1, stage 16). The anchor is change-level (no path), file-level
+// (path only), or line-level (path+side+line); head_sha is the Change head
+// the comment was written against - differing from the current head means
+// "outdated", never repositioned. parent_id non-empty marks a reply;
+// threads are one level deep. resolved is meaningful on thread roots only.
+message Comment {
+  string id = 1;
+  Actor author = 2;
+  string body = 3;
+  int64 created_at = 4;  // unix seconds
+  string path = 5;
+  CommentSide side = 6;
+  int32 line = 7;
+  string head_sha = 8;
+  string parent_id = 9;
+  bool resolved = 10;
+}
+
+enum CommentSide {
+  COMMENT_SIDE_UNSPECIFIED = 0;
+  COMMENT_SIDE_BASE = 1;
+  COMMENT_SIDE_HEAD = 2;
 }
 
 message OwnerGate {

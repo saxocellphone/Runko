@@ -605,11 +605,11 @@
     {
       "name": "list_change_comments",
       "category": "change",
-      "description": "List review comments on a Change (§6.6).",
+      "description": "List review comments on a Change (§13.4.1): threads one level deep, anchored to the head_sha they were written against - a differing head means outdated, never repositioned.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
-      "status": "deferred-v1.x",
+      "status": "v1",
       "input_schema": {
         "type": "object",
         "required": ["change_id"],

@@ -223,6 +223,11 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Plain-language blockers per §6.6, e.g. 'workspace is 12 commits behind trunk'."
+        },
+        "attention_set": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "§13.4.2's derived 'whose turn is it' (added 2026-07-10, stage 16): requested reviewers and required owners who haven't approved or commented at the current head_sha, plus the author once any reviewer has responded to the current version. Entries are principal names or owner refs. Optional: absent on pre-stage-16 daemons and bot-lane views."
         }
       },
       "description": "Same structure surfaced to humans (Change page) and agents (get_merge_requirements) - §8.3, §13.4."

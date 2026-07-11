@@ -440,6 +440,79 @@ func (r *rpcServer) AbandonChange(ctx context.Context, req *connect.Request[runk
 	return connect.NewResponse(&runkov1.AbandonChangeResponse{Change: r.s.protoChange(change)}), nil
 }
 
+func (r *rpcServer) ListComments(ctx context.Context, req *connect.Request[runkov1.ListCommentsRequest]) (*connect.Response[runkov1.ListCommentsResponse], error) {
+	key := req.Msg.ChangeId
+	if _, err := r.getChange(ctx, key); err != nil {
+		return nil, err
+	}
+	limit := int(req.Msg.PageSize)
+	offset := 0
+	if req.Msg.PageToken != "" {
+		n, err := strconv.Atoi(req.Msg.PageToken)
+		if err != nil || n < 0 {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("page_token must be a non-negative integer offset"))
+		}
+		offset = n
+	}
+	comments, err := r.s.Store.ListComments(ctx, key, limit, offset)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	resp := &runkov1.ListCommentsResponse{}
+	for _, c := range comments {
+		resp.Comments = append(resp.Comments, protoComment(c))
+	}
+	if limit > 0 && len(comments) == limit {
+		resp.NextPageToken = strconv.Itoa(offset + limit)
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (r *rpcServer) CreateComment(ctx context.Context, req *connect.Request[runkov1.CreateCommentRequest]) (*connect.Response[runkov1.CreateCommentResponse], error) {
+	key := req.Msg.ChangeId
+	change, err := r.getChange(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	principal := r.s.principalForAuthHeader(req.Header().Get("Authorization"))
+	comment, apiErr := r.s.commentChangeCore(ctx, key, change, commentInput{
+		Body: req.Msg.Body, Path: req.Msg.Path, Side: commentSideString(req.Msg.Side),
+		Line: int(req.Msg.Line), ParentID: req.Msg.ParentId, Author: req.Msg.Author,
+	}, principal)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	return connect.NewResponse(&runkov1.CreateCommentResponse{Comment: protoComment(comment)}), nil
+}
+
+func (r *rpcServer) ResolveComment(ctx context.Context, req *connect.Request[runkov1.ResolveCommentRequest]) (*connect.Response[runkov1.ResolveCommentResponse], error) {
+	key := req.Msg.ChangeId
+	change, err := r.getChange(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	principal := r.s.principalForAuthHeader(req.Header().Get("Authorization"))
+	comment, apiErr := r.s.resolveCommentCore(ctx, key, change, req.Msg.CommentId, req.Msg.Resolved, principal)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	return connect.NewResponse(&runkov1.ResolveCommentResponse{Comment: protoComment(comment)}), nil
+}
+
+func (r *rpcServer) RequestReview(ctx context.Context, req *connect.Request[runkov1.RequestReviewRequest]) (*connect.Response[runkov1.RequestReviewResponse], error) {
+	key := req.Msg.ChangeId
+	change, err := r.getChange(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	principal := r.s.principalForAuthHeader(req.Header().Get("Authorization"))
+	rr, apiErr := r.s.requestReviewCore(ctx, key, change, req.Msg.Reviewer, principal)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	return connect.NewResponse(&runkov1.RequestReviewResponse{Reviewer: rr.Reviewer, RequestedBy: rr.RequestedBy}), nil
+}
+
 func (r *rpcServer) RerunCheck(ctx context.Context, req *connect.Request[runkov1.RerunCheckRequest]) (*connect.Response[runkov1.RerunCheckResponse], error) {
 	key := req.Msg.ChangeId
 	change, err := r.getChange(ctx, key)
@@ -935,8 +1008,46 @@ func protoMergeRequirements(m checks.MergeRequirements) *runkov1.MergeRequiremen
 			Pending:     m.PendingChecks,
 			DetailsUrls: m.CheckDetailsURLs,
 		},
-		Mergeable: m.Mergeable,
-		Blockers:  m.Blockers,
+		Mergeable:    m.Mergeable,
+		Blockers:     m.Blockers,
+		AttentionSet: m.AttentionSet,
+	}
+}
+
+// protoComment mirrors review.go's commentToWire onto the proto shape - the
+// one ChangeComment contract in a third encoding (§17.4's single-contract
+// rule).
+func protoComment(c Comment) *runkov1.Comment {
+	author := &runkov1.Actor{Type: runkov1.ActorType_ACTOR_TYPE_USER, Id: c.Author}
+	if c.AuthorIsAgent {
+		author.Type = runkov1.ActorType_ACTOR_TYPE_AGENT
+	}
+	side := runkov1.CommentSide_COMMENT_SIDE_UNSPECIFIED
+	switch c.Side {
+	case "base":
+		side = runkov1.CommentSide_COMMENT_SIDE_BASE
+	case "head":
+		side = runkov1.CommentSide_COMMENT_SIDE_HEAD
+	}
+	var created int64
+	if !c.CreatedAt.IsZero() {
+		created = c.CreatedAt.Unix()
+	}
+	return &runkov1.Comment{
+		Id: c.ID, Author: author, Body: c.Body, CreatedAt: created,
+		Path: c.Path, Side: side, Line: int32(c.Line),
+		HeadSha: c.HeadSHA, ParentId: c.ParentID, Resolved: c.Resolved,
+	}
+}
+
+func commentSideString(s runkov1.CommentSide) string {
+	switch s {
+	case runkov1.CommentSide_COMMENT_SIDE_BASE:
+		return "base"
+	case runkov1.CommentSide_COMMENT_SIDE_HEAD:
+		return "head"
+	default:
+		return ""
 	}
 }
 

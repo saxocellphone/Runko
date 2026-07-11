@@ -22,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file runko/v1/common.proto.
  */
 export const file_runko_v1_common: GenFile = /*@__PURE__*/
-  fileDesc("ChVydW5rby92MS9jb21tb24ucHJvdG8SCHJ1bmtvLnYxInMKC0Vycm9yRGV0YWlsEgwKBGNvZGUYASABKAkSDQoFZmllbGQYAiABKAkSDwoHbWVzc2FnZRgDIAEoCRISCgpzdWdnZXN0aW9uGAQgASgJEg8KB2RvY191cmwYBSABKAkSEQoJcmV0cnlhYmxlGAYgASgIIkwKBUFjdG9yEiEKBHR5cGUYASABKA4yEy5ydW5rby52MS5BY3RvclR5cGUSCgoCaWQYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJInUKDlByb2plY3RTdW1tYXJ5EgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSIwoEdHlwZRgDIAEoDjIVLnJ1bmtvLnYxLlByb2plY3RUeXBlEgwKBHBhdGgYBCABKAkSFgoOb3duZXJzX3N1bW1hcnkYBSADKAkiMgoMRGVwZW5kZW5jaWVzEhAKCGRlY2xhcmVkGAEgAygJEhAKCGluZmVycmVkGAIgAygJIvkBCg1Qcm9qZWN0RGV0YWlsEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSIwoEdHlwZRgDIAEoDjIVLnJ1bmtvLnYxLlByb2plY3RUeXBlEgwKBHBhdGgYBCABKAkSEwoLdGVtcGxhdGVfaWQYBSABKAkSKAoKdmlzaWJpbGl0eRgGIAEoDjIULnJ1bmtvLnYxLlZpc2liaWxpdHkSGAoQZWZmZWN0aXZlX293bmVycxgHIAMoCRIUCgxjYXBhYmlsaXRpZXMYCCADKAkSLAoMZGVwZW5kZW5jaWVzGAkgASgLMhYucnVua28udjEuRGVwZW5kZW5jaWVzIkYKDE93bmVyc1Jlc3VsdBIOCgZvd25lcnMYASADKAkSJgoGc291cmNlGAIgASgOMhYucnVua28udjEuT3duZXJzU291cmNlIqwBChNBZmZlY3RlZENvbXB1dGF0aW9uEhYKDmNvbXB1dGF0aW9uX2lkGAEgASgJEioKCHByb2plY3RzGAIgAygLMhgucnVua28udjEuUHJvamVjdFN1bW1hcnkSDQoFcGF0aHMYAyADKAkSKgoMcmVhc29uX2NvZGVzGAQgAygOMhQucnVua28udjEuUmVhc29uQ29kZRIWCg5ydW5fZXZlcnl0aGluZxgFIAEoCCLQAgoNQ2hhbmdlU3VtbWFyeRIKCgJpZBgBIAEoCRIkCgVzdGF0ZRgCIAEoDjIVLnJ1bmtvLnYxLkNoYW5nZVN0YXRlEhAKCGJhc2Vfc2hhGAMgASgJEhAKCGhlYWRfc2hhGAQgASgJEg8KB2dpdF9yZWYYBSABKAkSDQoFdGl0bGUYBiABKAkSEgoKbGFuZGVkX3NoYRgHIAEoCRITCgtkZXNjcmlwdGlvbhgIIAEoCRIkCgthdXRob3JlZF9ieRgJIAEoCzIPLnJ1bmtvLnYxLkFjdG9yEg4KBm51bWJlchgKIAEoAxILCgN1cmwYCyABKAkSGAoQb3JpZ2luX3dvcmtzcGFjZRgMIAEoCRIVCg1vcmlnaW5fYnJhbmNoGA0gASgJEhUKDWxhbmRlZF9mb3JjZWQYDiABKAgSFQoNYmFzZV9vbl90cnVuaxgPIAEoCCKVAQoRTWVyZ2VSZXF1aXJlbWVudHMSEQoJY2hhbmdlX2lkGAEgASgJEiMKBm93bmVycxgCIAEoCzITLnJ1bmtvLnYxLk93bmVyR2F0ZRIjCgZjaGVja3MYAyABKAsyEy5ydW5rby52MS5DaGVja0dhdGUSEQoJbWVyZ2VhYmxlGAQgASgIEhAKCGJsb2NrZXJzGAUgAygJIkUKCU93bmVyR2F0ZRIQCghyZXF1aXJlZBgBIAMoCRIRCglzYXRpc2ZpZWQYAiADKAkSEwoLb3V0c3RhbmRpbmcYAyADKAkiwAEKCUNoZWNrR2F0ZRIQCghyZXF1aXJlZBgBIAMoCRIPCgdwYXNzaW5nGAIgAygJEg8KB2ZhaWxpbmcYAyADKAkSDwoHcGVuZGluZxgEIAMoCRI6CgxkZXRhaWxzX3VybHMYBSADKAsyJC5ydW5rby52MS5DaGVja0dhdGUuRGV0YWlsc1VybHNFbnRyeRoyChBEZXRhaWxzVXJsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiygEKEFdvcmtzcGFjZVN1bW1hcnkSCgoCaWQYASABKAkSDQoFb3duZXIYAiABKAkSFQoNYmFzZV9yZXZpc2lvbhgDIAEoCRIYChBwcm9qZWN0X2FmZmluaXR5GAQgAygJEhcKD3dyaXRlX2FsbG93bGlzdBgFIAMoCRIUCgxzbmFwc2hvdF9yZWYYBiABKAkSKQoGc3RhdHVzGAcgASgOMhkucnVua28udjEuV29ya3NwYWNlU3RhdHVzEhAKCGJyYW5jaGVzGAggAygJKmgKCUFjdG9yVHlwZRIaChZBQ1RPUl9UWVBFX1VOU1BFQ0lGSUVEEAASEwoPQUNUT1JfVFlQRV9VU0VSEAESFAoQQUNUT1JfVFlQRV9BR0VOVBACEhQKEEFDVE9SX1RZUEVfR1JPVVAQAyqjAQoLUHJvamVjdFR5cGUSHAoYUFJPSkVDVF9UWVBFX1VOU1BFQ0lGSUVEEAASGAoUUFJPSkVDVF9UWVBFX0xJQlJBUlkQARIYChRQUk9KRUNUX1RZUEVfU0VSVklDRRACEhQKEFBST0pFQ1RfVFlQRV9BUFAQAxIUChBQUk9KRUNUX1RZUEVfSk9CEAQSFgoSUFJPSkVDVF9UWVBFX09USEVSEAUqWwoKVmlzaWJpbGl0eRIaChZWSVNJQklMSVRZX1VOU1BFQ0lGSUVEEAASFgoSVklTSUJJTElUWV9ERUZBVUxUEAESGQoVVklTSUJJTElUWV9SRVNUUklDVEVEEAIqjwEKDE93bmVyc1NvdXJjZRIdChlPV05FUlNfU09VUkNFX1VOU1BFQ0lGSUVEEAASIgoeT1dORVJTX1NPVVJDRV9QUk9KRUNUX01BTklGRVNUEAESHQoZT1dORVJTX1NPVVJDRV9QQVRIX09XTkVSUxACEh0KGU9XTkVSU19TT1VSQ0VfT1JHX0RFRkFVTFQQAyqFAQoKUmVhc29uQ29kZRIbChdSRUFTT05fQ09ERV9VTlNQRUNJRklFRBAAEhsKF1JFQVNPTl9DT0RFX0RJUkVDVF9QQVRIEAESGgoWUkVBU09OX0NPREVfREVQRU5EU19PThACEiEKHVJFQVNPTl9DT0RFX1JPT1RfSU5WQUxJREFUSU9OEAMqdwoLQ2hhbmdlU3RhdGUSHAoYQ0hBTkdFX1NUQVRFX1VOU1BFQ0lGSUVEEAASFQoRQ0hBTkdFX1NUQVRFX09QRU4QARIXChNDSEFOR0VfU1RBVEVfTEFOREVEEAISGgoWQ0hBTkdFX1NUQVRFX0FCQU5ET05FRBADKowBCg9Xb3Jrc3BhY2VTdGF0dXMSIAocV09SS1NQQUNFX1NUQVRVU19VTlNQRUNJRklFRBAAEhsKF1dPUktTUEFDRV9TVEFUVVNfQUNUSVZFEAESHQoZV09SS1NQQUNFX1NUQVRVU19ERVRBQ0hFRBACEhsKF1dPUktTUEFDRV9TVEFUVVNfQ0xPU0VEEANCO1o5Z2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3Byb3RvL2dlbi9ydW5rby92MTtydW5rb3YxYgZwcm90bzM");
+  fileDesc("ChVydW5rby92MS9jb21tb24ucHJvdG8SCHJ1bmtvLnYxInMKC0Vycm9yRGV0YWlsEgwKBGNvZGUYASABKAkSDQoFZmllbGQYAiABKAkSDwoHbWVzc2FnZRgDIAEoCRISCgpzdWdnZXN0aW9uGAQgASgJEg8KB2RvY191cmwYBSABKAkSEQoJcmV0cnlhYmxlGAYgASgIIkwKBUFjdG9yEiEKBHR5cGUYASABKA4yEy5ydW5rby52MS5BY3RvclR5cGUSCgoCaWQYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJInUKDlByb2plY3RTdW1tYXJ5EgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSIwoEdHlwZRgDIAEoDjIVLnJ1bmtvLnYxLlByb2plY3RUeXBlEgwKBHBhdGgYBCABKAkSFgoOb3duZXJzX3N1bW1hcnkYBSADKAkiMgoMRGVwZW5kZW5jaWVzEhAKCGRlY2xhcmVkGAEgAygJEhAKCGluZmVycmVkGAIgAygJIvkBCg1Qcm9qZWN0RGV0YWlsEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSIwoEdHlwZRgDIAEoDjIVLnJ1bmtvLnYxLlByb2plY3RUeXBlEgwKBHBhdGgYBCABKAkSEwoLdGVtcGxhdGVfaWQYBSABKAkSKAoKdmlzaWJpbGl0eRgGIAEoDjIULnJ1bmtvLnYxLlZpc2liaWxpdHkSGAoQZWZmZWN0aXZlX293bmVycxgHIAMoCRIUCgxjYXBhYmlsaXRpZXMYCCADKAkSLAoMZGVwZW5kZW5jaWVzGAkgASgLMhYucnVua28udjEuRGVwZW5kZW5jaWVzIkYKDE93bmVyc1Jlc3VsdBIOCgZvd25lcnMYASADKAkSJgoGc291cmNlGAIgASgOMhYucnVua28udjEuT3duZXJzU291cmNlIqwBChNBZmZlY3RlZENvbXB1dGF0aW9uEhYKDmNvbXB1dGF0aW9uX2lkGAEgASgJEioKCHByb2plY3RzGAIgAygLMhgucnVua28udjEuUHJvamVjdFN1bW1hcnkSDQoFcGF0aHMYAyADKAkSKgoMcmVhc29uX2NvZGVzGAQgAygOMhQucnVua28udjEuUmVhc29uQ29kZRIWCg5ydW5fZXZlcnl0aGluZxgFIAEoCCLQAgoNQ2hhbmdlU3VtbWFyeRIKCgJpZBgBIAEoCRIkCgVzdGF0ZRgCIAEoDjIVLnJ1bmtvLnYxLkNoYW5nZVN0YXRlEhAKCGJhc2Vfc2hhGAMgASgJEhAKCGhlYWRfc2hhGAQgASgJEg8KB2dpdF9yZWYYBSABKAkSDQoFdGl0bGUYBiABKAkSEgoKbGFuZGVkX3NoYRgHIAEoCRITCgtkZXNjcmlwdGlvbhgIIAEoCRIkCgthdXRob3JlZF9ieRgJIAEoCzIPLnJ1bmtvLnYxLkFjdG9yEg4KBm51bWJlchgKIAEoAxILCgN1cmwYCyABKAkSGAoQb3JpZ2luX3dvcmtzcGFjZRgMIAEoCRIVCg1vcmlnaW5fYnJhbmNoGA0gASgJEhUKDWxhbmRlZF9mb3JjZWQYDiABKAgSFQoNYmFzZV9vbl90cnVuaxgPIAEoCCKsAQoRTWVyZ2VSZXF1aXJlbWVudHMSEQoJY2hhbmdlX2lkGAEgASgJEiMKBm93bmVycxgCIAEoCzITLnJ1bmtvLnYxLk93bmVyR2F0ZRIjCgZjaGVja3MYAyABKAsyEy5ydW5rby52MS5DaGVja0dhdGUSEQoJbWVyZ2VhYmxlGAQgASgIEhAKCGJsb2NrZXJzGAUgAygJEhUKDWF0dGVudGlvbl9zZXQYBiADKAki0AEKB0NvbW1lbnQSCgoCaWQYASABKAkSHwoGYXV0aG9yGAIgASgLMg8ucnVua28udjEuQWN0b3ISDAoEYm9keRgDIAEoCRISCgpjcmVhdGVkX2F0GAQgASgDEgwKBHBhdGgYBSABKAkSIwoEc2lkZRgGIAEoDjIVLnJ1bmtvLnYxLkNvbW1lbnRTaWRlEgwKBGxpbmUYByABKAUSEAoIaGVhZF9zaGEYCCABKAkSEQoJcGFyZW50X2lkGAkgASgJEhAKCHJlc29sdmVkGAogASgIIkUKCU93bmVyR2F0ZRIQCghyZXF1aXJlZBgBIAMoCRIRCglzYXRpc2ZpZWQYAiADKAkSEwoLb3V0c3RhbmRpbmcYAyADKAkiwAEKCUNoZWNrR2F0ZRIQCghyZXF1aXJlZBgBIAMoCRIPCgdwYXNzaW5nGAIgAygJEg8KB2ZhaWxpbmcYAyADKAkSDwoHcGVuZGluZxgEIAMoCRI6CgxkZXRhaWxzX3VybHMYBSADKAsyJC5ydW5rby52MS5DaGVja0dhdGUuRGV0YWlsc1VybHNFbnRyeRoyChBEZXRhaWxzVXJsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiygEKEFdvcmtzcGFjZVN1bW1hcnkSCgoCaWQYASABKAkSDQoFb3duZXIYAiABKAkSFQoNYmFzZV9yZXZpc2lvbhgDIAEoCRIYChBwcm9qZWN0X2FmZmluaXR5GAQgAygJEhcKD3dyaXRlX2FsbG93bGlzdBgFIAMoCRIUCgxzbmFwc2hvdF9yZWYYBiABKAkSKQoGc3RhdHVzGAcgASgOMhkucnVua28udjEuV29ya3NwYWNlU3RhdHVzEhAKCGJyYW5jaGVzGAggAygJKmgKCUFjdG9yVHlwZRIaChZBQ1RPUl9UWVBFX1VOU1BFQ0lGSUVEEAASEwoPQUNUT1JfVFlQRV9VU0VSEAESFAoQQUNUT1JfVFlQRV9BR0VOVBACEhQKEEFDVE9SX1RZUEVfR1JPVVAQAyqjAQoLUHJvamVjdFR5cGUSHAoYUFJPSkVDVF9UWVBFX1VOU1BFQ0lGSUVEEAASGAoUUFJPSkVDVF9UWVBFX0xJQlJBUlkQARIYChRQUk9KRUNUX1RZUEVfU0VSVklDRRACEhQKEFBST0pFQ1RfVFlQRV9BUFAQAxIUChBQUk9KRUNUX1RZUEVfSk9CEAQSFgoSUFJPSkVDVF9UWVBFX09USEVSEAUqWwoKVmlzaWJpbGl0eRIaChZWSVNJQklMSVRZX1VOU1BFQ0lGSUVEEAASFgoSVklTSUJJTElUWV9ERUZBVUxUEAESGQoVVklTSUJJTElUWV9SRVNUUklDVEVEEAIqjwEKDE93bmVyc1NvdXJjZRIdChlPV05FUlNfU09VUkNFX1VOU1BFQ0lGSUVEEAASIgoeT1dORVJTX1NPVVJDRV9QUk9KRUNUX01BTklGRVNUEAESHQoZT1dORVJTX1NPVVJDRV9QQVRIX09XTkVSUxACEh0KGU9XTkVSU19TT1VSQ0VfT1JHX0RFRkFVTFQQAyqFAQoKUmVhc29uQ29kZRIbChdSRUFTT05fQ09ERV9VTlNQRUNJRklFRBAAEhsKF1JFQVNPTl9DT0RFX0RJUkVDVF9QQVRIEAESGgoWUkVBU09OX0NPREVfREVQRU5EU19PThACEiEKHVJFQVNPTl9DT0RFX1JPT1RfSU5WQUxJREFUSU9OEAMqdwoLQ2hhbmdlU3RhdGUSHAoYQ0hBTkdFX1NUQVRFX1VOU1BFQ0lGSUVEEAASFQoRQ0hBTkdFX1NUQVRFX09QRU4QARIXChNDSEFOR0VfU1RBVEVfTEFOREVEEAISGgoWQ0hBTkdFX1NUQVRFX0FCQU5ET05FRBADKlkKC0NvbW1lbnRTaWRlEhwKGENPTU1FTlRfU0lERV9VTlNQRUNJRklFRBAAEhUKEUNPTU1FTlRfU0lERV9CQVNFEAESFQoRQ09NTUVOVF9TSURFX0hFQUQQAiqMAQoPV29ya3NwYWNlU3RhdHVzEiAKHFdPUktTUEFDRV9TVEFUVVNfVU5TUEVDSUZJRUQQABIbChdXT1JLU1BBQ0VfU1RBVFVTX0FDVElWRRABEh0KGVdPUktTUEFDRV9TVEFUVVNfREVUQUNIRUQQAhIbChdXT1JLU1BBQ0VfU1RBVFVTX0NMT1NFRBADQjtaOWdpdGh1Yi5jb20vc2F4b2NlbGxwaG9uZS9ydW5rby9wcm90by9nZW4vcnVua28vdjE7cnVua292MWIGcHJvdG8z");
 
 /**
  * ErrorDetail mirrors common.schema.json#/$defs/Error and internal/clierr
@@ -471,6 +471,15 @@ export type MergeRequirements = Message<"runko.v1.MergeRequirements"> & {
    * @generated from field: repeated string blockers = 5;
    */
   blockers: string[];
+
+  /**
+   * §13.4.2's derived "whose turn is it" (stage 16): requested reviewers
+   * and required owners who haven't responded at the current head, plus
+   * the author once any reviewer has. Empty on bot-lane views.
+   *
+   * @generated from field: repeated string attention_set = 6;
+   */
+  attentionSet: string[];
 };
 
 /**
@@ -479,6 +488,77 @@ export type MergeRequirements = Message<"runko.v1.MergeRequirements"> & {
  */
 export const MergeRequirementsSchema: GenMessage<MergeRequirements> = /*@__PURE__*/
   messageDesc(file_runko_v1_common, 8);
+
+/**
+ * Comment mirrors docs/spec/mcp-tools/common.schema.json#/$defs/ChangeComment
+ * (§13.4.1, stage 16). The anchor is change-level (no path), file-level
+ * (path only), or line-level (path+side+line); head_sha is the Change head
+ * the comment was written against - differing from the current head means
+ * "outdated", never repositioned. parent_id non-empty marks a reply;
+ * threads are one level deep. resolved is meaningful on thread roots only.
+ *
+ * @generated from message runko.v1.Comment
+ */
+export type Comment = Message<"runko.v1.Comment"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: runko.v1.Actor author = 2;
+   */
+  author?: Actor | undefined;
+
+  /**
+   * @generated from field: string body = 3;
+   */
+  body: string;
+
+  /**
+   * unix seconds
+   *
+   * @generated from field: int64 created_at = 4;
+   */
+  createdAt: bigint;
+
+  /**
+   * @generated from field: string path = 5;
+   */
+  path: string;
+
+  /**
+   * @generated from field: runko.v1.CommentSide side = 6;
+   */
+  side: CommentSide;
+
+  /**
+   * @generated from field: int32 line = 7;
+   */
+  line: number;
+
+  /**
+   * @generated from field: string head_sha = 8;
+   */
+  headSha: string;
+
+  /**
+   * @generated from field: string parent_id = 9;
+   */
+  parentId: string;
+
+  /**
+   * @generated from field: bool resolved = 10;
+   */
+  resolved: boolean;
+};
+
+/**
+ * Describes the message runko.v1.Comment.
+ * Use `create(CommentSchema)` to create a new message.
+ */
+export const CommentSchema: GenMessage<Comment> = /*@__PURE__*/
+  messageDesc(file_runko_v1_common, 9);
 
 /**
  * @generated from message runko.v1.OwnerGate
@@ -505,7 +585,7 @@ export type OwnerGate = Message<"runko.v1.OwnerGate"> & {
  * Use `create(OwnerGateSchema)` to create a new message.
  */
 export const OwnerGateSchema: GenMessage<OwnerGate> = /*@__PURE__*/
-  messageDesc(file_runko_v1_common, 9);
+  messageDesc(file_runko_v1_common, 10);
 
 /**
  * @generated from message runko.v1.CheckGate
@@ -548,7 +628,7 @@ export type CheckGate = Message<"runko.v1.CheckGate"> & {
  * Use `create(CheckGateSchema)` to create a new message.
  */
 export const CheckGateSchema: GenMessage<CheckGate> = /*@__PURE__*/
-  messageDesc(file_runko_v1_common, 10);
+  messageDesc(file_runko_v1_common, 11);
 
 /**
  * WorkspaceSummary is the §12.2 registry row - metadata ONLY, content
@@ -616,7 +696,7 @@ export type WorkspaceSummary = Message<"runko.v1.WorkspaceSummary"> & {
  * Use `create(WorkspaceSummarySchema)` to create a new message.
  */
 export const WorkspaceSummarySchema: GenMessage<WorkspaceSummary> = /*@__PURE__*/
-  messageDesc(file_runko_v1_common, 11);
+  messageDesc(file_runko_v1_common, 12);
 
 /**
  * @generated from enum runko.v1.ActorType
@@ -816,6 +896,32 @@ export const ChangeStateSchema: GenEnum<ChangeState> = /*@__PURE__*/
   enumDesc(file_runko_v1_common, 5);
 
 /**
+ * @generated from enum runko.v1.CommentSide
+ */
+export enum CommentSide {
+  /**
+   * @generated from enum value: COMMENT_SIDE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: COMMENT_SIDE_BASE = 1;
+   */
+  BASE = 1,
+
+  /**
+   * @generated from enum value: COMMENT_SIDE_HEAD = 2;
+   */
+  HEAD = 2,
+}
+
+/**
+ * Describes the enum runko.v1.CommentSide.
+ */
+export const CommentSideSchema: GenEnum<CommentSide> = /*@__PURE__*/
+  enumDesc(file_runko_v1_common, 6);
+
+/**
  * @generated from enum runko.v1.WorkspaceStatus
  */
 export enum WorkspaceStatus {
@@ -844,5 +950,5 @@ export enum WorkspaceStatus {
  * Describes the enum runko.v1.WorkspaceStatus.
  */
 export const WorkspaceStatusSchema: GenEnum<WorkspaceStatus> = /*@__PURE__*/
-  enumDesc(file_runko_v1_common, 6);
+  enumDesc(file_runko_v1_common, 7);
 

@@ -12,7 +12,7 @@ import (
 )
 
 // Tool is one MCP tool definition as served by tools/list. Name,
-// Description, and InputSchema are VERBATIM copies of the six
+// Description, and InputSchema are VERBATIM copies of the seven
 // `"status": "v1"` entries in docs/spec/mcp-tools/catalog.json - the
 // catalog is the contract (§8.3, §28.2 rule 2), this file is its
 // transcription, and TestToolsMatchCatalog fails if the two ever drift.
@@ -28,8 +28,9 @@ type Tool struct {
 // token-efficiency rule: compact lists by default).
 const defaultPageSize = 50
 
-// Tools are the six read-only v1 tools (§8.3's MCP rescope, §17.4): the
-// other 19 catalog entries stay `"status": "deferred-v1.x"` and are
+// Tools are the seven read-only v1 tools (§8.3's MCP rescope, §17.4; the
+// seventh, list_change_comments, graduated at stage 16 - §13.4.1): the
+// other 18 catalog entries stay `"status": "deferred-v1.x"` and are
 // deliberately NOT served.
 var Tools = []Tool{
 	{
@@ -61,6 +62,11 @@ var Tools = []Tool{
 		Name:        "get_merge_requirements",
 		Description: "Owners + checks outstanding, in plain language, for both the Change page and agent callers (§8.3, §13.4, §13.5).",
 		InputSchema: json.RawMessage(`{"type":"object","required":["change_id"],"additionalProperties":false,"properties":{"change_id":{"type":"string"}}}`),
+	},
+	{
+		Name:        "list_change_comments",
+		Description: "List review comments on a Change (§13.4.1): threads one level deep, anchored to the head_sha they were written against - a differing head means outdated, never repositioned.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["change_id"],"additionalProperties":false,"properties":{"change_id":{"type":"string"},"page_size":{"$ref":"common.schema.json#/$defs/PageParams/properties/page_size"},"page_token":{"$ref":"common.schema.json#/$defs/PageParams/properties/page_token"}}}`),
 	},
 }
 
@@ -98,6 +104,8 @@ func (s *Server) CallTool(ctx context.Context, name string, rawArgs json.RawMess
 		return s.searchCode(ctx, args)
 	case "get_merge_requirements":
 		return s.getMergeRequirements(ctx, args)
+	case "list_change_comments":
+		return s.listChangeComments(ctx, args)
 	default:
 		return nil, &Error{Code: "not_found", Field: "name", Message: fmt.Sprintf("no such tool %q", name)}
 	}
@@ -265,6 +273,26 @@ func (s *Server) getMergeRequirements(ctx context.Context, args toolArgs) (inter
 		return nil, &Error{Code: "validation_failed", Field: "change_id", Message: "change_id is required"}
 	}
 	raw, err := s.Client.MergeRequirements(ctx, args.ChangeID)
+	if err != nil {
+		return nil, asError(err)
+	}
+	return raw, nil
+}
+
+// listChangeComments passes the daemon's GET .../comments response through
+// verbatim (its {comments, next_page_token} shape IS the tool's
+// output_schema - the get_merge_requirements stance). Pagination maps
+// page_size/page_token onto the endpoint's own limit/offset; the seventh
+// tool, graduated from the deferred catalog at stage 16 (§13.4.1, §17.4).
+func (s *Server) listChangeComments(ctx context.Context, args toolArgs) (interface{}, *Error) {
+	if args.ChangeID == "" {
+		return nil, &Error{Code: "validation_failed", Field: "change_id", Message: "change_id is required"}
+	}
+	offset, size, perr := page(args)
+	if perr != nil {
+		return nil, perr
+	}
+	raw, err := s.Client.ListChangeComments(ctx, args.ChangeID, size, offset)
 	if err != nil {
 		return nil, asError(err)
 	}

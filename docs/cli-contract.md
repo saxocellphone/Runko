@@ -71,7 +71,11 @@ schemas are.
 | `runko auth status` | who the stored credential resolves to (live `whoami` round-trip) |
 | `runko auth logout` | deletes the stored credential |
 | `runko change create` | `{"change_id"}` - local git only: commits ALL working-tree changes as one commit carrying a fresh `Change-Id` trailer (§7.4); no auto-push - `change push` stays the explicit submit step |
-| `runko change requirements` | `checks.MergeRequirements` - the §13.5 gates; `--change` defaults to HEAD's `Change-Id` trailer, needs a live runkod |
+| `runko change requirements` | `checks.MergeRequirements` - the §13.5 gates; `--change` defaults to HEAD's `Change-Id` trailer, needs a live runkod. Includes `attention_set` (§13.4.2): whose turn it is, derived from review requests + approvals + comments at the current head |
+| `runko change comment` | `CommentInfo` (`id`, `author {type, id}`, `body`, `created_at`, `path?`, `side?`, `line?`, `head_sha`, `parent_id?`, `resolved?` - the `ChangeComment` shape in `docs/spec/mcp-tools/common.schema.json`) - needs a live runkod. Anchors: change-level (no `--file`), file-level (`--file`), line-level (`--file --line`, `--side` defaults `head`); the server stamps `head_sha`, so an amend marks the comment outdated (§13.4.1). `--reply-to <root-id>` replies in a thread (one level deep - replying to a reply is `thread_depth_exceeded`; replies inherit the root's anchor). Agent principals comment with the agent badge; their approvals stay refused |
+| `runko change comments` | `{"comments": [CommentInfo], "next_page_token"?}` (the `list_change_comments` MCP output shape) - needs a live runkod; the human view groups threads and marks `[resolved]`/`[outdated]`/`[agent]` |
+| `runko change resolve` | `CommentInfo` (updated) - needs a live runkod; thread roots only (`not_a_thread_root`), allowed for the thread author, the change author, an owner of the anchored path, or an admin (`resolve_denied` otherwise); `--undo` reopens (§13.4.1) |
+| `runko change request-review` | `{"reviewer"}` - needs a live runkod; records the request (idempotent), emits `change.review_requested`, and puts the reviewer in the derived attention set (§13.4.2) until they approve or comment at the current head |
 | `runko workspace branch` | `{"ref"}` - local git only (forks a parallel line: switches this worktree's snapshot target to `refs/workspaces/<id>/<name>` and snapshots the fork point, §12.2) |
 | `runko workspace sync` | `{"base_revision"}` - the CitC "sync to head" verb (§12.3): fetch trunk, rebase the workspace line onto its tip (jj-aware: in a colocated repo jj rebases so descendants follow), record the new base in the registry - needs a live runkod. Conflicts abort and name the files (`sync_conflict`). `update-base` is the original stage-12b alias |
 | `runko org create` | `OrgInfo` (`name`, `role`, `api_base`, `git_url`, `default`) - needs a live runkod with `--allow-org-create`; the caller becomes the org's admin. Every org mounts the FULL surface (git, REST, RPC) under `/o/<org>/`, so pointing `--runkod-url` (or `runko auth login`) at `<host>/o/<org>` makes every other command in this table work against that org unchanged (§7.1). Agents are refused (`agent_denied`, §8.7) |
@@ -84,7 +88,7 @@ schemas are.
 
 `runko mcp serve --runkod-url <url> --token <t>` is not in this table
 because its stdout is not a `--json` data shape: it speaks newline-delimited
-JSON-RPC 2.0 (the MCP stdio transport) until EOF, serving the six read-only
+JSON-RPC 2.0 (the MCP stdio transport) until EOF, serving the seven read-only
 `"status": "v1"` tools from `docs/spec/mcp-tools/catalog.json` as thin
 wrappers over the same runkod REST API the commands above use (§8.3, §17.4,
 §28.3 stage 12). Its tool outputs conform to `docs/spec/mcp-tools/`
@@ -96,7 +100,7 @@ plane not built in this environment) have no output contract yet.
 
 ## Single-contract rule with MCP (§8.3)
 
-Where the MCP tool catalog (six read-only tools served by `runko mcp serve`
+Where the MCP tool catalog (seven read-only tools served by `runko mcp serve`
 as of stage 12; the rest deferred to v1.x) and a CLI command cover the same
 operation, they are meant to converge on the same wire shape -
 `docs/spec/mcp-tools/` and `docs/spec/webhooks/` are the schema source both

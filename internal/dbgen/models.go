@@ -397,6 +397,10 @@ type ChangeComment struct {
 	Path          *string            `json:"path"`
 	Line          *int32             `json:"line"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	HeadSha       *string            `json:"head_sha"`
+	Side          *string            `json:"side"`
+	ParentID      pgtype.UUID        `json:"parent_id"`
+	Resolved      bool               `json:"resolved"`
 }
 
 type ChangeOwnerRequirement struct {
@@ -406,6 +410,13 @@ type ChangeOwnerRequirement struct {
 	SatisfiedByActorID  pgtype.UUID        `json:"satisfied_by_actor_id"`
 	SatisfiedAt         pgtype.Timestamptz `json:"satisfied_at"`
 	SatisfiedForHeadSha *string            `json:"satisfied_for_head_sha"`
+}
+
+type ChangeReviewRequest struct {
+	ChangeID    uuid.UUID          `json:"change_id"`
+	Reviewer    string             `json:"reviewer"`
+	RequestedBy string             `json:"requested_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type CheckAnnotation struct {

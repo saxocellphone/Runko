@@ -1,6 +1,6 @@
 // Package mcp implements the MCP thin remote adapter (docs/design.md §8.3,
 // §17.4, §28.3 stage 12): a newline-delimited JSON-RPC 2.0 stdio server
-// exposing exactly the six read-only `"status": "v1"` tools from
+// exposing exactly the seven read-only `"status": "v1"` tools from
 // docs/spec/mcp-tools/catalog.json (list_projects, get_project, who_owns,
 // get_affected, search_code, get_merge_requirements) as thin wrappers over
 // runkod's REST API - the same handlers the CLI and every other client use.

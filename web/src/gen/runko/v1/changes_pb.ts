@@ -4,7 +4,7 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { AffectedComputation, ChangeState, ChangeSummary, MergeRequirements } from "./common_pb";
+import type { AffectedComputation, ChangeState, ChangeSummary, Comment, CommentSide, MergeRequirements } from "./common_pb";
 import { file_runko_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file runko/v1/changes.proto.
  */
 export const file_runko_v1_changes: GenFile = /*@__PURE__*/
-  fileDesc("ChZydW5rby92MS9jaGFuZ2VzLnByb3RvEghydW5rby52MSIlChBHZXRDaGFuZ2VSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCSJhChJMaXN0Q2hhbmdlc1JlcXVlc3QSJAoFc3RhdGUYASABKA4yFS5ydW5rby52MS5DaGFuZ2VTdGF0ZRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJYChNMaXN0Q2hhbmdlc1Jlc3BvbnNlEigKB2NoYW5nZXMYASADKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIcCgtDaGFuZ2VQYXRocxINCgVwYXRocxgBIAMoCSJbChJHZXRBZmZlY3RlZFJlcXVlc3QSJgoFcGF0aHMYASABKAsyFS5ydW5rby52MS5DaGFuZ2VQYXRoc0gAEhMKCWNoYW5nZV9pZBgCIAEoCUgAQggKBnRhcmdldCIqChVHZXRDaGFuZ2VTdGFja1JlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJIlQKFkdldENoYW5nZVN0YWNrUmVzcG9uc2USKAoHY2hhbmdlcxgBIAMoCzIXLnJ1bmtvLnYxLkNoYW5nZVN1bW1hcnkSEAoIcG9zaXRpb24YAiABKAUiKQoUR2V0Q2hhbmdlRGlmZlJlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJInEKFUdldENoYW5nZURpZmZSZXNwb25zZRIRCgljaGFuZ2VfaWQYASABKAkSEAoIYmFzZV9zaGEYAiABKAkSEAoIaGVhZF9zaGEYAyABKAkSIQoFZmlsZXMYBCADKAsyEi5ydW5rby52MS5GaWxlRGlmZiK+AQoIRmlsZURpZmYSDAoEcGF0aBgBIAEoCRIQCghvbGRfcGF0aBgCIAEoCRIoCgZzdGF0dXMYAyABKA4yGC5ydW5rby52MS5GaWxlRGlmZlN0YXR1cxIhCgVodW5rcxgEIAMoCzISLnJ1bmtvLnYxLkRpZmZIdW5rEg4KBmJpbmFyeRgFIAEoCBIRCglhZGRpdGlvbnMYBiABKAUSEQoJZGVsZXRpb25zGAcgASgFEg8KB3Byb2plY3QYCCABKAkiiQEKCERpZmZIdW5rEhEKCW9sZF9zdGFydBgBIAEoBRIRCglvbGRfbGluZXMYAiABKAUSEQoJbmV3X3N0YXJ0GAMgASgFEhEKCW5ld19saW5lcxgEIAEoBRIOCgZoZWFkZXIYBSABKAkSIQoFbGluZXMYBiADKAsyEi5ydW5rby52MS5EaWZmTGluZSJlCghEaWZmTGluZRIkCgR0eXBlGAEgASgOMhYucnVua28udjEuRGlmZkxpbmVUeXBlEg8KB2NvbnRlbnQYAiABKAkSEAoIb2xkX2xpbmUYAyABKAUSEAoIbmV3X2xpbmUYBCABKAUiMAobR2V0TWVyZ2VSZXF1aXJlbWVudHNSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCSJRChRBcHByb3ZlQ2hhbmdlUmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEQoJb3duZXJfcmVmGAIgASgJEhMKC2FwcHJvdmVkX2J5GAMgASgJIjUKEUxhbmRDaGFuZ2VSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRINCgVmb3JjZRgCIAEoCCKOAQoSTGFuZENoYW5nZVJlc3BvbnNlEg4KBmxhbmRlZBgBIAEoCBISCgpsYW5kZWRfc2hhGAIgASgJEh0KFXJlcXVpcmVzX3JldmFsaWRhdGlvbhgDIAEoCBIRCgljb25mbGljdHMYBCADKAkSEgoKcmFjZV9yZXRyeRgFIAEoCBIOCgZmb3JjZWQYBiABKAgiOQoUQWJhbmRvbkNoYW5nZVJlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSI6ChFSZXJ1bkNoZWNrUmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEgoKY2hlY2tfbmFtZRgCIAEoCSI8ChFHZXRDaGFuZ2VSZXNwb25zZRInCgZjaGFuZ2UYASABKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5IkYKE0dldEFmZmVjdGVkUmVzcG9uc2USLwoIYWZmZWN0ZWQYASABKAsyHS5ydW5rby52MS5BZmZlY3RlZENvbXB1dGF0aW9uIlEKHEdldE1lcmdlUmVxdWlyZW1lbnRzUmVzcG9uc2USMQoMcmVxdWlyZW1lbnRzGAEgASgLMhsucnVua28udjEuTWVyZ2VSZXF1aXJlbWVudHMiSgoVQXBwcm92ZUNoYW5nZVJlc3BvbnNlEjEKDHJlcXVpcmVtZW50cxgBIAEoCzIbLnJ1bmtvLnYxLk1lcmdlUmVxdWlyZW1lbnRzIkAKFUFiYW5kb25DaGFuZ2VSZXNwb25zZRInCgZjaGFuZ2UYASABKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5IkcKElJlcnVuQ2hlY2tSZXNwb25zZRIxCgxyZXF1aXJlbWVudHMYASABKAsyGy5ydW5rby52MS5NZXJnZVJlcXVpcmVtZW50cyqpAQoORmlsZURpZmZTdGF0dXMSIAocRklMRV9ESUZGX1NUQVRVU19VTlNQRUNJRklFRBAAEhoKFkZJTEVfRElGRl9TVEFUVVNfQURERUQQARIdChlGSUxFX0RJRkZfU1RBVFVTX01PRElGSUVEEAISHAoYRklMRV9ESUZGX1NUQVRVU19ERUxFVEVEEAMSHAoYRklMRV9ESUZGX1NUQVRVU19SRU5BTUVEEAQqgAEKDERpZmZMaW5lVHlwZRIeChpESUZGX0xJTkVfVFlQRV9VTlNQRUNJRklFRBAAEhoKFkRJRkZfTElORV9UWVBFX0NPTlRFWFQQARIYChRESUZGX0xJTkVfVFlQRV9BRERFRBACEhoKFkRJRkZfTElORV9UWVBFX1JFTU9WRUQQAzKxBgoNQ2hhbmdlU2VydmljZRJECglHZXRDaGFuZ2USGi5ydW5rby52MS5HZXRDaGFuZ2VSZXF1ZXN0GhsucnVua28udjEuR2V0Q2hhbmdlUmVzcG9uc2USSgoLTGlzdENoYW5nZXMSHC5ydW5rby52MS5MaXN0Q2hhbmdlc1JlcXVlc3QaHS5ydW5rby52MS5MaXN0Q2hhbmdlc1Jlc3BvbnNlElMKDkdldENoYW5nZVN0YWNrEh8ucnVua28udjEuR2V0Q2hhbmdlU3RhY2tSZXF1ZXN0GiAucnVua28udjEuR2V0Q2hhbmdlU3RhY2tSZXNwb25zZRJQCg1HZXRDaGFuZ2VEaWZmEh4ucnVua28udjEuR2V0Q2hhbmdlRGlmZlJlcXVlc3QaHy5ydW5rby52MS5HZXRDaGFuZ2VEaWZmUmVzcG9uc2USSgoLR2V0QWZmZWN0ZWQSHC5ydW5rby52MS5HZXRBZmZlY3RlZFJlcXVlc3QaHS5ydW5rby52MS5HZXRBZmZlY3RlZFJlc3BvbnNlEmUKFEdldE1lcmdlUmVxdWlyZW1lbnRzEiUucnVua28udjEuR2V0TWVyZ2VSZXF1aXJlbWVudHNSZXF1ZXN0GiYucnVua28udjEuR2V0TWVyZ2VSZXF1aXJlbWVudHNSZXNwb25zZRJQCg1BcHByb3ZlQ2hhbmdlEh4ucnVua28udjEuQXBwcm92ZUNoYW5nZVJlcXVlc3QaHy5ydW5rby52MS5BcHByb3ZlQ2hhbmdlUmVzcG9uc2USRwoKTGFuZENoYW5nZRIbLnJ1bmtvLnYxLkxhbmRDaGFuZ2VSZXF1ZXN0GhwucnVua28udjEuTGFuZENoYW5nZVJlc3BvbnNlElAKDUFiYW5kb25DaGFuZ2USHi5ydW5rby52MS5BYmFuZG9uQ2hhbmdlUmVxdWVzdBofLnJ1bmtvLnYxLkFiYW5kb25DaGFuZ2VSZXNwb25zZRJHCgpSZXJ1bkNoZWNrEhsucnVua28udjEuUmVydW5DaGVja1JlcXVlc3QaHC5ydW5rby52MS5SZXJ1bkNoZWNrUmVzcG9uc2VCO1o5Z2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3Byb3RvL2dlbi9ydW5rby92MTtydW5rb3YxYgZwcm90bzM", [file_runko_v1_common]);
+  fileDesc("ChZydW5rby92MS9jaGFuZ2VzLnByb3RvEghydW5rby52MSIlChBHZXRDaGFuZ2VSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCSJhChJMaXN0Q2hhbmdlc1JlcXVlc3QSJAoFc3RhdGUYASABKA4yFS5ydW5rby52MS5DaGFuZ2VTdGF0ZRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJYChNMaXN0Q2hhbmdlc1Jlc3BvbnNlEigKB2NoYW5nZXMYASADKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIcCgtDaGFuZ2VQYXRocxINCgVwYXRocxgBIAMoCSJbChJHZXRBZmZlY3RlZFJlcXVlc3QSJgoFcGF0aHMYASABKAsyFS5ydW5rby52MS5DaGFuZ2VQYXRoc0gAEhMKCWNoYW5nZV9pZBgCIAEoCUgAQggKBnRhcmdldCIqChVHZXRDaGFuZ2VTdGFja1JlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJIlQKFkdldENoYW5nZVN0YWNrUmVzcG9uc2USKAoHY2hhbmdlcxgBIAMoCzIXLnJ1bmtvLnYxLkNoYW5nZVN1bW1hcnkSEAoIcG9zaXRpb24YAiABKAUiKQoUR2V0Q2hhbmdlRGlmZlJlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJInEKFUdldENoYW5nZURpZmZSZXNwb25zZRIRCgljaGFuZ2VfaWQYASABKAkSEAoIYmFzZV9zaGEYAiABKAkSEAoIaGVhZF9zaGEYAyABKAkSIQoFZmlsZXMYBCADKAsyEi5ydW5rby52MS5GaWxlRGlmZiK+AQoIRmlsZURpZmYSDAoEcGF0aBgBIAEoCRIQCghvbGRfcGF0aBgCIAEoCRIoCgZzdGF0dXMYAyABKA4yGC5ydW5rby52MS5GaWxlRGlmZlN0YXR1cxIhCgVodW5rcxgEIAMoCzISLnJ1bmtvLnYxLkRpZmZIdW5rEg4KBmJpbmFyeRgFIAEoCBIRCglhZGRpdGlvbnMYBiABKAUSEQoJZGVsZXRpb25zGAcgASgFEg8KB3Byb2plY3QYCCABKAkiiQEKCERpZmZIdW5rEhEKCW9sZF9zdGFydBgBIAEoBRIRCglvbGRfbGluZXMYAiABKAUSEQoJbmV3X3N0YXJ0GAMgASgFEhEKCW5ld19saW5lcxgEIAEoBRIOCgZoZWFkZXIYBSABKAkSIQoFbGluZXMYBiADKAsyEi5ydW5rby52MS5EaWZmTGluZSJlCghEaWZmTGluZRIkCgR0eXBlGAEgASgOMhYucnVua28udjEuRGlmZkxpbmVUeXBlEg8KB2NvbnRlbnQYAiABKAkSEAoIb2xkX2xpbmUYAyABKAUSEAoIbmV3X2xpbmUYBCABKAUiMAobR2V0TWVyZ2VSZXF1aXJlbWVudHNSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCSJRChRBcHByb3ZlQ2hhbmdlUmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEQoJb3duZXJfcmVmGAIgASgJEhMKC2FwcHJvdmVkX2J5GAMgASgJIjUKEUxhbmRDaGFuZ2VSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRINCgVmb3JjZRgCIAEoCCKOAQoSTGFuZENoYW5nZVJlc3BvbnNlEg4KBmxhbmRlZBgBIAEoCBISCgpsYW5kZWRfc2hhGAIgASgJEh0KFXJlcXVpcmVzX3JldmFsaWRhdGlvbhgDIAEoCBIRCgljb25mbGljdHMYBCADKAkSEgoKcmFjZV9yZXRyeRgFIAEoCBIOCgZmb3JjZWQYBiABKAgiOQoUQWJhbmRvbkNoYW5nZVJlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSI6ChFSZXJ1bkNoZWNrUmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEgoKY2hlY2tfbmFtZRgCIAEoCSJPChNMaXN0Q29tbWVudHNSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJUChRMaXN0Q29tbWVudHNSZXNwb25zZRIjCghjb21tZW50cxgBIAMoCzIRLnJ1bmtvLnYxLkNvbW1lbnQSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIpsBChRDcmVhdGVDb21tZW50UmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSDAoEYm9keRgCIAEoCRIMCgRwYXRoGAMgASgJEiMKBHNpZGUYBCABKA4yFS5ydW5rby52MS5Db21tZW50U2lkZRIMCgRsaW5lGAUgASgFEhEKCXBhcmVudF9pZBgGIAEoCRIOCgZhdXRob3IYByABKAkiUAoVUmVzb2x2ZUNvbW1lbnRSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRISCgpjb21tZW50X2lkGAIgASgJEhAKCHJlc29sdmVkGAMgASgIIjsKFFJlcXVlc3RSZXZpZXdSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRIQCghyZXZpZXdlchgCIAEoCSI8ChFHZXRDaGFuZ2VSZXNwb25zZRInCgZjaGFuZ2UYASABKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5IkYKE0dldEFmZmVjdGVkUmVzcG9uc2USLwoIYWZmZWN0ZWQYASABKAsyHS5ydW5rby52MS5BZmZlY3RlZENvbXB1dGF0aW9uIlEKHEdldE1lcmdlUmVxdWlyZW1lbnRzUmVzcG9uc2USMQoMcmVxdWlyZW1lbnRzGAEgASgLMhsucnVua28udjEuTWVyZ2VSZXF1aXJlbWVudHMiSgoVQXBwcm92ZUNoYW5nZVJlc3BvbnNlEjEKDHJlcXVpcmVtZW50cxgBIAEoCzIbLnJ1bmtvLnYxLk1lcmdlUmVxdWlyZW1lbnRzIkAKFUFiYW5kb25DaGFuZ2VSZXNwb25zZRInCgZjaGFuZ2UYASABKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5IkcKElJlcnVuQ2hlY2tSZXNwb25zZRIxCgxyZXF1aXJlbWVudHMYASABKAsyGy5ydW5rby52MS5NZXJnZVJlcXVpcmVtZW50cyI7ChVDcmVhdGVDb21tZW50UmVzcG9uc2USIgoHY29tbWVudBgBIAEoCzIRLnJ1bmtvLnYxLkNvbW1lbnQiPAoWUmVzb2x2ZUNvbW1lbnRSZXNwb25zZRIiCgdjb21tZW50GAEgASgLMhEucnVua28udjEuQ29tbWVudCI/ChVSZXF1ZXN0UmV2aWV3UmVzcG9uc2USEAoIcmV2aWV3ZXIYASABKAkSFAoMcmVxdWVzdGVkX2J5GAIgASgJKqkBCg5GaWxlRGlmZlN0YXR1cxIgChxGSUxFX0RJRkZfU1RBVFVTX1VOU1BFQ0lGSUVEEAASGgoWRklMRV9ESUZGX1NUQVRVU19BRERFRBABEh0KGUZJTEVfRElGRl9TVEFUVVNfTU9ESUZJRUQQAhIcChhGSUxFX0RJRkZfU1RBVFVTX0RFTEVURUQQAxIcChhGSUxFX0RJRkZfU1RBVFVTX1JFTkFNRUQQBCqAAQoMRGlmZkxpbmVUeXBlEh4KGkRJRkZfTElORV9UWVBFX1VOU1BFQ0lGSUVEEAASGgoWRElGRl9MSU5FX1RZUEVfQ09OVEVYVBABEhgKFERJRkZfTElORV9UWVBFX0FEREVEEAISGgoWRElGRl9MSU5FX1RZUEVfUkVNT1ZFRBADMvkICg1DaGFuZ2VTZXJ2aWNlEkQKCUdldENoYW5nZRIaLnJ1bmtvLnYxLkdldENoYW5nZVJlcXVlc3QaGy5ydW5rby52MS5HZXRDaGFuZ2VSZXNwb25zZRJKCgtMaXN0Q2hhbmdlcxIcLnJ1bmtvLnYxLkxpc3RDaGFuZ2VzUmVxdWVzdBodLnJ1bmtvLnYxLkxpc3RDaGFuZ2VzUmVzcG9uc2USUwoOR2V0Q2hhbmdlU3RhY2sSHy5ydW5rby52MS5HZXRDaGFuZ2VTdGFja1JlcXVlc3QaIC5ydW5rby52MS5HZXRDaGFuZ2VTdGFja1Jlc3BvbnNlElAKDUdldENoYW5nZURpZmYSHi5ydW5rby52MS5HZXRDaGFuZ2VEaWZmUmVxdWVzdBofLnJ1bmtvLnYxLkdldENoYW5nZURpZmZSZXNwb25zZRJKCgtHZXRBZmZlY3RlZBIcLnJ1bmtvLnYxLkdldEFmZmVjdGVkUmVxdWVzdBodLnJ1bmtvLnYxLkdldEFmZmVjdGVkUmVzcG9uc2USZQoUR2V0TWVyZ2VSZXF1aXJlbWVudHMSJS5ydW5rby52MS5HZXRNZXJnZVJlcXVpcmVtZW50c1JlcXVlc3QaJi5ydW5rby52MS5HZXRNZXJnZVJlcXVpcmVtZW50c1Jlc3BvbnNlElAKDUFwcHJvdmVDaGFuZ2USHi5ydW5rby52MS5BcHByb3ZlQ2hhbmdlUmVxdWVzdBofLnJ1bmtvLnYxLkFwcHJvdmVDaGFuZ2VSZXNwb25zZRJHCgpMYW5kQ2hhbmdlEhsucnVua28udjEuTGFuZENoYW5nZVJlcXVlc3QaHC5ydW5rby52MS5MYW5kQ2hhbmdlUmVzcG9uc2USUAoNQWJhbmRvbkNoYW5nZRIeLnJ1bmtvLnYxLkFiYW5kb25DaGFuZ2VSZXF1ZXN0Gh8ucnVua28udjEuQWJhbmRvbkNoYW5nZVJlc3BvbnNlEkcKClJlcnVuQ2hlY2sSGy5ydW5rby52MS5SZXJ1bkNoZWNrUmVxdWVzdBocLnJ1bmtvLnYxLlJlcnVuQ2hlY2tSZXNwb25zZRJNCgxMaXN0Q29tbWVudHMSHS5ydW5rby52MS5MaXN0Q29tbWVudHNSZXF1ZXN0Gh4ucnVua28udjEuTGlzdENvbW1lbnRzUmVzcG9uc2USUAoNQ3JlYXRlQ29tbWVudBIeLnJ1bmtvLnYxLkNyZWF0ZUNvbW1lbnRSZXF1ZXN0Gh8ucnVua28udjEuQ3JlYXRlQ29tbWVudFJlc3BvbnNlElMKDlJlc29sdmVDb21tZW50Eh8ucnVua28udjEuUmVzb2x2ZUNvbW1lbnRSZXF1ZXN0GiAucnVua28udjEuUmVzb2x2ZUNvbW1lbnRSZXNwb25zZRJQCg1SZXF1ZXN0UmV2aWV3Eh4ucnVua28udjEuUmVxdWVzdFJldmlld1JlcXVlc3QaHy5ydW5rby52MS5SZXF1ZXN0UmV2aWV3UmVzcG9uc2VCO1o5Z2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3Byb3RvL2dlbi9ydW5rby92MTtydW5rb3YxYgZwcm90bzM", [file_runko_v1_common]);
 
 /**
  * @generated from message runko.v1.GetChangeRequest
@@ -545,6 +545,162 @@ export const RerunCheckRequestSchema: GenMessage<RerunCheckRequest> = /*@__PURE_
   messageDesc(file_runko_v1_changes, 17);
 
 /**
+ * @generated from message runko.v1.ListCommentsRequest
+ */
+export type ListCommentsRequest = Message<"runko.v1.ListCommentsRequest"> & {
+  /**
+   * @generated from field: string change_id = 1;
+   */
+  changeId: string;
+
+  /**
+   * @generated from field: int32 page_size = 2;
+   */
+  pageSize: number;
+
+  /**
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
+};
+
+/**
+ * Describes the message runko.v1.ListCommentsRequest.
+ * Use `create(ListCommentsRequestSchema)` to create a new message.
+ */
+export const ListCommentsRequestSchema: GenMessage<ListCommentsRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 18);
+
+/**
+ * @generated from message runko.v1.ListCommentsResponse
+ */
+export type ListCommentsResponse = Message<"runko.v1.ListCommentsResponse"> & {
+  /**
+   * @generated from field: repeated runko.v1.Comment comments = 1;
+   */
+  comments: Comment[];
+
+  /**
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
+};
+
+/**
+ * Describes the message runko.v1.ListCommentsResponse.
+ * Use `create(ListCommentsResponseSchema)` to create a new message.
+ */
+export const ListCommentsResponseSchema: GenMessage<ListCommentsResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 19);
+
+/**
+ * @generated from message runko.v1.CreateCommentRequest
+ */
+export type CreateCommentRequest = Message<"runko.v1.CreateCommentRequest"> & {
+  /**
+   * @generated from field: string change_id = 1;
+   */
+  changeId: string;
+
+  /**
+   * @generated from field: string body = 2;
+   */
+  body: string;
+
+  /**
+   * @generated from field: string path = 3;
+   */
+  path: string;
+
+  /**
+   * @generated from field: runko.v1.CommentSide side = 4;
+   */
+  side: CommentSide;
+
+  /**
+   * @generated from field: int32 line = 5;
+   */
+  line: number;
+
+  /**
+   * reply to this thread root; replies inherit its anchor
+   *
+   * @generated from field: string parent_id = 6;
+   */
+  parentId: string;
+
+  /**
+   * author is client-asserted text honored only from the anonymous deploy
+   * token - the same v1 trust boundary as ApproveChangeRequest.approved_by.
+   *
+   * @generated from field: string author = 7;
+   */
+  author: string;
+};
+
+/**
+ * Describes the message runko.v1.CreateCommentRequest.
+ * Use `create(CreateCommentRequestSchema)` to create a new message.
+ */
+export const CreateCommentRequestSchema: GenMessage<CreateCommentRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 20);
+
+/**
+ * @generated from message runko.v1.ResolveCommentRequest
+ */
+export type ResolveCommentRequest = Message<"runko.v1.ResolveCommentRequest"> & {
+  /**
+   * @generated from field: string change_id = 1;
+   */
+  changeId: string;
+
+  /**
+   * must be a thread root
+   *
+   * @generated from field: string comment_id = 2;
+   */
+  commentId: string;
+
+  /**
+   * false to reopen
+   *
+   * @generated from field: bool resolved = 3;
+   */
+  resolved: boolean;
+};
+
+/**
+ * Describes the message runko.v1.ResolveCommentRequest.
+ * Use `create(ResolveCommentRequestSchema)` to create a new message.
+ */
+export const ResolveCommentRequestSchema: GenMessage<ResolveCommentRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 21);
+
+/**
+ * @generated from message runko.v1.RequestReviewRequest
+ */
+export type RequestReviewRequest = Message<"runko.v1.RequestReviewRequest"> & {
+  /**
+   * @generated from field: string change_id = 1;
+   */
+  changeId: string;
+
+  /**
+   * principal name or group:<name>
+   *
+   * @generated from field: string reviewer = 2;
+   */
+  reviewer: string;
+};
+
+/**
+ * Describes the message runko.v1.RequestReviewRequest.
+ * Use `create(RequestReviewRequestSchema)` to create a new message.
+ */
+export const RequestReviewRequestSchema: GenMessage<RequestReviewRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 22);
+
+/**
  * Per-RPC response wrappers (buf STANDARD lint: unique response types per
  * RPC, so any one response can grow fields later without entangling the
  * others).
@@ -563,7 +719,7 @@ export type GetChangeResponse = Message<"runko.v1.GetChangeResponse"> & {
  * Use `create(GetChangeResponseSchema)` to create a new message.
  */
 export const GetChangeResponseSchema: GenMessage<GetChangeResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 18);
+  messageDesc(file_runko_v1_changes, 23);
 
 /**
  * @generated from message runko.v1.GetAffectedResponse
@@ -580,7 +736,7 @@ export type GetAffectedResponse = Message<"runko.v1.GetAffectedResponse"> & {
  * Use `create(GetAffectedResponseSchema)` to create a new message.
  */
 export const GetAffectedResponseSchema: GenMessage<GetAffectedResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 19);
+  messageDesc(file_runko_v1_changes, 24);
 
 /**
  * @generated from message runko.v1.GetMergeRequirementsResponse
@@ -597,7 +753,7 @@ export type GetMergeRequirementsResponse = Message<"runko.v1.GetMergeRequirement
  * Use `create(GetMergeRequirementsResponseSchema)` to create a new message.
  */
 export const GetMergeRequirementsResponseSchema: GenMessage<GetMergeRequirementsResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 20);
+  messageDesc(file_runko_v1_changes, 25);
 
 /**
  * @generated from message runko.v1.ApproveChangeResponse
@@ -617,7 +773,7 @@ export type ApproveChangeResponse = Message<"runko.v1.ApproveChangeResponse"> & 
  * Use `create(ApproveChangeResponseSchema)` to create a new message.
  */
 export const ApproveChangeResponseSchema: GenMessage<ApproveChangeResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 21);
+  messageDesc(file_runko_v1_changes, 26);
 
 /**
  * @generated from message runko.v1.AbandonChangeResponse
@@ -634,7 +790,7 @@ export type AbandonChangeResponse = Message<"runko.v1.AbandonChangeResponse"> & 
  * Use `create(AbandonChangeResponseSchema)` to create a new message.
  */
 export const AbandonChangeResponseSchema: GenMessage<AbandonChangeResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 22);
+  messageDesc(file_runko_v1_changes, 27);
 
 /**
  * @generated from message runko.v1.RerunCheckResponse
@@ -651,7 +807,63 @@ export type RerunCheckResponse = Message<"runko.v1.RerunCheckResponse"> & {
  * Use `create(RerunCheckResponseSchema)` to create a new message.
  */
 export const RerunCheckResponseSchema: GenMessage<RerunCheckResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 23);
+  messageDesc(file_runko_v1_changes, 28);
+
+/**
+ * @generated from message runko.v1.CreateCommentResponse
+ */
+export type CreateCommentResponse = Message<"runko.v1.CreateCommentResponse"> & {
+  /**
+   * @generated from field: runko.v1.Comment comment = 1;
+   */
+  comment?: Comment | undefined;
+};
+
+/**
+ * Describes the message runko.v1.CreateCommentResponse.
+ * Use `create(CreateCommentResponseSchema)` to create a new message.
+ */
+export const CreateCommentResponseSchema: GenMessage<CreateCommentResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 29);
+
+/**
+ * @generated from message runko.v1.ResolveCommentResponse
+ */
+export type ResolveCommentResponse = Message<"runko.v1.ResolveCommentResponse"> & {
+  /**
+   * @generated from field: runko.v1.Comment comment = 1;
+   */
+  comment?: Comment | undefined;
+};
+
+/**
+ * Describes the message runko.v1.ResolveCommentResponse.
+ * Use `create(ResolveCommentResponseSchema)` to create a new message.
+ */
+export const ResolveCommentResponseSchema: GenMessage<ResolveCommentResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 30);
+
+/**
+ * @generated from message runko.v1.RequestReviewResponse
+ */
+export type RequestReviewResponse = Message<"runko.v1.RequestReviewResponse"> & {
+  /**
+   * @generated from field: string reviewer = 1;
+   */
+  reviewer: string;
+
+  /**
+   * @generated from field: string requested_by = 2;
+   */
+  requestedBy: string;
+};
+
+/**
+ * Describes the message runko.v1.RequestReviewResponse.
+ * Use `create(RequestReviewResponseSchema)` to create a new message.
+ */
+export const RequestReviewResponseSchema: GenMessage<RequestReviewResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 31);
 
 /**
  * @generated from enum runko.v1.FileDiffStatus
@@ -821,6 +1033,42 @@ export const ChangeService: GenService<{
     methodKind: "unary";
     input: typeof RerunCheckRequestSchema;
     output: typeof RerunCheckResponseSchema;
+  },
+  /**
+   * Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
+   * head they were written against and outdate on amend; threads are one
+   * level deep; agents comment (badge via author.type), never approve.
+   *
+   * @generated from rpc runko.v1.ChangeService.ListComments
+   */
+  listComments: {
+    methodKind: "unary";
+    input: typeof ListCommentsRequestSchema;
+    output: typeof ListCommentsResponseSchema;
+  },
+  /**
+   * @generated from rpc runko.v1.ChangeService.CreateComment
+   */
+  createComment: {
+    methodKind: "unary";
+    input: typeof CreateCommentRequestSchema;
+    output: typeof CreateCommentResponseSchema;
+  },
+  /**
+   * @generated from rpc runko.v1.ChangeService.ResolveComment
+   */
+  resolveComment: {
+    methodKind: "unary";
+    input: typeof ResolveCommentRequestSchema;
+    output: typeof ResolveCommentResponseSchema;
+  },
+  /**
+   * @generated from rpc runko.v1.ChangeService.RequestReview
+   */
+  requestReview: {
+    methodKind: "unary";
+    input: typeof RequestReviewRequestSchema;
+    output: typeof RequestReviewResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_runko_v1_changes, 0);

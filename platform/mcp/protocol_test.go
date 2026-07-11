@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -245,7 +246,7 @@ func validatePayload(t *testing.T, toolName string, payload json.RawMessage) {
 // by real git - and every tool's output validated against the catalog's
 // own output_schema, so the adapter can't drift from docs/spec/ without
 // this failing.
-func TestMCPEndToEndAllSixTools(t *testing.T) {
+func TestMCPEndToEndAllSevenTools(t *testing.T) {
 	daemonURL, changeID := startDaemon(t)
 	s := startSession(t, daemonURL)
 
@@ -257,7 +258,8 @@ func TestMCPEndToEndAllSixTools(t *testing.T) {
 	}
 	s.send(`{"jsonrpc":"2.0","method":"notifications/initialized"}`) // notification: must get NO response
 
-	// -- tools/list serves exactly the six v1 tools.
+	// -- tools/list serves exactly the seven v1 tools (§17.4: six at stage
+	// 12, list_change_comments graduated at stage 16).
 	s.send(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	listReply := s.recv()
 	if string(listReply.ID) != "2" {
@@ -272,8 +274,8 @@ func TestMCPEndToEndAllSixTools(t *testing.T) {
 	if err := json.Unmarshal(listReply.Result, &toolList); err != nil {
 		t.Fatalf("unmarshal tools/list: %v", err)
 	}
-	if len(toolList.Tools) != 6 {
-		t.Fatalf("expected exactly 6 v1 tools, got %d", len(toolList.Tools))
+	if len(toolList.Tools) != 7 {
+		t.Fatalf("expected exactly 7 v1 tools, got %d", len(toolList.Tools))
 	}
 
 	// -- list_projects.
@@ -395,6 +397,50 @@ func TestMCPEndToEndAllSixTools(t *testing.T) {
 	}
 	if reqs.Mergeable || len(reqs.Checks.Pending) != 1 || len(reqs.Owners.Outstanding) != 1 {
 		t.Fatalf("expected unit pending + owner outstanding + not mergeable, got %s", payload)
+	}
+
+	// -- list_change_comments (§13.4.1, the stage-16 graduate): seed one
+	// anchored comment through the same REST API the tool reads back, then
+	// assert the passthrough conforms to the catalog's output_schema.
+	commentBody := `{"body":"nit: wrap this error","author":"reviewer","path":"commerce/checkout/main.go","line":1}`
+	req, err := http.NewRequest(http.MethodPost, daemonURL+"/api/changes/"+changeID+"/comments", strings.NewReader(commentBody))
+	if err != nil {
+		t.Fatalf("build comment request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer sekret")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("seed comment: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("seed comment: expected 201, got %d", resp.StatusCode)
+	}
+
+	payload, isErr = s.call(11, "list_change_comments", fmt.Sprintf(`{"change_id":"%s"}`, changeID))
+	if isErr {
+		t.Fatalf("list_change_comments errored: %s", payload)
+	}
+	validatePayload(t, "list_change_comments", payload)
+	var comments struct {
+		Comments []struct {
+			Author struct {
+				Type string `json:"type"`
+				ID   string `json:"id"`
+			} `json:"author"`
+			Body    string `json:"body"`
+			Path    string `json:"path"`
+			Line    int    `json:"line"`
+			HeadSHA string `json:"head_sha"`
+		} `json:"comments"`
+	}
+	if err := json.Unmarshal(payload, &comments); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(comments.Comments) != 1 || comments.Comments[0].Author.ID != "reviewer" ||
+		comments.Comments[0].Path != "commerce/checkout/main.go" || comments.Comments[0].HeadSHA == "" {
+		t.Fatalf("expected the seeded anchored comment with its head_sha binding, got %s", payload)
 	}
 }
 
