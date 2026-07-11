@@ -769,3 +769,51 @@ func TestPostgresStoreCommentRoundTrip(t *testing.T) {
 		t.Fatalf("expected one upserted request from carol, got %+v", requests)
 	}
 }
+
+// TestPostgresStoreReleaseRoundTrip exercises migration 0012 through its
+// first caller (§14.10.3, stage 17b): rows round-trip every column, list
+// newest-first, latest resolves, the UNIQUE(project, version) constraint
+// refuses duplicates - and there is deliberately NO update/delete path to
+// test (immutability by construction).
+func TestPostgresStoreReleaseRoundTrip(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+
+	if _, ok, err := store.GetLatestRelease(ctx, "checkout-api"); err != nil || ok {
+		t.Fatalf("expected no releases yet, ok=%v err=%v", ok, err)
+	}
+
+	first, err := store.CreateRelease(ctx, Release{
+		ProjectName: "checkout-api", ProjectPath: "commerce/checkout",
+		Version: "0.1.0", TagRef: "refs/tags/checkout/v0.1.0",
+		TagSHA: "tag1", TargetSHA: "commit1", HeadChangeKey: "Iabc",
+		Changelog: "## 0.1.0\n- first", CreatedBy: "alice",
+	})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	if first.CreatedAt.IsZero() {
+		t.Fatalf("expected a store-assigned created_at, got %+v", first)
+	}
+	if _, err := store.CreateRelease(ctx, Release{ProjectName: "checkout-api", Version: "0.1.0"}); err == nil {
+		t.Fatalf("expected the UNIQUE constraint to refuse a duplicate version")
+	}
+	if _, err := store.CreateRelease(ctx, Release{
+		ProjectName: "checkout-api", ProjectPath: "commerce/checkout",
+		Version: "0.1.1", TagRef: "refs/tags/checkout/v0.1.1", TagSHA: "tag2", TargetSHA: "commit2",
+	}); err != nil {
+		t.Fatalf("CreateRelease (second): %v", err)
+	}
+
+	latest, ok, err := store.GetLatestRelease(ctx, "checkout-api")
+	if err != nil || !ok || latest.Version != "0.1.1" {
+		t.Fatalf("expected latest 0.1.1, got ok=%v err=%v %+v", ok, err, latest)
+	}
+	list, err := store.ListReleases(ctx, "checkout-api", 0, 0)
+	if err != nil || len(list) != 2 || list[0].Version != "0.1.1" {
+		t.Fatalf("expected [0.1.1, 0.1.0], got err=%v %+v", err, list)
+	}
+	if list[1].HeadChangeKey != "Iabc" || list[1].Changelog != "## 0.1.0\n- first" || list[1].CreatedBy != "alice" {
+		t.Fatalf("release columns did not round-trip: %+v", list[1])
+	}
+}

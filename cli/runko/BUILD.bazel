@@ -17,6 +17,7 @@ go_library(
         "main.go",
         "org.go",
         "project.go",
+        "release.go",
         "sync.go",
         "workspace.go",
     ],

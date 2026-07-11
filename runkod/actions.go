@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/saxocellphone/runko/internal/clierr"
+	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/platform/checks"
 	"github.com/saxocellphone/runko/platform/land"
 )
@@ -365,6 +366,117 @@ func (s *Server) requestReviewCore(ctx context.Context, key string, change Chang
 	}
 	s.enqueueReviewRequestWebhook(ctx, change, reviewer, requestedBy)
 	return ReviewRequest{Reviewer: reviewer, RequestedBy: requestedBy}, nil
+}
+
+// createReleaseCore is POST /api/projects/{name}/releases' decision core
+// (§14.10.3, stage 17b): resolve the project + its release capability at
+// trunk tip, authorize against the SAME tag-policy decision the receive
+// funnel enforces (server-minted tags bypass nothing), derive
+// version + changelog, write the annotated tag, record the immutable row,
+// trigger the mirror, and emit release.created.
+func (s *Server) createReleaseCore(ctx context.Context, projectName, explicitVersion string, principal *Principal, lane *BotLane) (Release, *apiError) {
+	proj, cfg, trunkTip, apiErr := s.resolveReleaseProject(projectName)
+	if apiErr != nil {
+		return Release{}, apiErr
+	}
+
+	version, apiErr := func() (string, *apiError) {
+		latest, hasLatest, err := s.Store.GetLatestRelease(ctx, projectName)
+		if err != nil {
+			return "", internalErr(err)
+		}
+		return nextVersion(explicitVersion, cfg, latest, hasLatest)
+	}()
+	if apiErr != nil {
+		return Release{}, apiErr
+	}
+	tagName := cfg.TagPrefix + version
+
+	// The same decision function the funnel runs on a raw `git push
+	// origin <tag>` (tags.go): when the org enforces tag policy, cutting a
+	// release requires the same operator/admin/releaser/lane-in-namespace
+	// standing - only the rendering differs (clierr here, the §6.9 script
+	// over the wire).
+	if s.Processor != nil && s.Processor.tagPolicyEnforced(ctx) {
+		author, laneName := "", ""
+		if principal != nil {
+			author = principal.Name
+		}
+		if lane != nil {
+			laneName = lane.Name
+		}
+		if reject := s.Processor.authorizeTagWrite(ctx, author, laneName, tagName); reject != "" {
+			return Release{}, typedErr(http.StatusForbidden, clierr.Error{
+				Code: "release_denied", Field: "project",
+				Message:    fmt.Sprintf("this org enforces tag policy - %s may not cut releases for %q", callerLabel(principal, lane), projectName),
+				Suggestion: `ask an org admin for the "releaser" role (release automation gets a bot lane with tags=<glob>)`,
+				DocURL:     "docs/design.md#14103-tags-and-releases-decided-2026-07-10-resolves-the-223-tag-governance-question",
+			})
+		}
+	}
+
+	changelog, headChangeKey := "", ""
+	if cfg.Changelog == "from-changes" {
+		since := ""
+		if latest, hasLatest, err := s.Store.GetLatestRelease(ctx, projectName); err == nil && hasLatest {
+			since = latest.TargetSHA
+		}
+		commits, err := s.commitsSince(trunkTip, since, proj.Path, changelogMaxCommits)
+		if err != nil {
+			return Release{}, internalErr(err)
+		}
+		changelog, headChangeKey = s.deriveChangelog(ctx, version, commits)
+	}
+
+	message := fmt.Sprintf("Release %s %s\n\n%s", projectName, version, changelog)
+	tagSHA, err := gitstore.New(s.RepoDir).CreateAnnotatedTag(tagName, trunkTip, message)
+	if err != nil {
+		if gitstore.IsTagExists(err) {
+			return Release{}, typedErr(http.StatusConflict, clierr.Error{
+				Code: "tag_exists", Field: "version",
+				Message:    fmt.Sprintf("tag %q already exists", tagName),
+				Suggestion: "pick a different version - existing tags are never re-pointed (§14.10.3)",
+			})
+		}
+		return Release{}, internalErr(err)
+	}
+
+	createdBy := ""
+	if principal != nil {
+		createdBy = principal.Name
+	} else if lane != nil {
+		createdBy = lane.Name
+	}
+	release, err := s.Store.CreateRelease(ctx, Release{
+		ProjectName: projectName, ProjectPath: proj.Path,
+		Version: version, TagRef: "refs/tags/" + tagName,
+		TagSHA: string(tagSHA), TargetSHA: string(trunkTip),
+		HeadChangeKey: headChangeKey, Changelog: changelog, CreatedBy: createdBy,
+	})
+	if err != nil {
+		// Lost the same-version race after the tag write: the tag stands
+		// (immutable, correct content), the row loss surfaces loudly.
+		return Release{}, typedErr(http.StatusConflict, clierr.Error{
+			Code: "version_exists", Field: "version",
+			Message:    fmt.Sprintf("release %s %s already exists", projectName, version),
+			Suggestion: "list the project's releases; a concurrent create may have won this version",
+		})
+	}
+	s.Mirror.Trigger() // the mirror carries refs/tags/* - ship the new tag promptly
+	s.enqueueReleaseWebhook(ctx, release)
+	return release, nil
+}
+
+// callerLabel names the caller for release_denied messages.
+func callerLabel(principal *Principal, lane *BotLane) string {
+	switch {
+	case principal != nil:
+		return fmt.Sprintf("principal %q", principal.Name)
+	case lane != nil:
+		return fmt.Sprintf("bot lane %q", lane.Name)
+	default:
+		return "the anonymous deploy token"
+	}
 }
 
 // landDecision is landChangeCore's outcome across both transports: exactly

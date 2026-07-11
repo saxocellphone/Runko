@@ -47,6 +47,12 @@ const (
 	// ProjectServiceCreateProjectProcedure is the fully-qualified name of the ProjectService's
 	// CreateProject RPC.
 	ProjectServiceCreateProjectProcedure = "/runko.v1.ProjectService/CreateProject"
+	// ProjectServiceListReleasesProcedure is the fully-qualified name of the ProjectService's
+	// ListReleases RPC.
+	ProjectServiceListReleasesProcedure = "/runko.v1.ProjectService/ListReleases"
+	// ProjectServiceCreateReleaseProcedure is the fully-qualified name of the ProjectService's
+	// CreateRelease RPC.
+	ProjectServiceCreateReleaseProcedure = "/runko.v1.ProjectService/CreateRelease"
 )
 
 // ProjectServiceClient is a client for the runko.v1.ProjectService service.
@@ -66,6 +72,13 @@ type ProjectServiceClient interface {
 	// (deferred-v1.x there); the web UI is the first remote-write client
 	// that needed it (§8.5, §10.2). Duplicate name/path is ALREADY_EXISTS.
 	CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error)
+	// Releases (§14.10.3, stage 17b): immutable records cut by
+	// CreateRelease - server-minted annotated tag + changelog derived from
+	// landed Changes since the previous release. CreateRelease answers to
+	// the same tag policy the receive funnel enforces on raw tag pushes;
+	// there are no update/delete verbs by design.
+	ListReleases(context.Context, *connect.Request[v1.ListReleasesRequest]) (*connect.Response[v1.ListReleasesResponse], error)
+	CreateRelease(context.Context, *connect.Request[v1.CreateReleaseRequest]) (*connect.Response[v1.CreateReleaseResponse], error)
 }
 
 // NewProjectServiceClient constructs a client for the runko.v1.ProjectService service. By default,
@@ -109,6 +122,18 @@ func NewProjectServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(projectServiceMethods.ByName("CreateProject")),
 			connect.WithClientOptions(opts...),
 		),
+		listReleases: connect.NewClient[v1.ListReleasesRequest, v1.ListReleasesResponse](
+			httpClient,
+			baseURL+ProjectServiceListReleasesProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("ListReleases")),
+			connect.WithClientOptions(opts...),
+		),
+		createRelease: connect.NewClient[v1.CreateReleaseRequest, v1.CreateReleaseResponse](
+			httpClient,
+			baseURL+ProjectServiceCreateReleaseProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("CreateRelease")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -119,6 +144,8 @@ type projectServiceClient struct {
 	whoOwns              *connect.Client[v1.WhoOwnsRequest, v1.WhoOwnsResponse]
 	previewCreateProject *connect.Client[v1.PreviewCreateProjectRequest, v1.PreviewCreateProjectResponse]
 	createProject        *connect.Client[v1.CreateProjectRequest, v1.CreateProjectResponse]
+	listReleases         *connect.Client[v1.ListReleasesRequest, v1.ListReleasesResponse]
+	createRelease        *connect.Client[v1.CreateReleaseRequest, v1.CreateReleaseResponse]
 }
 
 // ListProjects calls runko.v1.ProjectService.ListProjects.
@@ -146,6 +173,16 @@ func (c *projectServiceClient) CreateProject(ctx context.Context, req *connect.R
 	return c.createProject.CallUnary(ctx, req)
 }
 
+// ListReleases calls runko.v1.ProjectService.ListReleases.
+func (c *projectServiceClient) ListReleases(ctx context.Context, req *connect.Request[v1.ListReleasesRequest]) (*connect.Response[v1.ListReleasesResponse], error) {
+	return c.listReleases.CallUnary(ctx, req)
+}
+
+// CreateRelease calls runko.v1.ProjectService.CreateRelease.
+func (c *projectServiceClient) CreateRelease(ctx context.Context, req *connect.Request[v1.CreateReleaseRequest]) (*connect.Response[v1.CreateReleaseResponse], error) {
+	return c.createRelease.CallUnary(ctx, req)
+}
+
 // ProjectServiceHandler is an implementation of the runko.v1.ProjectService service.
 type ProjectServiceHandler interface {
 	ListProjects(context.Context, *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error)
@@ -163,6 +200,13 @@ type ProjectServiceHandler interface {
 	// (deferred-v1.x there); the web UI is the first remote-write client
 	// that needed it (§8.5, §10.2). Duplicate name/path is ALREADY_EXISTS.
 	CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error)
+	// Releases (§14.10.3, stage 17b): immutable records cut by
+	// CreateRelease - server-minted annotated tag + changelog derived from
+	// landed Changes since the previous release. CreateRelease answers to
+	// the same tag policy the receive funnel enforces on raw tag pushes;
+	// there are no update/delete verbs by design.
+	ListReleases(context.Context, *connect.Request[v1.ListReleasesRequest]) (*connect.Response[v1.ListReleasesResponse], error)
+	CreateRelease(context.Context, *connect.Request[v1.CreateReleaseRequest]) (*connect.Response[v1.CreateReleaseResponse], error)
 }
 
 // NewProjectServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -202,6 +246,18 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 		connect.WithSchema(projectServiceMethods.ByName("CreateProject")),
 		connect.WithHandlerOptions(opts...),
 	)
+	projectServiceListReleasesHandler := connect.NewUnaryHandler(
+		ProjectServiceListReleasesProcedure,
+		svc.ListReleases,
+		connect.WithSchema(projectServiceMethods.ByName("ListReleases")),
+		connect.WithHandlerOptions(opts...),
+	)
+	projectServiceCreateReleaseHandler := connect.NewUnaryHandler(
+		ProjectServiceCreateReleaseProcedure,
+		svc.CreateRelease,
+		connect.WithSchema(projectServiceMethods.ByName("CreateRelease")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/runko.v1.ProjectService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ProjectServiceListProjectsProcedure:
@@ -214,6 +270,10 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 			projectServicePreviewCreateProjectHandler.ServeHTTP(w, r)
 		case ProjectServiceCreateProjectProcedure:
 			projectServiceCreateProjectHandler.ServeHTTP(w, r)
+		case ProjectServiceListReleasesProcedure:
+			projectServiceListReleasesHandler.ServeHTTP(w, r)
+		case ProjectServiceCreateReleaseProcedure:
+			projectServiceCreateReleaseHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -241,4 +301,12 @@ func (UnimplementedProjectServiceHandler) PreviewCreateProject(context.Context, 
 
 func (UnimplementedProjectServiceHandler) CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ProjectService.CreateProject is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) ListReleases(context.Context, *connect.Request[v1.ListReleasesRequest]) (*connect.Response[v1.ListReleasesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ProjectService.ListReleases is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) CreateRelease(context.Context, *connect.Request[v1.CreateReleaseRequest]) (*connect.Response[v1.CreateReleaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ProjectService.CreateRelease is not implemented"))
 }

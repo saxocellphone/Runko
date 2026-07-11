@@ -26,6 +26,8 @@ go_library(
         "migrations/0010_changes_list_index.up.sql",
         "migrations/0011_review_conversation.down.sql",
         "migrations/0011_review_conversation.up.sql",
+        "migrations/0012_releases.down.sql",
+        "migrations/0012_releases.up.sql",
     ],
     importpath = "github.com/saxocellphone/runko/db",
     visibility = ["//visibility:public"],

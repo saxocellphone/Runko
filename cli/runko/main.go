@@ -70,6 +70,8 @@ func main() {
 		err = cmdAuth(os.Args[2:])
 	case "org":
 		err = cmdOrg(os.Args[2:])
+	case "release":
+		err = cmdRelease(os.Args[2:])
 	case "-h", "--help", "help":
 		printUsage()
 		return
@@ -117,7 +119,9 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   auth status | auth logout                                   who am I / forget the credential
   org create --name <org>                                     new org owning its own repo at /o/<org>/ (§7.1) [--json]
   org list                                                    orgs you can reach (role + git URL) [--json]
-  org add-member --org <org> --name <account> [--role member|admin]   grant an account access [--json]
+  org add-member --org <org> --name <account> [--role member|admin|releaser]   grant an account access [--json]
+  release create --project <p> [--version x.y.z]              cut an immutable release: server-minted tag + changelog from landed changes (§14.10.3) [--json]
+  release list --project <p>                                  the project's releases, newest first [--json]
   change create -m <msg> [--dir .]                            commit WIP as one Change (with its Change-Id) [--json]
   change requirements [--change <Id>] [--dir .]               the §13.5 gates for a Change (default: HEAD's) [--json]
   change comment --change <id> -m <text> [--file <p> --line <n> --side head|base] [--reply-to <id>]   anchored review comment (§13.4.1) [--json]

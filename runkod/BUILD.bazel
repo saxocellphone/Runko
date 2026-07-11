@@ -22,6 +22,7 @@ go_library(
         "pgstore.go",
         "prereceive.go",
         "principal.go",
+        "release.go",
         "repo.go",
         "review.go",
         "rpc.go",
@@ -55,6 +56,7 @@ go_library(
         "@com_github_jackc_pgx_v5//:pgx",
         "@com_github_jackc_pgx_v5//pgtype",
         "@com_github_jackc_pgx_v5//pgxpool",
+        "@in_gopkg_yaml_v3//:yaml_v3",
     ],
 )
 
@@ -83,6 +85,7 @@ go_test(
         "prereceive_test.go",
         "principal_test.go",
         "publicread_test.go",
+        "release_test.go",
         "rpc_test.go",
         "signup_test.go",
         "singleuse_test.go",

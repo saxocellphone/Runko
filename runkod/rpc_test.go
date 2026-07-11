@@ -725,3 +725,29 @@ func TestRPCReviewConversation(t *testing.T) {
 		t.Fatalf("expected fresh-eyes in the attention set, got %v", reqs.Msg.GetRequirements().GetAttentionSet())
 	}
 }
+
+// TestRPCReleases drives §14.10.3's release surface over Connect: create
+// with auto-version against the seeded (release-capability-less) project
+// fails structured; the projects fixture here has no release capability,
+// so this pins the not-enabled path and the error detail plumbing on the
+// RPC transport - the full happy path lives in release_test.go over REST
+// (same core, per actions.go's anti-drift doctrine).
+func TestRPCReleases(t *testing.T) {
+	srv, _, _, _ := newApproveTestServer(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := runkov1connect.NewProjectServiceClient(srv.Client(), srv.URL, rpcAuth("sekret"))
+
+	_, err := client.CreateRelease(ctx, connect.NewRequest(&runkov1.CreateReleaseRequest{Project: "checkout-api"}))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expected FailedPrecondition for a project without the release capability, got %v", err)
+	}
+	if detail := errorDetail(t, err); detail.GetCode() != "release_not_enabled" {
+		t.Fatalf("detail code: want release_not_enabled, got %q", detail.GetCode())
+	}
+
+	_, err = client.ListReleases(ctx, connect.NewRequest(&runkov1.ListReleasesRequest{Project: "no-such"}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("expected NotFound for an unknown project, got %v", err)
+	}
+}

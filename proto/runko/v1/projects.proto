@@ -25,6 +25,50 @@ service ProjectService {
   // (deferred-v1.x there); the web UI is the first remote-write client
   // that needed it (§8.5, §10.2). Duplicate name/path is ALREADY_EXISTS.
   rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+  // Releases (§14.10.3, stage 17b): immutable records cut by
+  // CreateRelease - server-minted annotated tag + changelog derived from
+  // landed Changes since the previous release. CreateRelease answers to
+  // the same tag policy the receive funnel enforces on raw tag pushes;
+  // there are no update/delete verbs by design.
+  rpc ListReleases(ListReleasesRequest) returns (ListReleasesResponse);
+  rpc CreateRelease(CreateReleaseRequest) returns (CreateReleaseResponse);
+}
+
+// Release mirrors the release object in
+// docs/spec/webhooks/release-created.schema.json (§14.10.3): project
+// version = annotated tag = trunk commit = newest landed Change.
+message Release {
+  ProjectSummary project = 1;  // id/name/path; owners_summary unset here
+  string version = 2;
+  string tag_ref = 3;    // refs/tags/<tag_prefix><version>
+  string tag_sha = 4;    // the annotated TAG object
+  string target_sha = 5; // the trunk commit the tag points at
+  string head_change_key = 6;
+  string changelog = 7;
+  string created_by = 8; // principal/lane name; "" for the deploy token
+  int64 created_at = 9;  // unix seconds
+}
+
+message ListReleasesRequest {
+  string project = 1; // project name
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListReleasesResponse {
+  repeated Release releases = 1;
+  string next_page_token = 2;
+}
+
+message CreateReleaseRequest {
+  string project = 1;
+  // version is optional: empty auto-bumps the latest release's patch
+  // (0.1.0 first); manual-versioning projects require it.
+  string version = 2;
+}
+
+message CreateReleaseResponse {
+  Release release = 1;
 }
 
 // CreateProjectIntent is the L0-only create request (§10.1, §8.5),

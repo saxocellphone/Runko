@@ -46,6 +46,8 @@ var Commands = []Command{
 	{"runko", "org create --name <org> [--json]", "new org owning its own repo at /o/<org>/ (§7.1) - humans/operators only, agents are refused (§8.7)", "OrgInfo"},
 	{"runko", "org list [--json]", "orgs your credential can reach (role + git URL) - needs a live runkod", "[]OrgInfo"},
 	{"runko", "org add-member --org <org> --name <account> [--role member] [--json]", "grant an account org access (org admins/operators) - needs a live runkod", `{"org","name","role"}`},
+	{"runko", "release create --project <p> [--version x.y.z] --runkod-url <url> --token <t> [--json]", "cut an immutable release (§14.10.3): server-minted annotated tag + changelog derived from landed changes since the previous release - needs a live runkod", "ReleaseInfo"},
+	{"runko", "release list --project <p> --runkod-url <url> --token <t> [--json]", "the project's releases, newest first (§14.10.3) - needs a live runkod", "[]ReleaseInfo"},
 	{"runko", "agents-md [--out AGENTS.md] [--json]", "regenerate this file from the CLI's own command inventory (§8.8)", `{"path"}`},
 	{"runko-ci", "affected --base <rev> [--head HEAD] [--engine bazel]", "compute the affected project set for a base..head range (§13.3)", "affected.Result (always JSON)"},
 	{"runko-ci", "checks --base <rev> [--head HEAD]", "resolve the affected closure's manifest-declared ci.checks for a CI executor (§14.9)", `{"run_everything","checks":[{"project","name","command"}]} (always JSON)`},

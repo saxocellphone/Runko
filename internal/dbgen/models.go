@@ -521,6 +521,21 @@ type ProjectOwner struct {
 	Source    string    `json:"source"`
 }
 
+type Release struct {
+	ID            uuid.UUID          `json:"id"`
+	MonorepoID    uuid.UUID          `json:"monorepo_id"`
+	ProjectName   string             `json:"project_name"`
+	ProjectPath   string             `json:"project_path"`
+	Version       string             `json:"version"`
+	TagRef        string             `json:"tag_ref"`
+	TagSha        string             `json:"tag_sha"`
+	TargetSha     string             `json:"target_sha"`
+	HeadChangeKey string             `json:"head_change_key"`
+	Changelog     string             `json:"changelog"`
+	CreatedBy     string             `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type Template struct {
 	ID                  uuid.UUID          `json:"id"`
 	OrgID               uuid.UUID          `json:"org_id"`

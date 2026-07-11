@@ -12,6 +12,7 @@ go_library(
         "orgs.sql.go",
         "principals.sql.go",
         "projects.sql.go",
+        "releases.sql.go",
         "templates.sql.go",
         "webhooks.sql.go",
         "workspaces.sql.go",

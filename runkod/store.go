@@ -103,6 +103,26 @@ type ReviewRequest struct {
 	CreatedAt   time.Time
 }
 
+// Release is one immutable release record (§14.10.3, stage 17b): project
+// version = annotated tag = trunk commit = newest landed Change. There are
+// no update or delete verbs anywhere - a wrong release is followed by a
+// corrected one (GitHub immutable-releases parity); the tag -> commit ->
+// Change chain is the attestation anchor.
+type Release struct {
+	ProjectName string
+	ProjectPath string
+	Version     string
+	TagRef      string
+	TagSHA      string
+	TargetSHA   string
+	// HeadChangeKey is the newest landed Change the release includes -
+	// the changelog spans (previous release's target, this Change].
+	HeadChangeKey string
+	Changelog     string
+	CreatedBy     string
+	CreatedAt     time.Time
+}
+
 // MirrorCursor is one (remote, ref) sync cursor (§18.6): what the mirror
 // last agreed with us about, and whether mirroring that ref is frozen.
 type MirrorCursor struct {
@@ -192,6 +212,18 @@ type Store interface {
 	UpsertReviewRequest(ctx context.Context, changeKey, reviewer, requestedBy string) error
 	ListReviewRequests(ctx context.Context, changeKey string) ([]ReviewRequest, error)
 
+	// CreateRelease records one immutable release row (§14.10.3, stage
+	// 17b); a duplicate (project, version) is an error (the UNIQUE
+	// constraint - callers surface it as version_exists). The Store
+	// deliberately has no update/delete verbs for releases.
+	CreateRelease(ctx context.Context, r Release) (Release, error)
+	// ListReleases returns a project's releases newest-first; limit <= 0
+	// means unbounded (the ListChangesPage convention).
+	ListReleases(ctx context.Context, projectName string, limit, offset int) ([]Release, error)
+	// GetLatestRelease returns the newest release for projectName; ok
+	// false when the project has never been released.
+	GetLatestRelease(ctx context.Context, projectName string) (Release, bool, error)
+
 	// UpsertCheckRun creates a check run for (changeKey, headSHA, name) if
 	// none exists yet, or updates status/conclusion in place otherwise -
 	// report-check posts a status transition for the SAME logical run
@@ -280,6 +312,7 @@ type MemStore struct {
 	approvals  map[string]map[string]Approval            // changeKey -> ownerRef -> approval
 	comments   map[string][]Comment                      // changeKey -> comments, creation order
 	reviewReqs map[string]map[string]ReviewRequest       // changeKey -> reviewer -> request
+	releases   map[string][]Release                      // projectName -> releases, creation order
 	workspaces map[string]Workspace
 	principals map[string]StoredPrincipal
 	deliveries map[string]*memDelivery
@@ -317,6 +350,7 @@ func NewMemStore() *MemStore {
 		approvals:  make(map[string]map[string]Approval),
 		comments:   make(map[string][]Comment),
 		reviewReqs: make(map[string]map[string]ReviewRequest),
+		releases:   make(map[string][]Release),
 		workspaces: make(map[string]Workspace),
 		deliveries: make(map[string]*memDelivery),
 		mirrors:    make(map[string]MirrorCursor),
@@ -589,6 +623,51 @@ func (s *MemStore) ListReviewRequests(ctx context.Context, changeKey string) ([]
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Reviewer < out[j].Reviewer })
 	return out, nil
+}
+
+func (s *MemStore) CreateRelease(ctx context.Context, r Release) (Release, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.releases[r.ProjectName] {
+		if existing.Version == r.Version {
+			return Release{}, fmt.Errorf("runkod: release %s %s already exists", r.ProjectName, r.Version)
+		}
+	}
+	r.CreatedAt = s.now()
+	s.releases[r.ProjectName] = append(s.releases[r.ProjectName], r)
+	return r, nil
+}
+
+func (s *MemStore) ListReleases(ctx context.Context, projectName string, limit, offset int) ([]Release, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all := s.releases[projectName]
+	// Newest first (creation order reversed), the SQL ORDER BY mirror.
+	rev := make([]Release, len(all))
+	for i, r := range all {
+		rev[len(all)-1-i] = r
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(rev) {
+		return []Release{}, nil
+	}
+	rev = rev[offset:]
+	if limit > 0 && limit < len(rev) {
+		rev = rev[:limit]
+	}
+	return rev, nil
+}
+
+func (s *MemStore) GetLatestRelease(ctx context.Context, projectName string) (Release, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all := s.releases[projectName]
+	if len(all) == 0 {
+		return Release{}, false, nil
+	}
+	return all[len(all)-1], true, nil
 }
 
 func checkRunKey(changeKey, headSHA string) string { return changeKey + "|" + headSHA }

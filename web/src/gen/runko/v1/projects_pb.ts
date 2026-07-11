@@ -12,7 +12,173 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file runko/v1/projects.proto.
  */
 export const file_runko_v1_projects: GenFile = /*@__PURE__*/
-  fileDesc("ChdydW5rby92MS9wcm9qZWN0cy5wcm90bxIIcnVua28udjEioQEKE0NyZWF0ZVByb2plY3RJbnRlbnQSDAoEbmFtZRgBIAEoCRIMCgR0eXBlGAIgASgJEg4KBm93bmVycxgDIAMoCRITCgt0ZW1wbGF0ZV9pZBgEIAEoCRIMCgRwYXRoGAUgASgJEhAKCGxhbmd1YWdlGAYgASgJEhMKC25vX3RlbXBsYXRlGAcgASgIEhQKDGJ1aWxkX2VuZ2luZRgIIAEoCSJMChtQcmV2aWV3Q3JlYXRlUHJvamVjdFJlcXVlc3QSLQoGaW50ZW50GAEgASgLMh0ucnVua28udjEuQ3JlYXRlUHJvamVjdEludGVudCI8CgtQbGFubmVkRmlsZRIMCgRwYXRoGAEgASgJEg4KBmFjdGlvbhgCIAEoCRIPCgdjb250ZW50GAMgASgJIlIKHFByZXZpZXdDcmVhdGVQcm9qZWN0UmVzcG9uc2USDAoEcGF0aBgBIAEoCRIkCgVmaWxlcxgCIAMoCzIVLnJ1bmtvLnYxLlBsYW5uZWRGaWxlIkUKFENyZWF0ZVByb2plY3RSZXF1ZXN0Ei0KBmludGVudBgBIAEoCzIdLnJ1bmtvLnYxLkNyZWF0ZVByb2plY3RJbnRlbnQiQAoVQ3JlYXRlUHJvamVjdFJlc3BvbnNlEicKBmNoYW5nZRgBIAEoCzIXLnJ1bmtvLnYxLkNoYW5nZVN1bW1hcnkiSwoTTGlzdFByb2plY3RzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJbChRMaXN0UHJvamVjdHNSZXNwb25zZRIqCghwcm9qZWN0cxgBIAMoCzIYLnJ1bmtvLnYxLlByb2plY3RTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIkChFHZXRQcm9qZWN0UmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJIj0KDldob093bnNSZXF1ZXN0Eg4KBHBhdGgYASABKAlIABIRCgdwcm9qZWN0GAIgASgJSABCCAoGdGFyZ2V0Ij4KEkdldFByb2plY3RSZXNwb25zZRIoCgdwcm9qZWN0GAEgASgLMhcucnVua28udjEuUHJvamVjdERldGFpbCI5Cg9XaG9Pd25zUmVzcG9uc2USJgoGb3duZXJzGAEgASgLMhYucnVua28udjEuT3duZXJzUmVzdWx0MqEDCg5Qcm9qZWN0U2VydmljZRJNCgxMaXN0UHJvamVjdHMSHS5ydW5rby52MS5MaXN0UHJvamVjdHNSZXF1ZXN0Gh4ucnVua28udjEuTGlzdFByb2plY3RzUmVzcG9uc2USRwoKR2V0UHJvamVjdBIbLnJ1bmtvLnYxLkdldFByb2plY3RSZXF1ZXN0GhwucnVua28udjEuR2V0UHJvamVjdFJlc3BvbnNlEj4KB1dob093bnMSGC5ydW5rby52MS5XaG9Pd25zUmVxdWVzdBoZLnJ1bmtvLnYxLldob093bnNSZXNwb25zZRJlChRQcmV2aWV3Q3JlYXRlUHJvamVjdBIlLnJ1bmtvLnYxLlByZXZpZXdDcmVhdGVQcm9qZWN0UmVxdWVzdBomLnJ1bmtvLnYxLlByZXZpZXdDcmVhdGVQcm9qZWN0UmVzcG9uc2USUAoNQ3JlYXRlUHJvamVjdBIeLnJ1bmtvLnYxLkNyZWF0ZVByb2plY3RSZXF1ZXN0Gh8ucnVua28udjEuQ3JlYXRlUHJvamVjdFJlc3BvbnNlQjtaOWdpdGh1Yi5jb20vc2F4b2NlbGxwaG9uZS9ydW5rby9wcm90by9nZW4vcnVua28vdjE7cnVua292MWIGcHJvdG8z", [file_runko_v1_common]);
+  fileDesc("ChdydW5rby92MS9wcm9qZWN0cy5wcm90bxIIcnVua28udjEizwEKB1JlbGVhc2USKQoHcHJvamVjdBgBIAEoCzIYLnJ1bmtvLnYxLlByb2plY3RTdW1tYXJ5Eg8KB3ZlcnNpb24YAiABKAkSDwoHdGFnX3JlZhgDIAEoCRIPCgd0YWdfc2hhGAQgASgJEhIKCnRhcmdldF9zaGEYBSABKAkSFwoPaGVhZF9jaGFuZ2Vfa2V5GAYgASgJEhEKCWNoYW5nZWxvZxgHIAEoCRISCgpjcmVhdGVkX2J5GAggASgJEhIKCmNyZWF0ZWRfYXQYCSABKAMiTQoTTGlzdFJlbGVhc2VzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEhEKCXBhZ2Vfc2l6ZRgCIAEoBRISCgpwYWdlX3Rva2VuGAMgASgJIlQKFExpc3RSZWxlYXNlc1Jlc3BvbnNlEiMKCHJlbGVhc2VzGAEgAygLMhEucnVua28udjEuUmVsZWFzZRIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkiOAoUQ3JlYXRlUmVsZWFzZVJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJIjsKFUNyZWF0ZVJlbGVhc2VSZXNwb25zZRIiCgdyZWxlYXNlGAEgASgLMhEucnVua28udjEuUmVsZWFzZSKhAQoTQ3JlYXRlUHJvamVjdEludGVudBIMCgRuYW1lGAEgASgJEgwKBHR5cGUYAiABKAkSDgoGb3duZXJzGAMgAygJEhMKC3RlbXBsYXRlX2lkGAQgASgJEgwKBHBhdGgYBSABKAkSEAoIbGFuZ3VhZ2UYBiABKAkSEwoLbm9fdGVtcGxhdGUYByABKAgSFAoMYnVpbGRfZW5naW5lGAggASgJIkwKG1ByZXZpZXdDcmVhdGVQcm9qZWN0UmVxdWVzdBItCgZpbnRlbnQYASABKAsyHS5ydW5rby52MS5DcmVhdGVQcm9qZWN0SW50ZW50IjwKC1BsYW5uZWRGaWxlEgwKBHBhdGgYASABKAkSDgoGYWN0aW9uGAIgASgJEg8KB2NvbnRlbnQYAyABKAkiUgocUHJldmlld0NyZWF0ZVByb2plY3RSZXNwb25zZRIMCgRwYXRoGAEgASgJEiQKBWZpbGVzGAIgAygLMhUucnVua28udjEuUGxhbm5lZEZpbGUiRQoUQ3JlYXRlUHJvamVjdFJlcXVlc3QSLQoGaW50ZW50GAEgASgLMh0ucnVua28udjEuQ3JlYXRlUHJvamVjdEludGVudCJAChVDcmVhdGVQcm9qZWN0UmVzcG9uc2USJwoGY2hhbmdlGAEgASgLMhcucnVua28udjEuQ2hhbmdlU3VtbWFyeSJLChNMaXN0UHJvamVjdHNSZXF1ZXN0Eg0KBXF1ZXJ5GAEgASgJEhEKCXBhZ2Vfc2l6ZRgCIAEoBRISCgpwYWdlX3Rva2VuGAMgASgJIlsKFExpc3RQcm9qZWN0c1Jlc3BvbnNlEioKCHByb2plY3RzGAEgAygLMhgucnVua28udjEuUHJvamVjdFN1bW1hcnkSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIiQKEUdldFByb2plY3RSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkiPQoOV2hvT3duc1JlcXVlc3QSDgoEcGF0aBgBIAEoCUgAEhEKB3Byb2plY3QYAiABKAlIAEIICgZ0YXJnZXQiPgoSR2V0UHJvamVjdFJlc3BvbnNlEigKB3Byb2plY3QYASABKAsyFy5ydW5rby52MS5Qcm9qZWN0RGV0YWlsIjkKD1dob093bnNSZXNwb25zZRImCgZvd25lcnMYASABKAsyFi5ydW5rby52MS5Pd25lcnNSZXN1bHQywgQKDlByb2plY3RTZXJ2aWNlEk0KDExpc3RQcm9qZWN0cxIdLnJ1bmtvLnYxLkxpc3RQcm9qZWN0c1JlcXVlc3QaHi5ydW5rby52MS5MaXN0UHJvamVjdHNSZXNwb25zZRJHCgpHZXRQcm9qZWN0EhsucnVua28udjEuR2V0UHJvamVjdFJlcXVlc3QaHC5ydW5rby52MS5HZXRQcm9qZWN0UmVzcG9uc2USPgoHV2hvT3ducxIYLnJ1bmtvLnYxLldob093bnNSZXF1ZXN0GhkucnVua28udjEuV2hvT3duc1Jlc3BvbnNlEmUKFFByZXZpZXdDcmVhdGVQcm9qZWN0EiUucnVua28udjEuUHJldmlld0NyZWF0ZVByb2plY3RSZXF1ZXN0GiYucnVua28udjEuUHJldmlld0NyZWF0ZVByb2plY3RSZXNwb25zZRJQCg1DcmVhdGVQcm9qZWN0Eh4ucnVua28udjEuQ3JlYXRlUHJvamVjdFJlcXVlc3QaHy5ydW5rby52MS5DcmVhdGVQcm9qZWN0UmVzcG9uc2USTQoMTGlzdFJlbGVhc2VzEh0ucnVua28udjEuTGlzdFJlbGVhc2VzUmVxdWVzdBoeLnJ1bmtvLnYxLkxpc3RSZWxlYXNlc1Jlc3BvbnNlElAKDUNyZWF0ZVJlbGVhc2USHi5ydW5rby52MS5DcmVhdGVSZWxlYXNlUmVxdWVzdBofLnJ1bmtvLnYxLkNyZWF0ZVJlbGVhc2VSZXNwb25zZUI7WjlnaXRodWIuY29tL3NheG9jZWxscGhvbmUvcnVua28vcHJvdG8vZ2VuL3J1bmtvL3YxO3J1bmtvdjFiBnByb3RvMw", [file_runko_v1_common]);
+
+/**
+ * Release mirrors the release object in
+ * docs/spec/webhooks/release-created.schema.json (§14.10.3): project
+ * version = annotated tag = trunk commit = newest landed Change.
+ *
+ * @generated from message runko.v1.Release
+ */
+export type Release = Message<"runko.v1.Release"> & {
+  /**
+   * id/name/path; owners_summary unset here
+   *
+   * @generated from field: runko.v1.ProjectSummary project = 1;
+   */
+  project?: ProjectSummary | undefined;
+
+  /**
+   * @generated from field: string version = 2;
+   */
+  version: string;
+
+  /**
+   * refs/tags/<tag_prefix><version>
+   *
+   * @generated from field: string tag_ref = 3;
+   */
+  tagRef: string;
+
+  /**
+   * the annotated TAG object
+   *
+   * @generated from field: string tag_sha = 4;
+   */
+  tagSha: string;
+
+  /**
+   * the trunk commit the tag points at
+   *
+   * @generated from field: string target_sha = 5;
+   */
+  targetSha: string;
+
+  /**
+   * @generated from field: string head_change_key = 6;
+   */
+  headChangeKey: string;
+
+  /**
+   * @generated from field: string changelog = 7;
+   */
+  changelog: string;
+
+  /**
+   * principal/lane name; "" for the deploy token
+   *
+   * @generated from field: string created_by = 8;
+   */
+  createdBy: string;
+
+  /**
+   * unix seconds
+   *
+   * @generated from field: int64 created_at = 9;
+   */
+  createdAt: bigint;
+};
+
+/**
+ * Describes the message runko.v1.Release.
+ * Use `create(ReleaseSchema)` to create a new message.
+ */
+export const ReleaseSchema: GenMessage<Release> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 0);
+
+/**
+ * @generated from message runko.v1.ListReleasesRequest
+ */
+export type ListReleasesRequest = Message<"runko.v1.ListReleasesRequest"> & {
+  /**
+   * project name
+   *
+   * @generated from field: string project = 1;
+   */
+  project: string;
+
+  /**
+   * @generated from field: int32 page_size = 2;
+   */
+  pageSize: number;
+
+  /**
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
+};
+
+/**
+ * Describes the message runko.v1.ListReleasesRequest.
+ * Use `create(ListReleasesRequestSchema)` to create a new message.
+ */
+export const ListReleasesRequestSchema: GenMessage<ListReleasesRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 1);
+
+/**
+ * @generated from message runko.v1.ListReleasesResponse
+ */
+export type ListReleasesResponse = Message<"runko.v1.ListReleasesResponse"> & {
+  /**
+   * @generated from field: repeated runko.v1.Release releases = 1;
+   */
+  releases: Release[];
+
+  /**
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
+};
+
+/**
+ * Describes the message runko.v1.ListReleasesResponse.
+ * Use `create(ListReleasesResponseSchema)` to create a new message.
+ */
+export const ListReleasesResponseSchema: GenMessage<ListReleasesResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 2);
+
+/**
+ * @generated from message runko.v1.CreateReleaseRequest
+ */
+export type CreateReleaseRequest = Message<"runko.v1.CreateReleaseRequest"> & {
+  /**
+   * @generated from field: string project = 1;
+   */
+  project: string;
+
+  /**
+   * version is optional: empty auto-bumps the latest release's patch
+   * (0.1.0 first); manual-versioning projects require it.
+   *
+   * @generated from field: string version = 2;
+   */
+  version: string;
+};
+
+/**
+ * Describes the message runko.v1.CreateReleaseRequest.
+ * Use `create(CreateReleaseRequestSchema)` to create a new message.
+ */
+export const CreateReleaseRequestSchema: GenMessage<CreateReleaseRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 3);
+
+/**
+ * @generated from message runko.v1.CreateReleaseResponse
+ */
+export type CreateReleaseResponse = Message<"runko.v1.CreateReleaseResponse"> & {
+  /**
+   * @generated from field: runko.v1.Release release = 1;
+   */
+  release?: Release | undefined;
+};
+
+/**
+ * Describes the message runko.v1.CreateReleaseResponse.
+ * Use `create(CreateReleaseResponseSchema)` to create a new message.
+ */
+export const CreateReleaseResponseSchema: GenMessage<CreateReleaseResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 4);
 
 /**
  * CreateProjectIntent is the L0-only create request (§10.1, §8.5),
@@ -83,7 +249,7 @@ export type CreateProjectIntent = Message<"runko.v1.CreateProjectIntent"> & {
  * Use `create(CreateProjectIntentSchema)` to create a new message.
  */
 export const CreateProjectIntentSchema: GenMessage<CreateProjectIntent> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 0);
+  messageDesc(file_runko_v1_projects, 5);
 
 /**
  * @generated from message runko.v1.PreviewCreateProjectRequest
@@ -100,7 +266,7 @@ export type PreviewCreateProjectRequest = Message<"runko.v1.PreviewCreateProject
  * Use `create(PreviewCreateProjectRequestSchema)` to create a new message.
  */
 export const PreviewCreateProjectRequestSchema: GenMessage<PreviewCreateProjectRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 1);
+  messageDesc(file_runko_v1_projects, 6);
 
 /**
  * @generated from message runko.v1.PlannedFile
@@ -131,7 +297,7 @@ export type PlannedFile = Message<"runko.v1.PlannedFile"> & {
  * Use `create(PlannedFileSchema)` to create a new message.
  */
 export const PlannedFileSchema: GenMessage<PlannedFile> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 2);
+  messageDesc(file_runko_v1_projects, 7);
 
 /**
  * @generated from message runko.v1.PreviewCreateProjectResponse
@@ -155,7 +321,7 @@ export type PreviewCreateProjectResponse = Message<"runko.v1.PreviewCreateProjec
  * Use `create(PreviewCreateProjectResponseSchema)` to create a new message.
  */
 export const PreviewCreateProjectResponseSchema: GenMessage<PreviewCreateProjectResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 3);
+  messageDesc(file_runko_v1_projects, 8);
 
 /**
  * @generated from message runko.v1.CreateProjectRequest
@@ -172,7 +338,7 @@ export type CreateProjectRequest = Message<"runko.v1.CreateProjectRequest"> & {
  * Use `create(CreateProjectRequestSchema)` to create a new message.
  */
 export const CreateProjectRequestSchema: GenMessage<CreateProjectRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 4);
+  messageDesc(file_runko_v1_projects, 9);
 
 /**
  * @generated from message runko.v1.CreateProjectResponse
@@ -192,7 +358,7 @@ export type CreateProjectResponse = Message<"runko.v1.CreateProjectResponse"> & 
  * Use `create(CreateProjectResponseSchema)` to create a new message.
  */
 export const CreateProjectResponseSchema: GenMessage<CreateProjectResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 5);
+  messageDesc(file_runko_v1_projects, 10);
 
 /**
  * @generated from message runko.v1.ListProjectsRequest
@@ -221,7 +387,7 @@ export type ListProjectsRequest = Message<"runko.v1.ListProjectsRequest"> & {
  * Use `create(ListProjectsRequestSchema)` to create a new message.
  */
 export const ListProjectsRequestSchema: GenMessage<ListProjectsRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 6);
+  messageDesc(file_runko_v1_projects, 11);
 
 /**
  * @generated from message runko.v1.ListProjectsResponse
@@ -243,7 +409,7 @@ export type ListProjectsResponse = Message<"runko.v1.ListProjectsResponse"> & {
  * Use `create(ListProjectsResponseSchema)` to create a new message.
  */
 export const ListProjectsResponseSchema: GenMessage<ListProjectsResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 7);
+  messageDesc(file_runko_v1_projects, 12);
 
 /**
  * @generated from message runko.v1.GetProjectRequest
@@ -262,7 +428,7 @@ export type GetProjectRequest = Message<"runko.v1.GetProjectRequest"> & {
  * Use `create(GetProjectRequestSchema)` to create a new message.
  */
 export const GetProjectRequestSchema: GenMessage<GetProjectRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 8);
+  messageDesc(file_runko_v1_projects, 13);
 
 /**
  * WhoOwnsRequest resolves owners for a path OR a project - exactly one,
@@ -294,7 +460,7 @@ export type WhoOwnsRequest = Message<"runko.v1.WhoOwnsRequest"> & {
  * Use `create(WhoOwnsRequestSchema)` to create a new message.
  */
 export const WhoOwnsRequestSchema: GenMessage<WhoOwnsRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 9);
+  messageDesc(file_runko_v1_projects, 14);
 
 /**
  * @generated from message runko.v1.GetProjectResponse
@@ -311,7 +477,7 @@ export type GetProjectResponse = Message<"runko.v1.GetProjectResponse"> & {
  * Use `create(GetProjectResponseSchema)` to create a new message.
  */
 export const GetProjectResponseSchema: GenMessage<GetProjectResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 10);
+  messageDesc(file_runko_v1_projects, 15);
 
 /**
  * @generated from message runko.v1.WhoOwnsResponse
@@ -328,7 +494,7 @@ export type WhoOwnsResponse = Message<"runko.v1.WhoOwnsResponse"> & {
  * Use `create(WhoOwnsResponseSchema)` to create a new message.
  */
 export const WhoOwnsResponseSchema: GenMessage<WhoOwnsResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_projects, 11);
+  messageDesc(file_runko_v1_projects, 16);
 
 /**
  * ProjectService mirrors the navigation-category MCP tools (§17.4) and
@@ -389,6 +555,28 @@ export const ProjectService: GenService<{
     methodKind: "unary";
     input: typeof CreateProjectRequestSchema;
     output: typeof CreateProjectResponseSchema;
+  },
+  /**
+   * Releases (§14.10.3, stage 17b): immutable records cut by
+   * CreateRelease - server-minted annotated tag + changelog derived from
+   * landed Changes since the previous release. CreateRelease answers to
+   * the same tag policy the receive funnel enforces on raw tag pushes;
+   * there are no update/delete verbs by design.
+   *
+   * @generated from rpc runko.v1.ProjectService.ListReleases
+   */
+  listReleases: {
+    methodKind: "unary";
+    input: typeof ListReleasesRequestSchema;
+    output: typeof ListReleasesResponseSchema;
+  },
+  /**
+   * @generated from rpc runko.v1.ProjectService.CreateRelease
+   */
+  createRelease: {
+    methodKind: "unary";
+    input: typeof CreateReleaseRequestSchema;
+    output: typeof CreateReleaseResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_runko_v1_projects, 0);

@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "gitstore",
-    srcs = ["gitstore.go"],
+    srcs = [
+        "gitstore.go",
+        "tag.go",
+    ],
     importpath = "github.com/saxocellphone/runko/internal/gitstore",
     visibility = ["//:__subpackages__"],
     deps = ["//platform/core"],
@@ -10,7 +13,10 @@ go_library(
 
 go_test(
     name = "gitstore_test",
-    srcs = ["gitstore_test.go"],
+    srcs = [
+        "gitstore_test.go",
+        "tag_test.go",
+    ],
     embed = [":gitstore"],
     deps = [
         "//internal/gitfixture",

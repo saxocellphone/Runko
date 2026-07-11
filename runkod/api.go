@@ -190,6 +190,8 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/search", s.requireReadAuth(s.handleSearch))
 
 	mux.HandleFunc("GET /api/projects", s.requireReadAuth(s.handleListProjects))
+	mux.HandleFunc("POST /api/projects/{name}/releases", s.requireAuth(s.handleCreateRelease))
+	mux.HandleFunc("GET /api/projects/{name}/releases", s.requireReadAuth(s.handleListReleases))
 	mux.HandleFunc("GET /api/affected", s.requireReadAuth(s.handleAffectedByPaths))
 
 	mux.HandleFunc("POST /api/workspaces", s.requireAuth(s.handleCreateWorkspace))

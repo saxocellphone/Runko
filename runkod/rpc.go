@@ -77,6 +77,7 @@ var publicReadProcedures = map[string]bool{
 	"/runko.v1.ProjectService/ListProjects":        true,
 	"/runko.v1.ProjectService/GetProject":          true,
 	"/runko.v1.ProjectService/WhoOwns":             true,
+	"/runko.v1.ProjectService/ListReleases":        true,
 	"/runko.v1.RepoService/GetTree":                true,
 	"/runko.v1.RepoService/GetBlob":                true,
 	"/runko.v1.RepoService/ListCommits":            true,
@@ -705,6 +706,58 @@ func (r *rpcServer) PreviewCreateProject(ctx context.Context, req *connect.Reque
 		files[i] = &runkov1.PlannedFile{Path: f.Path, Action: f.Action, Content: f.Content}
 	}
 	return connect.NewResponse(&runkov1.PreviewCreateProjectResponse{Path: plan.Path, Files: files}), nil
+}
+
+func protoRelease(rel Release) *runkov1.Release {
+	var created int64
+	if !rel.CreatedAt.IsZero() {
+		created = rel.CreatedAt.Unix()
+	}
+	return &runkov1.Release{
+		Project:       &runkov1.ProjectSummary{Id: rel.ProjectName, Name: rel.ProjectName, Path: rel.ProjectPath},
+		Version:       rel.Version,
+		TagRef:        rel.TagRef,
+		TagSha:        rel.TagSHA,
+		TargetSha:     rel.TargetSHA,
+		HeadChangeKey: rel.HeadChangeKey,
+		Changelog:     rel.Changelog,
+		CreatedBy:     rel.CreatedBy,
+		CreatedAt:     created,
+	}
+}
+
+func (r *rpcServer) ListReleases(ctx context.Context, req *connect.Request[runkov1.ListReleasesRequest]) (*connect.Response[runkov1.ListReleasesResponse], error) {
+	limit := int(req.Msg.PageSize)
+	offset := 0
+	if req.Msg.PageToken != "" {
+		n, err := strconv.Atoi(req.Msg.PageToken)
+		if err != nil || n < 0 {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("page_token must be a non-negative integer offset"))
+		}
+		offset = n
+	}
+	releases, apiErr := r.s.listReleasesCore(ctx, req.Msg.Project, limit, offset)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	resp := &runkov1.ListReleasesResponse{}
+	for _, rel := range releases {
+		resp.Releases = append(resp.Releases, protoRelease(rel))
+	}
+	if limit > 0 && len(releases) == limit {
+		resp.NextPageToken = strconv.Itoa(offset + limit)
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (r *rpcServer) CreateRelease(ctx context.Context, req *connect.Request[runkov1.CreateReleaseRequest]) (*connect.Response[runkov1.CreateReleaseResponse], error) {
+	auth := req.Header().Get("Authorization")
+	release, apiErr := r.s.createReleaseCore(ctx, req.Msg.Project, req.Msg.Version,
+		r.s.principalForAuthHeader(auth), r.s.laneForAuthHeader(auth))
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	return connect.NewResponse(&runkov1.CreateReleaseResponse{Release: protoRelease(release)}), nil
 }
 
 func (r *rpcServer) CreateProject(ctx context.Context, req *connect.Request[runkov1.CreateProjectRequest]) (*connect.Response[runkov1.CreateProjectResponse], error) {

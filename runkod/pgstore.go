@@ -642,6 +642,65 @@ func (s *PostgresStore) ListReviewRequests(ctx context.Context, changeKey string
 	return out, nil
 }
 
+func releaseFromRow(row *dbgen.Release) Release {
+	r := Release{
+		ProjectName: row.ProjectName, ProjectPath: row.ProjectPath,
+		Version: row.Version, TagRef: row.TagRef, TagSHA: row.TagSha,
+		TargetSHA: row.TargetSha, HeadChangeKey: row.HeadChangeKey,
+		Changelog: row.Changelog, CreatedBy: row.CreatedBy,
+	}
+	if row.CreatedAt.Valid {
+		r.CreatedAt = row.CreatedAt.Time
+	}
+	return r
+}
+
+func (s *PostgresStore) CreateRelease(ctx context.Context, r Release) (Release, error) {
+	row, err := s.Queries.CreateRelease(ctx, s.Pool, dbgen.CreateReleaseParams{
+		MonorepoID: s.MonorepoID, ProjectName: r.ProjectName, ProjectPath: r.ProjectPath,
+		Version: r.Version, TagRef: r.TagRef, TagSha: r.TagSHA, TargetSha: r.TargetSHA,
+		HeadChangeKey: r.HeadChangeKey, Changelog: r.Changelog, CreatedBy: r.CreatedBy,
+	})
+	if err != nil {
+		// The UNIQUE(monorepo_id, project_name, version) violation is the
+		// concurrent-create race; keep the message shape MemStore uses so
+		// the core's version_exists mapping matches both stores.
+		return Release{}, fmt.Errorf("runkod: release %s %s already exists or failed: %w", r.ProjectName, r.Version, err)
+	}
+	return releaseFromRow(row), nil
+}
+
+func (s *PostgresStore) ListReleases(ctx context.Context, projectName string, limit, offset int) ([]Release, error) {
+	lim := int32(limit)
+	if limit <= 0 {
+		lim = math.MaxInt32
+	}
+	rows, err := s.Queries.ListReleasesByProject(ctx, s.Pool, dbgen.ListReleasesByProjectParams{
+		MonorepoID: s.MonorepoID, ProjectName: projectName, Limit: lim, Offset: int32(offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Release, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, releaseFromRow(row))
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) GetLatestRelease(ctx context.Context, projectName string) (Release, bool, error) {
+	row, err := s.Queries.GetLatestReleaseByProject(ctx, s.Pool, dbgen.GetLatestReleaseByProjectParams{
+		MonorepoID: s.MonorepoID, ProjectName: projectName,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Release{}, false, nil
+	}
+	if err != nil {
+		return Release{}, false, err
+	}
+	return releaseFromRow(row), true, nil
+}
+
 func (s *PostgresStore) UpsertCheckRun(ctx context.Context, changeKey, headSHA string, run checks.CheckRunView) error {
 	changeID, err := s.resolveChangeID(ctx, changeKey)
 	if err != nil {
