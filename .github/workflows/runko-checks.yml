@@ -30,6 +30,11 @@
 #
 # Secrets: RUNKO_URL (e.g. https://<host>/o/runko), RUNKO_CI_TOKEN.
 name: Runko checks
+# The "<change>@<head>" stamp is a CONTRACT with runko-watchdog's run
+# discovery (watchdog/watchdog.go FindChangeJobs): it binds this run to its
+# Change in the runs-list API, which is how a check that never managed to
+# report still gets a clickable URL (and a real conclusion) reconciled back.
+run-name: "checks: ${{ github.event.client_payload.change_id }}@${{ github.event.client_payload.head_sha }}"
 
 on:
   repository_dispatch:
@@ -143,11 +148,15 @@ jobs:
         run: |
           command -v jj >/dev/null || curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.43.0/jj-v0.43.0-x86_64-unknown-linux-musl.tar.gz | sudo tar -xz -C /usr/local/bin ./jj
           command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+      # --details-url on the FIRST report, not just the last: a running
+      # check must already be clickable in the UI (user report 2026-07-10);
+      # the completed report later overwrites with the same URL.
       - name: report in_progress
         run: |
           go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name "${{ matrix.name }}" --external-id "${{ github.run_id }}-${{ strategy.job-index }}" \
-            --status in_progress --reporter github-actions
+            --status in_progress --reporter github-actions \
+            --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
       - name: run ${{ matrix.name }} (declared by ${{ matrix.project }})
         run: bash -c "${{ matrix.command }}"
       - name: report result

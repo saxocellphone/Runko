@@ -59,18 +59,60 @@ func (f *fakeRunkod) server(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// fakeGHA answers GET run-by-id with a scripted status/conclusion and
-// counts hits.
+// ghaJob scripts one job of the discovery run.
+type ghaJob struct {
+	ID         int64
+	Name       string
+	Status     string
+	Conclusion string
+	HTMLURL    string
+}
+
+// fakeGHA answers GET run-by-id with a scripted status/conclusion, plus the
+// discovery pair (runs list + run jobs) with one scripted run; counts hits.
 type fakeGHA struct {
 	mu         sync.Mutex
 	status     string
 	conclusion string
 	hits       int
+	// discovery script: runTitle "" serves an empty runs list.
+	runTitle string
+	runID    int64
+	jobs     []ghaJob
+	listHits int
 }
 
 func (f *fakeGHA) server(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.listHits++
+		if f.runTitle == "" {
+			fmt.Fprint(w, `{"workflow_runs":[]}`)
+			return
+		}
+		fmt.Fprintf(w, `{"workflow_runs":[{"id":%d,"display_title":%q}]}`, f.runID, f.runTitle)
+	})
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}/jobs", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		type j struct {
+			ID         int64  `json:"id"`
+			Name       string `json:"name"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+			HTMLURL    string `json:"html_url"`
+		}
+		out := struct {
+			Jobs []j `json:"jobs"`
+		}{}
+		for _, job := range f.jobs {
+			out.Jobs = append(out.Jobs, j(job))
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	})
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -177,7 +219,7 @@ func TestSweepLeavesRunningRunsAlone(t *testing.T) {
 // sweeps never fire a second for the same (change, head, check).
 func TestSweepRescuesNeverReportedCheckExactlyOnce(t *testing.T) {
 	rk := &fakeRunkod{change: "Iabc", head: "h1", reqs: pendingReqs("web-check", "")}
-	w := newWatchdog(rk.server(t), nil, 0)
+	w := newWatchdog(rk.server(t), (&fakeGHA{}).server(t), 0) // empty runs list: discovery finds nothing
 
 	for i := 0; i < 3; i++ {
 		if res := w.Sweep(context.Background()); len(res.Errors) != 0 {
@@ -203,7 +245,7 @@ func TestSweepRescuesNeverReportedCheckExactlyOnce(t *testing.T) {
 // the watchdog is a backstop, not a race against a healthy CI.
 func TestSweepHonorsGraceWindow(t *testing.T) {
 	rk := &fakeRunkod{change: "Iabc", head: "h1", reqs: pendingReqs("web-check", "")}
-	w := newWatchdog(rk.server(t), nil, 10*time.Minute)
+	w := newWatchdog(rk.server(t), (&fakeGHA{}).server(t), 10*time.Minute)
 	base := time.Now()
 	w.Now = func() time.Time { return base }
 
@@ -215,6 +257,88 @@ func TestSweepHonorsGraceWindow(t *testing.T) {
 	_ = w.Sweep(context.Background())
 	if len(rk.reruns) != 1 {
 		t.Fatalf("want the rescue after grace elapsed, got %v", rk.reruns)
+	}
+}
+
+// TestSweepBackfillsRunningJobURL is the user report ("I can't click on
+// running ci checks"): a pending check with no details_url gets its run
+// DISCOVERED via the run-name stamp and its running job reported as
+// in_progress with the job's URL - immediately, no grace, no conclusion,
+// no rerun. The link is what makes the running check clickable.
+func TestSweepBackfillsRunningJobURL(t *testing.T) {
+	rk := &fakeRunkod{change: "Iabc", head: "h1", reqs: pendingReqs("platform-test", "")}
+	gha := &fakeGHA{
+		runTitle: "checks: Iabc@h1", runID: 900,
+		jobs: []ghaJob{{ID: 7, Name: "platform-test", Status: "in_progress",
+			HTMLURL: "https://github.com/acme/mono/actions/runs/900/job/7"}},
+	}
+	w := newWatchdog(rk.server(t), gha.server(t), 10*time.Minute) // grace must NOT gate backfill
+
+	res := w.Sweep(context.Background())
+	if len(res.Errors) != 0 || len(res.Backfilled) != 1 {
+		t.Fatalf("want one backfill, got %+v", res)
+	}
+	if len(rk.reports) != 1 {
+		t.Fatalf("want exactly one report, got %+v", rk.reports)
+	}
+	got := rk.reports[0]
+	if got["name"] != "platform-test" || got["status"] != "in_progress" ||
+		got["details_url"] != "https://github.com/acme/mono/actions/runs/900/job/7" ||
+		got["external_id"] != "900-7" || got["reporter"] != "ci-watchdog" {
+		t.Fatalf("backfill body: %+v", got)
+	}
+	if _, hasConclusion := got["conclusion"]; hasConclusion {
+		t.Fatalf("an in_progress backfill must carry no conclusion: %+v", got)
+	}
+	if len(rk.reruns) != 0 {
+		t.Fatalf("a discovered running job must never be rerun, got %v", rk.reruns)
+	}
+}
+
+// TestSweepReportsDiscoveredCompletedJobInsteadOfRerun: discovery finding a
+// FINISHED job states its real conclusion - strictly better than the old
+// behavior of burning a rescue rerun on work CI already did.
+func TestSweepReportsDiscoveredCompletedJobInsteadOfRerun(t *testing.T) {
+	rk := &fakeRunkod{change: "Iabc", head: "h1", reqs: pendingReqs("platform-test", "")}
+	gha := &fakeGHA{
+		runTitle: "checks: Iabc@h1", runID: 901,
+		jobs: []ghaJob{{ID: 3, Name: "platform-test", Status: "completed", Conclusion: "failure",
+			HTMLURL: "https://github.com/acme/mono/actions/runs/901/job/3"}},
+	}
+	w := newWatchdog(rk.server(t), gha.server(t), 0)
+
+	res := w.Sweep(context.Background())
+	if len(res.Errors) != 0 || len(res.Reported) != 1 {
+		t.Fatalf("want one discovered force-report, got %+v", res)
+	}
+	got := rk.reports[0]
+	if got["status"] != "completed" || got["conclusion"] != "failure" || got["external_id"] != "901-3" {
+		t.Fatalf("discovered-completed body: %+v", got)
+	}
+	if len(rk.reruns) != 0 {
+		t.Fatalf("a discovered completed job must be reported, never rerun, got %v", rk.reruns)
+	}
+}
+
+// TestSweepDiscoveryMissFallsBackToRescue: a runs list with no matching
+// stamp (foreign change, pre-stamp workflow) leaves the rescue rerun as
+// the last resort - and per-job mismatches (run found, no same-named job)
+// behave identically.
+func TestSweepDiscoveryMissFallsBackToRescue(t *testing.T) {
+	rk := &fakeRunkod{change: "Iabc", head: "h1", reqs: pendingReqs("web-check", "")}
+	gha := &fakeGHA{runTitle: "checks: Iother@h9", runID: 800,
+		jobs: []ghaJob{{ID: 1, Name: "web-check", Status: "in_progress", HTMLURL: "x"}}}
+	w := newWatchdog(rk.server(t), gha.server(t), 0)
+
+	res := w.Sweep(context.Background())
+	if len(res.Errors) != 0 {
+		t.Fatalf("sweep errors: %v", res.Errors)
+	}
+	if gha.listHits == 0 {
+		t.Fatalf("discovery must have been attempted")
+	}
+	if len(rk.reports) != 0 || len(rk.reruns) != 1 {
+		t.Fatalf("miss must fall back to exactly one rescue: reports=%v reruns=%v", rk.reports, rk.reruns)
 	}
 }
 
