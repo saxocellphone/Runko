@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"regexp"
@@ -295,6 +296,57 @@ func (s *Server) handleUpdateWorkspaceBase(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, ws)
+}
+
+// maybeCloseAgentWorkspace is the single-use-agent-workspaces policy's
+// write side (Server.SingleUseAgentWorkspaces): called after a change
+// lands or is abandoned, it closes the change's origin workspace once no
+// open change is born there anymore - IF the owner is an agent principal.
+// Humans keep long-lived workspaces; store-backed accounts are always
+// human (§15.1), so only flag-config agent principals qualify. Closing is
+// advisory-fail: an error is logged, never surfaced - the land/abandon
+// already succeeded and must report so.
+func (s *Server) maybeCloseAgentWorkspace(ctx context.Context, wsID string) {
+	if !s.SingleUseAgentWorkspaces || wsID == "" {
+		return
+	}
+	ws, ok, err := s.Store.GetWorkspace(ctx, wsID)
+	if err != nil || !ok || ws.Status == "closed" {
+		return
+	}
+	if !s.isAgentPrincipalName(ws.Owner) {
+		return
+	}
+	open, err := s.Store.ListChanges(ctx, "open")
+	if err != nil {
+		log.Printf("runkod: single-use workspace check for %q: %v", wsID, err)
+		return
+	}
+	for _, c := range open {
+		if c.OriginWorkspace == wsID {
+			return // the task is still in flight
+		}
+	}
+	if err := s.Store.SetWorkspaceStatus(ctx, wsID, "closed"); err != nil {
+		log.Printf("runkod: close agent workspace %q: %v", wsID, err)
+		return
+	}
+	log.Printf("runkod: closed agent workspace %q - its last open change concluded (single-use policy)", wsID)
+}
+
+// isAgentPrincipalName reports whether name is a flag-config agent
+// principal. Store-backed principals are always human, so no directory
+// lookup is needed here.
+func (s *Server) isAgentPrincipalName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := range s.Principals {
+		if s.Principals[i].Name == name {
+			return s.Principals[i].IsAgent
+		}
+	}
+	return false
 }
 
 // deleteWorkspaceCore is workspace deletion's decision core, shared by

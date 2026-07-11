@@ -535,6 +535,7 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 			log.Printf("runkod: change %s landed via bot lane %q", key, lane.Name)
 		}
 		s.enqueueLandedWebhook(ctx, change, outcome.LandedSHA)
+		s.maybeCloseAgentWorkspace(ctx, change.OriginWorkspace)
 		if s.Processor != nil {
 			s.Processor.ZoektIndexWorker.Trigger()
 		}
@@ -571,6 +572,7 @@ func (s *Server) abandonChangeCore(ctx context.Context, key string, principal *P
 	if principal != nil {
 		log.Printf("runkod: change %s abandoned by %q", key, principal.Name)
 	}
+	s.maybeCloseAgentWorkspace(ctx, change.OriginWorkspace)
 	return change, nil
 }
 

@@ -14,19 +14,24 @@ an afternoon of structured rejections.
 
 ## The model (get this right and everything else follows)
 
-- **One workspace = one workstream.** Long-lived, owned by you. Do NOT
-  mint a workspace per change - that's sprawl the Workspaces page has to
-  carry forever (there is no workspace deletion yet). Reuse yours once
-  its branch's stack lands/abandons.
+- **One workspace = one task.** Start every new task with
+  `runko workspace create`; when the task's changes have all landed or
+  been abandoned, the workspace is DONE - `runko workspace delete <id>`
+  cleans it up (refused while changes are still open). Agent-owned
+  workspaces close automatically at that point and the server refuses
+  any further push into them, so reusing yesterday's workspace is a
+  dead end, not a shortcut. A task can still hold several changes
+  (a stack) and parallel branches - that's what branches are for.
 - **One branch = one stack = one reviewable line.** `head` is the
   default. Parallel/unrelated work in the same workstream gets
   `runko workspace branch <name>`. The server refuses a second
   unrelated stack on one branch ("one branch, one stack") - the fix it
   suggests is real: restack, abandon, or branch.
-- **Never claim a workspace you don't own or didn't work in.** Origin
+- **Never claim a workspace you don't own or didn't create.** Origin
   claims are validated and owner-bound, and they drive the review UI's
-  workspace cards. Two agents sharing the `admin` account must still use
-  their OWN workspaces.
+  workspace cards. Two agents must NEVER share a workspace - even when
+  they share the `admin` credential (where the server cannot tell them
+  apart), each agent creates and uses its own.
 
 ## Setup (once per session)
 

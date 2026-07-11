@@ -823,6 +823,22 @@ func (s *PostgresStore) UpdateWorkspaceBase(ctx context.Context, id, baseRevisio
 	return s.dbWorkspaceToWorkspace(ctx, updated)
 }
 
+// SetWorkspaceStatus is UpdateWorkspaceStatus's first caller (generated at
+// stage 2; the status column was decorative until single-use agent
+// workspaces made "closed" load-bearing at receive time).
+func (s *PostgresStore) SetWorkspaceStatus(ctx context.Context, id, status string) error {
+	row, err := s.Queries.GetWorkspaceBySnapshotRef(ctx, s.Pool, dbgen.GetWorkspaceBySnapshotRefParams{
+		MonorepoID: s.MonorepoID, SnapshotRef: "refs/workspaces/" + id + "/head",
+	})
+	if err != nil {
+		return fmt.Errorf("runkod: no such workspace %q: %w", id, err)
+	}
+	_, err = s.Queries.UpdateWorkspaceStatus(ctx, s.Pool, dbgen.UpdateWorkspaceStatusParams{
+		ID: row.ID, Status: dbgen.WorkspaceStatus(status),
+	})
+	return err
+}
+
 // DeleteWorkspace hard-deletes the registry row (metadata only, §12.2);
 // the id lives inside snapshot_ref, so resolve the row through the same
 // lookup every other workspace verb uses.

@@ -467,6 +467,13 @@ func (p *Processor) resolveOrigin(ctx context.Context, u RefUpdate, extraEnv []s
 				wsID, ws.Owner),
 		}}
 	}
+	if ws.Status == "closed" {
+		return "", "", Workspace{}, &verdict{update: u, decision: receive.Decision{
+			Accepted: false,
+			RejectionMessage: fmt.Sprintf("remote: workspace %q is closed - its task concluded, and one workspace carries one task (§12.2)\nremote:   -> start the new task in a fresh workspace: runko workspace create --name <new> --project <p> ... --by <you>\n",
+				wsID),
+		}}
+	}
 	return wsID, branch, ws, nil
 }
 
@@ -523,6 +530,13 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 			Accepted: false,
 			RejectionMessage: fmt.Sprintf("remote: workspace %q belongs to %s - snapshots may only be pushed by their owner (§12.2)\nremote:   -> runko workspace create --name <yours> ... to get your own\n",
 				wsID, ws.Owner),
+		}}
+	}
+	if ws.Status == "closed" {
+		return verdict{update: u, isSnapshot: true, author: author, decision: receive.Decision{
+			Accepted: false,
+			RejectionMessage: fmt.Sprintf("remote: workspace %q is closed - its task concluded, and one workspace carries one task (§12.2)\nremote:   -> start the new task in a fresh workspace: runko workspace create --name <new> --project <p> ... --by <you>\n",
+				wsID),
 		}}
 	}
 

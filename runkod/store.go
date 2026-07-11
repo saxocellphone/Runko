@@ -238,6 +238,11 @@ type Store interface {
 	GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error)
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	UpdateWorkspaceBase(ctx context.Context, id, baseRevision string) (Workspace, error)
+	// SetWorkspaceStatus moves a workspace between active/detached/closed
+	// (§12.2). "closed" is load-bearing at receive time: the funnel refuses
+	// snapshot and change pushes into a closed workspace (single-use agent
+	// workspaces close on task conclusion).
+	SetWorkspaceStatus(ctx context.Context, id, status string) error
 	// DeleteWorkspace removes the registry row outright - the id becomes
 	// reusable. The row is metadata only (§12.2); the caller owns deleting
 	// the workspace's snapshot refs beside it (deleteWorkspaceCore does
@@ -702,6 +707,18 @@ func (s *MemStore) UpdateWorkspaceBase(ctx context.Context, id, baseRevision str
 	ws.BaseRevision = baseRevision
 	s.workspaces[id] = ws
 	return ws, nil
+}
+
+func (s *MemStore) SetWorkspaceStatus(ctx context.Context, id, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ws, ok := s.workspaces[id]
+	if !ok {
+		return fmt.Errorf("runkod: no such workspace %q", id)
+	}
+	ws.Status = status
+	s.workspaces[id] = ws
+	return nil
 }
 
 func (s *MemStore) DeleteWorkspace(ctx context.Context, id string) error {

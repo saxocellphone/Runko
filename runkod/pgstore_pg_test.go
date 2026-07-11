@@ -235,6 +235,15 @@ func TestPostgresStoreWorkspaceRoundTrip(t *testing.T) {
 		t.Fatalf("UpdateWorkspaceBase: %+v err=%v", updated, err)
 	}
 
+	// Status transitions round-trip (UpdateWorkspaceStatus's first caller:
+	// single-use agent workspaces make "closed" load-bearing at receive).
+	if err := store.SetWorkspaceStatus(ctx, "payments-fix", "closed"); err != nil {
+		t.Fatalf("SetWorkspaceStatus: %v", err)
+	}
+	if ws, _, _ := store.GetWorkspace(ctx, "payments-fix"); ws.Status != "closed" {
+		t.Fatalf("expected closed to persist, got %q", ws.Status)
+	}
+
 	// Deletion is a hard delete: the row is gone and the id reusable.
 	if err := store.DeleteWorkspace(ctx, "bare-ws"); err != nil {
 		t.Fatalf("DeleteWorkspace: %v", err)

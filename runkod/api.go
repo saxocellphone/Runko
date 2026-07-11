@@ -94,6 +94,14 @@ type Server struct {
 	// is distinct from OrgName), org servers their own. Empty means flag
 	// config only.
 	SettingsOrg string
+	// SingleUseAgentWorkspaces closes an AGENT-owned workspace the moment
+	// its last open change lands or is abandoned (one workspace = one
+	// task; the funnel refuses pushes into closed workspaces with a
+	// create-a-fresh-one suggestion). Agents only - human workspaces stay
+	// long-lived (§8.7: same clients, stricter defaults). cmd/runkod
+	// defaults this ON (--single-use-agent-workspaces=false to opt out);
+	// the zero value is off so existing embedders/tests are unchanged.
+	SingleUseAgentWorkspaces bool
 	// Now overrides the clock the §14.4.2 check-staleness comparison uses;
 	// nil means time.Now (tests inject a fake clock).
 	Now func() time.Time

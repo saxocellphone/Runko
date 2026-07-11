@@ -94,6 +94,7 @@ func cmdServe(args []string) error {
 	globalChecks := fs.String("global-required-checks", envString("GLOBAL_REQUIRED_CHECKS", ""), "comma-separated org-level check names required on EVERY change (§14.9, e.g. secrets-scan) [RUNKO_GLOBAL_REQUIRED_CHECKS]")
 	allowSignup := fs.Bool("allow-signup", envBool("ALLOW_SIGNUP"), "enable self-service sign-up (POST /api/signup, §15.1) - default off [RUNKO_ALLOW_SIGNUP]")
 	signupCode := fs.String("signup-code", envString("SIGNUP_CODE", ""), "invite code sign-ups must present (only meaningful with --allow-signup) [RUNKO_SIGNUP_CODE]")
+	singleUseAgentWS := fs.Bool("single-use-agent-workspaces", envBoolDefault("SINGLE_USE_AGENT_WORKSPACES", true), "close an agent-owned workspace when its last open change lands or is abandoned - one workspace per task; the funnel then refuses pushes into it with a create-a-fresh-one suggestion (§8.7/§12.2). ON by default; humans are never affected [RUNKO_SINGLE_USE_AGENT_WORKSPACES]")
 	allowUnpoliced := fs.Bool("insecure-allow-unpoliced-land", envBool("INSECURE_ALLOW_UNPOLICED_LAND"), "DEV/EVAL ONLY: let changes that resolve NO merge policy (no required checks, no owners) land anyway - the in-memory eval profile implies this; a durable deployment should declare policy instead (§28.3 stage 11c) [RUNKO_INSECURE_ALLOW_UNPOLICED_LAND]")
 	allowWorkspaceless := fs.Bool("allow-workspaceless-changes", envBool("ALLOW_WORKSPACELESS_CHANGES"), "DEV/EVAL ONLY: accept refs/for pushes with no workspace origin - by default changes are born in workspaces (§12.2, 2026-07-09); a brand-new monorepo's bootstrap push is always exempt [RUNKO_ALLOW_WORKSPACELESS_CHANGES]")
 	var botLanes botLaneFlag
@@ -249,13 +250,14 @@ func cmdServe(args []string) error {
 	}
 	server := &runkod.Server{
 		RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher,
-		GlobalRequiredChecks: splitNonEmpty(*globalChecks),
-		AllowUnpolicedLand:   *allowUnpoliced,
-		AllowSignup:          *allowSignup,
-		SignupCode:           *signupCode,
-		BotLanes:             botLanes,
-		Principals:           principals,
-		Mirror:               mirrorWorker,
+		GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
+		SingleUseAgentWorkspaces: *singleUseAgentWS,
+		AllowUnpolicedLand:       *allowUnpoliced,
+		AllowSignup:              *allowSignup,
+		SignupCode:               *signupCode,
+		BotLanes:                 botLanes,
+		Principals:               principals,
+		Mirror:                   mirrorWorker,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -328,12 +330,13 @@ func cmdServe(args []string) error {
 			}
 			return &runkod.Server{
 				RepoDir: orgRepoDir, TrunkRef: *trunk, Store: orgStore, Processor: proc, Token: *token,
-				Searcher:             search.NotConfiguredSearcher{},
-				GlobalRequiredChecks: splitNonEmpty(*globalChecks),
-				AllowUnpolicedLand:   *allowUnpoliced,
-				BotLanes:             botLanes,
-				Principals:           principals,
-				Mirror:               orgMirror,
+				Searcher:                 search.NotConfiguredSearcher{},
+				GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
+				SingleUseAgentWorkspaces: *singleUseAgentWS,
+				AllowUnpolicedLand:       *allowUnpoliced,
+				BotLanes:                 botLanes,
+				Principals:               principals,
+				Mirror:                   orgMirror,
 			}, nil
 		},
 	}
@@ -518,6 +521,16 @@ func envString(name, def string) string {
 
 func envBool(name string) bool {
 	v := strings.ToLower(os.Getenv("RUNKO_" + name))
+	return v == "1" || v == "true"
+}
+
+// envBoolDefault is envBool for flags whose DEFAULT is true: an unset env
+// var keeps the default; "0"/"false" opt out.
+func envBoolDefault(name string, def bool) bool {
+	v := strings.ToLower(os.Getenv("RUNKO_" + name))
+	if v == "" {
+		return def
+	}
 	return v == "1" || v == "true"
 }
 

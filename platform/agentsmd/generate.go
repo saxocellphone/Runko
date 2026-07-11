@@ -83,6 +83,7 @@ func Generate() string {
 		"One branch = one stack = one reviewable line. `head` is the default; parallel work gets `runko workspace branch <name>` - the server refuses a second unrelated stack on one branch.",
 		"Work INSIDE the workspace worktree: the sparse cone stops out-of-scope edits before the server has to, and `runko change push` stamps your origin claim automatically.",
 		"Snapshot early and often: `runko workspace snapshot` - durable, secret-scanned WIP; a killed session loses nothing, `workspace attach` restores it.",
+		"One task = one fresh workspace: start every new task with `runko workspace create`; never attach or bind a workspace you didn't create. Agent workspaces CLOSE when their last change lands or is abandoned - a push into a closed workspace is refused, so reuse is not a shortcut, it is a dead end.",
 		"Submit: `runko change create -m <msg>` then `runko change push`. Stacks land BOTTOM-UP; a child is not mergeable until its parent lands.",
 		"Trunk moved (land says revalidate): `runko change land` already runs the recovery loop itself (sync, re-push, wait, retry); `runko workspace sync` is the manual form. Never force.",
 		"Done or dead: land it or `runko change abandon`. An abandoned change stays visible only while something still stacks on it - rebase dependents off it or reopen it by re-pushing.",
