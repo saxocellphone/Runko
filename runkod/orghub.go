@@ -99,6 +99,12 @@ type OrgSettings struct {
 	// blocker (§13.4.1, decided 2026-07-10). Default off - the ceremony
 	// budget (§2.3); GitHub defaults the same knob off for the same reason.
 	RequireResolvedThreads bool `json:"require_resolved_threads,omitempty"`
+	// EnforceTagPolicy gates refs/tags/* writes at receive (§14.10.3,
+	// stage 17): org admins/releasers, tag-scoped bot lanes, and the
+	// operator credential only. Default off = the documented v1
+	// permissiveness; flipping it is the org's move to the default-deny
+	// posture for its release surface.
+	EnforceTagPolicy bool `json:"enforce_tag_policy,omitempty"`
 }
 
 // OrgMembership is one (org, role) pair for a principal. Roles: "admin"
@@ -885,9 +891,12 @@ func (h *OrgHub) handleAddOrgMember(w http.ResponseWriter, r *http.Request) {
 	if body.Role == "" {
 		body.Role = "member"
 	}
-	if body.Role != "member" && body.Role != "admin" {
+	// "releaser" (§14.10.3, stage 17): a member who may also write
+	// refs/tags/* and cut releases when the org enforces tag policy -
+	// release rights without admin rights.
+	if body.Role != "member" && body.Role != "admin" && body.Role != "releaser" {
 		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
-			Code: "invalid_role", Field: "role", Message: `role must be "member" or "admin"`,
+			Code: "invalid_role", Field: "role", Message: `role must be "member", "admin", or "releaser"`,
 		}))
 		return
 	}

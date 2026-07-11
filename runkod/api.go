@@ -472,6 +472,16 @@ func (s *Server) requireGitAuth(git *cgi.Handler) http.Handler {
 			authed.ServeHTTP(w, r)
 			return
 		}
+		if c.lane != nil {
+			// Lane identity travels beside (never as) REMOTE_USER: lanes
+			// are not principals, and overloading REMOTE_USER would subject
+			// them to workspace owner checks and authored_by attribution
+			// built for humans. Consumed only by the §14.10.3 tags gate.
+			authed := *git // shallow copy; Env must not mutate the shared handler
+			authed.Env = append(append([]string{}, git.Env...), "REMOTE_LANE="+c.lane.Name)
+			authed.ServeHTTP(w, r)
+			return
+		}
 		git.ServeHTTP(w, r)
 	})
 }
@@ -489,6 +499,10 @@ const (
 	// (§15.1 interim registry): requireGitAuth set REMOTE_USER on the CGI
 	// env, the hook inherited it and forwards it here.
 	headerRemoteUser = "X-Runko-Remote-User"
+	// headerRemoteLane is headerRemoteUser's bot-lane sibling (§14.10.3,
+	// stage 17): the lane name a tag push authenticated as, consumed only
+	// by the funnel's tags gate.
+	headerRemoteLane = "X-Runko-Remote-Lane"
 	// headerPushOption carries the push's `git push -o` options (one header
 	// value per option, in order) - receive-pack exposes them to the hook
 	// as GIT_PUSH_OPTION_COUNT/GIT_PUSH_OPTION_<n>, which the daemon
@@ -522,6 +536,9 @@ func (s *Server) handlePreReceive(w http.ResponseWriter, r *http.Request) {
 	}
 	if v := r.Header.Get(headerRemoteUser); v != "" {
 		extraEnv = append(extraEnv, "REMOTE_USER="+v)
+	}
+	if v := r.Header.Get(headerRemoteLane); v != "" {
+		extraEnv = append(extraEnv, "REMOTE_LANE="+v)
 	}
 	if opts := r.Header.Values(headerPushOption); len(opts) > 0 {
 		extraEnv = append(extraEnv, fmt.Sprintf("GIT_PUSH_OPTION_COUNT=%d", len(opts)))

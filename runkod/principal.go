@@ -111,3 +111,28 @@ func remoteUser(extraEnv []string) string {
 	}
 	return ""
 }
+
+// remoteLane extracts REMOTE_LANE - the bot-lane sibling of REMOTE_USER
+// (§14.10.3, stage 17). "" means the push did not authenticate as a lane.
+func remoteLane(extraEnv []string) string {
+	for _, kv := range extraEnv {
+		if v, ok := strings.CutPrefix(kv, "REMOTE_LANE="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// laneByName is principalByName's bot-lane sibling: lanes are flag config
+// only (no store-backed lanes exist), so this is a plain registry scan.
+func (p *Processor) laneByName(name string) *BotLane {
+	if name == "" {
+		return nil
+	}
+	for i := range p.BotLanes {
+		if p.BotLanes[i].Name == name {
+			return &p.BotLanes[i]
+		}
+	}
+	return nil
+}

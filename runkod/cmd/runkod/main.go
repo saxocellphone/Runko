@@ -243,6 +243,7 @@ func cmdServe(args []string) error {
 		ZoektIndexWorker:         indexWorker,
 		Mirror:                   mirrorWorker,
 		Principals:               principals,
+		BotLanes:                 botLanes,
 		OrgName:                  defaultOrgName,
 		RequireChangeWorkspace:   !*allowWorkspaceless,
 	}
@@ -297,6 +298,7 @@ func cmdServe(args []string) error {
 				RepoDir: orgRepoDir, TrunkRef: *trunk, Scanner: scanner, Store: orgStore,
 				RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
 				Principals:               principals,
+				BotLanes:                 botLanes,
 				Directory:                directory,
 				OrgName:                  orgName,
 				RequireChangeWorkspace:   !*allowWorkspaceless,
@@ -455,6 +457,13 @@ func cmdHook(args []string) {
 	// this hook as ordinary process environment.
 	if v := os.Getenv("REMOTE_USER"); v != "" {
 		req.Header.Set("X-Runko-Remote-User", v)
+	}
+	// Bot-lane identity travels beside (never as) REMOTE_USER - lanes are
+	// not principals, and overloading REMOTE_USER would silently subject
+	// them to workspace owner checks and change attribution built for
+	// humans (§14.10.3, stage 17: the tags gate is the consumer).
+	if v := os.Getenv("REMOTE_LANE"); v != "" {
+		req.Header.Set("X-Runko-Remote-Lane", v)
 	}
 	// Forward `git push -o` options the same way (§12.2 provenance:
 	// runko change push stamps workspace=<id>/workspace-branch=<name>):
@@ -660,8 +669,13 @@ func parseBotLane(v string) (runkod.BotLane, error) {
 			lane.PathAllowlist = splitNonEmpty(val)
 		case "checks":
 			lane.RequiredChecks = splitNonEmpty(val)
+		case "tags":
+			// Optional (§14.10.3, stage 17): tag-namespace globs the lane
+			// may write under enforce_tag_policy. Unlike the land grant's
+			// four keys, absence just means "no tag grant".
+			lane.TagAllowlist = splitNonEmpty(val)
 		default:
-			return lane, fmt.Errorf("bot-lane: unknown key %q (want name, token, paths, checks)", key)
+			return lane, fmt.Errorf("bot-lane: unknown key %q (want name, token, paths, checks, tags)", key)
 		}
 	}
 	if lane.Name == "" || lane.Token == "" || len(lane.PathAllowlist) == 0 || len(lane.RequiredChecks) == 0 {

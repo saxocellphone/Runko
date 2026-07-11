@@ -551,6 +551,18 @@ func TestParseBotLane(t *testing.T) {
 	if len(lane.RequiredChecks) != 1 || lane.RequiredChecks[0] != "manifest-lint" {
 		t.Fatalf("unexpected checks: %+v", lane.RequiredChecks)
 	}
+	if len(lane.TagAllowlist) != 0 {
+		t.Fatalf("tags= is optional and absent here, got %+v", lane.TagAllowlist)
+	}
+
+	// tags= (§14.10.3, stage 17) is the optional fifth key.
+	tagged, err := parseBotLane("name=relbot;token=t;paths=deploy/**;checks=lint;tags=commerce/*/v*,tools/v*")
+	if err != nil {
+		t.Fatalf("parseBotLane with tags=: %v", err)
+	}
+	if len(tagged.TagAllowlist) != 2 || tagged.TagAllowlist[0] != "commerce/*/v*" {
+		t.Fatalf("unexpected tag allowlist: %+v", tagged.TagAllowlist)
+	}
 
 	// §14.10.2: a lane without its own required-check set is an unchecked
 	// auto-land grant - refused at parse time, not silently permitted.
@@ -1622,5 +1634,81 @@ func TestEndToEndDaemonPublicReadOrg(t *testing.T) {
 	}
 	if status := orgAPI(t, "GET", addr+"/o/pub/api/workspaces", "", "", "", nil, nil); status != http.StatusUnauthorized {
 		t.Fatalf("anonymous GET /api/workspaces must stay 401, got %d", status)
+	}
+}
+
+// TestEndToEndDaemonTagPolicy is stage 17's over-the-wire bar (§14.10.3):
+// with the org knob off a member's tag push sails through (the documented
+// permissiveness), with it on the same push is refused with the scripted
+// rejection, and a releaser-role member's push is accepted - all via real
+// `git push` against the compiled daemon.
+func TestEndToEndDaemonTagPolicy(t *testing.T) {
+	bin := buildRunkod(t)
+	repoDir := filepath.Join(t.TempDir(), "monorepo.git")
+	token := "deploy-tok"
+	addr := startDaemon(t, bin, repoDir, token, "--allow-signup")
+
+	for _, name := range []string{"alice", "bob"} {
+		if status := orgAPI(t, "POST", addr+"/api/signup", "", "", "", map[string]string{
+			"name": name, "password": name + "pw123", "org": "monorepo", "org_mode": "join",
+		}, nil); status != http.StatusCreated {
+			t.Fatalf("signup %s: status %d", name, status)
+		}
+	}
+	// The operator grants alice the releaser role (§14.10.3).
+	if status := orgAPI(t, "POST", addr+"/api/orgs/monorepo/members", "", "", token,
+		map[string]string{"name": "alice", "role": "releaser"}, nil); status != http.StatusOK {
+		t.Fatalf("grant releaser: unexpected status %d", status)
+	}
+
+	work := t.TempDir()
+	bobRemote := strings.Replace(addr, "http://", "http://bob:bobpw123@", 1) + "/" + filepath.Base(repoDir) + "/"
+	aliceRemote := strings.Replace(addr, "http://", "http://alice:alicepw123@", 1) + "/" + filepath.Base(repoDir) + "/"
+	if _, err := runGit(t, work, "init", "-q", "-b", "main"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "hello.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	runGit(t, work, "add", "-A")
+	if out, err := runGit(t, work, "commit", "-q", "-m", "seed"); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	runGit(t, work, "remote", "add", "origin", bobRemote)
+	runGit(t, work, "remote", "add", "alice", aliceRemote)
+	runGit(t, work, "tag", "v0-permissive")
+	runGit(t, work, "tag", "v1-denied")
+	runGit(t, work, "tag", "v2-releaser")
+
+	// Knob off: bob (a plain member) pushes a tag unchallenged.
+	if out, err := runGit(t, work, "push", "origin", "refs/tags/v0-permissive"); err != nil {
+		t.Fatalf("permissive tag push must succeed: %v\n%s", err, out)
+	}
+
+	// The operator flips enforcement on.
+	if status := orgAPI(t, "PUT", addr+"/api/orgs/monorepo/settings", "", "", token,
+		map[string]any{"enforce_tag_policy": true}, nil); status != http.StatusOK {
+		t.Fatalf("enable enforce_tag_policy: unexpected status %d", status)
+	}
+
+	// Bob is refused with the scripted rejection.
+	out, err := runGit(t, work, "push", "origin", "refs/tags/v1-denied")
+	if err == nil {
+		t.Fatalf("expected bob's tag push to be refused under enforcement, got:\n%s", out)
+	}
+	if !strings.Contains(out, "releaser") || !strings.Contains(out, "runko release create") {
+		t.Fatalf("expected the scripted rejection naming the releaser role and the release verb, got:\n%s", out)
+	}
+
+	// Alice (releaser role) is accepted, and the tag is really there.
+	if out, err := runGit(t, work, "push", "alice", "refs/tags/v2-releaser"); err != nil {
+		t.Fatalf("releaser tag push must succeed: %v\n%s", err, out)
+	}
+	lsOut, err := runGit(t, work, "ls-remote", "alice", "refs/tags/*")
+	if err != nil {
+		t.Fatalf("ls-remote: %v", err)
+	}
+	if !strings.Contains(lsOut, "refs/tags/v2-releaser") || strings.Contains(lsOut, "refs/tags/v1-denied") {
+		t.Fatalf("expected v2-releaser present and v1-denied absent, got:\n%s", lsOut)
 	}
 }

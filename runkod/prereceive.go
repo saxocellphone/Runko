@@ -137,6 +137,12 @@ type Processor struct {
 	// built and nothing fed until now), workspace snapshots become
 	// owner-only, and accepted Changes record authored_by.
 	Principals []Principal
+	// BotLanes is the same registry Server.BotLanes carries (§14.10.2). The
+	// funnel resolves a lane push from the forwarded REMOTE_LANE env - set
+	// beside (never as) REMOTE_USER, because lanes are not principals - and
+	// consults it in exactly one place: the §14.10.3 tags gate (stage 17),
+	// where a lane may write the tag namespaces its TagAllowlist covers.
+	BotLanes []BotLane
 }
 
 // DefaultMaxSnapshotBytes is the default snapshot size cap (§12.2): generous
@@ -195,12 +201,12 @@ func (p *Processor) Process(ctx context.Context, u RefUpdate, extraEnv []string)
 }
 
 // evaluate runs receive.Decide for one ref update without writing to Store.
-// Three sanctioned ref shapes: refs/heads/<trunk> (rejected, §6.9),
-// refs/for/<trunk> (the Change funnel), and refs/workspaces/<id>/* (snapshot
-// refs, §12.2 - policed since stage 12b, previously accepted
-// unconditionally). Everything else (refs/tags/* etc.) is still marked skip
-// - accepted unconditionally, the documented v1 permissiveness §14.10.3
-// tracks for tag-namespace governance.
+// Four policed ref shapes: refs/heads/<trunk> (rejected, §6.9),
+// refs/for/<trunk> (the Change funnel), refs/workspaces/<id>/* (snapshot
+// refs, §12.2 - policed since stage 12b), and refs/tags/* (§14.10.3
+// tag-namespace governance, stage 17 - permissive until the org's
+// enforce_tag_policy knob flips, see tags.go). Everything else is still
+// marked skip - accepted unconditionally.
 func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string) verdict {
 	if wsID, isSnapshot := SnapshotRefWorkspaceID(u.Ref); isSnapshot {
 		// Branch segment must be one conservative path segment (§12.2's
@@ -228,6 +234,12 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 			RejectionMessage: fmt.Sprintf("remote: %s is server-owned - change refs are written by runkod, never pushed\nremote:   -> push your commit to refs/for/%s instead\n",
 				u.Ref, p.TrunkRef),
 		}}
+	}
+	if strings.HasPrefix(u.Ref, "refs/tags/") {
+		// §14.10.3 tag-namespace governance (stage 17): gated behind the
+		// org's enforce_tag_policy knob; permissive (today's documented
+		// behavior) while it's off. See tags.go.
+		return p.evaluateTag(ctx, u, extraEnv)
 	}
 	isTrunkPush := u.Ref == "refs/heads/"+p.TrunkRef
 	_, isMagicRef := receive.ParseMagicRef(u.Ref)

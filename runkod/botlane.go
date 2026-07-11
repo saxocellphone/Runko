@@ -36,6 +36,13 @@ type BotLane struct {
 	// requires. Always non-empty: a lane without its own check set is an
 	// unchecked auto-land grant, which §14.10.2 deliberately does not model.
 	RequiredChecks []string
+	// TagAllowlist is §14.10.3's tag-namespace scoping (stage 17):
+	// affected.MatchPath globs over the tag NAME (the part after
+	// refs/tags/). Under enforce_tag_policy a lane may write exactly the
+	// tags a pattern covers - e.g. "commerce/checkout-api/v*" for that
+	// project's release bot. Empty = this lane writes no tags; optional at
+	// parse time, unlike the land grant's four mandatory keys.
+	TagAllowlist []string
 }
 
 // laneFor resolves the bot lane a request authenticated as, or nil for the
@@ -49,6 +56,18 @@ func (s *Server) laneFor(r *http.Request) *BotLane {
 // the Connect RPC surface (rpc.go).
 func (s *Server) laneForAuthHeader(auth string) *BotLane {
 	return s.callerForAuthHeader(auth).lane
+}
+
+// tagAllowed reports whether this lane's TagAllowlist covers tagName (the
+// ref name after refs/tags/) - the §14.10.3 namespace scoping, same glob
+// dialect as the path allowlist (one glob vocabulary, §2.3).
+func (l *BotLane) tagAllowed(tagName string) bool {
+	for _, pat := range l.TagAllowlist {
+		if affected.MatchPath(pat, tagName) {
+			return true
+		}
+	}
+	return false
 }
 
 // pathsOutsideAllowlist returns the touched paths the lane's allowlist does
