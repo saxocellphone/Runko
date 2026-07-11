@@ -1964,3 +1964,134 @@ tr.admin-archived td {
 .stack-row-abandoned .change-title-link {
   text-decoration: line-through;
 }
+
+/* ---- review conversation (§13.4.1, stage 16b) ---- */
+.thread {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  padding: 8px 10px;
+  margin: 6px 0;
+  font-family: var(--font-ui, inherit);
+}
+.thread-resolved {
+  opacity: 0.72;
+}
+.comment + .comment {
+  margin-top: 8px;
+}
+.comment-reply {
+  margin-left: 18px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+.comment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 2px;
+  flex-wrap: wrap;
+}
+.comment-anchor {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.comment-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+}
+.thread-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.comment-composer {
+  margin-top: 8px;
+}
+.comment-composer textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  background: var(--surface-2);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+tr.thread-row > td {
+  padding: 4px 10px 4px 46px !important;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  white-space: normal;
+  font-family: var(--font-ui, ui-sans-serif, system-ui, sans-serif);
+}
+.file-threads {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+/* The per-line "+" affordance: hidden until its row is hovered, sitting
+   inside the new-side gutter so it never shifts the diff columns. */
+.gutter-new {
+  position: relative;
+}
+.line-comment-btn {
+  position: absolute;
+  left: -2px;
+  top: 0;
+  display: none;
+  border: none;
+  border-radius: 4px;
+  background: var(--accent, #4a72ff);
+  color: #fff;
+  font-size: 12px;
+  line-height: 16px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  cursor: pointer;
+}
+.hunk-table tr:hover .line-comment-btn {
+  display: inline-block;
+}
+.conversation-card {
+  margin-top: 14px;
+  padding: 12px 14px;
+}
+.conversation-card h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+.outdated-threads {
+  margin-top: 10px;
+}
+.request-review-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.request-review-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-2);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.attention-you {
+  font-weight: 600;
+}
+.attention-inbox {
+  border-color: var(--amber, #d4a72c);
+}
+.muted {
+  color: var(--text-3);
+  font-size: 13px;
+}

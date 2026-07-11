@@ -8,14 +8,17 @@ import { create } from "@bufbuild/protobuf";
 import {
   ActorType,
   ChangeState,
+  CommentSide,
   ProjectType,
   Visibility,
   WorkspaceStatus,
   type ChangeSummary,
+  type Comment,
   type MergeRequirements,
   type ProjectDetail,
   type WorkspaceSummary,
   ChangeSummarySchema,
+  CommentSchema,
   MergeRequirementsSchema,
   ProjectDetailSchema,
   WorkspaceSummarySchema,
@@ -282,6 +285,86 @@ const req = (
     mergeable: false,
     blockers: [],
   });
+
+// ------------------------------------------------------- review conversation
+// §13.4.1 fixture threads on the stack's middle change: a live line-level
+// thread with a reply, and a RESOLVED thread bound to the previous head -
+// the outdated rendering (marked, never floated). The agent change carries
+// a change-level comment from its bot author (comments allowed, approvals
+// never - §8.7).
+
+const mkComment = (init: {
+  id: string;
+  author: typeof val;
+  body: string;
+  path?: string;
+  line?: number;
+  headSha: string;
+  parentId?: string;
+  resolved?: boolean;
+}): Comment =>
+  create(CommentSchema, {
+    id: init.id,
+    author: init.author,
+    body: init.body,
+    createdAt: BigInt(1_780_000_000 + Number.parseInt(init.id.replace(/\D/g, "") || "0", 10) * 60),
+    path: init.path ?? "",
+    side: init.line ? CommentSide.HEAD : CommentSide.UNSPECIFIED,
+    line: init.line ?? 0,
+    headSha: init.headSha,
+    parentId: init.parentId ?? "",
+    resolved: init.resolved ?? false,
+  });
+
+export const comments = new Map<string, Comment[]>([
+  [
+    stackMiddle.id,
+    [
+      mkComment({
+        id: "cmt-101",
+        author: priya,
+        body: "Should this also log the raw SKU at debug? invalid_sku responses are going to be the first thing support asks about.",
+        path: "commerce/checkout-api/handler.go",
+        line: 42,
+        headSha: stackMiddle.headSha,
+      }),
+      mkComment({
+        id: "cmt-102",
+        author: val,
+        body: "Good call — the writeError path already logs the structured code; I'll add the raw value behind the redaction filter.",
+        headSha: stackMiddle.headSha,
+        parentId: "cmt-101",
+      }),
+      mkComment({
+        id: "cmt-100",
+        author: priya,
+        body: "Wrap the cart error so the caller can errors.Is on it.",
+        path: "commerce/checkout-api/handler.go",
+        line: 41,
+        headSha: fakeSha("head-sku-2-v1"),
+        resolved: true,
+      }),
+    ],
+  ],
+  [
+    agentChange.id,
+    [
+      mkComment({
+        id: "cmt-110",
+        author: refactorBot,
+        body: "Mechanical migration, no behavior change intended: 47 call sites moved off envconfig. The two sites with non-default tags are called out in the diff.",
+        headSha: agentChange.headSha,
+      }),
+    ],
+  ],
+]);
+
+// Pending review requests (§13.4.2): reviewer -> requested_by. priya has
+// already commented on the CURRENT head of stackMiddle, so the derived
+// attention set puts the ball back in val's (the author's) court.
+export const reviewRequests = new Map<string, Map<string, string>>([
+  [stackMiddle.id, new Map([["priya", "val"]])],
+]);
 
 export const requirements: MergeRequirements[] = [
   req(

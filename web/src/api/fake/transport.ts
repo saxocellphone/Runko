@@ -13,12 +13,15 @@ import {
   ActorType,
   ChangeState,
   ChangeSummarySchema,
+  CommentSchema,
+  CommentSide,
   MergeRequirementsSchema,
   ProjectDetailSchema,
   ProjectType,
   ReasonCode,
   WorkspaceSummarySchema,
   type ChangeSummary,
+  type Comment,
   type MergeRequirements,
   type ProjectDetail,
   type WorkspaceSummary,
@@ -35,6 +38,10 @@ import {
   AbandonChangeResponseSchema,
   RerunCheckResponseSchema,
   ListChangesResponseSchema,
+  ListCommentsResponseSchema,
+  CreateCommentResponseSchema,
+  ResolveCommentResponseSchema,
+  RequestReviewResponseSchema,
 } from "../../gen/runko/v1/changes_pb";
 import {
   ProjectService,
@@ -66,8 +73,10 @@ import type { FileDiff } from "../../gen/runko/v1/changes_pb";
 import {
   addedFileDiff,
   changes as fixtureChanges,
+  comments as fixtureComments,
   diffs as fixtureDiffs,
   requirements as fixtureRequirements,
+  reviewRequests as fixtureReviewRequests,
   projects as fixtureProjects,
   searchCorpus,
   workspaces as fixtureWorkspaces,
@@ -87,6 +96,11 @@ interface FakeState {
   // Tree-as-truth in miniature: a UI-created project rides its open
   // Change and only joins `projects` when that Change LANDS.
   pendingProjects: Map<string, ProjectDetail>;
+  // Review conversation (§13.4.1): flat comment lists per change, plus
+  // reviewer -> requested_by (§13.4.2). Attention derives, never stored.
+  comments: Map<string, Comment[]>;
+  reviewRequests: Map<string, Map<string, string>>;
+  nextCommentID: number;
 }
 
 // Deep-clone the fixtures: each transport owns mutable state (approve,
@@ -106,9 +120,56 @@ function freshState(): FakeState {
     projects: fixtureProjects.map((p) => clone(ProjectDetailSchema, p)),
     diffs: new Map(fixtureDiffs),
     pendingProjects: new Map(),
+    comments: new Map(
+      [...fixtureComments].map(([id, list]) => [id, list.map((c) => clone(CommentSchema, c))]),
+    ),
+    reviewRequests: new Map([...fixtureReviewRequests].map(([id, m]) => [id, new Map(m)])),
+    nextCommentID: 1000,
   };
-  for (const r of state.requirements.values()) recompute(r);
+  for (const r of state.requirements.values()) {
+    recompute(r);
+    recomputeAttention(state, r.changeId);
+  }
   return state;
+}
+
+// Mirrors runkod's derived attention set (§13.4.2): requested reviewers
+// and required owners who have neither approved nor commented at the
+// CURRENT head, plus the author once any reviewer has responded to it.
+function recomputeAttention(state: FakeState, changeId: string): void {
+  const r = state.requirements.get(changeId);
+  const c = state.changes.get(changeId);
+  if (!r || !c) return;
+  const authorName = c.authoredBy?.id ?? "";
+  const commented = new Set<string>();
+  let reviewerResponded = false;
+  for (const cm of state.comments.get(changeId) ?? []) {
+    if (cm.headSha !== c.headSha) continue;
+    const name = cm.author?.id ?? "";
+    commented.add(name);
+    if (name !== authorName) reviewerResponded = true;
+  }
+  const set = new Set<string>();
+  for (const reviewer of state.reviewRequests.get(changeId)?.keys() ?? []) {
+    if (reviewer === authorName) continue;
+    if (commented.has(reviewer)) continue;
+    set.add(reviewer);
+  }
+  const owners = r.owners;
+  for (const ref of owners?.required ?? []) {
+    if (owners!.satisfied.includes(ref)) {
+      reviewerResponded = true;
+      continue;
+    }
+    const userName = ref.startsWith("user:") ? ref.slice("user:".length) : "";
+    if (userName && (userName === authorName || commented.has(userName))) {
+      if (commented.has(userName)) reviewerResponded = true;
+      continue;
+    }
+    set.add(ref);
+  }
+  if (reviewerResponded && authorName) set.add(authorName);
+  r.attentionSet = [...set].sort();
 }
 
 // Mirrors checks.ComputeMergeRequirements's plain-language blockers (§6.6).
@@ -527,6 +588,7 @@ export function createFakeTransport(): Transport {
           owners.outstanding = owners.outstanding.filter((o) => o !== req.ownerRef);
         }
         recompute(r);
+        recomputeAttention(state, req.changeId);
         return create(ApproveChangeResponseSchema, { requirements: r });
       },
 
@@ -590,6 +652,97 @@ export function createFakeTransport(): Transport {
         if (!checks.pending.includes(req.checkName)) checks.pending.push(req.checkName);
         recompute(r);
         return create(RerunCheckResponseSchema, { requirements: r });
+      },
+
+      // ---- review conversation (§13.4.1-13.4.2), mirroring runkod's
+      // commentChangeCore/resolveCommentCore/requestReviewCore semantics.
+      async listComments(req) {
+        await delay();
+        mustChange(state, req.changeId);
+        let out = state.comments.get(req.changeId) ?? [];
+        let nextPageToken = "";
+        const size = req.pageSize ?? 0;
+        if (size > 0) {
+          const offset = req.pageToken ? Number.parseInt(req.pageToken, 10) : 0;
+          out = out.slice(offset);
+          if (out.length > size) {
+            out = out.slice(0, size);
+            nextPageToken = String(offset + size);
+          }
+        }
+        return create(ListCommentsResponseSchema, { comments: out, nextPageToken });
+      },
+
+      async createComment(req) {
+        await delay();
+        const c = mustChange(state, req.changeId);
+        if (c.state !== ChangeState.OPEN) {
+          throw new ConnectError("change is not open", Code.FailedPrecondition);
+        }
+        if (!req.body.trim()) {
+          throw new ConnectError("a comment needs a body", Code.InvalidArgument);
+        }
+        const list = state.comments.get(req.changeId) ?? [];
+        if (req.parentId) {
+          const parent = list.find((x) => x.id === req.parentId);
+          if (!parent) {
+            throw new ConnectError(`no comment ${req.parentId} on this change`, Code.InvalidArgument);
+          }
+          if (parent.parentId) {
+            // One-level threads (§13.4.1) - same refusal runkod issues.
+            throw new ConnectError(
+              "thread_depth_exceeded: threads are one level deep - reply to the thread root",
+              Code.InvalidArgument,
+            );
+          }
+        }
+        state.nextCommentID++;
+        const comment = create(CommentSchema, {
+          id: `cmt-${state.nextCommentID}`,
+          author: { type: ActorType.USER, id: req.author || "demo" },
+          body: req.body,
+          createdAt: BigInt(Math.floor(Date.now() / 1000)),
+          path: req.parentId ? "" : req.path,
+          side: req.parentId ? CommentSide.UNSPECIFIED : req.line > 0 && req.side === CommentSide.UNSPECIFIED ? CommentSide.HEAD : req.side,
+          line: req.parentId ? 0 : req.line,
+          headSha: c.headSha, // the §13.4.1 binding: an amend outdates this
+          parentId: req.parentId,
+          resolved: false,
+        });
+        state.comments.set(req.changeId, [...list, comment]);
+        recomputeAttention(state, req.changeId);
+        return create(CreateCommentResponseSchema, { comment });
+      },
+
+      async resolveComment(req) {
+        await delay();
+        mustChange(state, req.changeId);
+        const comment = (state.comments.get(req.changeId) ?? []).find((x) => x.id === req.commentId);
+        if (!comment) throw notFound("comment", req.commentId);
+        if (comment.parentId) {
+          throw new ConnectError(
+            "not_a_thread_root: resolved lives on the thread root, not on replies",
+            Code.InvalidArgument,
+          );
+        }
+        comment.resolved = req.resolved;
+        return create(ResolveCommentResponseSchema, { comment });
+      },
+
+      async requestReview(req) {
+        await delay();
+        const c = mustChange(state, req.changeId);
+        if (c.state !== ChangeState.OPEN) {
+          throw new ConnectError("change is not open", Code.FailedPrecondition);
+        }
+        if (!req.reviewer.trim()) {
+          throw new ConnectError("reviewer is required", Code.InvalidArgument);
+        }
+        const requests = state.reviewRequests.get(req.changeId) ?? new Map<string, string>();
+        requests.set(req.reviewer.trim(), "demo");
+        state.reviewRequests.set(req.changeId, requests);
+        recomputeAttention(state, req.changeId);
+        return create(RequestReviewResponseSchema, { reviewer: req.reviewer.trim(), requestedBy: "demo" });
       },
     });
 

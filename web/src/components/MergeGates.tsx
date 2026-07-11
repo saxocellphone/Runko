@@ -16,14 +16,17 @@ export function MergeGates({
   busy,
   onApprove,
   onRerun,
+  onRequestReview,
 }: {
   requirements: MergeRequirements;
   state: ChangeState;
   busy: boolean;
   onApprove: (ownerRef: string, approvedBy: string) => void;
   onRerun: (checkName: string) => void;
+  onRequestReview?: (reviewer: string) => void;
 }) {
   const [approveAs, setApproveAs] = useState("user:demo");
+  const [reviewer, setReviewer] = useState("");
   const owners = requirements.owners;
   const checks = requirements.checks;
   const hasOwners = (owners?.required.length ?? 0) > 0;
@@ -143,6 +146,51 @@ export function MergeGates({
 
       {!hasOwners && !hasChecks && (
         <p className="gate-title">No policy resolved for this change.</p>
+      )}
+
+      {open && (requirements.attentionSet.length > 0 || (actionable && onRequestReview)) && (
+        <div className="gate-section">
+          <p className="gate-title">
+            Attention
+            <InfoTip text="Whose turn it is (§13.4.2), derived - never hand-managed: requested reviewers and required owners who haven't approved or commented on the current version, plus the author once a reviewer has responded. An amend re-derives the whole set." />
+          </p>
+          {requirements.attentionSet.map((name) => (
+            <div className="gate-row" key={name}>
+              <span className="gate-icon due">●</span>
+              <span className={`gate-name mono${name === authUser || name === `user:${authUser}` ? " attention-you" : ""}`}>
+                {name}
+                {(name === authUser || name === `user:${authUser}`) && " (you)"}
+              </span>
+            </div>
+          ))}
+          {actionable && onRequestReview && (
+            <div className="request-review-row">
+              <input
+                type="text"
+                value={reviewer}
+                placeholder="principal or group:name"
+                aria-label="request review from"
+                onChange={(e) => setReviewer(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && reviewer.trim()) {
+                    onRequestReview(reviewer.trim());
+                    setReviewer("");
+                  }
+                }}
+              />
+              <button
+                className="btn btn-sm"
+                disabled={busy || !reviewer.trim()}
+                onClick={() => {
+                  onRequestReview(reviewer.trim());
+                  setReviewer("");
+                }}
+              >
+                Request review
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {open && requirements.blockers.length > 0 && (

@@ -162,6 +162,33 @@ export function MergeableChip({ requirements }: { requirements: MergeRequirement
   return <span className="chip chip-green">mergeable</span>;
 }
 
+// AttentionChip surfaces §13.4.2's derived "whose turn is it" on list rows.
+// Highlighted when the signed-in principal is in the set - the inbox signal;
+// otherwise a neutral count with the names on hover.
+export function AttentionChip({
+  requirements,
+  you,
+}: {
+  requirements: MergeRequirements | undefined;
+  you: string | null;
+}) {
+  const set = requirements?.attentionSet ?? [];
+  if (set.length === 0) return null;
+  const yours = you !== null && (set.includes(you) || set.includes(`user:${you}`));
+  if (yours) {
+    return (
+      <span className="chip chip-amber" title={`attention: ${set.join(", ")}`}>
+        your turn
+      </span>
+    );
+  }
+  return (
+    <span className="chip" title={`attention: ${set.join(", ")}`}>
+      ⏳ {set.length === 1 ? set[0] : `${set.length} waiting`}
+    </span>
+  );
+}
+
 // A small "?" glyph that reveals a definition on hover/focus - for Runko
 // jargon (capability, inferred deps, ...) that a first-time reader of the
 // UI has no way to already know. Native `title` attributes already cover

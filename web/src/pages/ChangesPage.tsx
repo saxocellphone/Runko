@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConnectError } from "@connectrpc/connect";
-import { changesClient } from "../api/client";
+import { authUser, changesClient } from "../api/client";
 import { ChangeState, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
+import { inAttention } from "../lib/comments";
 import { changeNumberLabel, shortChangeId } from "../lib/format";
 import {
   buildWorkspaceCards,
@@ -18,6 +19,7 @@ import {
 import { useRpc } from "../lib/useRpc";
 import { RailGraphRow, RailGraphTrunk } from "../components/RailGraph";
 import {
+  AttentionChip,
   AuthorChip,
   ChecksChip,
   EmptyState,
@@ -111,11 +113,57 @@ function OpenInbox() {
     <>
       {loading && <Spinner />}
       {error && <ErrorNote error={error} />}
+      {data && <AttentionInbox changes={data.changes} requirements={data.requirements} />}
       {data && (
         <StackedList changes={data.changes} abandoned={data.abandoned} requirements={data.requirements} />
       )}
       {data && data.changes.length === 0 && <EmptyState>No open changes.</EmptyState>}
     </>
+  );
+}
+
+// AttentionInbox is §17.2's "owner attention inbox", driven by the derived
+// set (§13.4.2): the open changes whose turn is YOURS - requested of you,
+// or owned by you and unreviewed at the current head, or yours and already
+// answered. Renders only for a signed-in named principal; the anonymous
+// operator/dev loop has no identity to match.
+function AttentionInbox({
+  changes,
+  requirements,
+}: {
+  changes: ChangeSummary[];
+  requirements: Map<string, MergeRequirements>;
+}) {
+  if (!authUser) return null;
+  const mine = changes.filter((c) =>
+    inAttention(requirements.get(c.id)?.attentionSet ?? [], authUser),
+  );
+  if (mine.length === 0) return null;
+  return (
+    <section className="card attention-inbox">
+      <header className="stack-card-head">
+        <span>Needs your attention · {mine.length}</span>
+      </header>
+      {mine.map((c) => (
+        <div className="stack-row" key={c.id}>
+          <span className="rail">
+            <span className="dot dot-review" />
+          </span>
+          <div className="change-line">
+            <Link className="change-title-link" to={`/changes/${c.id}`}>
+              {c.title}
+            </Link>
+            <span className="change-meta">
+              <span>{changeNumberLabel(c.number)}</span>
+              <AuthorChip author={c.authoredBy} />
+            </span>
+          </div>
+          <span className="change-chips">
+            <AttentionChip requirements={requirements.get(c.id)} you={authUser} />
+          </span>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -296,6 +344,7 @@ function StackRow({
         ) : (
           <>
             <MergeableChip requirements={requirements.get(c.id)} />
+            <AttentionChip requirements={requirements.get(c.id)} you={authUser} />
             <ReviewChip requirements={requirements.get(c.id)} />
             <ChecksChip requirements={requirements.get(c.id)} />
           </>
