@@ -62,6 +62,8 @@ platform/           control-plane libraries: receive, land, affected, checks,
                     index, project templates, search, mirror, build adapters, MCP
 runkod/             the daemon: pre-receive processor, smart-HTTP, REST + Connect APIs
 runkod/cmd/         runkod and runko-bridge (webhook -> GitHub Actions shim) entrypoints
+watchdog/           runko-watchdog, the CI reconciler: force-reports finished-but-unreported
+                    runs, one rescue rerun for lost dispatches
 proto/runko/v1/     Connect/gRPC schema (web <-> runkod); proto/gen/ is its generated Go
 web/                web UI (React + TypeScript + Vite + Connect-ES)
 cli/runko/          human/agent-facing CLI
