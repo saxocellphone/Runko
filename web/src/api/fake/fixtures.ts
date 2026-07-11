@@ -121,6 +121,13 @@ const mkChange = (init: {
     title: init.title,
     description: init.description ?? "",
     landedSha: init.landedSeed ? fakeSha(init.landedSeed) : "",
+    // Deterministic per-change land time, in the same fixture epoch the
+    // review comments use - only landed changes carry one. Only the first
+    // few digits of the id feed the offset: a 40-hex id's full digit run
+    // overflows int64.
+    landedAt: init.landedSeed
+      ? BigInt(1_780_000_000 + Number.parseInt(id.replace(/\D/g, "").slice(0, 5) || "0", 10) * 60)
+      : 0n,
     authoredBy: init.author,
     number: BigInt(init.number),
     url: "",

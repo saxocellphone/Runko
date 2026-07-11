@@ -167,6 +167,9 @@ message ChangeSummary {
   // head) and for STRANDED ones (base = an abandoned/unknown commit);
   // the UI must not draw either as rooted on trunk (2026-07-09).
   bool base_on_trunk = 15;
+  // When the change landed (unix seconds; 0 until state == LANDED) -
+  // changes.landed_at, recorded by MarkChangeLanded. Display metadata.
+  int64 landed_at = 16;
 }
 
 // The same structure surfaced to humans (Change page) and agents

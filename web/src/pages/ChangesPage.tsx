@@ -4,7 +4,7 @@ import { ConnectError } from "@connectrpc/connect";
 import { authUser, changesClient } from "../api/client";
 import { ChangeState, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import { inAttention } from "../lib/comments";
-import { changeNumberLabel, shortChangeId } from "../lib/format";
+import { absoluteTime, changeNumberLabel, shortChangeId, timeAgo } from "../lib/format";
 import {
   buildWorkspaceCards,
   HOME_BRANCH,
@@ -371,6 +371,9 @@ function FlatList({ changes }: { changes: ChangeSummary[] }) {
               <span>{changeNumberLabel(c.number)}</span>
               <span className="mono">{shortChangeId(c.id)}</span>
               <AuthorChip author={c.authoredBy} />
+              {c.landedAt > 0n && (
+                <span title={absoluteTime(c.landedAt)}>landed {timeAgo(c.landedAt)}</span>
+              )}
             </span>
           </div>
           <span className="change-chips">

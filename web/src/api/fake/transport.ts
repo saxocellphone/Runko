@@ -620,6 +620,7 @@ export function createFakeTransport(): Transport {
         c.state = ChangeState.LANDED;
         c.landedForced = forced;
         c.landedSha = fakeSha(c.id + "-landed");
+        c.landedAt = BigInt(Math.floor(Date.now() / 1000));
         const pending = state.pendingProjects.get(c.id);
         if (pending) {
           state.projects.push(pending);

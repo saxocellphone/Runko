@@ -306,6 +306,9 @@ func hydrateChangeNamed(c *dbgen.Change, names map[uuid.UUID]string) Change {
 	if c.LandedSha != nil {
 		ch.LandedSHA = *c.LandedSha
 	}
+	if c.LandedAt.Valid {
+		ch.LandedAt = c.LandedAt.Time
+	}
 	ch.AuthoredBy = names[c.AuthoredByActorID]
 	if c.LandedByActorID.Valid {
 		ch.LandedBy = names[uuid.UUID(c.LandedByActorID.Bytes)]

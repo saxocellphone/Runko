@@ -267,4 +267,7 @@ func TestLandRecordsLandedBy(t *testing.T) {
 	if change.LandedBy != "alice" {
 		t.Fatalf("expected LandedBy=alice, got %q", change.LandedBy)
 	}
+	if change.LandedAt.IsZero() {
+		t.Fatalf("expected LandedAt to be recorded on land")
+	}
 }

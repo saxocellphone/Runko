@@ -25,6 +25,10 @@ type Change struct {
 	// HeadSHA on a fast-forward, but a NEW commit SHA when land.Land had to
 	// rebase (§13.5). Empty until MarkChangeLanded is called.
 	LandedSHA string
+	// LandedAt is when MarkChangeLanded recorded the land - the zero Time
+	// until then (Postgres has carried changes.landed_at since 0001; this
+	// surfaces it). Display metadata, never a gate input.
+	LandedAt time.Time
 	// AuthoredBy / LandedBy are §7.5 attribution via §15.1's interim
 	// named-token principals (stage 12c): the principal name that pushed /
 	// landed, "" when the anonymous deploy token did. An amend by a
@@ -466,6 +470,7 @@ func (s *MemStore) MarkChangeLanded(ctx context.Context, changeKey, landedSHA, l
 	c.LandedSHA = landedSHA
 	c.LandedBy = landedBy
 	c.LandedForced = forced
+	c.LandedAt = s.now()
 	s.changes[changeKey] = c
 	return c, nil
 }

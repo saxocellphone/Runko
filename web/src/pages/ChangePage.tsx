@@ -5,7 +5,7 @@ import { authUser, publicBrowse, changesClient } from "../api/client";
 import { ChangeState, CommentSide, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import type { LandChangeResponse } from "../gen/runko/v1/changes_pb";
 import { groupThreads, partitionThreads } from "../lib/comments";
-import { changeNumberLabel, shortSha } from "../lib/format";
+import { absoluteTime, changeNumberLabel, shortSha, timeAgo } from "../lib/format";
 import { useRpc } from "../lib/useRpc";
 import { DiffView } from "../components/DiffView";
 import { MergeGates } from "../components/MergeGates";
@@ -128,7 +128,10 @@ export function ChangePage() {
             head {shortSha(change.headSha)}
           </span>
           {change.state === ChangeState.LANDED && change.landedSha && (
-            <span className="mono">landed as {shortSha(change.landedSha)}</span>
+            <span className="mono" title={change.landedAt > 0n ? absoluteTime(change.landedAt) : undefined}>
+              landed as {shortSha(change.landedSha)}
+              {change.landedAt > 0n && <> · {timeAgo(change.landedAt)}</>}
+            </span>
           )}
         </div>
         {change.description && <p className="change-description">{change.description}</p>}

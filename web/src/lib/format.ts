@@ -25,6 +25,17 @@ export function timeAgo(unixSeconds: number | bigint): string {
   return `${Math.floor(v)}${label} ago`;
 }
 
+/** Absolute local date-time for tooltips ("Jul 10, 2026, 22:10"). */
+export function absoluteTime(unixSeconds: number | bigint): string {
+  return new Date(Number(unixSeconds) * 1000).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function shortChangeId(id: string): string {
   // Change-Ids are Gerrit-style I<40 hex> (§7.4); show the I + 8 hex.
   return id.startsWith("I") ? id.slice(0, 9) : id.slice(0, 8);

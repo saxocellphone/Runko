@@ -961,6 +961,7 @@ func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
 		Title:           c.Title,
 		LandedSha:       c.LandedSHA,
 		LandedForced:    c.LandedForced,
+		LandedAt:        landedAtUnix(c),
 		OriginWorkspace: c.OriginWorkspace,
 		OriginBranch:    c.OriginBranch,
 		BaseOnTrunk:     s.baseOnTrunk(c.BaseSHA),
@@ -975,6 +976,15 @@ func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
 		out.AuthoredBy = &runkov1.Actor{Type: t, Id: c.AuthoredBy}
 	}
 	return out
+}
+
+// landedAtUnix maps the zero Time to proto's 0 (field comment: "0 until
+// state == LANDED") instead of a nonsense year-1 epoch offset.
+func landedAtUnix(c Change) int64 {
+	if c.LandedAt.IsZero() {
+		return 0
+	}
+	return c.LandedAt.Unix()
 }
 
 func protoChangeState(state string) runkov1.ChangeState {
