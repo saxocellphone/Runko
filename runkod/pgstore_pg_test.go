@@ -458,11 +458,22 @@ func TestPostgresStoreLifecycleAndRerunAttempts(t *testing.T) {
 		t.Fatalf("expected abandoning a landed change to error")
 	}
 
-	// Rerun attempt semantics on I1@h3.
+	// Rerun attempt semantics on I1@h3. The first report carries the CI run
+	// link; later link-less transitions must not erase it (COALESCE in the
+	// upsert - the queued report usually has the URL, completed may not).
+	if err := store.UpsertCheckRun(ctx, "I1", "h3", checks.CheckRunView{
+		Name: "unit", Status: checks.CheckStatusQueued,
+		DetailsURL: "https://ci.example.com/runs/9",
+	}); err != nil {
+		t.Fatalf("report queued with details_url: %v", err)
+	}
 	if err := store.UpsertCheckRun(ctx, "I1", "h3", checks.CheckRunView{
 		Name: "unit", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionSuccess,
 	}); err != nil {
 		t.Fatalf("report attempt 1: %v", err)
+	}
+	if runs, err := store.ListCheckRuns(ctx, "I1", "h3"); err != nil || len(runs) != 1 || runs[0].DetailsURL != "https://ci.example.com/runs/9" {
+		t.Fatalf("expected the details_url to survive a link-less completion, got %+v (%v)", runs, err)
 	}
 	rerun, err := store.RerunCheck(ctx, "I1", "unit", "alice")
 	if err != nil {

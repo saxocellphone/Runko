@@ -555,7 +555,7 @@ func TestRPCCheckReportedViaRESTGatesRPCView(t *testing.T) {
 	}
 
 	// Post the declared "unit" check green via REST, as runko-ci would.
-	body := `{"name":"unit","external_id":"run-1","status":"completed","conclusion":"success","reporter":"ci"}`
+	body := `{"name":"unit","external_id":"run-1","status":"completed","conclusion":"success","reporter":"ci","details_url":"https://ci.example.com/runs/7"}`
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/changes/"+changeID+"/checks", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer sekret")
 	resp, err := srv.Client().Do(req)
@@ -571,6 +571,9 @@ func TestRPCCheckReportedViaRESTGatesRPCView(t *testing.T) {
 	r := after.Msg.Requirements
 	if !r.GetMergeable() || len(r.GetChecks().GetPassing()) != 1 {
 		t.Fatalf("post-report: want mergeable with unit passing, got %+v", r)
+	}
+	if r.GetChecks().GetDetailsUrls()["unit"] != "https://ci.example.com/runs/7" {
+		t.Fatalf("post-report: want the CI run link on the gate, got %+v", r.GetChecks().GetDetailsUrls())
 	}
 }
 

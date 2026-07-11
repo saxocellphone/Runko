@@ -346,14 +346,17 @@ func (q *Queries) UpdateCheckRun(ctx context.Context, db DBTX, arg UpdateCheckRu
 
 const upsertCheckRunByName = `-- name: UpsertCheckRunByName :one
 INSERT INTO check_runs (
-    change_id, head_sha, name, external_id, status, conclusion, reporter, ttl_seconds, attempt
+    change_id, head_sha, name, external_id, status, conclusion, reporter, ttl_seconds, attempt, details_url
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 ) ON CONFLICT (change_id, head_sha, name, attempt) DO UPDATE
     SET external_id = EXCLUDED.external_id,
         status = EXCLUDED.status,
         conclusion = EXCLUDED.conclusion,
         reporter = EXCLUDED.reporter,
+        -- A report without a link must not erase the link an earlier
+        -- transition carried (queued often has it, completed may not).
+        details_url = COALESCE(EXCLUDED.details_url, check_runs.details_url),
         completed_at = CASE WHEN EXCLUDED.status = 'completed' THEN now() ELSE check_runs.completed_at END,
         last_seen_at = now()
 RETURNING id, change_id, head_sha, name, external_id, status, conclusion, started_at, completed_at, details_url, output_title, output_summary, output_text, app_id, reporter, attempt, ttl_seconds, last_seen_at, created_at
@@ -369,6 +372,7 @@ type UpsertCheckRunByNameParams struct {
 	Reporter   string           `json:"reporter"`
 	TtlSeconds int32            `json:"ttl_seconds"`
 	Attempt    int32            `json:"attempt"`
+	DetailsUrl *string          `json:"details_url"`
 }
 
 // Report-check posts a STATUS TRANSITION for the same logical run (queued ->
@@ -390,6 +394,7 @@ func (q *Queries) UpsertCheckRunByName(ctx context.Context, db DBTX, arg UpsertC
 		arg.Reporter,
 		arg.TtlSeconds,
 		arg.Attempt,
+		arg.DetailsUrl,
 	)
 	var i CheckRun
 	err := row.Scan(

@@ -1188,6 +1188,7 @@ func (s *Server) handlePostCheck(w http.ResponseWriter, r *http.Request) {
 		Name:       report.Name,
 		Status:     checks.CheckStatus(report.Status),
 		Conclusion: checks.CheckConclusion(report.Conclusion),
+		DetailsURL: report.DetailsURL,
 	}
 	if err := s.Store.UpsertCheckRun(r.Context(), key, change.HeadSHA, run); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

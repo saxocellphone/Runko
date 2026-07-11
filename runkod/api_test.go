@@ -189,6 +189,7 @@ func TestAPIPostCheckAndMergeRequirementsRoundTrip(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]string{
 		"name": "unit", "external_id": "job-1", "status": "queued", "reporter": "github-actions",
+		"details_url": "https://ci.example.com/runs/42",
 	})
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/changes/"+changeID+"/checks", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer sekret")
@@ -204,8 +205,9 @@ func TestAPIPostCheckAndMergeRequirementsRoundTrip(t *testing.T) {
 	mrResp := authedGet(t, srv, "/api/changes/"+changeID+"/merge-requirements", "sekret")
 	var mr struct {
 		Checks struct {
-			Required []string
-			Pending  []string
+			Required    []string
+			Pending     []string
+			DetailsURLs map[string]string `json:"details_urls"`
 		}
 		Mergeable bool
 	}
@@ -217,6 +219,9 @@ func TestAPIPostCheckAndMergeRequirementsRoundTrip(t *testing.T) {
 	}
 	if len(mr.Checks.Pending) != 1 || mr.Checks.Pending[0] != "unit" {
 		t.Fatalf("expected 'unit' pending, got %+v", mr.Checks)
+	}
+	if mr.Checks.DetailsURLs["unit"] != "https://ci.example.com/runs/42" {
+		t.Fatalf("expected the reported details_url on the gate, got %+v", mr.Checks.DetailsURLs)
 	}
 
 	// Now report it completed/successful and confirm the Change becomes mergeable.
@@ -231,6 +236,9 @@ func TestAPIPostCheckAndMergeRequirementsRoundTrip(t *testing.T) {
 
 	mrResp2 := authedGet(t, srv, "/api/changes/"+changeID+"/merge-requirements", "sekret")
 	var mr2 struct {
+		Checks struct {
+			DetailsURLs map[string]string `json:"details_urls"`
+		}
 		Mergeable bool
 	}
 	if err := json.NewDecoder(mrResp2.Body).Decode(&mr2); err != nil {
@@ -238,6 +246,11 @@ func TestAPIPostCheckAndMergeRequirementsRoundTrip(t *testing.T) {
 	}
 	if !mr2.Mergeable {
 		t.Fatalf("expected mergeable after the check completed successfully")
+	}
+	// The completed report carried no details_url: the queued report's link
+	// must survive (COALESCE in Postgres, same rule in MemStore).
+	if mr2.Checks.DetailsURLs["unit"] != "https://ci.example.com/runs/42" {
+		t.Fatalf("expected the earlier details_url to survive a link-less transition, got %+v", mr2.Checks.DetailsURLs)
 	}
 }
 

@@ -194,6 +194,9 @@ message CheckGate {
   repeated string passing = 2;
   repeated string failing = 3;
   repeated string pending = 4;
+  // Check name -> deep link to the CI run that reported it (report-check's
+  // details_url). Names with no reported link are absent.
+  map<string, string> details_urls = 5;
 }
 
 enum WorkspaceStatus {

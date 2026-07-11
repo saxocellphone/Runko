@@ -28,6 +28,11 @@ type MergeRequirements struct {
 	FailingChecks  []string
 	PendingChecks  []string
 
+	// CheckDetailsURLs maps a check name to the CI run page its reporter
+	// linked (report-check's details_url) - how a human gets from a gate
+	// row to the run. Only names with a reported link appear.
+	CheckDetailsURLs map[string]string
+
 	Mergeable bool
 	// Blockers are plain-language, per §6.6 ("Your workspace is 12 commits
 	// behind trunk; 2 of your files conflict" is the model to follow).
@@ -126,6 +131,13 @@ func ComputeMergeRequirements(
 	}
 	blockers = append(blockers, RequireBuildBindingBlockers(unboundProjects)...)
 
+	detailsURLs := map[string]string{}
+	for _, run := range runs {
+		if run.DetailsURL != "" {
+			detailsURLs[run.Name] = run.DetailsURL
+		}
+	}
+
 	return MergeRequirements{
 		ChangeID:          changeID,
 		RequiredOwners:    reqOwners,
@@ -135,6 +147,7 @@ func ComputeMergeRequirements(
 		PassingChecks:     passChecks,
 		FailingChecks:     failChecks,
 		PendingChecks:     pendChecks,
+		CheckDetailsURLs:  detailsURLs,
 		Mergeable:         len(blockers) == 0,
 		Blockers:          blockers,
 	}
@@ -156,6 +169,10 @@ type mergeRequirementsWire struct {
 		Passing  []string `json:"passing"`
 		Failing  []string `json:"failing"`
 		Pending  []string `json:"pending"`
+		// DetailsURLs is optional in the schema; omitted when no run has
+		// reported a link, so pre-existing consumers see byte-identical
+		// output for link-less changes.
+		DetailsURLs map[string]string `json:"details_urls,omitempty"`
 	} `json:"checks"`
 	Mergeable bool     `json:"mergeable"`
 	Blockers  []string `json:"blockers"`
@@ -173,6 +190,9 @@ func (m MergeRequirements) MarshalJSON() ([]byte, error) {
 	w.Checks.Passing = nonNilStrings(m.PassingChecks)
 	w.Checks.Failing = nonNilStrings(m.FailingChecks)
 	w.Checks.Pending = nonNilStrings(m.PendingChecks)
+	if len(m.CheckDetailsURLs) > 0 {
+		w.Checks.DetailsURLs = m.CheckDetailsURLs
+	}
 	w.Mergeable = m.Mergeable
 	w.Blockers = nonNilStrings(m.Blockers)
 	return json.Marshal(w)
@@ -195,6 +215,7 @@ func (m *MergeRequirements) UnmarshalJSON(data []byte) error {
 		PassingChecks:     w.Checks.Passing,
 		FailingChecks:     w.Checks.Failing,
 		PendingChecks:     w.Checks.Pending,
+		CheckDetailsURLs:  w.Checks.DetailsURLs,
 		Mergeable:         w.Mergeable,
 		Blockers:          w.Blockers,
 	}

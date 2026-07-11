@@ -24,14 +24,17 @@ RETURNING *;
 -- (stage 12c-③ - previously hardcoded to attempt 1, which stranded every
 -- rerun attempt as forever-queued the moment reruns became requestable).
 INSERT INTO check_runs (
-    change_id, head_sha, name, external_id, status, conclusion, reporter, ttl_seconds, attempt
+    change_id, head_sha, name, external_id, status, conclusion, reporter, ttl_seconds, attempt, details_url
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 ) ON CONFLICT (change_id, head_sha, name, attempt) DO UPDATE
     SET external_id = EXCLUDED.external_id,
         status = EXCLUDED.status,
         conclusion = EXCLUDED.conclusion,
         reporter = EXCLUDED.reporter,
+        -- A report without a link must not erase the link an earlier
+        -- transition carried (queued often has it, completed may not).
+        details_url = COALESCE(EXCLUDED.details_url, check_runs.details_url),
         completed_at = CASE WHEN EXCLUDED.status = 'completed' THEN now() ELSE check_runs.completed_at END,
         last_seen_at = now()
 RETURNING *;

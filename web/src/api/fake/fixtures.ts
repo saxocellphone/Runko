@@ -269,6 +269,13 @@ const req = (
       passing: checks.passing,
       failing: checks.failing ?? [],
       pending: checks.pending ?? [],
+      // Every reported (non-pending) check links to its CI run page, the
+      // way runko-ci report-check --details-url populates it in prod.
+      detailsUrls: Object.fromEntries(
+        checks.required
+          .filter((n) => !(checks.pending ?? []).includes(n))
+          .map((n) => [n, `https://ci.example.com/runs/${encodeURIComponent(n)}`]),
+      ),
     },
     // mergeable/blockers are recomputed by the store on load and after
     // every mutation; values here are placeholders.

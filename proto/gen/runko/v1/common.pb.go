@@ -1248,10 +1248,13 @@ type CheckGate struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Check-set policies (e.g. "unit:* over affected") are pre-expanded
 	// into concrete names here (§14.4.2).
-	Required      []string `protobuf:"bytes,1,rep,name=required,proto3" json:"required,omitempty"`
-	Passing       []string `protobuf:"bytes,2,rep,name=passing,proto3" json:"passing,omitempty"`
-	Failing       []string `protobuf:"bytes,3,rep,name=failing,proto3" json:"failing,omitempty"`
-	Pending       []string `protobuf:"bytes,4,rep,name=pending,proto3" json:"pending,omitempty"`
+	Required []string `protobuf:"bytes,1,rep,name=required,proto3" json:"required,omitempty"`
+	Passing  []string `protobuf:"bytes,2,rep,name=passing,proto3" json:"passing,omitempty"`
+	Failing  []string `protobuf:"bytes,3,rep,name=failing,proto3" json:"failing,omitempty"`
+	Pending  []string `protobuf:"bytes,4,rep,name=pending,proto3" json:"pending,omitempty"`
+	// Check name -> deep link to the CI run that reported it (report-check's
+	// details_url). Names with no reported link are absent.
+	DetailsUrls   map[string]string `protobuf:"bytes,5,rep,name=details_urls,json=detailsUrls,proto3" json:"details_urls,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1310,6 +1313,13 @@ func (x *CheckGate) GetFailing() []string {
 func (x *CheckGate) GetPending() []string {
 	if x != nil {
 		return x.Pending
+	}
+	return nil
+}
+
+func (x *CheckGate) GetDetailsUrls() map[string]string {
+	if x != nil {
+		return x.DetailsUrls
 	}
 	return nil
 }
@@ -1499,12 +1509,16 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\tOwnerGate\x12\x1a\n" +
 	"\brequired\x18\x01 \x03(\tR\brequired\x12\x1c\n" +
 	"\tsatisfied\x18\x02 \x03(\tR\tsatisfied\x12 \n" +
-	"\voutstanding\x18\x03 \x03(\tR\voutstanding\"u\n" +
+	"\voutstanding\x18\x03 \x03(\tR\voutstanding\"\xfe\x01\n" +
 	"\tCheckGate\x12\x1a\n" +
 	"\brequired\x18\x01 \x03(\tR\brequired\x12\x18\n" +
 	"\apassing\x18\x02 \x03(\tR\apassing\x12\x18\n" +
 	"\afailing\x18\x03 \x03(\tR\afailing\x12\x18\n" +
-	"\apending\x18\x04 \x03(\tR\apending\"\xa3\x02\n" +
+	"\apending\x18\x04 \x03(\tR\apending\x12G\n" +
+	"\fdetails_urls\x18\x05 \x03(\v2$.runko.v1.CheckGate.DetailsUrlsEntryR\vdetailsUrls\x1a>\n" +
+	"\x10DetailsUrlsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa3\x02\n" +
 	"\x10WorkspaceSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05owner\x18\x02 \x01(\tR\x05owner\x12#\n" +
@@ -1566,7 +1580,7 @@ func file_runko_v1_common_proto_rawDescGZIP() []byte {
 }
 
 var file_runko_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_runko_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_runko_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_runko_v1_common_proto_goTypes = []any{
 	(ActorType)(0),              // 0: runko.v1.ActorType
 	(ProjectType)(0),            // 1: runko.v1.ProjectType
@@ -1587,6 +1601,7 @@ var file_runko_v1_common_proto_goTypes = []any{
 	(*OwnerGate)(nil),           // 16: runko.v1.OwnerGate
 	(*CheckGate)(nil),           // 17: runko.v1.CheckGate
 	(*WorkspaceSummary)(nil),    // 18: runko.v1.WorkspaceSummary
+	nil,                         // 19: runko.v1.CheckGate.DetailsUrlsEntry
 }
 var file_runko_v1_common_proto_depIdxs = []int32{
 	0,  // 0: runko.v1.Actor.type:type_name -> runko.v1.ActorType
@@ -1601,12 +1616,13 @@ var file_runko_v1_common_proto_depIdxs = []int32{
 	8,  // 9: runko.v1.ChangeSummary.authored_by:type_name -> runko.v1.Actor
 	16, // 10: runko.v1.MergeRequirements.owners:type_name -> runko.v1.OwnerGate
 	17, // 11: runko.v1.MergeRequirements.checks:type_name -> runko.v1.CheckGate
-	6,  // 12: runko.v1.WorkspaceSummary.status:type_name -> runko.v1.WorkspaceStatus
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	19, // 12: runko.v1.CheckGate.details_urls:type_name -> runko.v1.CheckGate.DetailsUrlsEntry
+	6,  // 13: runko.v1.WorkspaceSummary.status:type_name -> runko.v1.WorkspaceStatus
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_runko_v1_common_proto_init() }
@@ -1620,7 +1636,7 @@ func file_runko_v1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runko_v1_common_proto_rawDesc), len(file_runko_v1_common_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

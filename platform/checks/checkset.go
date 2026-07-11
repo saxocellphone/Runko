@@ -41,6 +41,11 @@ type CheckRunView struct {
 	// (older callers that never set them) read as never-stale.
 	LastSeenAt time.Time
 	TTLSeconds int
+	// DetailsURL deep-links to the CI run that reported this check
+	// (checkrun.schema.json's details_url) - stored since stage 8, carried
+	// through to merge requirements so humans can click from the gate row
+	// to the run page. Empty when the reporter never sent one.
+	DetailsURL string
 }
 
 // CheckSetPolicy mirrors docs/spec/webhooks/checkrun.schema.json#/$defs/CheckSetPolicy.

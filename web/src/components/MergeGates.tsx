@@ -104,6 +104,10 @@ export function MergeGates({
             const failing = checks!.failing.includes(name);
             const pending = checks!.pending.includes(name);
             const passing = checks!.passing.includes(name);
+            // The reporter's details_url deep-links to the CI run page
+            // (runko-ci report-check --details-url) - a check that has
+            // reported becomes clickable, one that hasn't stays plain.
+            const url = checks!.detailsUrls[name];
             return (
               <div className="gate-row" key={name}>
                 <span
@@ -111,9 +115,21 @@ export function MergeGates({
                 >
                   {passing ? "✓" : failing ? "✕" : pending ? "●" : "○"}
                 </span>
-                <span className="gate-name mono" title={name}>
-                  {name}
-                </span>
+                {url ? (
+                  <a
+                    className="gate-name mono gate-link"
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={`${name} — open the CI run`}
+                  >
+                    {name} ↗
+                  </a>
+                ) : (
+                  <span className="gate-name mono" title={name}>
+                    {name}
+                  </span>
+                )}
                 {failing && actionable && (
                   <button className="btn btn-sm" disabled={busy} onClick={() => onRerun(name)}>
                     Rerun

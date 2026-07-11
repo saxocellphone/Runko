@@ -209,7 +209,12 @@
             "required": { "type": "array", "items": { "type": "string" } },
             "passing": { "type": "array", "items": { "type": "string" } },
             "failing": { "type": "array", "items": { "type": "string" } },
-            "pending": { "type": "array", "items": { "type": "string" } }
+            "pending": { "type": "array", "items": { "type": "string" } },
+            "details_urls": {
+              "type": "object",
+              "additionalProperties": { "type": "string", "format": "uri" },
+              "description": "Check name -> deep link to the CI run that reported it (report-check's details_url). Names absent here have no reported link."
+            }
           },
           "description": "Check-set policies (e.g. 'unit:* over affected') are pre-expanded into concrete names here (§14.4.2)."
         },

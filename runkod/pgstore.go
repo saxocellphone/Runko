@@ -480,10 +480,15 @@ func (s *PostgresStore) UpsertCheckRun(ctx context.Context, changeKey, headSHA s
 	default:
 		return err
 	}
+	var detailsURL *string
+	if run.DetailsURL != "" {
+		detailsURL = &run.DetailsURL
+	}
 	_, err = s.Queries.UpsertCheckRunByName(ctx, s.Pool, dbgen.UpsertCheckRunByNameParams{
 		ChangeID: changeID, HeadSha: headSHA, Name: run.Name,
 		ExternalID: run.Name, Status: dbgen.CheckStatus(run.Status), Conclusion: conclusion,
 		Reporter: "unknown", TtlSeconds: checks.DefaultTTLSeconds, Attempt: attempt,
+		DetailsUrl: detailsURL,
 	})
 	return err
 }
@@ -507,7 +512,7 @@ func (s *PostgresStore) RerunCheck(ctx context.Context, changeKey, checkName, re
 	if err != nil {
 		return checks.CheckRunView{}, err
 	}
-	return checkRunViewFromRow(run.Name, run.Status, run.Conclusion, run.LastSeenAt.Time, run.TtlSeconds), nil
+	return checkRunViewFromRow(run.Name, run.Status, run.Conclusion, run.LastSeenAt.Time, run.TtlSeconds, run.DetailsUrl), nil
 }
 
 func (s *PostgresStore) ListCheckRuns(ctx context.Context, changeKey, headSHA string) ([]checks.CheckRunView, error) {
@@ -525,7 +530,7 @@ func (s *PostgresStore) ListCheckRuns(ctx context.Context, changeKey, headSHA st
 	byName := map[string]int{}
 	out := make([]checks.CheckRunView, 0, len(rows))
 	for _, r := range rows {
-		view := checkRunViewFromRow(r.Name, r.Status, r.Conclusion, r.LastSeenAt.Time, r.TtlSeconds)
+		view := checkRunViewFromRow(r.Name, r.Status, r.Conclusion, r.LastSeenAt.Time, r.TtlSeconds, r.DetailsUrl)
 		if i, seen := byName[r.Name]; seen {
 			out[i] = view
 			continue
@@ -536,13 +541,16 @@ func (s *PostgresStore) ListCheckRuns(ctx context.Context, changeKey, headSHA st
 	return out, nil
 }
 
-func checkRunViewFromRow(name string, status dbgen.CheckStatus, conclusion *dbgen.CheckConclusion, lastSeen time.Time, ttl int32) checks.CheckRunView {
+func checkRunViewFromRow(name string, status dbgen.CheckStatus, conclusion *dbgen.CheckConclusion, lastSeen time.Time, ttl int32, detailsURL *string) checks.CheckRunView {
 	view := checks.CheckRunView{
 		Name: name, Status: checks.CheckStatus(status),
 		LastSeenAt: lastSeen, TTLSeconds: int(ttl),
 	}
 	if conclusion != nil {
 		view.Conclusion = checks.CheckConclusion(*conclusion)
+	}
+	if detailsURL != nil {
+		view.DetailsURL = *detailsURL
 	}
 	return view
 }

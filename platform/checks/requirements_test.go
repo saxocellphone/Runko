@@ -45,6 +45,7 @@ func TestMergeRequirementsJSONRoundTrip(t *testing.T) {
 		OutstandingOwners: []string{"group:commerce-eng"},
 		RequiredChecks:    []string{"unit"},
 		PendingChecks:     []string{"unit"},
+		CheckDetailsURLs:  map[string]string{"unit": "https://ci.example.com/runs/1"},
 		Blockers:          []string{"unit has not reported yet", "waiting on approval from group:commerce-eng"},
 	}
 	data, err := json.Marshal(in)

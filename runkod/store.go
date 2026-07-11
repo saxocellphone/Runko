@@ -447,6 +447,11 @@ func (s *MemStore) UpsertCheckRun(ctx context.Context, changeKey, headSHA string
 	if run.TTLSeconds == 0 {
 		run.TTLSeconds = checks.DefaultTTLSeconds
 	}
+	// A report without a link must not erase the link an earlier transition
+	// carried - the same COALESCE PostgresStore's upsert applies.
+	if run.DetailsURL == "" {
+		run.DetailsURL = s.checkRuns[key][run.Name].DetailsURL
+	}
 	s.checkRuns[key][run.Name] = run
 	return nil
 }
