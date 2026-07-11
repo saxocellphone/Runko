@@ -9,6 +9,11 @@ schema: project/v1
 name: cli
 type: app
 language: go
+# release (§14.10.3): the CLI is the platform's first released project -
+# `runko release create --project cli` cuts cli/vX.Y.Z with a changelog
+# derived from the landed Changes touching this folder.
+capabilities:
+  - release
 dependencies:
   - platform
   - internal
