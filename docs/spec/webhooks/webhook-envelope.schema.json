@@ -20,9 +20,11 @@
         "change.updated",
         "change.reopened",
         "change.landed",
-        "change.check_rerun_requested"
+        "change.check_rerun_requested",
+        "change.commented",
+        "change.review_requested"
       ],
-      "description": "change.opened/updated/reopened/landed per §14.4.1; change.check_rerun_requested per the re-run flow in §14.4.2."
+      "description": "change.opened/updated/reopened/landed per §14.4.1; change.check_rerun_requested per the re-run flow in §14.4.2; change.commented/change.review_requested per the review conversation in §13.4.1-13.4.2 (added 2026-07-10, additive within spec_version 1)."
     },
     "occurred_at": { "type": "string", "format": "date-time" },
     "org_id": { "type": "string" },
@@ -105,6 +107,55 @@
         }
       }
     },
+    "comment": {
+      "type": "object",
+      "required": ["id", "author"],
+      "additionalProperties": false,
+      "description": "Present only on change.commented (§13.4.1). Carries ids and the anchor, NEVER the body - consumers fetch bodies via api.change_url so CI logs don't accumulate review text.",
+      "properties": {
+        "id": { "type": "string" },
+        "parent_id": { "type": "string", "description": "Root comment of the thread when this is a reply; threads are one level deep." },
+        "path": { "type": "string", "description": "File-level or line-level anchor; absent for change-level comments." },
+        "side": { "type": "string", "enum": ["base", "head"] },
+        "line": { "type": "integer" },
+        "resolved": { "type": "boolean" },
+        "author": {
+          "type": "object",
+          "required": ["type", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "enum": ["user", "agent"] },
+            "id": { "type": "string" }
+          }
+        }
+      }
+    },
+    "review_request": {
+      "type": "object",
+      "required": ["reviewer", "requested_by"],
+      "additionalProperties": false,
+      "description": "Present only on change.review_requested (§13.4.2); the reviewer enters the derived attention set.",
+      "properties": {
+        "reviewer": {
+          "type": "object",
+          "required": ["type", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "enum": ["user", "agent", "group"] },
+            "id": { "type": "string" }
+          }
+        },
+        "requested_by": {
+          "type": "object",
+          "required": ["type", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "enum": ["user", "agent"] },
+            "id": { "type": "string" }
+          }
+        }
+      }
+    },
     "api": {
       "type": "object",
       "required": ["change_url", "affected_url", "checks_url"],
@@ -120,6 +171,14 @@
     {
       "if": { "properties": { "type": { "const": "change.check_rerun_requested" } } },
       "then": { "required": ["rerun"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "change.commented" } } },
+      "then": { "required": ["comment"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "change.review_requested" } } },
+      "then": { "required": ["review_request"] }
     },
     {
       "if": {

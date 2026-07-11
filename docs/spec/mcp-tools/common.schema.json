@@ -171,13 +171,18 @@
       "type": "object",
       "required": ["id", "author", "body", "created_at"],
       "additionalProperties": false,
+      "description": "Review-conversation comment (design.md §13.4.1, decided 2026-07-10). Anchor: change-level (no path), file-level (path only), or line-level (path+side+line); always bound to the head_sha it was written against - comments on older heads render as outdated, never floated (floating is v1.x). Threads are one level deep via parent_id; resolved lives on the root comment.",
       "properties": {
         "id": { "type": "string" },
         "author": { "$ref": "#/$defs/Actor" },
         "body": { "type": "string" },
         "created_at": { "type": "string", "format": "date-time" },
         "path": { "type": "string" },
-        "line": { "type": "integer" }
+        "side": { "type": "string", "enum": ["base", "head"] },
+        "line": { "type": "integer" },
+        "head_sha": { "type": "string", "description": "The Change head version this comment was written against (§13.4.1); differs from the current head when the comment is outdated." },
+        "parent_id": { "type": "string", "description": "Root comment of the thread when this is a reply." },
+        "resolved": { "type": "boolean", "description": "Root comments only; settable by the thread author, the Change author, or an owner of the anchored path." }
       }
     },
     "MergeRequirements": {

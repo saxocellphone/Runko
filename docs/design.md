@@ -415,6 +415,7 @@ Agent-driven codemods use the same path — `mechanical` + attestation + human g
 - Fields: base revision, overlay, description, required owners, affected projects, checks, **actors** (human author, agent co-author).  
 - **Stable change identity**: a Change has an ID that survives rebases and amends (jj-style change-ID discipline); commits are *versions of* a Change, not the Change itself.  
 - **Stacks are first-class in the data model from v1** (`depends_on: change_id`); stack *UX* (restack, cascade land) phases in at v1.x. Retrofitting stacks onto a change model is why PR-based tools struggle — we will not repeat that.  
+- **Review conversation is change-scoped state** (§13.4.1): comments/threads and review requests hang off the Change and bind to `head_sha` versions, like approvals — control-plane rows, never tree content.  
 - **Landing is rebase-based** (decided, not an RFC): land = rebase onto trunk tip + fast-forward; linear trunk history. Checks bind to `head_sha` and go stale on rebase per §14.4.2, with scoped revalidation per §13.5.  
 - **Trunk is closed to direct push** (decided): change refs are the only write path; admin break-glass push is audited and off by default. Without this, every agent policy in §8 is bypassable via raw Git.
 
@@ -551,6 +552,7 @@ If an agent tries to hand-author invalid platform config, validation returns act
 | **Labels** | Auto-label `agent-assisted` for review filters |
 | **Summaries** | Agents encouraged (tool) to set `change.description` and `test_plan`; UI prompts if empty |
 | **Higher scrutiny (optional policy)** | Require human owner approval even if agent is in owners group; ban agent self-approval |
+| **Agent as reviewer** | Review output = anchored comments with the agent badge (§13.4.1); agents may be requested reviewers; approval stays structurally human-only (§8.7) |
 | **Audit** | Coding session id links tool calls → file writes → change |
 
 ### 8.7 Policy engine (AgentPolicy)
@@ -1004,12 +1006,78 @@ workspace edits (human and/or agent)
 - Owners and checks above the fold  
 - Plain-language merge blockers (`get_merge_requirements`)
 
+#### 13.4.1 Review conversation — comments and threads (decided 2026-07-10)
+
+Runko has had approve/land since stage 11c and no way to say *why* a Change
+isn't approved — review conversation is pillar 2's missing core (GitHub,
+Gerrit, and Graphite all treat it as the product, and any
+Copilot-review-class agent flow needs it as its output channel). The model,
+decided against those references:
+
+**Comment object** `{id, change_key, author (principal), created_at, body
+(markdown), anchor, parent_id, resolved}`:
+
+- **Anchor** is one of: change-level · file-level `{path}` · line-level
+  `{path, side: base|head, line}` — and always binds to the `head_sha` it
+  was written against. Amend semantics follow approvals (§13.5): after a
+  re-push, prior comments render as "on v1 (outdated)" at their original
+  anchor; repositioning/floating heuristics (GitHub's approach) are
+  explicitly v1.x polish, not v1 — a comment silently shown on the wrong
+  line is worse than one marked outdated.
+- **Threads are one level deep** via `parent_id` (the GitHub model, not
+  nested trees).
+- **`resolved`** lives on the root comment, settable by the thread author,
+  the Change author, or an owner of the anchored path. Org knob
+  `require_resolved_threads` (default **off** — ceremony budget §2.3;
+  GitHub defaults off for the same reason) adds an `unresolved_threads`
+  blocker row to §13.5's merge requirements when on.
+
+**Storage:** Postgres, as change-lifecycle state exactly like approvals —
+durable, never tree-truth (§10.3's carve-out).
+
+**Agents comment, never approve.** Agent review output is ordinary anchored
+comments carrying the agent badge (§8.6); agents can be requested as
+reviewers; §8.7's approval ban is unchanged. This is deliberately the
+Copilot-code-review shape with server-side enforcement: a review agent is
+just another API client whose comments are attributed and whose approval is
+structurally impossible.
+
+**Surfaces** (implementation: DAG stages 16/16b, §28.3): REST
+(`GET/POST /api/changes/{key}/comments`, `POST .../comments/{id}/resolve`,
+`POST .../request-review`), Connect `ChangeService` RPCs (proto extended
+first, the stage-13 precedent), CLI `runko change comment` / `comments` /
+`request-review` — `docs/cli-contract.md` rows land *with* the commands
+(the agentsmd drift test forbids documenting commands that don't exist).
+Web: inline threads on the stacked diff. MCP: `list_change_comments`
+graduates from the deferred catalog at stage 16; writes stay CLI-first
+(§8.3). Outbound webhooks gain `change.commented` and
+`change.review_requested` (envelope enum extension — additive; payloads
+carry ids and anchors, never bodies — consumers fetch bodies via the API so
+CI logs don't accumulate review text).
+
+#### 13.4.2 Review requests and the attention set (decided 2026-07-10)
+
+`request_review(change, principal|group)` records who is asked. The
+**attention set** — whose turn is it — is **derived, never manually
+managed** (Gerrit's manually editable attention set is powerful and
+universally confusing; we skip it):
+
+> requested reviewers (and required owners) who have neither approved nor
+> commented since the current `head_sha`, plus the author whenever any
+> reviewer has responded to the current version.
+
+The derivation is a pure function of facts the control plane already holds
+(requests, approvals §13.5, comments §13.4.1, `head_sha`) — nothing new to
+store beyond the request itself, nothing to drift out of sync. It feeds the
+owner attention inbox on web Home (§17.2) and `runko change requirements`.
+
 ### 13.5 Merge gates and landing
 
 | Gate | v1 |
 |------|-----|
 | Required human owners approved | Yes — with global-approver / mechanical-change relaxations (§7.3) |
 | Agent-only approval | **No** (default policy) |
+| Unresolved review threads | Org opt-in block (`require_resolved_threads`, default off — §13.4.1) |
 | Unowned paths | Configurable block |
 | Projects without a `build` binding | Org opt-in block (`require_build_binding`, hermetic discipline — §14.5.4) |
 | External CI on affected set | Yes |
@@ -1855,6 +1923,9 @@ runko workspace attach <id> # restore a workspace on any machine from its snapsh
 runko change create -m "Reject invalid SKUs"
 runko change push           # from any plain git checkout (wraps refs/for/main, §11.5)
 runko change requirements   # owners + checks outstanding
+runko change comment -m "…" [--file <path> --line <n>]   # anchored to current head (§13.4.1, stage 16)
+runko change comments       # threads + resolved state (stage 16)
+runko change request-review <principal>                  # feeds the attention set (§13.4.2, stage 16)
 runko doctor                # remotes, hooks, personal cheat-sheet (§6.9)
 runko mcp serve             # local MCP for coding agents
 ```
@@ -1863,10 +1934,10 @@ runko mcp serve             # local MCP for coding agents
 
 | Surface | Priority interactions |
 |---------|----------------------|
-| Home | Create project CTA, recent changes, owner attention inbox |
+| Home | Create project CTA, recent changes, owner attention inbox (derived attention set, §13.4.2) |
 | Create project | 3-step wizard, live validation, preview files |
 | Project | Capabilities as toggles, owners, open workspace, “copy MCP snippet” |
-| Change | Scoped diff, agent badge, merge requirements |
+| Change | Scoped diff, agent badge, merge requirements, inline review threads (§13.4.1, stage 16b) |
 | **Connect CI** | Wizard: pick CI system → template + webhook secret + watch first green check arrive (§14.13) |
 | **Import** | `import plan` report review, owners-mapping fixes, shadow-CI parity dashboard (§18.3) |
 | Settings | Templates, AgentPolicy, conventions doc |
@@ -1880,7 +1951,7 @@ runko mcp serve             # local MCP for coding agents
 
 ### 17.4 MCP
 
-**Rescoped (§8.3): a thin remote adapter, not the primary agent surface.** v1 ships exactly six read-only tools (`list_projects`, `get_project`, `search_code`, `who_owns`, `get_affected`, `get_merge_requirements`) over the same REST handlers the CLI uses. The full write-capable catalog (`create_project`, `create_change`, workspace tools, etc.) stays documented in `docs/spec/mcp-tools/catalog.json` as the **deferred v1.x contract** - schemas kept, not implemented, until there's a client that actually needs MCP for writes rather than a shell.
+**Rescoped (§8.3): a thin remote adapter, not the primary agent surface.** v1 ships exactly six read-only tools (`list_projects`, `get_project`, `search_code`, `who_owns`, `get_affected`, `get_merge_requirements`) over the same REST handlers the CLI uses (stage 16 graduates `list_change_comments` as the seventh, still read-only — §13.4.1). The full write-capable catalog (`create_project`, `create_change`, workspace tools, etc.) stays documented in `docs/spec/mcp-tools/catalog.json` as the **deferred v1.x contract** - schemas kept, not implemented, until there's a client that actually needs MCP for writes rather than a shell.
 
 - Documented tool catalog with examples - six v1 tools; the rest annotated `deferred-v1.x`, not removed
 - Idempotent creates where possible (moot for v1's read-only set; applies once write tools graduate from deferred)
@@ -2130,6 +2201,8 @@ Not any single vendor — the combination a platform team can assemble on GitHub
 8. Global-approver granularity: org-wide role vs per-domain (e.g. `//infra` global approvers) (§7.3)  
 9. jj as a supported client in v1.x: how much workspace-agent scope does it absorb? (§21.2)  
 10. Tag-namespace governance mechanics (§14.10.3): org-role gate vs release-bot lane vs tags-via-landed-Change  
+11. **Check intelligence** (recorded 2026-07-10, Nx-parity research): platform-side flaky detection/stats over the check-run history we already own, bounded auto-rerun via the §14.4.2 rerun verb, and a self-healing-CI webhook contract (check-failed → fix-it bot lane, §14.10.2 pattern). Detection/analytics is a compatible extension of §14.2's "flaky retry UX at runner layer" row, not a reversal — execution stays with the runner  
+12. **Boundary conformance** (recorded 2026-07-10): opt-in generated check asserting observed imports ⊆ declared `dependencies:`, using the §13.3 inference engine as the checker — a red check on the Change, never an affected-graph input, so §13.3's advisory-only decision is intact  
 
 ---
 
@@ -2156,6 +2229,16 @@ No hand-written platform YAML.
 4. Agent: create_change(description, test_plan)
 5. Agent: get_merge_requirements → tells human what approvals remain
 6. Human owner reviews (agent-assisted badge) → land
+```
+
+### A.2b Coding agent: reviewer, not approver (§13.4.1)
+
+```text
+1. change.opened webhook → review agent fetches the scoped diff (GetChangeDiff)
+2. Agent: runko change comment --file commerce/checkout/sku.go --line 42 -m "…"
+   (anchored to head_sha, agent badge — approval is structurally impossible)
+3. Author amends → comments mark outdated, attention returns to reviewers (§13.4.2)
+4. Human owner approves; land
 ```
 
 ### A.3 Coding agent: new library the right way
@@ -2272,6 +2355,7 @@ Agent never authors a multi-section platform manifest from memory.
 | 2026-07-10 | **Root invalidation refined (§14.5.8, new; follow-up to "why did this change trigger all the projects' checks?")**: affected-system survey (Nx/Turborepo/Pants/bazel-diff/target-determinator/BTD — every one converges on graph closure + a blunt global list + optional precision) turned the coarseness complaint into two decisions. SHIPPED: `root_invalidation` becomes ordered, first-match-wins with `!` exceptions — `prose:`'s exact dialect, one evaluator (`affected.MatchOrdered` replaces the unordered any-match; `index.RootInvalidation` concatenates in scan order instead of sort+dedup, root manifest first). First instance: `!.github/workflows/ci.yml` before `.github/**` — the post-land safety net can't affect pre-land check validity, so escalating on it bought a full matrix that never exercises workflow files; what still gates it is owner review + docs-check + the workflow's own post-land execution. Pinned by tests: exception-after-pattern is dead (ordering), excepted-but-unowned still fails closed (exceptions remove escalation, never gating), mixed changes still escalate. DECIDED, lands with its consumer: the blunt/graph-refinable split — out-of-graph paths (workflows, scripts, Docker) stay blunt permanently; graph-visible ones (go.mod, MODULE.bazel, BUILD, bazelrc) get a `SnapshotDiff` adapter strategy (target-determinator-class external process), dogfooded gate-free in post-land ci.yml before any gate-grade opt-in |
 | 2026-07-10 | **Snapshot-diff machinery (§14.5.8 phase 1; user direction: "continue until everything is implemented")**: the whole graph-refinable pipeline, inert until a caller passes `--engine`. `root_invalidation` entries accept `{pattern, refinable: true}` beside bare strings (schema `oneOf`; custom YAML round-trip keeps blunt entries compact; a refinable `!` exception is a parse error - nothing to refine). `buildadapter` grows the OPTIONAL `SnapshotDiffer` capability + `RefineSnapshot`: `Refine`'s fail-closed table plus two harder rules - an UNMAPPED target fails closed (diff output stands in for run_everything, so an unattributable target would silently drop checks; rdeps' additive output could shrug it off, this cannot), and the caller's checkout is sacrosanct (diff tools check revisions out, so the bazel engine runs `target-determinator` against a disposable `git clone --shared`, pinned by a vandalism test). `affected.Compute` tracks `EscalationRefinableOnly` (any blunt match or unowned path poisons it) and gains the `RefinableHandled` mode (post-diff-success: refinable paths re-enter prose/ownership like `!` exceptions; blunt still escalates); `Refinement` carries `strategy: rdeps\|snapshot_diff` as the audit trail. `runko-ci checks/affected --engine` orchestrate: refinable-only escalation + successful diff ⇒ de-escalated floor ∪ diff-impacted projects' DECLARED dependents closure (cross-territory edges the graph can't see, web→proto). Gate warning carried in every layer's docs: the merge gate never consumes the narrowing - `--engine` belongs only where nothing gates on the output (post-land ci.yml, phase 2) until §14.5.4's gate-grade opt-in |
 | 2026-07-10 | **Snapshot-diff enabled post-land (§14.5.8 phase 2)**: the root manifest marks its eight graph-visible entries `{refinable: true}` (go.mod/go.sum/MODULE.bazel[.lock]/BUILD.bazel/.bazelrc/.bazelversion/.bazelignore; Makefile/Docker/sqlc/workflows/scripts stay blunt strings - no graph sees them), and post-land ci.yml's resolve job gains setup-bazel + a pinned target-determinator (v0.34.0) + `--engine bazel` on `runko-ci checks`. Post-land is deliberately the ONLY consumer: nothing gates on its output, so narrowing is a pure CI-cost experiment - a MODULE.bazel edit's post-land run drops from every-check to the diff-impacted projects' checks, fail-closed back to run_everything on any determinator error, with `build_refinement` in the resolve log as the audit trail. Pre-land runko-checks.yml deliberately does NOT pass --engine: the gate resolves required checks from the blunt floor, and an executor narrower than its gate would deadlock mergeability. Gate-grade adoption (§14.5.4's org opt-in) waits on measured post-land data in migration-findings.md |
+| 2026-07-10 | **Review conversation decided (§13.4.1–13.4.2; user direction: research Nx + GitHub for the next spec tracks)**: comments/threads + review requests + a derived attention set — the research pass found this pillar-2 core entirely absent (approve/land only since stage 11c) while GitHub's Copilot review went agentic and needs exactly this as its output channel. Decisions: anchors bind to `head_sha` with approvals' amend semantics (outdated, never floated — floating is v1.x); one-level threads (GitHub model); `require_resolved_threads` org knob default off (ceremony budget) adding an `unresolved_threads` §13.5 blocker when on; attention set derived from existing facts, never manually managed (skipping Gerrit's manual editing); agents comment/get requested but §8.7's approval ban is untouched (§8.6 row, flow A.2b); storage = change-lifecycle Postgres rows like approvals; webhook envelope gains `change.commented`/`change.review_requested` (additive enum + id/anchor payloads, never bodies); `ChangeComment` schema extended (`parent_id`, `resolved`, `head_sha`, `side`). Implementation = DAG stages 16/16b (CLI rows join `docs/cli-contract.md` only with the commands — agentsmd drift test). Also recorded from the same research, deliberately NOT specced: check intelligence and boundary conformance as §22.3 #11/#12; merge queue already positioned (v1.x batching of §13.5); Nx's execution-layer moats (remote cache, distributed agents, atomizer) reaffirmed out of scope per §14.1 |
 
 ---
 
@@ -2365,6 +2449,8 @@ Agent never authors a multi-section platform manifest from memory.
 | 13 | Web UI (React + Connect-ES; superseded the planned SSR+htmx per §17.4, 2026-07-07 — shipped in two halves: frontend on a fake transport, then connect-go handlers in runkod) | 10, 11b, 11c, 12c | Changes inbox + stacked diff change page + merge requirements + approve/land wired to 11b's endpoint, gated by 11c's policy |
 | 14 | Compose + measured 15-min loop in CI | 10–13, 11b, 11c, 12c | §16.4 smoke: `compose up → create → change → land` timed, green per release — landing gated by real policy, not vacuous mergeability |
 | 15 | Dogfood hardening (3–5 sessions) | 14 | Platform hosts its own repo; real GHA checks gate its own Changes. **Decision point recorded:** migrate Runko's repo to Bazel — fires the §14.7 Tier-1 pull trigger and dogfoods the §14.5.4 golden path |
+| 16 | **Review conversation** (§13.4.1–13.4.2, decided 2026-07-10) | 12c, 13 | Comment / thread / resolve / request-review round-trip over REST **and** Connect (proto extended first, stage-13 precedent); comments bind to `head_sha` — an amend marks them outdated and re-derives the attention set; `require_resolved_threads` off by default, its `unresolved_threads` blocker appears in merge requirements when on; CLI `runko change comment` / `comments` / `request-review` + `docs/cli-contract.md` rows + `agentsmd.Commands` entries (drift test enforces the pairing); `change.commented` / `change.review_requested` delivered through the outbox; MCP `list_change_comments` graduates from the deferred catalog (status flip + contract-test update); agent principal's comment carries the badge, agent approval still structurally refused |
+| 16b | Web review threads + attention inbox | 16 | Inline threads on the stacked diff (anchored; outdated-on-amend rendering, no floating); Home's owner attention inbox driven by the derived set (§13.4.2); resolve/unresolve from the thread |
 
 ### 28.4 Pre-stage checklist (updated 2026-07-06)
 
