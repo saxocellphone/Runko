@@ -20,6 +20,7 @@ var validTypes = map[string]bool{
 
 var validCapabilities = map[string]bool{
 	"rpc": true, "http": true, "deploy": true, "data_store": true, "build": true,
+	"release": true,
 }
 
 // Validate checks an Intent against project.schema.json's L0 constraints,

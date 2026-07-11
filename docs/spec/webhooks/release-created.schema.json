@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runko.dev/schema/webhooks/release-created/v1.json",
+  "title": "Runko release.created webhook v1",
+  "description": "Emitted when a release is cut (design.md §14.10.3, decided 2026-07-10; implementation DAG stage 17b). Standalone shape rather than the change-event envelope: that envelope requires a `change` object and releases are not change events. Same process requirements as webhook-envelope.schema.json: HMAC-signed, retried with backoff, dead-letter visible, consumers idempotent on delivery_id, replayable. This is the CD trigger §14.10.1's read-side recipes key on - consumers should stop tag-polling. `spec_version` is additive-only within a major version.",
+  "type": "object",
+  "required": ["spec_version", "delivery_id", "type", "occurred_at", "org_id", "monorepo_id", "release", "api"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": { "const": "1" },
+    "delivery_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique per delivery attempt series; stable across retries of the same logical delivery."
+    },
+    "type": { "const": "release.created" },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "org_id": { "type": "string" },
+    "monorepo_id": { "type": "string" },
+    "release": {
+      "type": "object",
+      "required": ["project", "version", "tag_ref", "tag_sha", "head_change_key", "created_by"],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "type": "object",
+          "required": ["id", "name", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "path": { "type": "string" }
+          }
+        },
+        "version": { "type": "string", "description": "e.g. '1.2.3' - semver unless the project's capability_config.release.versioning is 'manual'." },
+        "tag_ref": { "type": "string", "description": "e.g. 'refs/tags/commerce/checkout-api/v1.2.3' - per-project tag namespaces (§14.10.3)." },
+        "tag_sha": { "type": "string", "description": "The annotated tag object's SHA; the tag -> commit -> Change chain is the attestation anchor." },
+        "target_sha": { "type": "string", "description": "The trunk commit the tag points at." },
+        "head_change_key": { "type": "string", "description": "Newest landed Change the release includes; the changelog spans (previous release tag, this Change]." },
+        "changelog": {
+          "type": "string",
+          "description": "Markdown derived from landed Changes touching the project since the last release tag (§14.10.3). Optional in the webhook when large - fetch via api.release_url."
+        },
+        "created_by": {
+          "type": "object",
+          "required": ["type", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "enum": ["user", "agent"] },
+            "id": { "type": "string" }
+          }
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "required": ["release_url"],
+      "additionalProperties": false,
+      "properties": {
+        "release_url": { "type": "string", "format": "uri" },
+        "change_url": { "type": "string", "format": "uri", "description": "The head Change's API URL." }
+      }
+    }
+  },
+  "examples": [
+    {
+      "spec_version": "1",
+      "delivery_id": "0b6c9c4e-1f3a-4c5e-9b2a-7d8e6f5a4b3c",
+      "type": "release.created",
+      "occurred_at": "2026-07-10T18:00:00Z",
+      "org_id": "org_runko",
+      "monorepo_id": "mono_1",
+      "release": {
+        "project": { "id": "prj_checkout", "name": "checkout-api", "path": "commerce/checkout-api" },
+        "version": "1.2.3",
+        "tag_ref": "refs/tags/commerce/checkout-api/v1.2.3",
+        "tag_sha": "abc1234",
+        "target_sha": "def5678",
+        "head_change_key": "I1f057dc0",
+        "changelog": "## 1.2.3\n- Reject invalid SKUs (I1f057dc0)",
+        "created_by": { "type": "user", "id": "victor" }
+      },
+      "api": {
+        "release_url": "https://runko.example/api/projects/prj_checkout/releases/1.2.3",
+        "change_url": "https://runko.example/api/changes/I1f057dc0"
+      }
+    }
+  ]
+}
