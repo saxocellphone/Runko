@@ -262,6 +262,11 @@ func cmdServe(args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Automerge (§13.5 "when ready"): always on - the worker only ever
+	// acts on changes someone explicitly ARMED, so an unused worker is an
+	// idle ticker.
+	go runkod.NewAutomergeWorker(server, 30*time.Second).Run(ctx)
+
 	// Multi-org (§7.1, runkod/orghub.go): the root-mounted repo above is
 	// the default org; hub-created orgs each own a repo under --orgs-dir,
 	// mounted at /o/<name>/ with the identical Server surface.
@@ -328,7 +333,7 @@ func cmdServe(args []string) error {
 				orgMirrorWorkers.Store(orgName, orgMirror)
 				break
 			}
-			return &runkod.Server{
+			orgServer := &runkod.Server{
 				RepoDir: orgRepoDir, TrunkRef: *trunk, Store: orgStore, Processor: proc, Token: *token,
 				Searcher:                 search.NotConfiguredSearcher{},
 				GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
@@ -337,7 +342,12 @@ func cmdServe(args []string) error {
 				BotLanes:                 botLanes,
 				Principals:               principals,
 				Mirror:                   orgMirror,
-			}, nil
+			}
+			// Each org gets its own when-ready land worker, same as the
+			// root server's (NewOrgServer is called once per org - the
+			// hub caches servers).
+			go runkod.NewAutomergeWorker(orgServer, 30*time.Second).Run(ctx)
+			return orgServer, nil
 		},
 	}
 	if *webhookURL != "" || len(orgMirrors) > 0 {

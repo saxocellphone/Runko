@@ -379,6 +379,8 @@ type Change struct {
 	OriginWorkspace   string             `json:"origin_workspace"`
 	OriginBranch      string             `json:"origin_branch"`
 	LandedForced      bool               `json:"landed_forced"`
+	Automerge         bool               `json:"automerge"`
+	AutomergeBy       string             `json:"automerge_by"`
 }
 
 type ChangeAffected struct {

@@ -59,6 +59,9 @@ const (
 	// ChangeServiceAbandonChangeProcedure is the fully-qualified name of the ChangeService's
 	// AbandonChange RPC.
 	ChangeServiceAbandonChangeProcedure = "/runko.v1.ChangeService/AbandonChange"
+	// ChangeServiceSetAutomergeProcedure is the fully-qualified name of the ChangeService's
+	// SetAutomerge RPC.
+	ChangeServiceSetAutomergeProcedure = "/runko.v1.ChangeService/SetAutomerge"
 	// ChangeServiceRerunCheckProcedure is the fully-qualified name of the ChangeService's RerunCheck
 	// RPC.
 	ChangeServiceRerunCheckProcedure = "/runko.v1.ChangeService/RerunCheck"
@@ -97,6 +100,10 @@ type ChangeServiceClient interface {
 	ApproveChange(context.Context, *connect.Request[v1.ApproveChangeRequest]) (*connect.Response[v1.ApproveChangeResponse], error)
 	LandChange(context.Context, *connect.Request[v1.LandChangeRequest]) (*connect.Response[v1.LandChangeResponse], error)
 	AbandonChange(context.Context, *connect.Request[v1.AbandonChangeRequest]) (*connect.Response[v1.AbandonChangeResponse], error)
+	// SetAutomerge arms/disarms the when-ready land (§13.5): armed changes
+	// land themselves the moment merge requirements go green, attributed
+	// to the arming principal. Only open changes arm; disarm always works.
+	SetAutomerge(context.Context, *connect.Request[v1.SetAutomergeRequest]) (*connect.Response[v1.SetAutomergeResponse], error)
 	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error)
 	// Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
 	// head they were written against and outdate on amend; threads are one
@@ -172,6 +179,12 @@ func NewChangeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(changeServiceMethods.ByName("AbandonChange")),
 			connect.WithClientOptions(opts...),
 		),
+		setAutomerge: connect.NewClient[v1.SetAutomergeRequest, v1.SetAutomergeResponse](
+			httpClient,
+			baseURL+ChangeServiceSetAutomergeProcedure,
+			connect.WithSchema(changeServiceMethods.ByName("SetAutomerge")),
+			connect.WithClientOptions(opts...),
+		),
 		rerunCheck: connect.NewClient[v1.RerunCheckRequest, v1.RerunCheckResponse](
 			httpClient,
 			baseURL+ChangeServiceRerunCheckProcedure,
@@ -216,6 +229,7 @@ type changeServiceClient struct {
 	approveChange        *connect.Client[v1.ApproveChangeRequest, v1.ApproveChangeResponse]
 	landChange           *connect.Client[v1.LandChangeRequest, v1.LandChangeResponse]
 	abandonChange        *connect.Client[v1.AbandonChangeRequest, v1.AbandonChangeResponse]
+	setAutomerge         *connect.Client[v1.SetAutomergeRequest, v1.SetAutomergeResponse]
 	rerunCheck           *connect.Client[v1.RerunCheckRequest, v1.RerunCheckResponse]
 	listComments         *connect.Client[v1.ListCommentsRequest, v1.ListCommentsResponse]
 	createComment        *connect.Client[v1.CreateCommentRequest, v1.CreateCommentResponse]
@@ -268,6 +282,11 @@ func (c *changeServiceClient) AbandonChange(ctx context.Context, req *connect.Re
 	return c.abandonChange.CallUnary(ctx, req)
 }
 
+// SetAutomerge calls runko.v1.ChangeService.SetAutomerge.
+func (c *changeServiceClient) SetAutomerge(ctx context.Context, req *connect.Request[v1.SetAutomergeRequest]) (*connect.Response[v1.SetAutomergeResponse], error) {
+	return c.setAutomerge.CallUnary(ctx, req)
+}
+
 // RerunCheck calls runko.v1.ChangeService.RerunCheck.
 func (c *changeServiceClient) RerunCheck(ctx context.Context, req *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error) {
 	return c.rerunCheck.CallUnary(ctx, req)
@@ -314,6 +333,10 @@ type ChangeServiceHandler interface {
 	ApproveChange(context.Context, *connect.Request[v1.ApproveChangeRequest]) (*connect.Response[v1.ApproveChangeResponse], error)
 	LandChange(context.Context, *connect.Request[v1.LandChangeRequest]) (*connect.Response[v1.LandChangeResponse], error)
 	AbandonChange(context.Context, *connect.Request[v1.AbandonChangeRequest]) (*connect.Response[v1.AbandonChangeResponse], error)
+	// SetAutomerge arms/disarms the when-ready land (§13.5): armed changes
+	// land themselves the moment merge requirements go green, attributed
+	// to the arming principal. Only open changes arm; disarm always works.
+	SetAutomerge(context.Context, *connect.Request[v1.SetAutomergeRequest]) (*connect.Response[v1.SetAutomergeResponse], error)
 	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error)
 	// Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
 	// head they were written against and outdate on amend; threads are one
@@ -385,6 +408,12 @@ func NewChangeServiceHandler(svc ChangeServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(changeServiceMethods.ByName("AbandonChange")),
 		connect.WithHandlerOptions(opts...),
 	)
+	changeServiceSetAutomergeHandler := connect.NewUnaryHandler(
+		ChangeServiceSetAutomergeProcedure,
+		svc.SetAutomerge,
+		connect.WithSchema(changeServiceMethods.ByName("SetAutomerge")),
+		connect.WithHandlerOptions(opts...),
+	)
 	changeServiceRerunCheckHandler := connect.NewUnaryHandler(
 		ChangeServiceRerunCheckProcedure,
 		svc.RerunCheck,
@@ -435,6 +464,8 @@ func NewChangeServiceHandler(svc ChangeServiceHandler, opts ...connect.HandlerOp
 			changeServiceLandChangeHandler.ServeHTTP(w, r)
 		case ChangeServiceAbandonChangeProcedure:
 			changeServiceAbandonChangeHandler.ServeHTTP(w, r)
+		case ChangeServiceSetAutomergeProcedure:
+			changeServiceSetAutomergeHandler.ServeHTTP(w, r)
 		case ChangeServiceRerunCheckProcedure:
 			changeServiceRerunCheckHandler.ServeHTTP(w, r)
 		case ChangeServiceListCommentsProcedure:
@@ -488,6 +519,10 @@ func (UnimplementedChangeServiceHandler) LandChange(context.Context, *connect.Re
 
 func (UnimplementedChangeServiceHandler) AbandonChange(context.Context, *connect.Request[v1.AbandonChangeRequest]) (*connect.Response[v1.AbandonChangeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.AbandonChange is not implemented"))
+}
+
+func (UnimplementedChangeServiceHandler) SetAutomerge(context.Context, *connect.Request[v1.SetAutomergeRequest]) (*connect.Response[v1.SetAutomergeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.SetAutomerge is not implemented"))
 }
 
 func (UnimplementedChangeServiceHandler) RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error) {

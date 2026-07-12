@@ -261,6 +261,26 @@ export function ChangePage() {
                     Force land
                   </button>
                 )}
+                {!requirements?.mergeable && !change.automerge && (
+                  <button
+                    className="btn"
+                    disabled={busy}
+                    title="Arm the when-ready land (§13.5): the server lands this change automatically the moment its merge gates go green. Survives amends - the gates reset and re-gate on their own."
+                    onClick={() => act(() => changesClient.setAutomerge({ changeId, enabled: true }))}
+                  >
+                    Auto-land when ready
+                  </button>
+                )}
+                {change.automerge && (
+                  <button
+                    className="btn"
+                    disabled={busy}
+                    title={`Armed by ${change.automergeBy || "the deploy token"} - lands itself once the gates go green. Click to disarm.`}
+                    onClick={() => act(() => changesClient.setAutomerge({ changeId, enabled: false }))}
+                  >
+                    ⏻ Auto-land armed — disarm
+                  </button>
+                )}
                 <button
                   className="btn btn-danger"
                   disabled={busy}

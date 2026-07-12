@@ -441,6 +441,15 @@ func (r *rpcServer) AbandonChange(ctx context.Context, req *connect.Request[runk
 	return connect.NewResponse(&runkov1.AbandonChangeResponse{Change: r.s.protoChange(change)}), nil
 }
 
+func (r *rpcServer) SetAutomerge(ctx context.Context, req *connect.Request[runkov1.SetAutomergeRequest]) (*connect.Response[runkov1.SetAutomergeResponse], error) {
+	principal := r.s.principalForAuthHeader(req.Header().Get("Authorization"))
+	change, apiErr := r.s.setAutomergeCore(ctx, req.Msg.ChangeId, req.Msg.Enabled, principal)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	return connect.NewResponse(&runkov1.SetAutomergeResponse{Change: r.s.protoChange(change)}), nil
+}
+
 func (r *rpcServer) ListComments(ctx context.Context, req *connect.Request[runkov1.ListCommentsRequest]) (*connect.Response[runkov1.ListCommentsResponse], error) {
 	key := req.Msg.ChangeId
 	if _, err := r.getChange(ctx, key); err != nil {
@@ -1018,6 +1027,8 @@ func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
 		OriginWorkspace: c.OriginWorkspace,
 		OriginBranch:    c.OriginBranch,
 		BaseOnTrunk:     s.baseOnTrunk(c.BaseSHA),
+		Automerge:       c.Automerge,
+		AutomergeBy:     c.AutomergeBy,
 	}
 	if c.AuthoredBy != "" {
 		t := runkov1.ActorType_ACTOR_TYPE_USER

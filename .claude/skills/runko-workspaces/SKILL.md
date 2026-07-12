@@ -14,6 +14,14 @@ an afternoon of structured rejections.
 
 ## The model (get this right and everything else follows)
 
+- **Arm automerge instead of polling.** After `runko change push`, run
+  `runko change automerge --change <id>` and move on to the next task -
+  the server lands the change the moment its checks and approvals go
+  green, attributed to you, surviving amends. Background poll-and-land
+  loops are the anti-pattern this verb deletes. (`runko change land`
+  stays for when you need the synchronous recovery loop - revalidation
+  re-push - or want to watch it happen.)
+
 - **Step zero: work under a TASK identity.** If you're holding a human
   or admin credential, demote yourself before anything else:
   `runko agent create --task <slug>` mints `agent-<slug>-<x>` with a

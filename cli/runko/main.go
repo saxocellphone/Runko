@@ -108,6 +108,7 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t>   record an owner approval (§13.5) [--json]
   change list [--state open] --runkod-url <url> --token <t>  list changes, newest first (§7.4) [--json]
   change abandon --change <id> --runkod-url <url> --token <t>   abandon an open change (§7.4) [--json]
+  change automerge --change <id> [--disable]                arm the when-ready land: the server lands it once checks+approvals go green [--json]
   change rerun-check --change <id> --name <check> --runkod-url <url> --token <t>   request a check re-run (§14.4.2) [--json]
   workspace create --name <n> --project <p>... --by <who> --runkod-url <url> --token <t>   worktree + sparse cone + registry row (§12.3) [--json]
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
@@ -283,6 +284,8 @@ func cmdChange(args []string) error {
 		return cmdChangeList(args[1:])
 	case "abandon":
 		return cmdChangeAbandon(args[1:])
+	case "automerge":
+		return cmdChangeAutomerge(args[1:])
 	case "rerun-check":
 		return cmdChangeRerunCheck(args[1:])
 	case "comment":
@@ -578,6 +581,46 @@ func cmdChangeAbandon(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(change)
 	}
 	fmt.Printf("abandoned %s (%s)\n", change.ChangeKey, change.Title)
+	return nil
+}
+
+func cmdChangeAutomerge(args []string) error {
+	fs := flag.NewFlagSet("change automerge", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL")
+	token := fs.String("token", "", "deploy token")
+	changeID := fs.String("change", "", "Change-Id to arm")
+	disable := fs.Bool("disable", false, "disarm instead")
+	jsonOut := fs.Bool("json", false, "emit the change as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *changeID == "" {
+		return fmt.Errorf("change automerge: --change is required")
+	}
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
+	}
+	var change struct {
+		ChangeKey   string
+		Title       string
+		Automerge   bool
+		AutomergeBy string
+	}
+	err = apiJSON(context.Background(), http.DefaultClient, http.MethodPost,
+		strings.TrimSuffix(cred.URL, "/")+"/api/changes/"+*changeID+"/automerge", cred.AuthHeader(),
+		map[string]bool{"enabled": !*disable}, &change)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(change)
+	}
+	if change.Automerge {
+		fmt.Printf("automerge armed on %s - it lands itself when the gates go green (armed by %s)\n", change.ChangeKey, change.AutomergeBy)
+	} else {
+		fmt.Printf("automerge disarmed on %s\n", change.ChangeKey)
+	}
 	return nil
 }
 

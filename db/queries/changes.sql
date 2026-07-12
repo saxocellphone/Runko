@@ -131,3 +131,10 @@ WHERE change_id = $1 AND owner_ref = $2;
 
 -- name: ListChangeOwnerRequirements :many
 SELECT * FROM change_owner_requirements WHERE change_id = $1;
+
+-- name: SetChangeAutomerge :one
+-- Arm/disarm the when-ready land (§13.5). Disarming clears the armer.
+UPDATE changes SET automerge = $2,
+    automerge_by = CASE WHEN $2 THEN sqlc.arg(automerge_by)::text ELSE '' END,
+    updated_at = now()
+WHERE id = $1 RETURNING *;

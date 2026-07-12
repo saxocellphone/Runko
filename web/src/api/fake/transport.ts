@@ -36,6 +36,7 @@ import {
   ApproveChangeResponseSchema,
   LandChangeResponseSchema,
   AbandonChangeResponseSchema,
+  SetAutomergeResponseSchema,
   RerunCheckResponseSchema,
   ListChangesResponseSchema,
   ListCommentsResponseSchema,
@@ -637,6 +638,20 @@ export function createFakeTransport(): Transport {
         }
         c.state = ChangeState.ABANDONED;
         return create(AbandonChangeResponseSchema, { change: c });
+      },
+
+      // Mirrors setAutomergeCore: only open changes arm; disarm always
+      // works. The fake has no background worker - the playground shows
+      // the armed state, the real daemon does the landing.
+      async setAutomerge(req) {
+        await delay();
+        const c = mustChange(state, req.changeId);
+        if (req.enabled && c.state !== ChangeState.OPEN) {
+          throw new ConnectError("only open changes can arm automerge", Code.FailedPrecondition);
+        }
+        c.automerge = req.enabled;
+        c.automergeBy = req.enabled ? "demo" : "";
+        return create(SetAutomergeResponseSchema, { change: c });
       },
 
       async rerunCheck(req) {

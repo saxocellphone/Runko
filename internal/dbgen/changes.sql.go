@@ -13,7 +13,7 @@ import (
 )
 
 const abandonChange = `-- name: AbandonChange :one
-UPDATE changes SET state = 'abandoned', updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced
+UPDATE changes SET state = 'abandoned', updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by
 `
 
 func (q *Queries) AbandonChange(ctx context.Context, db DBTX, id uuid.UUID) (*Change, error) {
@@ -42,6 +42,8 @@ func (q *Queries) AbandonChange(ctx context.Context, db DBTX, id uuid.UUID) (*Ch
 		&i.OriginWorkspace,
 		&i.OriginBranch,
 		&i.LandedForced,
+		&i.Automerge,
+		&i.AutomergeBy,
 	)
 	return &i, err
 }
@@ -82,7 +84,7 @@ INSERT INTO changes (
     origin_workspace, origin_branch
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-) RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced
+) RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by
 `
 
 type CreateChangeParams struct {
@@ -143,6 +145,8 @@ func (q *Queries) CreateChange(ctx context.Context, db DBTX, arg CreateChangePar
 		&i.OriginWorkspace,
 		&i.OriginBranch,
 		&i.LandedForced,
+		&i.Automerge,
+		&i.AutomergeBy,
 	)
 	return &i, err
 }
@@ -192,7 +196,7 @@ func (q *Queries) CreateChangeComment(ctx context.Context, db DBTX, arg CreateCh
 }
 
 const getChange = `-- name: GetChange :one
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced FROM changes WHERE id = $1
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE id = $1
 `
 
 func (q *Queries) GetChange(ctx context.Context, db DBTX, id uuid.UUID) (*Change, error) {
@@ -221,6 +225,8 @@ func (q *Queries) GetChange(ctx context.Context, db DBTX, id uuid.UUID) (*Change
 		&i.OriginWorkspace,
 		&i.OriginBranch,
 		&i.LandedForced,
+		&i.Automerge,
+		&i.AutomergeBy,
 	)
 	return &i, err
 }
@@ -250,7 +256,7 @@ func (q *Queries) GetChangeAffected(ctx context.Context, db DBTX, arg GetChangeA
 }
 
 const getChangeByKey = `-- name: GetChangeByKey :one
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced FROM changes WHERE monorepo_id = $1 AND change_key = $2
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE monorepo_id = $1 AND change_key = $2
 `
 
 type GetChangeByKeyParams struct {
@@ -284,6 +290,8 @@ func (q *Queries) GetChangeByKey(ctx context.Context, db DBTX, arg GetChangeByKe
 		&i.OriginWorkspace,
 		&i.OriginBranch,
 		&i.LandedForced,
+		&i.Automerge,
+		&i.AutomergeBy,
 	)
 	return &i, err
 }
@@ -319,7 +327,7 @@ func (q *Queries) GetChangeComment(ctx context.Context, db DBTX, arg GetChangeCo
 const landChange = `-- name: LandChange :one
 UPDATE changes SET state = 'landed', landed_at = now(), landed_sha = $2, landed_by_actor_id = $3,
     landed_forced = $4::boolean, updated_at = now()
-WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced
+WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by
 `
 
 type LandChangeParams struct {
@@ -360,12 +368,14 @@ func (q *Queries) LandChange(ctx context.Context, db DBTX, arg LandChangeParams)
 		&i.OriginWorkspace,
 		&i.OriginBranch,
 		&i.LandedForced,
+		&i.Automerge,
+		&i.AutomergeBy,
 	)
 	return &i, err
 }
 
 const listAllChanges = `-- name: ListAllChanges :many
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced FROM changes WHERE monorepo_id = $1 ORDER BY number DESC
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE monorepo_id = $1 ORDER BY number DESC
 `
 
 func (q *Queries) ListAllChanges(ctx context.Context, db DBTX, monorepoID uuid.UUID) ([]*Change, error) {
@@ -400,6 +410,8 @@ func (q *Queries) ListAllChanges(ctx context.Context, db DBTX, monorepoID uuid.U
 			&i.OriginWorkspace,
 			&i.OriginBranch,
 			&i.LandedForced,
+			&i.Automerge,
+			&i.AutomergeBy,
 		); err != nil {
 			return nil, err
 		}
@@ -412,7 +424,7 @@ func (q *Queries) ListAllChanges(ctx context.Context, db DBTX, monorepoID uuid.U
 }
 
 const listAllChangesPage = `-- name: ListAllChangesPage :many
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced FROM changes WHERE monorepo_id = $1
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE monorepo_id = $1
 ORDER BY number DESC
 LIMIT NULLIF($3::int, 0) OFFSET $2::int
 `
@@ -455,6 +467,8 @@ func (q *Queries) ListAllChangesPage(ctx context.Context, db DBTX, arg ListAllCh
 			&i.OriginWorkspace,
 			&i.OriginBranch,
 			&i.LandedForced,
+			&i.Automerge,
+			&i.AutomergeBy,
 		); err != nil {
 			return nil, err
 		}
@@ -643,7 +657,7 @@ func (q *Queries) ListChangeReviewRequests(ctx context.Context, db DBTX, changeI
 }
 
 const listChangesByState = `-- name: ListChangesByState :many
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced FROM changes WHERE monorepo_id = $1 AND state = $2 ORDER BY number DESC
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE monorepo_id = $1 AND state = $2 ORDER BY number DESC
 `
 
 type ListChangesByStateParams struct {
@@ -683,6 +697,8 @@ func (q *Queries) ListChangesByState(ctx context.Context, db DBTX, arg ListChang
 			&i.OriginWorkspace,
 			&i.OriginBranch,
 			&i.LandedForced,
+			&i.Automerge,
+			&i.AutomergeBy,
 		); err != nil {
 			return nil, err
 		}
@@ -695,7 +711,7 @@ func (q *Queries) ListChangesByState(ctx context.Context, db DBTX, arg ListChang
 }
 
 const listChangesByStatePage = `-- name: ListChangesByStatePage :many
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced FROM changes WHERE monorepo_id = $1 AND state = $2
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE monorepo_id = $1 AND state = $2
 ORDER BY number DESC
 LIMIT NULLIF($4::int, 0) OFFSET $3::int
 `
@@ -748,6 +764,8 @@ func (q *Queries) ListChangesByStatePage(ctx context.Context, db DBTX, arg ListC
 			&i.OriginWorkspace,
 			&i.OriginBranch,
 			&i.LandedForced,
+			&i.Automerge,
+			&i.AutomergeBy,
 		); err != nil {
 			return nil, err
 		}
@@ -760,7 +778,7 @@ func (q *Queries) ListChangesByStatePage(ctx context.Context, db DBTX, arg ListC
 }
 
 const listOpenChanges = `-- name: ListOpenChanges :many
-SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number DESC LIMIT $2 OFFSET $3
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number DESC LIMIT $2 OFFSET $3
 `
 
 type ListOpenChangesParams struct {
@@ -801,6 +819,8 @@ func (q *Queries) ListOpenChanges(ctx context.Context, db DBTX, arg ListOpenChan
 			&i.OriginWorkspace,
 			&i.OriginBranch,
 			&i.LandedForced,
+			&i.Automerge,
+			&i.AutomergeBy,
 		); err != nil {
 			return nil, err
 		}
@@ -854,6 +874,52 @@ func (q *Queries) SatisfyChangeOwnerRequirement(ctx context.Context, db DBTX, ar
 	return err
 }
 
+const setChangeAutomerge = `-- name: SetChangeAutomerge :one
+UPDATE changes SET automerge = $2,
+    automerge_by = CASE WHEN $2 THEN $3::text ELSE '' END,
+    updated_at = now()
+WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by
+`
+
+type SetChangeAutomergeParams struct {
+	ID          uuid.UUID `json:"id"`
+	Automerge   bool      `json:"automerge"`
+	AutomergeBy string    `json:"automerge_by"`
+}
+
+// Arm/disarm the when-ready land (§13.5). Disarming clears the armer.
+func (q *Queries) SetChangeAutomerge(ctx context.Context, db DBTX, arg SetChangeAutomergeParams) (*Change, error) {
+	row := db.QueryRow(ctx, setChangeAutomerge, arg.ID, arg.Automerge, arg.AutomergeBy)
+	var i Change
+	err := row.Scan(
+		&i.ID,
+		&i.MonorepoID,
+		&i.ChangeKey,
+		&i.Number,
+		&i.State,
+		&i.BaseSha,
+		&i.HeadSha,
+		&i.GitRef,
+		&i.Title,
+		&i.Description,
+		&i.TestPlan,
+		&i.AuthoredByActorID,
+		&i.DependsOnChangeID,
+		&i.Mechanical,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LandedAt,
+		&i.LandedSha,
+		&i.LandedByActorID,
+		&i.OriginWorkspace,
+		&i.OriginBranch,
+		&i.LandedForced,
+		&i.Automerge,
+		&i.AutomergeBy,
+	)
+	return &i, err
+}
+
 const setChangeOwnerRequirement = `-- name: SetChangeOwnerRequirement :exec
 INSERT INTO change_owner_requirements (change_id, owner_ref, satisfied)
 VALUES ($1, $2, false)
@@ -871,7 +937,7 @@ func (q *Queries) SetChangeOwnerRequirement(ctx context.Context, db DBTX, arg Se
 }
 
 const updateChangeDescription = `-- name: UpdateChangeDescription :one
-UPDATE changes SET description = $2, test_plan = $3, updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced
+UPDATE changes SET description = $2, test_plan = $3, updated_at = now() WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by
 `
 
 type UpdateChangeDescriptionParams struct {
@@ -906,6 +972,8 @@ func (q *Queries) UpdateChangeDescription(ctx context.Context, db DBTX, arg Upda
 		&i.OriginWorkspace,
 		&i.OriginBranch,
 		&i.LandedForced,
+		&i.Automerge,
+		&i.AutomergeBy,
 	)
 	return &i, err
 }
@@ -917,7 +985,7 @@ UPDATE changes SET head_sha = $2, git_ref = $3, authored_by_actor_id = $4, base_
     origin_branch = CASE WHEN $7::text = '' THEN changes.origin_branch ELSE $8::text END,
     state = CASE WHEN changes.state = 'abandoned' THEN 'open'::change_state ELSE changes.state END,
     updated_at = now()
-WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced
+WHERE id = $1 RETURNING id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by
 `
 
 type UpdateChangeHeadParams struct {
@@ -978,6 +1046,8 @@ func (q *Queries) UpdateChangeHead(ctx context.Context, db DBTX, arg UpdateChang
 		&i.OriginWorkspace,
 		&i.OriginBranch,
 		&i.LandedForced,
+		&i.Automerge,
+		&i.AutomergeBy,
 	)
 	return &i, err
 }

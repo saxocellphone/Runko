@@ -66,6 +66,7 @@ schemas are.
 | `runko workspace create` | `WorkspaceInfo` (`ID`, `Owner`, `BaseRevision`, `ProjectAffinity`, `WriteAllowlist`, `SnapshotRef`, `Status`, `SparsePatterns`, `RepoPath`, `TrunkRef`) - needs a live runkod, see §12.3/§28.3 stage 12b |
 | `runko workspace list` | `[]WorkspaceInfo` - needs a live runkod |
 | `runko workspace attach` | `WorkspaceInfo` - needs a live runkod |
+| `runko change automerge` | `{"ChangeKey", "Automerge", "AutomergeBy", ...}` - arm the when-ready land (§13.5): the server lands the change automatically once checks + approvals go green, attributed to the armer; survives amends (gates reset and re-gate). `--disable` disarms. Only open changes arm (`invalid_state` otherwise) - needs a live runkod |
 | `runko agent create` | `AgentIdentity` incl. `token` - shown exactly ONCE; mints an ephemeral task identity (`agent-<task>-<suffix>`, default TTL 8h, cap 168h). An agent credential is refused (`agents_cannot_mint`) - the harness or a human mints. Needs a live runkod |
 | `runko agent list` | `[]AgentIdentity` (no tokens) - live/expired/revoked task identities - needs a live runkod |
 | `runko agent revoke` | `{"revoked"}` - immediate credential kill; the row survives for attribution - needs a live runkod |

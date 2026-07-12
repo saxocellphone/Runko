@@ -50,6 +50,13 @@ type Change struct {
 	// carries options moves it, matching AuthoredBy's last-pusher rule.
 	OriginWorkspace string
 	OriginBranch    string
+	// Automerge arms the when-ready land (§13.5): the AutomergeWorker
+	// lands this Change automatically once merge requirements go green.
+	// Survives amends by design - §13.5's amend semantics already reset
+	// approvals and checks, so nothing lands ungated. AutomergeBy is the
+	// arming principal; it becomes landed_by on the automatic land.
+	Automerge   bool
+	AutomergeBy string
 }
 
 // Approval is one recorded owner approval on a Change - the satisfied half
@@ -201,6 +208,10 @@ type Store interface {
 	// without limit, so list READS must not materialize all of it to
 	// serve a page (stage 15: the landed tab).
 	ListChangesPage(ctx context.Context, state string, limit, offset int) ([]Change, error)
+
+	// SetChangeAutomerge arms (with the arming principal recorded) or
+	// disarms the when-ready land on an open Change.
+	SetChangeAutomerge(ctx context.Context, changeKey string, enabled bool, by string) (Change, error)
 
 	// MarkChangeAbandoned moves an open Change to "abandoned" (§7.4's third
 	// state, settable for the first time in stage 12c-③). Abandoning an
@@ -541,6 +552,22 @@ func (s *MemStore) ListChangesPage(ctx context.Context, state string, limit, off
 		all = all[:limit:limit]
 	}
 	return all, nil
+}
+
+func (s *MemStore) SetChangeAutomerge(ctx context.Context, changeKey string, enabled bool, by string) (Change, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.changes[changeKey]
+	if !ok {
+		return Change{}, fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	c.Automerge = enabled
+	c.AutomergeBy = ""
+	if enabled {
+		c.AutomergeBy = by
+	}
+	s.changes[changeKey] = c
+	return c, nil
 }
 
 func (s *MemStore) MarkChangeAbandoned(ctx context.Context, changeKey string) (Change, error) {

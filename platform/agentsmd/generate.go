@@ -40,6 +40,7 @@ var Commands = []Command{
 	{"runko", "workspace list --runkod-url <url> --token <t> [--json]", "list workstreams, their cones and base revisions - needs a live runkod", "[]WorkspaceInfo"},
 	{"runko", "workspace attach <id> --runkod-url <url> --token <t> [--branch <b>] [--json]", "restore a workspace branch from its snapshot ref (§12.2) - needs a live runkod", "WorkspaceInfo"},
 	{"runko", "workspace delete <id> --runkod-url <url> --token <t> [--json]", "delete the registry row + snapshot refs - refused while the workspace has open changes; owner-only (§12.2) - needs a live runkod", `{"deleted"}`},
+	{"runko", "change automerge --change <id> [--disable] [--json]", "arm the when-ready land (§13.5): the server lands it once the gates go green, attributed to the armer; survives amends - needs a live runkod", `{"ChangeKey", "Automerge", "AutomergeBy"}`},
 	{"runko", "agent create --task <slug> --runkod-url <url> --token <t> [--ttl 8h] [--json]", "mint an ephemeral task identity (agent-<task>-<suffix>, token shown ONCE; agents cannot mint - §15.1) - needs a live runkod", "AgentIdentity"},
 	{"runko", "agent list --runkod-url <url> --token <t> [--json]", "live/expired/revoked task identities - needs a live runkod", "[]AgentIdentity"},
 	{"runko", "agent revoke <name> --runkod-url <url> --token <t> [--json]", "immediate credential kill; the row survives for attribution - needs a live runkod", `{"revoked"}`},
@@ -94,6 +95,7 @@ func Generate() string {
 		"Stack only what DEPENDS: orthogonal changes go on PARALLEL workspace branches (`runko workspace branch <name>`; jj: a separate `jj new 'main@origin'` line each), where they review and land independently - stacked, the upper one needlessly waits out the lower. The push output nudges you when a stacked step touches nothing its parent touches.",
 		"Submit: `runko change create -m <msg>` then `runko change push`. Stacks land BOTTOM-UP; a child is not mergeable until its parent lands.",
 		"Trunk moved (land says revalidate): `runko change land` already runs the recovery loop itself (sync, re-push, wait, retry); `runko workspace sync` is the manual form. Never force.",
+		"Do not poll for green: after pushing, arm `runko change automerge --change <id>` and MOVE ON - the server lands it the moment checks and approvals pass, under your name. Poll-and-land loops are the anti-pattern automerge exists to delete.",
 		"Done or dead: land it or `runko change abandon`. An abandoned change stays visible only while something still stacks on it - rebase dependents off it or reopen it by re-pushing.",
 		"Never claim a workspace you don't own or didn't work in - origin claims are validated and owner-bound, and they drive review views.",
 	} {

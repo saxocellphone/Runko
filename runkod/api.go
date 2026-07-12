@@ -116,6 +116,11 @@ type Server struct {
 	// change (stage 15 dogfood: "landed/open tabs load slowly").
 	affectedMu    sync.Mutex
 	affectedCache map[string]affectedEntry
+
+	// automerge is the when-ready land worker (automerge.go); nil when
+	// none was started (tests, one-shot tools). KickAutomerge is the
+	// nil-safe nudge the mergeability-flipping handlers call.
+	automerge *AutomergeWorker
 }
 
 // affectedEntry is one memoized computeAffected result. Entries are shared
@@ -181,6 +186,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/changes/{key}/merge-requirements", s.requireReadAuth(s.handleGetMergeRequirements))
 	mux.HandleFunc("POST /api/changes/{key}/checks", s.requireAuth(s.handlePostCheck))
 	mux.HandleFunc("POST /api/changes/{key}/approve", s.requireAuth(s.handleApproveChange))
+	mux.HandleFunc("POST /api/changes/{key}/automerge", s.requireAuth(s.handleSetAutomerge))
 	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
 	mux.HandleFunc("GET /api/changes/{key}/comments", s.requireReadAuth(s.handleListComments))
 	mux.HandleFunc("POST /api/changes/{key}/comments", s.requireAuth(s.handleCreateComment))
@@ -1274,6 +1280,9 @@ func (s *Server) handlePostCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// A reported result may have flipped mergeability - the when-ready
+	// land evaluates now, not at the next sweep tick.
+	s.KickAutomerge()
 	w.WriteHeader(http.StatusCreated)
 }
 

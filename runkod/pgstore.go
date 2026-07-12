@@ -199,6 +199,20 @@ func (s *PostgresStore) ListChangesPage(ctx context.Context, state string, limit
 	return s.hydrateChanges(ctx, rows)
 }
 
+func (s *PostgresStore) SetChangeAutomerge(ctx context.Context, changeKey string, enabled bool, by string) (Change, error) {
+	id, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return Change{}, err
+	}
+	row, err := s.Queries.SetChangeAutomerge(ctx, s.Pool, dbgen.SetChangeAutomergeParams{
+		ID: id, Automerge: enabled, AutomergeBy: by,
+	})
+	if err != nil {
+		return Change{}, err
+	}
+	return s.hydrateChange(ctx, row)
+}
+
 func (s *PostgresStore) MarkChangeAbandoned(ctx context.Context, changeKey string) (Change, error) {
 	existing, ok, err := s.GetChange(ctx, changeKey)
 	if err != nil {
@@ -302,6 +316,7 @@ func hydrateChangeNamed(c *dbgen.Change, names map[uuid.UUID]string) Change {
 		BaseSHA: c.BaseSha, HeadSHA: c.HeadSha, GitRef: c.GitRef, Title: c.Title,
 		OriginWorkspace: c.OriginWorkspace, OriginBranch: c.OriginBranch,
 		LandedForced: c.LandedForced,
+		Automerge:    c.Automerge, AutomergeBy: c.AutomergeBy,
 	}
 	if c.LandedSha != nil {
 		ch.LandedSHA = *c.LandedSha

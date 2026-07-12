@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file runko/v1/changes.proto.
  */
 export const file_runko_v1_changes: GenFile = /*@__PURE__*/
-  fileDesc("ChZydW5rby92MS9jaGFuZ2VzLnByb3RvEghydW5rby52MSIlChBHZXRDaGFuZ2VSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCSJhChJMaXN0Q2hhbmdlc1JlcXVlc3QSJAoFc3RhdGUYASABKA4yFS5ydW5rby52MS5DaGFuZ2VTdGF0ZRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJYChNMaXN0Q2hhbmdlc1Jlc3BvbnNlEigKB2NoYW5nZXMYASADKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIcCgtDaGFuZ2VQYXRocxINCgVwYXRocxgBIAMoCSJbChJHZXRBZmZlY3RlZFJlcXVlc3QSJgoFcGF0aHMYASABKAsyFS5ydW5rby52MS5DaGFuZ2VQYXRoc0gAEhMKCWNoYW5nZV9pZBgCIAEoCUgAQggKBnRhcmdldCIqChVHZXRDaGFuZ2VTdGFja1JlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJIlQKFkdldENoYW5nZVN0YWNrUmVzcG9uc2USKAoHY2hhbmdlcxgBIAMoCzIXLnJ1bmtvLnYxLkNoYW5nZVN1bW1hcnkSEAoIcG9zaXRpb24YAiABKAUiKQoUR2V0Q2hhbmdlRGlmZlJlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJInEKFUdldENoYW5nZURpZmZSZXNwb25zZRIRCgljaGFuZ2VfaWQYASABKAkSEAoIYmFzZV9zaGEYAiABKAkSEAoIaGVhZF9zaGEYAyABKAkSIQoFZmlsZXMYBCADKAsyEi5ydW5rby52MS5GaWxlRGlmZiK+AQoIRmlsZURpZmYSDAoEcGF0aBgBIAEoCRIQCghvbGRfcGF0aBgCIAEoCRIoCgZzdGF0dXMYAyABKA4yGC5ydW5rby52MS5GaWxlRGlmZlN0YXR1cxIhCgVodW5rcxgEIAMoCzISLnJ1bmtvLnYxLkRpZmZIdW5rEg4KBmJpbmFyeRgFIAEoCBIRCglhZGRpdGlvbnMYBiABKAUSEQoJZGVsZXRpb25zGAcgASgFEg8KB3Byb2plY3QYCCABKAkiiQEKCERpZmZIdW5rEhEKCW9sZF9zdGFydBgBIAEoBRIRCglvbGRfbGluZXMYAiABKAUSEQoJbmV3X3N0YXJ0GAMgASgFEhEKCW5ld19saW5lcxgEIAEoBRIOCgZoZWFkZXIYBSABKAkSIQoFbGluZXMYBiADKAsyEi5ydW5rby52MS5EaWZmTGluZSJlCghEaWZmTGluZRIkCgR0eXBlGAEgASgOMhYucnVua28udjEuRGlmZkxpbmVUeXBlEg8KB2NvbnRlbnQYAiABKAkSEAoIb2xkX2xpbmUYAyABKAUSEAoIbmV3X2xpbmUYBCABKAUiMAobR2V0TWVyZ2VSZXF1aXJlbWVudHNSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCSJRChRBcHByb3ZlQ2hhbmdlUmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEQoJb3duZXJfcmVmGAIgASgJEhMKC2FwcHJvdmVkX2J5GAMgASgJIjUKEUxhbmRDaGFuZ2VSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRINCgVmb3JjZRgCIAEoCCKOAQoSTGFuZENoYW5nZVJlc3BvbnNlEg4KBmxhbmRlZBgBIAEoCBISCgpsYW5kZWRfc2hhGAIgASgJEh0KFXJlcXVpcmVzX3JldmFsaWRhdGlvbhgDIAEoCBIRCgljb25mbGljdHMYBCADKAkSEgoKcmFjZV9yZXRyeRgFIAEoCBIOCgZmb3JjZWQYBiABKAgiOQoUQWJhbmRvbkNoYW5nZVJlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSI6ChFSZXJ1bkNoZWNrUmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEgoKY2hlY2tfbmFtZRgCIAEoCSJPChNMaXN0Q29tbWVudHNSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJUChRMaXN0Q29tbWVudHNSZXNwb25zZRIjCghjb21tZW50cxgBIAMoCzIRLnJ1bmtvLnYxLkNvbW1lbnQSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIpsBChRDcmVhdGVDb21tZW50UmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSDAoEYm9keRgCIAEoCRIMCgRwYXRoGAMgASgJEiMKBHNpZGUYBCABKA4yFS5ydW5rby52MS5Db21tZW50U2lkZRIMCgRsaW5lGAUgASgFEhEKCXBhcmVudF9pZBgGIAEoCRIOCgZhdXRob3IYByABKAkiUAoVUmVzb2x2ZUNvbW1lbnRSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRISCgpjb21tZW50X2lkGAIgASgJEhAKCHJlc29sdmVkGAMgASgIIjsKFFJlcXVlc3RSZXZpZXdSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRIQCghyZXZpZXdlchgCIAEoCSI8ChFHZXRDaGFuZ2VSZXNwb25zZRInCgZjaGFuZ2UYASABKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5IkYKE0dldEFmZmVjdGVkUmVzcG9uc2USLwoIYWZmZWN0ZWQYASABKAsyHS5ydW5rby52MS5BZmZlY3RlZENvbXB1dGF0aW9uIlEKHEdldE1lcmdlUmVxdWlyZW1lbnRzUmVzcG9uc2USMQoMcmVxdWlyZW1lbnRzGAEgASgLMhsucnVua28udjEuTWVyZ2VSZXF1aXJlbWVudHMiSgoVQXBwcm92ZUNoYW5nZVJlc3BvbnNlEjEKDHJlcXVpcmVtZW50cxgBIAEoCzIbLnJ1bmtvLnYxLk1lcmdlUmVxdWlyZW1lbnRzIkAKFUFiYW5kb25DaGFuZ2VSZXNwb25zZRInCgZjaGFuZ2UYASABKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5IkcKElJlcnVuQ2hlY2tSZXNwb25zZRIxCgxyZXF1aXJlbWVudHMYASABKAsyGy5ydW5rby52MS5NZXJnZVJlcXVpcmVtZW50cyI7ChVDcmVhdGVDb21tZW50UmVzcG9uc2USIgoHY29tbWVudBgBIAEoCzIRLnJ1bmtvLnYxLkNvbW1lbnQiPAoWUmVzb2x2ZUNvbW1lbnRSZXNwb25zZRIiCgdjb21tZW50GAEgASgLMhEucnVua28udjEuQ29tbWVudCI/ChVSZXF1ZXN0UmV2aWV3UmVzcG9uc2USEAoIcmV2aWV3ZXIYASABKAkSFAoMcmVxdWVzdGVkX2J5GAIgASgJKqkBCg5GaWxlRGlmZlN0YXR1cxIgChxGSUxFX0RJRkZfU1RBVFVTX1VOU1BFQ0lGSUVEEAASGgoWRklMRV9ESUZGX1NUQVRVU19BRERFRBABEh0KGUZJTEVfRElGRl9TVEFUVVNfTU9ESUZJRUQQAhIcChhGSUxFX0RJRkZfU1RBVFVTX0RFTEVURUQQAxIcChhGSUxFX0RJRkZfU1RBVFVTX1JFTkFNRUQQBCqAAQoMRGlmZkxpbmVUeXBlEh4KGkRJRkZfTElORV9UWVBFX1VOU1BFQ0lGSUVEEAASGgoWRElGRl9MSU5FX1RZUEVfQ09OVEVYVBABEhgKFERJRkZfTElORV9UWVBFX0FEREVEEAISGgoWRElGRl9MSU5FX1RZUEVfUkVNT1ZFRBADMvkICg1DaGFuZ2VTZXJ2aWNlEkQKCUdldENoYW5nZRIaLnJ1bmtvLnYxLkdldENoYW5nZVJlcXVlc3QaGy5ydW5rby52MS5HZXRDaGFuZ2VSZXNwb25zZRJKCgtMaXN0Q2hhbmdlcxIcLnJ1bmtvLnYxLkxpc3RDaGFuZ2VzUmVxdWVzdBodLnJ1bmtvLnYxLkxpc3RDaGFuZ2VzUmVzcG9uc2USUwoOR2V0Q2hhbmdlU3RhY2sSHy5ydW5rby52MS5HZXRDaGFuZ2VTdGFja1JlcXVlc3QaIC5ydW5rby52MS5HZXRDaGFuZ2VTdGFja1Jlc3BvbnNlElAKDUdldENoYW5nZURpZmYSHi5ydW5rby52MS5HZXRDaGFuZ2VEaWZmUmVxdWVzdBofLnJ1bmtvLnYxLkdldENoYW5nZURpZmZSZXNwb25zZRJKCgtHZXRBZmZlY3RlZBIcLnJ1bmtvLnYxLkdldEFmZmVjdGVkUmVxdWVzdBodLnJ1bmtvLnYxLkdldEFmZmVjdGVkUmVzcG9uc2USZQoUR2V0TWVyZ2VSZXF1aXJlbWVudHMSJS5ydW5rby52MS5HZXRNZXJnZVJlcXVpcmVtZW50c1JlcXVlc3QaJi5ydW5rby52MS5HZXRNZXJnZVJlcXVpcmVtZW50c1Jlc3BvbnNlElAKDUFwcHJvdmVDaGFuZ2USHi5ydW5rby52MS5BcHByb3ZlQ2hhbmdlUmVxdWVzdBofLnJ1bmtvLnYxLkFwcHJvdmVDaGFuZ2VSZXNwb25zZRJHCgpMYW5kQ2hhbmdlEhsucnVua28udjEuTGFuZENoYW5nZVJlcXVlc3QaHC5ydW5rby52MS5MYW5kQ2hhbmdlUmVzcG9uc2USUAoNQWJhbmRvbkNoYW5nZRIeLnJ1bmtvLnYxLkFiYW5kb25DaGFuZ2VSZXF1ZXN0Gh8ucnVua28udjEuQWJhbmRvbkNoYW5nZVJlc3BvbnNlEkcKClJlcnVuQ2hlY2sSGy5ydW5rby52MS5SZXJ1bkNoZWNrUmVxdWVzdBocLnJ1bmtvLnYxLlJlcnVuQ2hlY2tSZXNwb25zZRJNCgxMaXN0Q29tbWVudHMSHS5ydW5rby52MS5MaXN0Q29tbWVudHNSZXF1ZXN0Gh4ucnVua28udjEuTGlzdENvbW1lbnRzUmVzcG9uc2USUAoNQ3JlYXRlQ29tbWVudBIeLnJ1bmtvLnYxLkNyZWF0ZUNvbW1lbnRSZXF1ZXN0Gh8ucnVua28udjEuQ3JlYXRlQ29tbWVudFJlc3BvbnNlElMKDlJlc29sdmVDb21tZW50Eh8ucnVua28udjEuUmVzb2x2ZUNvbW1lbnRSZXF1ZXN0GiAucnVua28udjEuUmVzb2x2ZUNvbW1lbnRSZXNwb25zZRJQCg1SZXF1ZXN0UmV2aWV3Eh4ucnVua28udjEuUmVxdWVzdFJldmlld1JlcXVlc3QaHy5ydW5rby52MS5SZXF1ZXN0UmV2aWV3UmVzcG9uc2VCO1o5Z2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3Byb3RvL2dlbi9ydW5rby92MTtydW5rb3YxYgZwcm90bzM", [file_runko_v1_common]);
+  fileDesc("ChZydW5rby92MS9jaGFuZ2VzLnByb3RvEghydW5rby52MSIlChBHZXRDaGFuZ2VSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCSJhChJMaXN0Q2hhbmdlc1JlcXVlc3QSJAoFc3RhdGUYASABKA4yFS5ydW5rby52MS5DaGFuZ2VTdGF0ZRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJYChNMaXN0Q2hhbmdlc1Jlc3BvbnNlEigKB2NoYW5nZXMYASADKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIcCgtDaGFuZ2VQYXRocxINCgVwYXRocxgBIAMoCSJbChJHZXRBZmZlY3RlZFJlcXVlc3QSJgoFcGF0aHMYASABKAsyFS5ydW5rby52MS5DaGFuZ2VQYXRoc0gAEhMKCWNoYW5nZV9pZBgCIAEoCUgAQggKBnRhcmdldCIqChVHZXRDaGFuZ2VTdGFja1JlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJIlQKFkdldENoYW5nZVN0YWNrUmVzcG9uc2USKAoHY2hhbmdlcxgBIAMoCzIXLnJ1bmtvLnYxLkNoYW5nZVN1bW1hcnkSEAoIcG9zaXRpb24YAiABKAUiKQoUR2V0Q2hhbmdlRGlmZlJlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJInEKFUdldENoYW5nZURpZmZSZXNwb25zZRIRCgljaGFuZ2VfaWQYASABKAkSEAoIYmFzZV9zaGEYAiABKAkSEAoIaGVhZF9zaGEYAyABKAkSIQoFZmlsZXMYBCADKAsyEi5ydW5rby52MS5GaWxlRGlmZiK+AQoIRmlsZURpZmYSDAoEcGF0aBgBIAEoCRIQCghvbGRfcGF0aBgCIAEoCRIoCgZzdGF0dXMYAyABKA4yGC5ydW5rby52MS5GaWxlRGlmZlN0YXR1cxIhCgVodW5rcxgEIAMoCzISLnJ1bmtvLnYxLkRpZmZIdW5rEg4KBmJpbmFyeRgFIAEoCBIRCglhZGRpdGlvbnMYBiABKAUSEQoJZGVsZXRpb25zGAcgASgFEg8KB3Byb2plY3QYCCABKAkiiQEKCERpZmZIdW5rEhEKCW9sZF9zdGFydBgBIAEoBRIRCglvbGRfbGluZXMYAiABKAUSEQoJbmV3X3N0YXJ0GAMgASgFEhEKCW5ld19saW5lcxgEIAEoBRIOCgZoZWFkZXIYBSABKAkSIQoFbGluZXMYBiADKAsyEi5ydW5rby52MS5EaWZmTGluZSJlCghEaWZmTGluZRIkCgR0eXBlGAEgASgOMhYucnVua28udjEuRGlmZkxpbmVUeXBlEg8KB2NvbnRlbnQYAiABKAkSEAoIb2xkX2xpbmUYAyABKAUSEAoIbmV3X2xpbmUYBCABKAUiMAobR2V0TWVyZ2VSZXF1aXJlbWVudHNSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCSJRChRBcHByb3ZlQ2hhbmdlUmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEQoJb3duZXJfcmVmGAIgASgJEhMKC2FwcHJvdmVkX2J5GAMgASgJIjUKEUxhbmRDaGFuZ2VSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRINCgVmb3JjZRgCIAEoCCKOAQoSTGFuZENoYW5nZVJlc3BvbnNlEg4KBmxhbmRlZBgBIAEoCBISCgpsYW5kZWRfc2hhGAIgASgJEh0KFXJlcXVpcmVzX3JldmFsaWRhdGlvbhgDIAEoCBIRCgljb25mbGljdHMYBCADKAkSEgoKcmFjZV9yZXRyeRgFIAEoCBIOCgZmb3JjZWQYBiABKAgiOQoTU2V0QXV0b21lcmdlUmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSDwoHZW5hYmxlZBgCIAEoCCI/ChRTZXRBdXRvbWVyZ2VSZXNwb25zZRInCgZjaGFuZ2UYASABKAsyFy5ydW5rby52MS5DaGFuZ2VTdW1tYXJ5IjkKFEFiYW5kb25DaGFuZ2VSZXF1ZXN0EhEKCWNoYW5nZV9pZBgBIAEoCRIOCgZyZWFzb24YAiABKAkiOgoRUmVydW5DaGVja1JlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJEhIKCmNoZWNrX25hbWUYAiABKAkiTwoTTGlzdENvbW1lbnRzUmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEQoJcGFnZV9zaXplGAIgASgFEhIKCnBhZ2VfdG9rZW4YAyABKAkiVAoUTGlzdENvbW1lbnRzUmVzcG9uc2USIwoIY29tbWVudHMYASADKAsyES5ydW5rby52MS5Db21tZW50EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKbAQoUQ3JlYXRlQ29tbWVudFJlcXVlc3QSEQoJY2hhbmdlX2lkGAEgASgJEgwKBGJvZHkYAiABKAkSDAoEcGF0aBgDIAEoCRIjCgRzaWRlGAQgASgOMhUucnVua28udjEuQ29tbWVudFNpZGUSDAoEbGluZRgFIAEoBRIRCglwYXJlbnRfaWQYBiABKAkSDgoGYXV0aG9yGAcgASgJIlAKFVJlc29sdmVDb21tZW50UmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEgoKY29tbWVudF9pZBgCIAEoCRIQCghyZXNvbHZlZBgDIAEoCCI7ChRSZXF1ZXN0UmV2aWV3UmVxdWVzdBIRCgljaGFuZ2VfaWQYASABKAkSEAoIcmV2aWV3ZXIYAiABKAkiPAoRR2V0Q2hhbmdlUmVzcG9uc2USJwoGY2hhbmdlGAEgASgLMhcucnVua28udjEuQ2hhbmdlU3VtbWFyeSJGChNHZXRBZmZlY3RlZFJlc3BvbnNlEi8KCGFmZmVjdGVkGAEgASgLMh0ucnVua28udjEuQWZmZWN0ZWRDb21wdXRhdGlvbiJRChxHZXRNZXJnZVJlcXVpcmVtZW50c1Jlc3BvbnNlEjEKDHJlcXVpcmVtZW50cxgBIAEoCzIbLnJ1bmtvLnYxLk1lcmdlUmVxdWlyZW1lbnRzIkoKFUFwcHJvdmVDaGFuZ2VSZXNwb25zZRIxCgxyZXF1aXJlbWVudHMYASABKAsyGy5ydW5rby52MS5NZXJnZVJlcXVpcmVtZW50cyJAChVBYmFuZG9uQ2hhbmdlUmVzcG9uc2USJwoGY2hhbmdlGAEgASgLMhcucnVua28udjEuQ2hhbmdlU3VtbWFyeSJHChJSZXJ1bkNoZWNrUmVzcG9uc2USMQoMcmVxdWlyZW1lbnRzGAEgASgLMhsucnVua28udjEuTWVyZ2VSZXF1aXJlbWVudHMiOwoVQ3JlYXRlQ29tbWVudFJlc3BvbnNlEiIKB2NvbW1lbnQYASABKAsyES5ydW5rby52MS5Db21tZW50IjwKFlJlc29sdmVDb21tZW50UmVzcG9uc2USIgoHY29tbWVudBgBIAEoCzIRLnJ1bmtvLnYxLkNvbW1lbnQiPwoVUmVxdWVzdFJldmlld1Jlc3BvbnNlEhAKCHJldmlld2VyGAEgASgJEhQKDHJlcXVlc3RlZF9ieRgCIAEoCSqpAQoORmlsZURpZmZTdGF0dXMSIAocRklMRV9ESUZGX1NUQVRVU19VTlNQRUNJRklFRBAAEhoKFkZJTEVfRElGRl9TVEFUVVNfQURERUQQARIdChlGSUxFX0RJRkZfU1RBVFVTX01PRElGSUVEEAISHAoYRklMRV9ESUZGX1NUQVRVU19ERUxFVEVEEAMSHAoYRklMRV9ESUZGX1NUQVRVU19SRU5BTUVEEAQqgAEKDERpZmZMaW5lVHlwZRIeChpESUZGX0xJTkVfVFlQRV9VTlNQRUNJRklFRBAAEhoKFkRJRkZfTElORV9UWVBFX0NPTlRFWFQQARIYChRESUZGX0xJTkVfVFlQRV9BRERFRBACEhoKFkRJRkZfTElORV9UWVBFX1JFTU9WRUQQAzLICQoNQ2hhbmdlU2VydmljZRJECglHZXRDaGFuZ2USGi5ydW5rby52MS5HZXRDaGFuZ2VSZXF1ZXN0GhsucnVua28udjEuR2V0Q2hhbmdlUmVzcG9uc2USSgoLTGlzdENoYW5nZXMSHC5ydW5rby52MS5MaXN0Q2hhbmdlc1JlcXVlc3QaHS5ydW5rby52MS5MaXN0Q2hhbmdlc1Jlc3BvbnNlElMKDkdldENoYW5nZVN0YWNrEh8ucnVua28udjEuR2V0Q2hhbmdlU3RhY2tSZXF1ZXN0GiAucnVua28udjEuR2V0Q2hhbmdlU3RhY2tSZXNwb25zZRJQCg1HZXRDaGFuZ2VEaWZmEh4ucnVua28udjEuR2V0Q2hhbmdlRGlmZlJlcXVlc3QaHy5ydW5rby52MS5HZXRDaGFuZ2VEaWZmUmVzcG9uc2USSgoLR2V0QWZmZWN0ZWQSHC5ydW5rby52MS5HZXRBZmZlY3RlZFJlcXVlc3QaHS5ydW5rby52MS5HZXRBZmZlY3RlZFJlc3BvbnNlEmUKFEdldE1lcmdlUmVxdWlyZW1lbnRzEiUucnVua28udjEuR2V0TWVyZ2VSZXF1aXJlbWVudHNSZXF1ZXN0GiYucnVua28udjEuR2V0TWVyZ2VSZXF1aXJlbWVudHNSZXNwb25zZRJQCg1BcHByb3ZlQ2hhbmdlEh4ucnVua28udjEuQXBwcm92ZUNoYW5nZVJlcXVlc3QaHy5ydW5rby52MS5BcHByb3ZlQ2hhbmdlUmVzcG9uc2USRwoKTGFuZENoYW5nZRIbLnJ1bmtvLnYxLkxhbmRDaGFuZ2VSZXF1ZXN0GhwucnVua28udjEuTGFuZENoYW5nZVJlc3BvbnNlElAKDUFiYW5kb25DaGFuZ2USHi5ydW5rby52MS5BYmFuZG9uQ2hhbmdlUmVxdWVzdBofLnJ1bmtvLnYxLkFiYW5kb25DaGFuZ2VSZXNwb25zZRJNCgxTZXRBdXRvbWVyZ2USHS5ydW5rby52MS5TZXRBdXRvbWVyZ2VSZXF1ZXN0Gh4ucnVua28udjEuU2V0QXV0b21lcmdlUmVzcG9uc2USRwoKUmVydW5DaGVjaxIbLnJ1bmtvLnYxLlJlcnVuQ2hlY2tSZXF1ZXN0GhwucnVua28udjEuUmVydW5DaGVja1Jlc3BvbnNlEk0KDExpc3RDb21tZW50cxIdLnJ1bmtvLnYxLkxpc3RDb21tZW50c1JlcXVlc3QaHi5ydW5rby52MS5MaXN0Q29tbWVudHNSZXNwb25zZRJQCg1DcmVhdGVDb21tZW50Eh4ucnVua28udjEuQ3JlYXRlQ29tbWVudFJlcXVlc3QaHy5ydW5rby52MS5DcmVhdGVDb21tZW50UmVzcG9uc2USUwoOUmVzb2x2ZUNvbW1lbnQSHy5ydW5rby52MS5SZXNvbHZlQ29tbWVudFJlcXVlc3QaIC5ydW5rby52MS5SZXNvbHZlQ29tbWVudFJlc3BvbnNlElAKDVJlcXVlc3RSZXZpZXcSHi5ydW5rby52MS5SZXF1ZXN0UmV2aWV3UmVxdWVzdBofLnJ1bmtvLnYxLlJlcXVlc3RSZXZpZXdSZXNwb25zZUI7WjlnaXRodWIuY29tL3NheG9jZWxscGhvbmUvcnVua28vcHJvdG8vZ2VuL3J1bmtvL3YxO3J1bmtvdjFiBnByb3RvMw", [file_runko_v1_common]);
 
 /**
  * @generated from message runko.v1.GetChangeRequest
@@ -501,6 +501,45 @@ export const LandChangeResponseSchema: GenMessage<LandChangeResponse> = /*@__PUR
   messageDesc(file_runko_v1_changes, 15);
 
 /**
+ * @generated from message runko.v1.SetAutomergeRequest
+ */
+export type SetAutomergeRequest = Message<"runko.v1.SetAutomergeRequest"> & {
+  /**
+   * @generated from field: string change_id = 1;
+   */
+  changeId: string;
+
+  /**
+   * @generated from field: bool enabled = 2;
+   */
+  enabled: boolean;
+};
+
+/**
+ * Describes the message runko.v1.SetAutomergeRequest.
+ * Use `create(SetAutomergeRequestSchema)` to create a new message.
+ */
+export const SetAutomergeRequestSchema: GenMessage<SetAutomergeRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 16);
+
+/**
+ * @generated from message runko.v1.SetAutomergeResponse
+ */
+export type SetAutomergeResponse = Message<"runko.v1.SetAutomergeResponse"> & {
+  /**
+   * @generated from field: runko.v1.ChangeSummary change = 1;
+   */
+  change?: ChangeSummary | undefined;
+};
+
+/**
+ * Describes the message runko.v1.SetAutomergeResponse.
+ * Use `create(SetAutomergeResponseSchema)` to create a new message.
+ */
+export const SetAutomergeResponseSchema: GenMessage<SetAutomergeResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_changes, 17);
+
+/**
  * @generated from message runko.v1.AbandonChangeRequest
  */
 export type AbandonChangeRequest = Message<"runko.v1.AbandonChangeRequest"> & {
@@ -520,7 +559,7 @@ export type AbandonChangeRequest = Message<"runko.v1.AbandonChangeRequest"> & {
  * Use `create(AbandonChangeRequestSchema)` to create a new message.
  */
 export const AbandonChangeRequestSchema: GenMessage<AbandonChangeRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 16);
+  messageDesc(file_runko_v1_changes, 18);
 
 /**
  * @generated from message runko.v1.RerunCheckRequest
@@ -542,7 +581,7 @@ export type RerunCheckRequest = Message<"runko.v1.RerunCheckRequest"> & {
  * Use `create(RerunCheckRequestSchema)` to create a new message.
  */
 export const RerunCheckRequestSchema: GenMessage<RerunCheckRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 17);
+  messageDesc(file_runko_v1_changes, 19);
 
 /**
  * @generated from message runko.v1.ListCommentsRequest
@@ -569,7 +608,7 @@ export type ListCommentsRequest = Message<"runko.v1.ListCommentsRequest"> & {
  * Use `create(ListCommentsRequestSchema)` to create a new message.
  */
 export const ListCommentsRequestSchema: GenMessage<ListCommentsRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 18);
+  messageDesc(file_runko_v1_changes, 20);
 
 /**
  * @generated from message runko.v1.ListCommentsResponse
@@ -591,7 +630,7 @@ export type ListCommentsResponse = Message<"runko.v1.ListCommentsResponse"> & {
  * Use `create(ListCommentsResponseSchema)` to create a new message.
  */
 export const ListCommentsResponseSchema: GenMessage<ListCommentsResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 19);
+  messageDesc(file_runko_v1_changes, 21);
 
 /**
  * @generated from message runko.v1.CreateCommentRequest
@@ -643,7 +682,7 @@ export type CreateCommentRequest = Message<"runko.v1.CreateCommentRequest"> & {
  * Use `create(CreateCommentRequestSchema)` to create a new message.
  */
 export const CreateCommentRequestSchema: GenMessage<CreateCommentRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 20);
+  messageDesc(file_runko_v1_changes, 22);
 
 /**
  * @generated from message runko.v1.ResolveCommentRequest
@@ -674,7 +713,7 @@ export type ResolveCommentRequest = Message<"runko.v1.ResolveCommentRequest"> & 
  * Use `create(ResolveCommentRequestSchema)` to create a new message.
  */
 export const ResolveCommentRequestSchema: GenMessage<ResolveCommentRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 21);
+  messageDesc(file_runko_v1_changes, 23);
 
 /**
  * @generated from message runko.v1.RequestReviewRequest
@@ -698,7 +737,7 @@ export type RequestReviewRequest = Message<"runko.v1.RequestReviewRequest"> & {
  * Use `create(RequestReviewRequestSchema)` to create a new message.
  */
 export const RequestReviewRequestSchema: GenMessage<RequestReviewRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 22);
+  messageDesc(file_runko_v1_changes, 24);
 
 /**
  * Per-RPC response wrappers (buf STANDARD lint: unique response types per
@@ -719,7 +758,7 @@ export type GetChangeResponse = Message<"runko.v1.GetChangeResponse"> & {
  * Use `create(GetChangeResponseSchema)` to create a new message.
  */
 export const GetChangeResponseSchema: GenMessage<GetChangeResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 23);
+  messageDesc(file_runko_v1_changes, 25);
 
 /**
  * @generated from message runko.v1.GetAffectedResponse
@@ -736,7 +775,7 @@ export type GetAffectedResponse = Message<"runko.v1.GetAffectedResponse"> & {
  * Use `create(GetAffectedResponseSchema)` to create a new message.
  */
 export const GetAffectedResponseSchema: GenMessage<GetAffectedResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 24);
+  messageDesc(file_runko_v1_changes, 26);
 
 /**
  * @generated from message runko.v1.GetMergeRequirementsResponse
@@ -753,7 +792,7 @@ export type GetMergeRequirementsResponse = Message<"runko.v1.GetMergeRequirement
  * Use `create(GetMergeRequirementsResponseSchema)` to create a new message.
  */
 export const GetMergeRequirementsResponseSchema: GenMessage<GetMergeRequirementsResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 25);
+  messageDesc(file_runko_v1_changes, 27);
 
 /**
  * @generated from message runko.v1.ApproveChangeResponse
@@ -773,7 +812,7 @@ export type ApproveChangeResponse = Message<"runko.v1.ApproveChangeResponse"> & 
  * Use `create(ApproveChangeResponseSchema)` to create a new message.
  */
 export const ApproveChangeResponseSchema: GenMessage<ApproveChangeResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 26);
+  messageDesc(file_runko_v1_changes, 28);
 
 /**
  * @generated from message runko.v1.AbandonChangeResponse
@@ -790,7 +829,7 @@ export type AbandonChangeResponse = Message<"runko.v1.AbandonChangeResponse"> & 
  * Use `create(AbandonChangeResponseSchema)` to create a new message.
  */
 export const AbandonChangeResponseSchema: GenMessage<AbandonChangeResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 27);
+  messageDesc(file_runko_v1_changes, 29);
 
 /**
  * @generated from message runko.v1.RerunCheckResponse
@@ -807,7 +846,7 @@ export type RerunCheckResponse = Message<"runko.v1.RerunCheckResponse"> & {
  * Use `create(RerunCheckResponseSchema)` to create a new message.
  */
 export const RerunCheckResponseSchema: GenMessage<RerunCheckResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 28);
+  messageDesc(file_runko_v1_changes, 30);
 
 /**
  * @generated from message runko.v1.CreateCommentResponse
@@ -824,7 +863,7 @@ export type CreateCommentResponse = Message<"runko.v1.CreateCommentResponse"> & 
  * Use `create(CreateCommentResponseSchema)` to create a new message.
  */
 export const CreateCommentResponseSchema: GenMessage<CreateCommentResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 29);
+  messageDesc(file_runko_v1_changes, 31);
 
 /**
  * @generated from message runko.v1.ResolveCommentResponse
@@ -841,7 +880,7 @@ export type ResolveCommentResponse = Message<"runko.v1.ResolveCommentResponse"> 
  * Use `create(ResolveCommentResponseSchema)` to create a new message.
  */
 export const ResolveCommentResponseSchema: GenMessage<ResolveCommentResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 30);
+  messageDesc(file_runko_v1_changes, 32);
 
 /**
  * @generated from message runko.v1.RequestReviewResponse
@@ -863,7 +902,7 @@ export type RequestReviewResponse = Message<"runko.v1.RequestReviewResponse"> & 
  * Use `create(RequestReviewResponseSchema)` to create a new message.
  */
 export const RequestReviewResponseSchema: GenMessage<RequestReviewResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_changes, 31);
+  messageDesc(file_runko_v1_changes, 33);
 
 /**
  * @generated from enum runko.v1.FileDiffStatus
@@ -1025,6 +1064,18 @@ export const ChangeService: GenService<{
     methodKind: "unary";
     input: typeof AbandonChangeRequestSchema;
     output: typeof AbandonChangeResponseSchema;
+  },
+  /**
+   * SetAutomerge arms/disarms the when-ready land (§13.5): armed changes
+   * land themselves the moment merge requirements go green, attributed
+   * to the arming principal. Only open changes arm; disarm always works.
+   *
+   * @generated from rpc runko.v1.ChangeService.SetAutomerge
+   */
+  setAutomerge: {
+    methodKind: "unary";
+    input: typeof SetAutomergeRequestSchema;
+    output: typeof SetAutomergeResponseSchema;
   },
   /**
    * @generated from rpc runko.v1.ChangeService.RerunCheck

@@ -1014,6 +1014,11 @@ type ChangeSummary struct {
 	// head) and for STRANDED ones (base = an abandoned/unknown commit);
 	// the UI must not draw either as rooted on trunk (2026-07-09).
 	BaseOnTrunk bool `protobuf:"varint,15,opt,name=base_on_trunk,json=baseOnTrunk,proto3" json:"base_on_trunk,omitempty"`
+	// Automerge (§13.5 "when ready"): armed to land automatically once the
+	// merge gates go green. Survives amends (the gates re-arm themselves);
+	// automerge_by is the arming principal, who becomes landed_by.
+	Automerge   bool   `protobuf:"varint,17,opt,name=automerge,proto3" json:"automerge,omitempty"`
+	AutomergeBy string `protobuf:"bytes,18,opt,name=automerge_by,json=automergeBy,proto3" json:"automerge_by,omitempty"`
 	// When the change landed (unix seconds; 0 until state == LANDED) -
 	// changes.landed_at, recorded by MarkChangeLanded. Display metadata.
 	LandedAt      int64 `protobuf:"varint,16,opt,name=landed_at,json=landedAt,proto3" json:"landed_at,omitempty"`
@@ -1154,6 +1159,20 @@ func (x *ChangeSummary) GetBaseOnTrunk() bool {
 		return x.BaseOnTrunk
 	}
 	return false
+}
+
+func (x *ChangeSummary) GetAutomerge() bool {
+	if x != nil {
+		return x.Automerge
+	}
+	return false
+}
+
+func (x *ChangeSummary) GetAutomergeBy() string {
+	if x != nil {
+		return x.AutomergeBy
+	}
+	return ""
 }
 
 func (x *ChangeSummary) GetLandedAt() int64 {
@@ -1672,7 +1691,7 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\bprojects\x18\x02 \x03(\v2\x18.runko.v1.ProjectSummaryR\bprojects\x12\x14\n" +
 	"\x05paths\x18\x03 \x03(\tR\x05paths\x127\n" +
 	"\freason_codes\x18\x04 \x03(\x0e2\x14.runko.v1.ReasonCodeR\vreasonCodes\x12%\n" +
-	"\x0erun_everything\x18\x05 \x01(\bR\rrunEverything\"\x84\x04\n" +
+	"\x0erun_everything\x18\x05 \x01(\bR\rrunEverything\"\xc5\x04\n" +
 	"\rChangeSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12+\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x15.runko.v1.ChangeStateR\x05state\x12\x19\n" +
@@ -1691,7 +1710,9 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\x10origin_workspace\x18\f \x01(\tR\x0foriginWorkspace\x12#\n" +
 	"\rorigin_branch\x18\r \x01(\tR\foriginBranch\x12#\n" +
 	"\rlanded_forced\x18\x0e \x01(\bR\flandedForced\x12\"\n" +
-	"\rbase_on_trunk\x18\x0f \x01(\bR\vbaseOnTrunk\x12\x1b\n" +
+	"\rbase_on_trunk\x18\x0f \x01(\bR\vbaseOnTrunk\x12\x1c\n" +
+	"\tautomerge\x18\x11 \x01(\bR\tautomerge\x12!\n" +
+	"\fautomerge_by\x18\x12 \x01(\tR\vautomergeBy\x12\x1b\n" +
 	"\tlanded_at\x18\x10 \x01(\x03R\blandedAt\"\xe9\x01\n" +
 	"\x11MergeRequirements\x12\x1b\n" +
 	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12+\n" +

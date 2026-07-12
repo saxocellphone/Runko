@@ -404,6 +404,14 @@ func TestPostgresStoreAttributionRoundTrip(t *testing.T) {
 	// hydrates attribution via one batch GetActorsByIDs query rather than
 	// per-row GetActor round-trips (stage 15: the landed tab paid one
 	// round-trip per name at 44 changes).
+	// Automerge round-trips: arm records the armer, disarm clears it.
+	if armed, err := store.SetChangeAutomerge(ctx, "Iattr", true, "val"); err != nil || !armed.Automerge || armed.AutomergeBy != "val" {
+		t.Fatalf("arm automerge: %+v err=%v", armed, err)
+	}
+	if disarmed, err := store.SetChangeAutomerge(ctx, "Iattr", false, ""); err != nil || disarmed.Automerge || disarmed.AutomergeBy != "" {
+		t.Fatalf("disarm automerge: %+v err=%v", disarmed, err)
+	}
+
 	landedList, err := store.ListChanges(ctx, "landed")
 	if err != nil || len(landedList) != 2 {
 		t.Fatalf("ListChanges(landed): got %d changes (%v)", len(landedList), err)

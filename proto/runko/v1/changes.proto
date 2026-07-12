@@ -31,6 +31,10 @@ service ChangeService {
   rpc ApproveChange(ApproveChangeRequest) returns (ApproveChangeResponse);
   rpc LandChange(LandChangeRequest) returns (LandChangeResponse);
   rpc AbandonChange(AbandonChangeRequest) returns (AbandonChangeResponse);
+  // SetAutomerge arms/disarms the when-ready land (§13.5): armed changes
+  // land themselves the moment merge requirements go green, attributed
+  // to the arming principal. Only open changes arm; disarm always works.
+  rpc SetAutomerge(SetAutomergeRequest) returns (SetAutomergeResponse);
   rpc RerunCheck(RerunCheckRequest) returns (RerunCheckResponse);
   // Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
   // head they were written against and outdate on amend; threads are one
@@ -182,6 +186,15 @@ message LandChangeResponse {
   // True when this land bypassed gates via LandChangeRequest.force -
   // echoed for display; the durable audit bit is ChangeSummary.landed_forced.
   bool forced = 6;
+}
+
+message SetAutomergeRequest {
+  string change_id = 1;
+  bool enabled = 2;
+}
+
+message SetAutomergeResponse {
+  ChangeSummary change = 1;
 }
 
 message AbandonChangeRequest {

@@ -165,6 +165,7 @@ func (s *Server) approveChangeCore(ctx context.Context, key string, change Chang
 	if err := s.Store.RecordApproval(ctx, key, ownerRef, approvedBy, change.HeadSHA); err != nil {
 		return checks.MergeRequirements{}, internalErr(err)
 	}
+	s.KickAutomerge() // an approval may have been the last outstanding gate
 	reqs, err := s.mergeRequirements(ctx, key, change, nil)
 	if err != nil {
 		return checks.MergeRequirements{}, internalErr(err)
@@ -648,6 +649,9 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 		}
 		s.enqueueLandedWebhook(ctx, change, outcome.LandedSHA)
 		s.maybeCloseAgentWorkspace(ctx, change.OriginWorkspace)
+		// A landed parent may have made an armed child's base reachable
+		// (stacked automerge: the whole stack drains bottom-up).
+		s.KickAutomerge()
 		if s.Processor != nil {
 			s.Processor.ZoektIndexWorker.Trigger()
 		}
