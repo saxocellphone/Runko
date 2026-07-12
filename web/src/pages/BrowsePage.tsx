@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { repoClient } from "../api/client";
 import { ChangeState } from "../gen/runko/v1/common_pb";
@@ -9,8 +9,50 @@ import {
   type TreeEntry,
 } from "../gen/runko/v1/repo_pb";
 import { shortSha, timeAgo } from "../lib/format";
+import type { Token } from "../lib/highlight";
 import { useRpc } from "../lib/useRpc";
 import { EmptyState, ErrorNote, Spinner, StateBadge } from "../components/ui";
+
+// ---- syntax highlighting -------------------------------------------------
+
+// The highlighter (lowlight + registered grammars, lib/highlight.ts) rides
+// its own lazy chunk, fetched on first use: the main bundle never carries
+// highlight.js, and until the chunk lands - or if it never does - lines
+// render plain, exactly the pre-feature view.
+type Highlighter = (content: string, path: string) => Token[][] | null;
+
+function useHighlighter(): Highlighter | null {
+  const [fn, setFn] = useState<Highlighter | null>(null);
+  useEffect(() => {
+    let stale = false;
+    import("../lib/highlight").then(
+      (m) => {
+        if (!stale) setFn(() => m.highlightLines);
+      },
+      () => {}, // plain text is this feature's floor, never an error state
+    );
+    return () => {
+      stale = true;
+    };
+  }, []);
+  return fn;
+}
+
+function HighlightedLine({ tokens }: { tokens: Token[] }) {
+  return (
+    <>
+      {tokens.map((t, i) =>
+        t.cls ? (
+          <span key={i} className={t.cls}>
+            {t.text}
+          </span>
+        ) : (
+          t.text
+        ),
+      )}
+    </>
+  );
+}
 
 // Repo browser (§17.2), Gitiles-inspired layout modernized: a breadcrumb
 // path bar anchors where you are; the CONTENT region always shows what
@@ -335,6 +377,11 @@ function DirListing({ path }: { path: string }) {
 
 function CodeView({ path }: { path: string }) {
   const { data, error, loading } = useRpc(() => repoClient.getBlob({ path }), `blob-${path}`);
+  const highlight = useHighlighter();
+  const highlighted = useMemo(
+    () => (data && !data.binary && highlight ? highlight(data.content, path) : null),
+    [data, highlight, path],
+  );
   if (loading) return <Spinner />;
   if (error) return <ErrorNote error={error} />;
   if (!data) return null;
@@ -360,7 +407,9 @@ function CodeView({ path }: { path: string }) {
             {lines.map((line, i) => (
               <tr key={i}>
                 <td className="gutter">{i + 1}</td>
-                <td className="line-content">{line}</td>
+                <td className="line-content">
+                  {highlighted?.[i] ? <HighlightedLine tokens={highlighted[i]} /> : line}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -375,6 +424,11 @@ function CodeView({ path }: { path: string }) {
 
 function BlameView({ path }: { path: string }) {
   const { data, error, loading } = useRpc(() => repoClient.blameFile({ path }), `blame-${path}`);
+  const highlight = useHighlighter();
+  const highlighted = useMemo(
+    () => (data && !data.binary && highlight ? highlight(data.lines.join("\n"), path) : null),
+    [data, highlight, path],
+  );
   if (loading) return <Spinner />;
   if (error) return <ErrorNote error={error} />;
   if (!data) return null;
@@ -423,7 +477,9 @@ function BlameView({ path }: { path: string }) {
                 </td>
               )}
               <td className="gutter">{n}</td>
-              <td className="line-content">{line}</td>
+              <td className="line-content">
+                {highlighted?.[n - 1] ? <HighlightedLine tokens={highlighted[n - 1]} /> : line}
+              </td>
             </tr>
           ))}
         </tbody>

@@ -2101,3 +2101,84 @@ tr.thread-row > td {
 .diff-summary .spacer {
   flex: 1;
 }
+
+/* Syntax highlighting (code browser: BrowsePage code + blame views).
+   Token classes come from lib/highlight.ts (lowlight/highlight.js);
+   scoped under .line-content so nothing else - diffs included, until
+   they opt in - picks them up. One palette per theme, restrained:
+   five roles cover hljs's practical output. */
+.line-content .hljs-comment,
+.line-content .hljs-quote {
+  color: var(--text-3);
+  font-style: italic;
+}
+.line-content .hljs-keyword,
+.line-content .hljs-selector-tag,
+.line-content .hljs-literal,
+.line-content .hljs-doctag {
+  color: #a12f6b;
+}
+.line-content .hljs-string,
+.line-content .hljs-regexp,
+.line-content .hljs-addition {
+  color: #0a6640;
+}
+.line-content .hljs-number,
+.line-content .hljs-symbol,
+.line-content .hljs-bullet,
+.line-content .hljs-meta,
+.line-content .hljs-link {
+  color: #1c5fb8;
+}
+.line-content .hljs-title,
+.line-content .hljs-section,
+.line-content .hljs-name,
+.line-content .hljs-selector-id,
+.line-content .hljs-selector-class {
+  color: #6f42c1;
+}
+.line-content .hljs-type,
+.line-content .hljs-class,
+.line-content .hljs-built_in,
+.line-content .hljs-builtin-name,
+.line-content .hljs-attr,
+.line-content .hljs-attribute,
+.line-content .hljs-variable,
+.line-content .hljs-template-variable {
+  color: #9a5b00;
+}
+:root[data-theme="dark"] .line-content .hljs-keyword,
+:root[data-theme="dark"] .line-content .hljs-selector-tag,
+:root[data-theme="dark"] .line-content .hljs-literal,
+:root[data-theme="dark"] .line-content .hljs-doctag {
+  color: #ff7b9d;
+}
+:root[data-theme="dark"] .line-content .hljs-string,
+:root[data-theme="dark"] .line-content .hljs-regexp,
+:root[data-theme="dark"] .line-content .hljs-addition {
+  color: #7ee2a8;
+}
+:root[data-theme="dark"] .line-content .hljs-number,
+:root[data-theme="dark"] .line-content .hljs-symbol,
+:root[data-theme="dark"] .line-content .hljs-bullet,
+:root[data-theme="dark"] .line-content .hljs-meta,
+:root[data-theme="dark"] .line-content .hljs-link {
+  color: #79c0ff;
+}
+:root[data-theme="dark"] .line-content .hljs-title,
+:root[data-theme="dark"] .line-content .hljs-section,
+:root[data-theme="dark"] .line-content .hljs-name,
+:root[data-theme="dark"] .line-content .hljs-selector-id,
+:root[data-theme="dark"] .line-content .hljs-selector-class {
+  color: #d2a8ff;
+}
+:root[data-theme="dark"] .line-content .hljs-type,
+:root[data-theme="dark"] .line-content .hljs-class,
+:root[data-theme="dark"] .line-content .hljs-built_in,
+:root[data-theme="dark"] .line-content .hljs-builtin-name,
+:root[data-theme="dark"] .line-content .hljs-attr,
+:root[data-theme="dark"] .line-content .hljs-attribute,
+:root[data-theme="dark"] .line-content .hljs-variable,
+:root[data-theme="dark"] .line-content .hljs-template-variable {
+  color: #f0b26b;
+}
