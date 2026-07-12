@@ -47,6 +47,7 @@ suites (which already run with `-race` and live Postgres in CI).
 | Zoekt search / indexing | Opt-in service, not in the eval profile | `search/` fake-binary + `-tags zoekt_integration` |
 | Graceful-shutdown drain | Signal semantics, not transport | `TestDaemonGracefulShutdownOnSIGTERM` (real process) |
 | Postgres outage → `/readyz` flips 503 | Ping path is trivial; stopping the DB container mid-suite makes every later scenario order-dependent | `Store.Ping` + readyz unit tests |
+| Workspace observability loop (§12.6): `workspace watch --once` → snapshot → event row → `WatchWorkspace` frame | Fully covered against a compiled daemon + real git already; a compose row adds only transport variety the streaming test covers over httptest | `TestRPCWorkspaceObservability` (stream e2e), `runkod/snapshot_test.go` (receive rows), `cli/runko/watch_test.go` (loop mechanics incl. jj) |
 
 ## Maintenance rules
 

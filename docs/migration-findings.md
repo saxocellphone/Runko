@@ -376,6 +376,38 @@ planning; entries marked `[observed]` happened during execution.
     rebase-then-push window is exposed. Secret-scan/size inputs ride the
     same diff, so those now also measure exactly the pushed line.
 
+38. **[observed, twice while building §12.6] The snapshot cap judges a
+    workspace's WHOLE delta against a per-Change-sized limit.** The
+    §12.6 auto-snapshot on `change push` warned (and `workspace watch`
+    would warn-loop) the moment this stack's workspace crossed the agent
+    policy's 512 KB `max_diff_bytes`: a snapshot's policy input is the
+    full workspace-vs-base delta, so a healthy 5-change stack whose
+    CHANGES each pass their per-change caps still can't snapshot - the
+    denominators disagree. §8.4's caps are "per Change"; a snapshot is
+    not a Change, and the funnel already relaxes the per-change caps for
+    stack pushes (whole-push affinity, per-member caps). The snapshot
+    lane needs its own calibration: either its own (larger) cap knob or
+    per-change-equivalent accounting. Warn-only today: the §12.6
+    best-effort contract held - pushes continued, only durability
+    cadence suffered. The separate 32 MiB artifact backstop
+    (DefaultMaxSnapshotBytes) is fine as-is.
+
+39. **[deploy note, §12.6 rollout] WatchWorkspace's ingress preconditions
+    - verified already met, now load-bearing.** A server-streaming RPC
+    through nginx-ingress needs response buffering OFF (frames arrive in
+    bursts or never otherwise) and a `proxy-read-timeout` above the
+    keepalive cadence. Checked live: the runkod ingress already carries
+    `proxy-buffering: "off"` (git smart-HTTP wanted it first) and routes
+    `/runko.v1.WorkspaceService` explicitly (the per-service path list -
+    dot-prefixed paths don't route as one prefix), and the 25s keepalives
+    satisfy the default 60s read timeout. What changes: these two
+    annotations were conveniences before, they are CORRECTNESS for the
+    live workspace view now - k8s-cluster must not lose them. Same
+    standing rule server-side: never add a global `WriteTimeout` to the
+    daemon's http.Server (the comment in cmd/runkod/main.go is the
+    guard). The web app degrades to reconnect-and-refetch if any of this
+    regresses - the page stays correct, just not live.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
