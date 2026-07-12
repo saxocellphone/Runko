@@ -4,6 +4,7 @@ go_library(
     name = "runko_lib",
     srcs = [
         "agent.go",
+        "agentevent.go",
         "approve.go",
         "auth.go",
         "change.go",
@@ -49,6 +50,7 @@ go_binary(
 go_test(
     name = "runko_test",
     srcs = [
+        "agentevent_test.go",
         "approve_test.go",
         "auth_test.go",
         "change_test.go",

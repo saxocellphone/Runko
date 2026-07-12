@@ -117,6 +117,8 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   agent create --task <slug> --runkod-url <url> --token <t> [--ttl 8h]   mint an ephemeral task identity (agent-<task>-<x>); token printed ONCE [--json]
   agent list --runkod-url <url> --token <t>                  live and expired agent identities [--json]
   agent revoke <name> --runkod-url <url> --token <t>         kill an agent credential immediately [--json]
+  agent event --kind <k> --detail <text> [--from-hook] [--session <id>]   report what the agent is doing to the workspace's live feed (§12.6.1) [--json]
+  agent hooks                                                 print the harness hooks snippet that wires agent event up
   workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir .]                           fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
   workspace sync --runkod-url <url> --token <t> [--dir .]    sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)

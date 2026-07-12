@@ -32,11 +32,15 @@ type AgentIdentity struct {
 
 func cmdAgent(args []string) error {
 	if len(args) < 1 {
-		return usageError("usage: runko agent create|list|revoke ...")
+		return usageError("usage: runko agent create|list|revoke|event|hooks ...")
 	}
 	sub, rest := args[0], args[1:]
 	ctx := context.Background()
 	switch sub {
+	case "event":
+		return cmdAgentEvent(rest)
+	case "hooks":
+		return cmdAgentHooks(rest)
 	case "create":
 		fs := flag.NewFlagSet("agent create", flag.ExitOnError)
 		task := fs.String("task", "", "task slug the identity is minted for (lowercase, digits, dashes)")
@@ -133,6 +137,6 @@ func cmdAgent(args []string) error {
 		return nil
 
 	default:
-		return usageError("usage: runko agent create|list|revoke ...")
+		return usageError("usage: runko agent create|list|revoke|event|hooks ...")
 	}
 }
