@@ -434,6 +434,29 @@ func (r *rpcServer) LandChange(ctx context.Context, req *connect.Request[runkov1
 	}), nil
 }
 
+func (r *rpcServer) SyncChange(ctx context.Context, req *connect.Request[runkov1.SyncChangeRequest]) (*connect.Response[runkov1.SyncChangeResponse], error) {
+	key := req.Msg.ChangeId
+	change, err := r.getChange(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	principal := r.s.principalForAuthHeader(req.Header().Get("Authorization"))
+	dec, apiErr := r.s.syncChangeCore(ctx, key, change, principal)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	resp := &runkov1.SyncChangeResponse{
+		Synced:           dec.Synced,
+		AlreadyInSync:    dec.AlreadyInSync,
+		ConflictChangeId: dec.ConflictChange,
+		Conflicts:        dec.ConflictPaths,
+	}
+	for _, c := range dec.Stack {
+		resp.Stack = append(resp.Stack, r.s.protoChange(c))
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (r *rpcServer) AbandonChange(ctx context.Context, req *connect.Request[runkov1.AbandonChangeRequest]) (*connect.Response[runkov1.AbandonChangeResponse], error) {
 	principal := r.s.principalForAuthHeader(req.Header().Get("Authorization"))
 	change, apiErr := r.s.abandonChangeCore(ctx, req.Msg.ChangeId, principal)

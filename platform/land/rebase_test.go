@@ -37,9 +37,9 @@ func TestRebaseCleanMerge(t *testing.T) {
 	// The resulting tree must contain both the trunk's a.txt change and the
 	// change's b.txt addition.
 	store := gitstore.New(repo.Dir)
-	newSHA, err := commitTree(repo.Dir, result.NewTreeSHA, trunkTip, core.CommitMeta{Message: "test"})
+	newSHA, err := CommitTree(repo.Dir, result.NewTreeSHA, trunkTip, core.CommitMeta{Message: "test"})
 	if err != nil {
-		t.Fatalf("commitTree: %v", err)
+		t.Fatalf("CommitTree: %v", err)
 	}
 	aBlob, err := store.GetBlob(core.Revision(newSHA), "a.txt")
 	if err != nil {

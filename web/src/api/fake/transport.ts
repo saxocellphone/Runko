@@ -38,6 +38,7 @@ import {
   AbandonChangeResponseSchema,
   SetAutomergeResponseSchema,
   RerunCheckResponseSchema,
+  SyncChangeResponseSchema,
   ListChangesResponseSchema,
   ListCommentsResponseSchema,
   CreateCommentResponseSchema,
@@ -686,6 +687,27 @@ export function createFakeTransport(): Transport {
         c.automerge = req.enabled;
         c.automergeBy = req.enabled ? "demo" : "";
         return create(SetAutomergeResponseSchema, { change: c });
+      },
+
+      async syncChange(req) {
+        await delay();
+        const c = mustChange(state, req.changeId);
+        if (c.state !== ChangeState.OPEN) {
+          throw new ConnectError("only an open change can be synced", Code.FailedPrecondition);
+        }
+        // Mirrors runkod's syncChangeCore shape: the whole stack rebases
+        // together, and a second click finds it already based on the tip.
+        const chain = stackOf(state, req.changeId).filter((m) => m.state === ChangeState.OPEN);
+        if (chain.every((m) => m.headSha === fakeSha(m.id + "-synced"))) {
+          return create(SyncChangeResponseSchema, { alreadyInSync: true, stack: chain });
+        }
+        let parentHead = fakeSha("trunk-tip");
+        for (const m of chain) {
+          m.baseSha = parentHead;
+          m.headSha = fakeSha(m.id + "-synced");
+          parentHead = m.headSha;
+        }
+        return create(SyncChangeResponseSchema, { synced: true, stack: chain });
       },
 
       async rerunCheck(req) {

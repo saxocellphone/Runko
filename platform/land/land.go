@@ -115,7 +115,7 @@ func Land(
 		return Outcome{Conflicts: rebased.ConflictPaths}, nil
 	}
 
-	newSHA, err := commitTree(repoDir, rebased.NewTreeSHA, string(trunkTip), meta)
+	newSHA, err := CommitTree(repoDir, rebased.NewTreeSHA, string(trunkTip), meta)
 	if err != nil {
 		return Outcome{}, err
 	}

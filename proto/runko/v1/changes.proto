@@ -36,6 +36,15 @@ service ChangeService {
   // to the arming principal. Only open changes arm; disarm always works.
   rpc SetAutomerge(SetAutomergeRequest) returns (SetAutomergeResponse);
   rpc RerunCheck(RerunCheckRequest) returns (RerunCheckResponse);
+  // SyncChange rebases the requested Change's WHOLE stack onto the current
+  // trunk tip, server-side (the UI counterpart of `runko workspace sync`,
+  // reusing §13.5's merge-tree rebase). All-or-nothing: every member is
+  // rebased bottom-up in memory first, and refs move only if all of them
+  // rebase cleanly - one conflicted member reports conflict_change_id +
+  // conflicts and leaves the stack untouched. Rebased heads are new
+  // versions of their Changes: approvals bound to the old heads go stale
+  // and required checks re-run, exactly as if the author had re-pushed.
+  rpc SyncChange(SyncChangeRequest) returns (SyncChangeResponse);
   // Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
   // head they were written against and outdate on amend; threads are one
   // level deep; agents comment (badge via author.type), never approve.
@@ -205,6 +214,26 @@ message AbandonChangeRequest {
 message RerunCheckRequest {
   string change_id = 1;
   string check_name = 2;
+}
+
+message SyncChangeRequest {
+  // Any member of the stack: sync always operates on the whole stack the
+  // Change belongs to, wherever the button was pressed.
+  string change_id = 1;
+}
+
+message SyncChangeResponse {
+  // Exactly one of synced / already_in_sync / (conflict_change_id != "")
+  // describes the outcome.
+  bool synced = 1;          // at least one member was rebased; refs moved
+  bool already_in_sync = 2; // the stack is already based on the trunk tip
+  // The member whose rebase hit a merge conflict ("" when none). Nothing
+  // was written: the conflict must be resolved client-side (rebase in the
+  // workspace and re-push), which replaces the whole stack in one push.
+  string conflict_change_id = 3;
+  repeated string conflicts = 4; // conflicted paths within that member
+  // The stack after the sync (trunk-most first), refreshed heads/bases.
+  repeated ChangeSummary stack = 5;
 }
 
 message ListCommentsRequest {

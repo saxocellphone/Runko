@@ -29,15 +29,17 @@ func diffPaths(repoDir, from, to string) ([]string, error) {
 	return strings.Split(text, "\n"), nil
 }
 
-// commitTree wraps `git commit-tree`, used to turn a merge-tree result (a
+// CommitTree wraps `git commit-tree`, used to turn a merge-tree result (a
 // tree object, not yet a commit) into a real commit with a single parent -
-// the linear-trunk-history half of rebase-based landing (§7.4).
+// the linear-trunk-history half of rebase-based landing (§7.4). Exported
+// for runkod's server-side stack sync, which mints rebased Change heads
+// from the same Rebase primitive.
 //
 // Identity follows the Gerrit/GitHub model: the AUTHOR is whoever wrote
 // the change (meta, filled from the original commit by the caller - a
 // rebase-land must not eat authorship the way a fast-forward land
 // preserves it), the COMMITTER is the landing machine.
-func commitTree(repoDir, treeSHA, parent string, meta core.CommitMeta) (string, error) {
+func CommitTree(repoDir, treeSHA, parent string, meta core.CommitMeta) (string, error) {
 	authorName := orDefault(meta.AuthorName, "Runko")
 	authorEmail := orDefault(meta.AuthorEmail, "runko@localhost")
 

@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { ConnectError } from "@connectrpc/connect";
 import { authUser, publicBrowse, changesClient } from "../api/client";
 import { ChangeState, CommentSide, type MergeRequirements } from "../gen/runko/v1/common_pb";
-import type { LandChangeResponse } from "../gen/runko/v1/changes_pb";
+import type { LandChangeResponse, SyncChangeResponse } from "../gen/runko/v1/changes_pb";
 import { groupThreads, partitionThreads } from "../lib/comments";
 import { absoluteTime, changeNumberLabel, shortSha, timeAgo } from "../lib/format";
 import { useRpc } from "../lib/useRpc";
@@ -17,6 +17,7 @@ export function ChangePage() {
   const { changeId = "" } = useParams();
   const [busy, setBusy] = useState(false);
   const [landResult, setLandResult] = useState<LandChangeResponse | undefined>();
+  const [syncResult, setSyncResult] = useState<SyncChangeResponse | undefined>();
   const [actionError, setActionError] = useState<ConnectError | undefined>();
 
   const { data, error, loading, reload } = useRpc(async () => {
@@ -158,6 +159,24 @@ export function ChangePage() {
           Lost a land race — try again.
         </div>
       )}
+      {syncResult?.synced && (
+        <div className="land-banner land-banner-ok">
+          Stack synced — rebased onto the current trunk tip. Checks are re-running against the
+          rebased heads.
+        </div>
+      )}
+      {syncResult?.alreadyInSync && (
+        <div className="land-banner land-banner-warn">
+          Already in sync — the stack is based on the current trunk tip.
+        </div>
+      )}
+      {syncResult && syncResult.conflictChangeId !== "" && (
+        <div className="land-banner land-banner-err">
+          Sync conflict in {syncResult.conflictChangeId.slice(0, 13)}…:{" "}
+          {syncResult.conflicts.join(", ")} — nothing was rebased. Resolve in your workspace
+          (<code>runko workspace sync</code>) and re-push the stack.
+        </div>
+      )}
       {actionError && <ErrorNote error={actionError} />}
 
       <div className="change-layout">
@@ -234,11 +253,25 @@ export function ChangePage() {
                   title={requirements?.mergeable ? "" : requirements?.blockers.join("; ")}
                   onClick={() =>
                     act(async () => {
+                      setSyncResult(undefined);
                       setLandResult(await changesClient.landChange({ changeId }));
                     })
                   }
                 >
                   Land
+                </button>
+                <button
+                  className="btn"
+                  disabled={busy}
+                  title="Rebase this change's whole stack onto the current trunk tip, server-side (design.md 13.5). All-or-nothing: a conflict in any member is reported and nothing moves. Rebased heads re-run their required checks."
+                  onClick={() =>
+                    act(async () => {
+                      setLandResult(undefined);
+                      setSyncResult(await changesClient.syncChange({ changeId }));
+                    })
+                  }
+                >
+                  Sync
                 </button>
                 {!requirements?.mergeable && (
                   <button

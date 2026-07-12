@@ -65,6 +65,9 @@ const (
 	// ChangeServiceRerunCheckProcedure is the fully-qualified name of the ChangeService's RerunCheck
 	// RPC.
 	ChangeServiceRerunCheckProcedure = "/runko.v1.ChangeService/RerunCheck"
+	// ChangeServiceSyncChangeProcedure is the fully-qualified name of the ChangeService's SyncChange
+	// RPC.
+	ChangeServiceSyncChangeProcedure = "/runko.v1.ChangeService/SyncChange"
 	// ChangeServiceListCommentsProcedure is the fully-qualified name of the ChangeService's
 	// ListComments RPC.
 	ChangeServiceListCommentsProcedure = "/runko.v1.ChangeService/ListComments"
@@ -105,6 +108,15 @@ type ChangeServiceClient interface {
 	// to the arming principal. Only open changes arm; disarm always works.
 	SetAutomerge(context.Context, *connect.Request[v1.SetAutomergeRequest]) (*connect.Response[v1.SetAutomergeResponse], error)
 	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error)
+	// SyncChange rebases the requested Change's WHOLE stack onto the current
+	// trunk tip, server-side (the UI counterpart of `runko workspace sync`,
+	// reusing §13.5's merge-tree rebase). All-or-nothing: every member is
+	// rebased bottom-up in memory first, and refs move only if all of them
+	// rebase cleanly - one conflicted member reports conflict_change_id +
+	// conflicts and leaves the stack untouched. Rebased heads are new
+	// versions of their Changes: approvals bound to the old heads go stale
+	// and required checks re-run, exactly as if the author had re-pushed.
+	SyncChange(context.Context, *connect.Request[v1.SyncChangeRequest]) (*connect.Response[v1.SyncChangeResponse], error)
 	// Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
 	// head they were written against and outdate on amend; threads are one
 	// level deep; agents comment (badge via author.type), never approve.
@@ -191,6 +203,12 @@ func NewChangeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(changeServiceMethods.ByName("RerunCheck")),
 			connect.WithClientOptions(opts...),
 		),
+		syncChange: connect.NewClient[v1.SyncChangeRequest, v1.SyncChangeResponse](
+			httpClient,
+			baseURL+ChangeServiceSyncChangeProcedure,
+			connect.WithSchema(changeServiceMethods.ByName("SyncChange")),
+			connect.WithClientOptions(opts...),
+		),
 		listComments: connect.NewClient[v1.ListCommentsRequest, v1.ListCommentsResponse](
 			httpClient,
 			baseURL+ChangeServiceListCommentsProcedure,
@@ -231,6 +249,7 @@ type changeServiceClient struct {
 	abandonChange        *connect.Client[v1.AbandonChangeRequest, v1.AbandonChangeResponse]
 	setAutomerge         *connect.Client[v1.SetAutomergeRequest, v1.SetAutomergeResponse]
 	rerunCheck           *connect.Client[v1.RerunCheckRequest, v1.RerunCheckResponse]
+	syncChange           *connect.Client[v1.SyncChangeRequest, v1.SyncChangeResponse]
 	listComments         *connect.Client[v1.ListCommentsRequest, v1.ListCommentsResponse]
 	createComment        *connect.Client[v1.CreateCommentRequest, v1.CreateCommentResponse]
 	resolveComment       *connect.Client[v1.ResolveCommentRequest, v1.ResolveCommentResponse]
@@ -292,6 +311,11 @@ func (c *changeServiceClient) RerunCheck(ctx context.Context, req *connect.Reque
 	return c.rerunCheck.CallUnary(ctx, req)
 }
 
+// SyncChange calls runko.v1.ChangeService.SyncChange.
+func (c *changeServiceClient) SyncChange(ctx context.Context, req *connect.Request[v1.SyncChangeRequest]) (*connect.Response[v1.SyncChangeResponse], error) {
+	return c.syncChange.CallUnary(ctx, req)
+}
+
 // ListComments calls runko.v1.ChangeService.ListComments.
 func (c *changeServiceClient) ListComments(ctx context.Context, req *connect.Request[v1.ListCommentsRequest]) (*connect.Response[v1.ListCommentsResponse], error) {
 	return c.listComments.CallUnary(ctx, req)
@@ -338,6 +362,15 @@ type ChangeServiceHandler interface {
 	// to the arming principal. Only open changes arm; disarm always works.
 	SetAutomerge(context.Context, *connect.Request[v1.SetAutomergeRequest]) (*connect.Response[v1.SetAutomergeResponse], error)
 	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error)
+	// SyncChange rebases the requested Change's WHOLE stack onto the current
+	// trunk tip, server-side (the UI counterpart of `runko workspace sync`,
+	// reusing §13.5's merge-tree rebase). All-or-nothing: every member is
+	// rebased bottom-up in memory first, and refs move only if all of them
+	// rebase cleanly - one conflicted member reports conflict_change_id +
+	// conflicts and leaves the stack untouched. Rebased heads are new
+	// versions of their Changes: approvals bound to the old heads go stale
+	// and required checks re-run, exactly as if the author had re-pushed.
+	SyncChange(context.Context, *connect.Request[v1.SyncChangeRequest]) (*connect.Response[v1.SyncChangeResponse], error)
 	// Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
 	// head they were written against and outdate on amend; threads are one
 	// level deep; agents comment (badge via author.type), never approve.
@@ -420,6 +453,12 @@ func NewChangeServiceHandler(svc ChangeServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(changeServiceMethods.ByName("RerunCheck")),
 		connect.WithHandlerOptions(opts...),
 	)
+	changeServiceSyncChangeHandler := connect.NewUnaryHandler(
+		ChangeServiceSyncChangeProcedure,
+		svc.SyncChange,
+		connect.WithSchema(changeServiceMethods.ByName("SyncChange")),
+		connect.WithHandlerOptions(opts...),
+	)
 	changeServiceListCommentsHandler := connect.NewUnaryHandler(
 		ChangeServiceListCommentsProcedure,
 		svc.ListComments,
@@ -468,6 +507,8 @@ func NewChangeServiceHandler(svc ChangeServiceHandler, opts ...connect.HandlerOp
 			changeServiceSetAutomergeHandler.ServeHTTP(w, r)
 		case ChangeServiceRerunCheckProcedure:
 			changeServiceRerunCheckHandler.ServeHTTP(w, r)
+		case ChangeServiceSyncChangeProcedure:
+			changeServiceSyncChangeHandler.ServeHTTP(w, r)
 		case ChangeServiceListCommentsProcedure:
 			changeServiceListCommentsHandler.ServeHTTP(w, r)
 		case ChangeServiceCreateCommentProcedure:
@@ -527,6 +568,10 @@ func (UnimplementedChangeServiceHandler) SetAutomerge(context.Context, *connect.
 
 func (UnimplementedChangeServiceHandler) RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.RerunCheckResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.RerunCheck is not implemented"))
+}
+
+func (UnimplementedChangeServiceHandler) SyncChange(context.Context, *connect.Request[v1.SyncChangeRequest]) (*connect.Response[v1.SyncChangeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.SyncChange is not implemented"))
 }
 
 func (UnimplementedChangeServiceHandler) ListComments(context.Context, *connect.Request[v1.ListCommentsRequest]) (*connect.Response[v1.ListCommentsResponse], error) {

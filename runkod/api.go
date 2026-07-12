@@ -186,6 +186,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/changes", s.requireReadAuth(s.handleListChanges))
 	mux.HandleFunc("GET /api/changes/{key}", s.requireReadAuth(s.handleGetChange))
 	mux.HandleFunc("POST /api/changes/{key}/abandon", s.requireAuth(s.handleAbandonChange))
+	mux.HandleFunc("POST /api/changes/{key}/sync", s.requireAuth(s.handleSyncChange))
 	mux.HandleFunc("POST /api/changes/{key}/checks/{name}/rerun", s.requireAuth(s.handleRerunCheck))
 	mux.HandleFunc("GET /api/changes/{key}/affected", s.requireReadAuth(s.handleGetAffected))
 	mux.HandleFunc("GET /api/changes/{key}/merge-requirements", s.requireReadAuth(s.handleGetMergeRequirements))
@@ -651,6 +652,34 @@ func (s *Server) handleAbandonChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, change)
+}
+
+// handleSyncChange serves POST /api/changes/{key}/sync: server-side stack
+// rebase onto the current trunk tip (see sync.go). The non-synced outcomes
+// (already in sync, conflict) are response fields, not errors - the same
+// stance as land's outcome modeling.
+func (s *Server) handleSyncChange(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	change, ok, err := s.Store.GetChange(r.Context(), key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "change not found", http.StatusNotFound)
+		return
+	}
+	dec, apiErr := s.syncChangeCore(r.Context(), key, change, s.principalFor(r))
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"synced":             dec.Synced,
+		"already_in_sync":    dec.AlreadyInSync,
+		"conflict_change_id": dec.ConflictChange,
+		"conflicts":          dec.ConflictPaths,
+	})
 }
 
 // handleRerunCheck serves POST /api/changes/{key}/checks/{name}/rerun -
