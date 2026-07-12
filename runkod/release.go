@@ -103,7 +103,7 @@ func (s *Server) resolveReleaseProject(name string) (index.IndexedProject, proje
 			Message: fmt.Sprintf("trunk %s has no commits yet - nothing to release", s.TrunkRef),
 		})
 	}
-	indexed, err := index.Scan(gstore, trunkTip, nil)
+	indexed, err := s.indexedProjectsAt(gstore, trunkTip)
 	if err != nil {
 		return index.IndexedProject{}, project.ReleaseConfig{}, "", internalErr(err)
 	}

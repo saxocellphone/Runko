@@ -91,8 +91,8 @@ func (s *Server) attemptLand(ctx context.Context, change Change, scope land.Reva
 
 	for attempt := 0; attempt < maxLandRaceRetries; attempt++ {
 		var projects []affected.ProjectInfo
-		if _, err := gstore.ResolveRef("refs/heads/" + s.TrunkRef); err == nil {
-			indexed, err := index.Scan(gstore, core.Revision("refs/heads/"+s.TrunkRef), nil)
+		if tip, err := gstore.ResolveRef("refs/heads/" + s.TrunkRef); err == nil {
+			indexed, err := s.indexedProjectsAt(gstore, tip)
 			if err != nil {
 				return land.Outcome{}, fmt.Errorf("land: scan projects: %w", err)
 			}

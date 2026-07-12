@@ -127,12 +127,13 @@ func (s *Server) workspaceResponse(ws Workspace) workspaceResponse {
 	}
 }
 
-// resolveProjectPaths maps project names to their tree paths at rev,
-// erroring with the unknown names - a client typo must name the culprit
-// (§6.5), not silently create a workspace with a hole in its cone.
+// resolveProjectPaths maps project names to their tree paths at rev (a
+// resolved trunk-tip SHA at both call sites - indexedProjectsAt's key
+// contract), erroring with the unknown names - a client typo must name the
+// culprit (§6.5), not silently create a workspace with a hole in its cone.
 func (s *Server) resolveProjectPaths(rev core.Revision, names []string) (paths []string, unknown []string, err error) {
 	store := gitstore.New(s.RepoDir)
-	indexed, err := index.Scan(store, rev, nil)
+	indexed, err := s.indexedProjectsAt(store, rev)
 	if err != nil {
 		return nil, nil, fmt.Errorf("scan projects: %w", err)
 	}

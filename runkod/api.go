@@ -122,10 +122,53 @@ type Server struct {
 	affectedMu    sync.Mutex
 	affectedCache map[string]affectedEntry
 
+	// scanMu/scanCache memoize index.Scan by resolved commit SHA -
+	// affectedCache's sibling, one layer down. A SHA names an immutable
+	// tree, so entries never go stale; a land invalidates by changing the
+	// trunk tip SHA, not by eviction. Without this, every project/browse/
+	// search read re-walked the whole tree (one git subprocess per
+	// directory, two more per manifest), and the web UI's project page
+	// fans out to one GetProject per project (stage 15 dogfood: "the
+	// project page loads slowly" - 12 concurrent RPCs × ~80 subprocess
+	// spawns each, ~2.8s measured on the dogfood deployment).
+	scanMu    sync.Mutex
+	scanCache map[core.Revision][]index.IndexedProject
+
 	// automerge is the when-ready land worker (automerge.go); nil when
 	// none was started (tests, one-shot tools). KickAutomerge is the
 	// nil-safe nudge the mergeability-flipping handlers call.
 	automerge *AutomergeWorker
+}
+
+// indexedProjectsAt is the memoized index.Scan every read path shares. rev
+// MUST be a resolved commit SHA, never a ref name - a ref-name key would
+// serve yesterday's tree after the ref moves. The mutex is held across the
+// scan on purpose (unlike computeAffected's): the cold case is a burst of
+// identical reads - the web UI's project page issues a dozen at once - and
+// single-flighting turns N scans into one scan plus N waits. Entries are
+// shared across requests, so callers treat the slice as read-only - every
+// existing consumer already does (they derive fresh slices).
+func (s *Server) indexedProjectsAt(gstore *gitstore.Store, rev core.Revision) ([]index.IndexedProject, error) {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+	if indexed, ok := s.scanCache[rev]; ok {
+		return indexed, nil
+	}
+	indexed, err := index.Scan(gstore, rev, nil)
+	if err != nil {
+		return nil, err
+	}
+	if s.scanCache == nil {
+		s.scanCache = map[core.Revision][]index.IndexedProject{}
+	}
+	// SHA-keyed entries never expire, but browsed historical revs and
+	// change heads must not grow the map forever; past ~512 just start
+	// over (affectedCache's rule).
+	if len(s.scanCache) >= 512 {
+		s.scanCache = map[core.Revision][]index.IndexedProject{}
+	}
+	s.scanCache[rev] = indexed
+	return indexed, nil
 }
 
 // affectedEntry is one memoized computeAffected result. Entries are shared
@@ -812,7 +855,7 @@ func (s *Server) computeAffected(change Change) (affected.Result, []index.Indexe
 	s.affectedMu.Unlock()
 
 	store := gitstore.New(s.RepoDir)
-	indexed, err := index.Scan(store, core.Revision(change.HeadSHA), nil)
+	indexed, err := s.indexedProjectsAt(store, core.Revision(change.HeadSHA))
 	if err != nil {
 		return affected.Result{}, nil, fmt.Errorf("scan projects: %w", err)
 	}
@@ -1217,7 +1260,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []index.IndexedProject{})
 		return
 	}
-	indexed, err := index.Scan(gstore, trunkTip, nil)
+	indexed, err := s.indexedProjectsAt(gstore, trunkTip)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1250,7 +1293,7 @@ func (s *Server) handleAffectedByPaths(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	indexed, err := index.Scan(gstore, trunkTip, nil)
+	indexed, err := s.indexedProjectsAt(gstore, trunkTip)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1458,8 +1501,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gstore := gitstore.New(s.RepoDir)
-	if indexed, ierr := index.Scan(gstore, core.Revision("refs/heads/"+s.TrunkRef), nil); ierr == nil {
-		tagProjects(result, indexed)
+	if trunkTip, rerr := gstore.ResolveRef("refs/heads/" + s.TrunkRef); rerr == nil {
+		if indexed, ierr := s.indexedProjectsAt(gstore, trunkTip); ierr == nil {
+			tagProjects(result, indexed)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, result)

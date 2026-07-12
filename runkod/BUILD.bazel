@@ -95,6 +95,7 @@ go_test(
         "release_test.go",
         "rpc_test.go",
         "runwhen_test.go",
+        "scancache_test.go",
         "signup_test.go",
         "singleuse_test.go",
         "snapshot_test.go",

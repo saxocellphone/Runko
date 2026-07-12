@@ -422,6 +422,27 @@ planning; entries marked `[observed]` happened during execution.
     lives in the DEPLOYED daemon: the fix gates nothing until runkod
     redeploys (same rollout class as #35's parser skew).
 
+41. **[observed, web UI] The project page took ~3s: an N+1 RPC fan-out
+    times an uncached full-tree scan per RPC.** Two multiplying causes.
+    Client: `useGraphProjects` (the dep-graph hook the project page AND
+    the projects list share) calls `listProjects` then one `getProject`
+    per project, because `ProjectSummary` carries no dependency edges -
+    12 concurrent RPCs on the dogfood repo. Server: every ProjectService
+    read re-ran `index.Scan` at trunk tip - one `git ls-tree` subprocess
+    per directory plus a `cat-file` per manifest/OWNERS, ~80 spawns per
+    RPC, ~960 per page view; under the pod's CPU limit the burst
+    serialized (a single call: ~250ms; inside the burst: up to 2.2s,
+    2.8s wall measured with curl). Fixed server-side: `indexedProjectsAt`
+    memoizes `index.Scan` by resolved commit SHA (affectedCache's
+    sibling, one layer down - single-flight, since the cold case IS the
+    burst), and every Server read path routes through it; pinned by
+    TestScanCacheFollowsTrunk. Still open: the client N+1 itself
+    (dependency edges on `ProjectSummary` would make the graph 1 RPC)
+    and the same quadratic shape anywhere else a per-item RPC hides a
+    per-request scan. The affectedCache comment already recorded this
+    disease for merge-requirements reads ("landed/open tabs load
+    slowly") - this is the scan-layer generalization it asked for.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,

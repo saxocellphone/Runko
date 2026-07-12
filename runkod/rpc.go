@@ -315,7 +315,7 @@ func (r *rpcServer) GetChangeDiff(ctx context.Context, req *connect.Request[runk
 	// (§13.3) - a scan failure degrades to untagged files, never a failed
 	// diff (the tag is presentation, the diff is the payload).
 	var indexed []index.IndexedProject
-	if scanned, serr := index.Scan(gitstore.New(r.s.RepoDir), core.Revision(change.HeadSHA), nil); serr == nil {
+	if scanned, serr := r.s.indexedProjectsAt(gitstore.New(r.s.RepoDir), core.Revision(change.HeadSHA)); serr == nil {
 		indexed = scanned
 	}
 	out := make([]*runkov1.FileDiff, len(files))
@@ -358,7 +358,7 @@ func (r *rpcServer) GetAffected(ctx context.Context, req *connect.Request[runkov
 				Message: fmt.Sprintf("trunk %s has no commits yet", r.s.TrunkRef),
 			}))
 		}
-		indexed, err := index.Scan(gstore, trunkTip, nil)
+		indexed, err := r.s.indexedProjectsAt(gstore, trunkTip)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
@@ -647,7 +647,7 @@ func (s *Server) trunkProjects() ([]index.IndexedProject, error) {
 	if err != nil {
 		return nil, nil
 	}
-	return index.Scan(gstore, trunkTip, nil)
+	return s.indexedProjectsAt(gstore, trunkTip)
 }
 
 func (r *rpcServer) ListProjects(ctx context.Context, req *connect.Request[runkov1.ListProjectsRequest]) (*connect.Response[runkov1.ListProjectsResponse], error) {
@@ -886,7 +886,7 @@ func (r *rpcServer) GetWorkspaceDiff(ctx context.Context, req *connect.Request[r
 	// Project tagging at the snapshot's own tree, same degradation rule as
 	// GetChangeDiff: the tag is presentation, the diff is the payload.
 	var indexed []index.IndexedProject
-	if scanned, serr := index.Scan(gitstore.New(r.s.RepoDir), core.Revision(snapSHA), nil); serr == nil {
+	if scanned, serr := r.s.indexedProjectsAt(gitstore.New(r.s.RepoDir), core.Revision(snapSHA)); serr == nil {
 		indexed = scanned
 	}
 	resp.Files = make([]*runkov1.FileDiff, len(files))
@@ -1031,8 +1031,11 @@ func (r *rpcServer) SearchCode(ctx context.Context, req *connect.Request[runkov1
 	}
 	// Same project tagging as GET /api/search, same layering (search stays
 	// a leaf package; the daemon joins in the index).
-	if indexed, ierr := index.Scan(gitstore.New(r.s.RepoDir), core.Revision("refs/heads/"+r.s.TrunkRef), nil); ierr == nil {
-		tagProjects(result, indexed)
+	gstore := gitstore.New(r.s.RepoDir)
+	if trunkTip, rerr := gstore.ResolveRef("refs/heads/" + r.s.TrunkRef); rerr == nil {
+		if indexed, ierr := r.s.indexedProjectsAt(gstore, trunkTip); ierr == nil {
+			tagProjects(result, indexed)
+		}
 	}
 	hits := make([]*runkov1.SearchHit, 0, len(result.Hits))
 	for _, h := range result.Hits {
@@ -1072,7 +1075,7 @@ func (r *rpcServer) GetTree(ctx context.Context, req *connect.Request[runkov1.Ge
 		return nil, connectErr(apiErr)
 	}
 	var indexed []index.IndexedProject
-	if scanned, serr := index.Scan(gitstore.New(r.s.RepoDir), rev, nil); serr == nil {
+	if scanned, serr := r.s.indexedProjectsAt(gitstore.New(r.s.RepoDir), rev); serr == nil {
 		indexed = scanned
 	}
 	out := make([]*runkov1.TreeEntry, len(entries))
@@ -1103,7 +1106,7 @@ func (r *rpcServer) GetBlob(ctx context.Context, req *connect.Request[runkov1.Ge
 		return nil, connectErr(apiErr)
 	}
 	project := ""
-	if indexed, serr := index.Scan(gitstore.New(r.s.RepoDir), rev, nil); serr == nil {
+	if indexed, serr := r.s.indexedProjectsAt(gitstore.New(r.s.RepoDir), rev); serr == nil {
 		if p, ok := owningProject(indexed, strings.Trim(req.Msg.Path, "/")); ok && p.Path != "" {
 			project = p.Name
 		}
