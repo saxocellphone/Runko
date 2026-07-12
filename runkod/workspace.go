@@ -331,6 +331,9 @@ func (s *Server) maybeCloseAgentWorkspace(ctx context.Context, wsID string) {
 		log.Printf("runkod: close agent workspace %q: %v", wsID, err)
 		return
 	}
+	recordWorkspaceEvent(ctx, s.Store, s.Events, WorkspaceEvent{
+		Type: WorkspaceEventWorkspaceClosed, WorkspaceID: wsID, Actor: ws.Owner,
+	})
 	log.Printf("runkod: closed agent workspace %q - its last open change concluded (single-use policy)", wsID)
 }
 

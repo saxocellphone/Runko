@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,6 +84,11 @@ type verdict struct {
 	// options, validated against the registry before acceptance.
 	originWorkspace string
 	originBranch    string
+	// snapAdds/snapDels are an accepted snapshot's numstat totals
+	// (binary files count 0/0) - the §12.6 timeline's stats, computed
+	// where the effective-old base is already known.
+	snapAdds int
+	snapDels int
 }
 
 func (v verdict) accepted() bool { return v.evalErr == "" && (v.skip || v.decision.Accepted) }
@@ -144,6 +150,10 @@ type Processor struct {
 	// consults it in exactly one place: the §14.10.3 tags gate (stage 17),
 	// where a lane may write the tag namespaces its TagAllowlist covers.
 	BotLanes []BotLane
+	// Events is the §12.6 in-process live feed - the same bus the org's
+	// Server carries, so snapshot/change pushes poke WatchWorkspace
+	// subscribers. Nil-safe: rows still land in the Store without it.
+	Events *EventBus
 }
 
 // DefaultMaxSnapshotBytes is the default snapshot size cap (§12.2): generous
@@ -185,7 +195,18 @@ func (p *Processor) ProcessBatch(ctx context.Context, updates []RefUpdate, extra
 		case v.isSnapshot:
 			// An accepted snapshot IS the durability (§12.2: the commit chain
 			// on refs/workspaces/<id>/head is the content store) - no Change
-			// row, no webhook; the registry row already exists.
+			// row, no webhook; the registry row already exists. The §12.6
+			// timeline row + live poke are the one side effect - written
+			// pre-finalize like Change rows (the hook forwards before
+			// receive-pack moves the ref), where an orphan stats row on a
+			// crashed push is harmless.
+			if wsID, branch, ok := SnapshotRefParts(v.update.Ref); ok {
+				recordWorkspaceEvent(ctx, p.Store, p.Events, WorkspaceEvent{
+					Type: WorkspaceEventSnapshotPushed, WorkspaceID: wsID, Branch: branch,
+					Actor: v.author, SHA: v.update.NewSHA,
+					FilesChanged: len(v.changedPaths), Additions: v.snapAdds, Deletions: v.snapDels,
+				})
+			}
 			results[i] = RefResult{Ref: v.update.Ref, Accepted: true,
 				Message: fmt.Sprintf("remote: workspace snapshot -> %s\n", v.update.Ref)}
 		default:
@@ -666,6 +687,7 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 	if err != nil {
 		return verdict{update: u, evalErr: fmt.Sprintf("remote: could not inspect snapshot: %v\n", err)}
 	}
+	snapAdds, snapDels := p.numstatTotals(oldSHA, u.NewSHA, extraEnv)
 
 	if pr := p.principalByName(author); pr != nil && pr.IsAgent {
 		// A snapshot push is exactly the workspace-affine write §8.7's
@@ -710,7 +732,35 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 	}
 
 	return verdict{update: u, isSnapshot: true, changedPaths: changedPaths, extraEnv: extraEnv, author: author,
+		snapAdds: snapAdds, snapDels: snapDels,
 		decision: receive.Decision{Accepted: true}}
+}
+
+// numstatTotals sums `git diff --numstat` for the §12.6 stats row.
+// Best-effort by design (a failed numstat is a 0/0 row, never a rejected
+// push); binary files report "-" and count 0/0.
+func (p *Processor) numstatTotals(oldSHA, newSHA string, extraEnv []string) (adds, dels int) {
+	from := oldSHA
+	if from == zeroOID {
+		from = emptyTreeOID
+	}
+	out, err := p.runGit(extraEnv, "diff", "--numstat", from, newSHA)
+	if err != nil {
+		return 0, 0
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		if a, err := strconv.Atoi(fields[0]); err == nil {
+			adds += a
+		}
+		if d, err := strconv.Atoi(fields[1]); err == nil {
+			dels += d
+		}
+	}
+	return adds, dels
 }
 
 func rejectionMessage(v verdict) string {
@@ -777,6 +827,17 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 		p.ZoektIndexWorker.Trigger()
 	}
 	p.Mirror.Trigger()
+
+	// §12.6 timeline: one change_pushed row per accepted push (the tip
+	// names the stack; per-member rows would be noise on series pushes).
+	// Line totals stay 0 here - the Change page carries the real diff.
+	if v.originWorkspace != "" && tip.ChangeKey != "" {
+		recordWorkspaceEvent(ctx, p.Store, p.Events, WorkspaceEvent{
+			Type: WorkspaceEventChangePushed, WorkspaceID: v.originWorkspace, Branch: v.originBranch,
+			Actor: v.author, SHA: v.update.NewSHA, ChangeKey: tip.ChangeKey,
+			FilesChanged: len(v.changedPaths),
+		})
+	}
 
 	fmt.Fprintf(&msg, "remote: %s -> %s\n", tip.ChangeKey, v.update.Ref)
 	return RefResult{

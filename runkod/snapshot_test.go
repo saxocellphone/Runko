@@ -282,3 +282,69 @@ func TestAgentChangePushFromOwnWorkspaceSatisfiesAffinity(t *testing.T) {
 		t.Fatalf("push touching paths outside the claimed workspace's allowlist should be refused, got %+v", result)
 	}
 }
+
+// TestSnapshotPushRecordsWorkspaceEventAndPokesBus pins the §12.6 receive
+// hook: an accepted snapshot writes exactly one stats row (numstat totals,
+// actor, branch) and pokes a live subscriber; the ref keeps producing no
+// Change row (asserted above).
+func TestSnapshotPushRecordsWorkspaceEventAndPokesBus(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("wip.go", "package wip\n\nfunc WIP() {}\n")
+	repo.Commit("wip")
+	oldSHA, headSHA := pushCommit(t, repo, bare, "refs/workspaces/payments-fix/feature")
+
+	store := NewMemStore()
+	registerWorkspace(t, store, "payments-fix")
+	bus := NewEventBus()
+	sub, cancel := bus.Subscribe("payments-fix")
+	defer cancel()
+	p := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: markerScanner{}, Store: store, Events: bus}
+
+	result := p.Process(context.Background(), RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/workspaces/payments-fix/feature"},
+		[]string{"REMOTE_USER=alice"})
+	if !result.Accepted {
+		t.Fatalf("expected the snapshot accepted, got %+v", result)
+	}
+
+	evs, err := store.ListWorkspaceEvents(context.Background(), "payments-fix", 0, 0)
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("expected exactly one workspace event, got %+v err=%v", evs, err)
+	}
+	ev := evs[0]
+	if ev.Type != WorkspaceEventSnapshotPushed || ev.Branch != "feature" || ev.Actor != "alice" || ev.SHA != headSHA {
+		t.Fatalf("unexpected event: %+v", ev)
+	}
+	if ev.FilesChanged != 1 || ev.Additions == 0 || ev.Deletions != 0 {
+		t.Fatalf("expected numstat totals for one added file, got %+v", ev)
+	}
+
+	select {
+	case <-sub.Ready():
+	default:
+		t.Fatalf("expected the bus poked on an accepted snapshot")
+	}
+	if poked, ok := sub.Take(); !ok || poked.ID != ev.ID {
+		t.Fatalf("expected the recorded event on the bus, got %+v ok=%v", poked, ok)
+	}
+}
+
+// TestRejectedSnapshotRecordsNoWorkspaceEvent - a refused push never
+// reaches the timeline (the row is written on the ACCEPT branch only).
+func TestRejectedSnapshotRecordsNoWorkspaceEvent(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("config.env", "TOKEN=SECRET-abc123\n")
+	repo.Commit("wip with a secret")
+	oldSHA, headSHA := pushCommit(t, repo, bare, "refs/workspaces/payments-fix/head")
+
+	store := NewMemStore()
+	registerWorkspace(t, store, "payments-fix")
+	p := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: markerScanner{}, Store: store, Events: NewEventBus()}
+	if result := p.Process(context.Background(), RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/workspaces/payments-fix/head"}, nil); result.Accepted {
+		t.Fatalf("expected the secret snapshot rejected, got %+v", result)
+	}
+	if evs, _ := store.ListWorkspaceEvents(context.Background(), "payments-fix", 0, 0); len(evs) != 0 {
+		t.Fatalf("a rejected snapshot must record nothing, got %+v", evs)
+	}
+}

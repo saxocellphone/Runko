@@ -238,6 +238,7 @@ func cmdServe(args []string) error {
 		}
 	}
 
+	events := runkod.NewEventBus()
 	processor := &runkod.Processor{
 		RepoDir: *repoDir, TrunkRef: *trunk, Scanner: scanner, Store: store,
 		RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
@@ -247,9 +248,11 @@ func cmdServe(args []string) error {
 		BotLanes:                 botLanes,
 		OrgName:                  defaultOrgName,
 		RequireChangeWorkspace:   !*allowWorkspaceless,
+		Events:                   events,
 	}
 	server := &runkod.Server{
 		RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher,
+		Events:                   events,
 		GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
 		SingleUseAgentWorkspaces: *singleUseAgentWS,
 		AllowUnpolicedLand:       *allowUnpoliced,
@@ -301,6 +304,7 @@ func cmdServe(args []string) error {
 			return runkod.NewMemStore(), nil
 		},
 		NewOrgServer: func(orgName, orgRepoDir string, orgStore runkod.Store) (*runkod.Server, error) {
+			orgEvents := runkod.NewEventBus()
 			proc := &runkod.Processor{
 				RepoDir: orgRepoDir, TrunkRef: *trunk, Scanner: scanner, Store: orgStore,
 				RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
@@ -309,6 +313,7 @@ func cmdServe(args []string) error {
 				Directory:                directory,
 				OrgName:                  orgName,
 				RequireChangeWorkspace:   !*allowWorkspaceless,
+				Events:                   orgEvents,
 			}
 			// Per-org mirror (§18.6 M1, was default-org-only in v1 -
 			// docs/migration-findings.md #12): an --org-mirror entry naming
@@ -335,6 +340,7 @@ func cmdServe(args []string) error {
 			}
 			orgServer := &runkod.Server{
 				RepoDir: orgRepoDir, TrunkRef: *trunk, Store: orgStore, Processor: proc, Token: *token,
+				Events:                   orgEvents,
 				Searcher:                 search.NotConfiguredSearcher{},
 				GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
 				SingleUseAgentWorkspaces: *singleUseAgentWS,
