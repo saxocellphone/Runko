@@ -146,6 +146,56 @@ func TestChecksSnapshotDiffEmptyDiffNarrowsToOwner(t *testing.T) {
 	}
 }
 
+// §14.5.9 through the snapshot path: a de-escalated result must keep the
+// direct/closure distinction. A mixed change (refinable MODULE.bazel + a's
+// own code) leaves b closure-affected only - b's run_when:direct lane must
+// NOT ride the narrowed matrix, while its affected-class check still does.
+func TestChecksSnapshotDiffKeepsClosureMembersNonDirect(t *testing.T) {
+	repo, _ := snapshotChecksFixture(t)
+	// b gains a direct-only unit lane beside its affected-class check -
+	// IN THE BASE: touching b's manifest in the head commit would make b
+	// genuinely direct and defeat the scenario.
+	repo.WriteFile("b/PROJECT.yaml", `schema: project/v1
+name: b
+type: service
+dependencies:
+  - a
+ci:
+  checks:
+    - name: b-test
+      command: bazel test //b/...
+    - name: b-race
+      command: bazel test --race //b/...
+      run_when: direct
+`)
+	base := repo.Commit("b gains a direct-only lane")
+	repo.WriteFile("MODULE.bazel", "module(name = \"x\", version = \"6\")\n")
+	repo.WriteFile("a/main.go", "package a\n")
+	head := repo.Commit("module bump + a code")
+	fakeDeterminatorOnPath(t, `true`) // empty diff: the module bump impacts nothing
+
+	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0)
+	if err != nil {
+		t.Fatalf("Checks: %v", err)
+	}
+	if out.RunEverything {
+		t.Fatalf("mixed refinable+code change with a clean diff must narrow: %+v", out)
+	}
+	var names []string
+	for _, c := range out.Checks {
+		names = append(names, c.Name)
+	}
+	want := []string{"a-test", "b-test", "docs-check"} // b-race must be absent: b is closure-only
+	if len(names) != len(want) {
+		t.Fatalf("want %v, got %v", want, names)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("want %v, got %v", want, names)
+		}
+	}
+}
+
 // Without --engine nothing changes: the refinable marking alone never
 // narrows anything (the gate and every engine-less caller see pure floor
 // semantics).

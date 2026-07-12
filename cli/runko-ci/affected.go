@@ -143,9 +143,16 @@ func deescalate(fc floorComputation, refinement buildadapter.Refinement) (affect
 		return affected.Result{}, false
 	}
 
+	// Seed the closure with DIRECT floor members + diff-impacted projects
+	// only: CloseOverDependentNames marks its seed Direct (§14.5.9), and
+	// re-derives dependents itself. Seeding the floor's closure-pulled
+	// members too would stamp them Direct and wrongly run their
+	// direct-only lanes (race checks) on a merely-dependent project.
 	names := make([]string, 0, len(result.Projects)+len(refinement.TargetProjects))
 	for _, p := range result.Projects {
-		names = append(names, p.Name)
+		if p.Direct {
+			names = append(names, p.Name)
+		}
 	}
 	for _, name := range refinement.TargetProjects {
 		names = append(names, name)
