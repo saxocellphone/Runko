@@ -6,7 +6,7 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { FileDiff } from "./changes_pb";
 import { file_runko_v1_changes } from "./changes_pb";
-import type { Actor, WorkspaceSummary } from "./common_pb";
+import type { Actor, WorkspaceActivityEvent, WorkspaceSummary } from "./common_pb";
 import { file_runko_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file runko/v1/workspaces.proto.
  */
 export const file_runko_v1_workspaces: GenFile = /*@__PURE__*/
-  fileDesc("ChlydW5rby92MS93b3Jrc3BhY2VzLnByb3RvEghydW5rby52MSJHChZDcmVhdGVXb3Jrc3BhY2VSZXF1ZXN0EgwKBG5hbWUYASABKAkSDQoFb3duZXIYAiABKAkSEAoIcHJvamVjdHMYAyADKAkiFwoVTGlzdFdvcmtzcGFjZXNSZXF1ZXN0IkgKFkxpc3RXb3Jrc3BhY2VzUmVzcG9uc2USLgoKd29ya3NwYWNlcxgBIAMoCzIaLnJ1bmtvLnYxLldvcmtzcGFjZVN1bW1hcnkiIQoTR2V0V29ya3NwYWNlUmVxdWVzdBIKCgJpZBgBIAEoCSIkChZEZWxldGVXb3Jrc3BhY2VSZXF1ZXN0EgoKAmlkGAEgASgJIhkKF0RlbGV0ZVdvcmtzcGFjZVJlc3BvbnNlIj8KGlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXF1ZXN0EgoKAmlkGAEgASgJEhUKDWJhc2VfcmV2aXNpb24YAiABKAkiSAoXQ3JlYXRlV29ya3NwYWNlUmVzcG9uc2USLQoJd29ya3NwYWNlGAEgASgLMhoucnVua28udjEuV29ya3NwYWNlU3VtbWFyeSJFChRHZXRXb3Jrc3BhY2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5IkwKG1VwZGF0ZVdvcmtzcGFjZUJhc2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5IjUKF0dldFdvcmtzcGFjZURpZmZSZXF1ZXN0EgoKAmlkGAEgASgJEg4KBmJyYW5jaBgCIAEoCSKBAQoYR2V0V29ya3NwYWNlRGlmZlJlc3BvbnNlEgoKAmlkGAEgASgJEg4KBmJyYW5jaBgCIAEoCRIQCghiYXNlX3NoYRgDIAEoCRIUCgxzbmFwc2hvdF9zaGEYBCABKAkSIQoFZmlsZXMYBSADKAsyEi5ydW5rby52MS5GaWxlRGlmZiKAAgoOV29ya3NwYWNlRXZlbnQSCgoCaWQYASABKAMSKgoEdHlwZRgCIAEoDjIcLnJ1bmtvLnYxLldvcmtzcGFjZUV2ZW50VHlwZRIUCgx3b3Jrc3BhY2VfaWQYAyABKAkSDgoGYnJhbmNoGAQgASgJEh4KBWFjdG9yGAUgASgLMg8ucnVua28udjEuQWN0b3ISCwoDc2hhGAYgASgJEhEKCWNoYW5nZV9pZBgHIAEoCRIVCg1maWxlc19jaGFuZ2VkGAggASgFEhEKCWFkZGl0aW9ucxgJIAEoBRIRCglkZWxldGlvbnMYCiABKAUSEwoLb2NjdXJyZWRfYXQYCyABKAMiTwoaTGlzdFdvcmtzcGFjZUV2ZW50c1JlcXVlc3QSCgoCaWQYASABKAkSEQoJcGFnZV9zaXplGAIgASgFEhIKCnBhZ2VfdG9rZW4YAyABKAkiYAobTGlzdFdvcmtzcGFjZUV2ZW50c1Jlc3BvbnNlEigKBmV2ZW50cxgBIAMoCzIYLnJ1bmtvLnYxLldvcmtzcGFjZUV2ZW50EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIjChVXYXRjaFdvcmtzcGFjZVJlcXVlc3QSCgoCaWQYASABKAkiQQoWV2F0Y2hXb3Jrc3BhY2VSZXNwb25zZRInCgVldmVudBgBIAEoCzIYLnJ1bmtvLnYxLldvcmtzcGFjZUV2ZW50KooCChJXb3Jrc3BhY2VFdmVudFR5cGUSJAogV09SS1NQQUNFX0VWRU5UX1RZUEVfVU5TUEVDSUZJRUQQABIoCiRXT1JLU1BBQ0VfRVZFTlRfVFlQRV9TTkFQU0hPVF9QVVNIRUQQARImCiJXT1JLU1BBQ0VfRVZFTlRfVFlQRV9DSEFOR0VfUFVTSEVEEAISJgoiV09SS1NQQUNFX0VWRU5UX1RZUEVfQ0hBTkdFX0xBTkRFRBADEikKJVdPUktTUEFDRV9FVkVOVF9UWVBFX0NIQU5HRV9BQkFORE9ORUQQBBIpCiVXT1JLU1BBQ0VfRVZFTlRfVFlQRV9XT1JLU1BBQ0VfQ0xPU0VEEAUy4AUKEFdvcmtzcGFjZVNlcnZpY2USVgoPQ3JlYXRlV29ya3NwYWNlEiAucnVua28udjEuQ3JlYXRlV29ya3NwYWNlUmVxdWVzdBohLnJ1bmtvLnYxLkNyZWF0ZVdvcmtzcGFjZVJlc3BvbnNlElMKDkxpc3RXb3Jrc3BhY2VzEh8ucnVua28udjEuTGlzdFdvcmtzcGFjZXNSZXF1ZXN0GiAucnVua28udjEuTGlzdFdvcmtzcGFjZXNSZXNwb25zZRJNCgxHZXRXb3Jrc3BhY2USHS5ydW5rby52MS5HZXRXb3Jrc3BhY2VSZXF1ZXN0Gh4ucnVua28udjEuR2V0V29ya3NwYWNlUmVzcG9uc2USYgoTVXBkYXRlV29ya3NwYWNlQmFzZRIkLnJ1bmtvLnYxLlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXF1ZXN0GiUucnVua28udjEuVXBkYXRlV29ya3NwYWNlQmFzZVJlc3BvbnNlElYKD0RlbGV0ZVdvcmtzcGFjZRIgLnJ1bmtvLnYxLkRlbGV0ZVdvcmtzcGFjZVJlcXVlc3QaIS5ydW5rby52MS5EZWxldGVXb3Jrc3BhY2VSZXNwb25zZRJZChBHZXRXb3Jrc3BhY2VEaWZmEiEucnVua28udjEuR2V0V29ya3NwYWNlRGlmZlJlcXVlc3QaIi5ydW5rby52MS5HZXRXb3Jrc3BhY2VEaWZmUmVzcG9uc2USYgoTTGlzdFdvcmtzcGFjZUV2ZW50cxIkLnJ1bmtvLnYxLkxpc3RXb3Jrc3BhY2VFdmVudHNSZXF1ZXN0GiUucnVua28udjEuTGlzdFdvcmtzcGFjZUV2ZW50c1Jlc3BvbnNlElUKDldhdGNoV29ya3NwYWNlEh8ucnVua28udjEuV2F0Y2hXb3Jrc3BhY2VSZXF1ZXN0GiAucnVua28udjEuV2F0Y2hXb3Jrc3BhY2VSZXNwb25zZTABQjtaOWdpdGh1Yi5jb20vc2F4b2NlbGxwaG9uZS9ydW5rby9wcm90by9nZW4vcnVua28vdjE7cnVua292MWIGcHJvdG8z", [file_runko_v1_changes, file_runko_v1_common]);
+  fileDesc("ChlydW5rby92MS93b3Jrc3BhY2VzLnByb3RvEghydW5rby52MSJHChZDcmVhdGVXb3Jrc3BhY2VSZXF1ZXN0EgwKBG5hbWUYASABKAkSDQoFb3duZXIYAiABKAkSEAoIcHJvamVjdHMYAyADKAkiFwoVTGlzdFdvcmtzcGFjZXNSZXF1ZXN0IkgKFkxpc3RXb3Jrc3BhY2VzUmVzcG9uc2USLgoKd29ya3NwYWNlcxgBIAMoCzIaLnJ1bmtvLnYxLldvcmtzcGFjZVN1bW1hcnkiIQoTR2V0V29ya3NwYWNlUmVxdWVzdBIKCgJpZBgBIAEoCSIkChZEZWxldGVXb3Jrc3BhY2VSZXF1ZXN0EgoKAmlkGAEgASgJIhkKF0RlbGV0ZVdvcmtzcGFjZVJlc3BvbnNlIj8KGlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXF1ZXN0EgoKAmlkGAEgASgJEhUKDWJhc2VfcmV2aXNpb24YAiABKAkiSAoXQ3JlYXRlV29ya3NwYWNlUmVzcG9uc2USLQoJd29ya3NwYWNlGAEgASgLMhoucnVua28udjEuV29ya3NwYWNlU3VtbWFyeSJFChRHZXRXb3Jrc3BhY2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5IkwKG1VwZGF0ZVdvcmtzcGFjZUJhc2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5IjUKF0dldFdvcmtzcGFjZURpZmZSZXF1ZXN0EgoKAmlkGAEgASgJEg4KBmJyYW5jaBgCIAEoCSKBAQoYR2V0V29ya3NwYWNlRGlmZlJlc3BvbnNlEgoKAmlkGAEgASgJEg4KBmJyYW5jaBgCIAEoCRIQCghiYXNlX3NoYRgDIAEoCRIUCgxzbmFwc2hvdF9zaGEYBCABKAkSIQoFZmlsZXMYBSADKAsyEi5ydW5rby52MS5GaWxlRGlmZiKAAgoOV29ya3NwYWNlRXZlbnQSCgoCaWQYASABKAMSKgoEdHlwZRgCIAEoDjIcLnJ1bmtvLnYxLldvcmtzcGFjZUV2ZW50VHlwZRIUCgx3b3Jrc3BhY2VfaWQYAyABKAkSDgoGYnJhbmNoGAQgASgJEh4KBWFjdG9yGAUgASgLMg8ucnVua28udjEuQWN0b3ISCwoDc2hhGAYgASgJEhEKCWNoYW5nZV9pZBgHIAEoCRIVCg1maWxlc19jaGFuZ2VkGAggASgFEhEKCWFkZGl0aW9ucxgJIAEoBRIRCglkZWxldGlvbnMYCiABKAUSEwoLb2NjdXJyZWRfYXQYCyABKAMiTwoaTGlzdFdvcmtzcGFjZUV2ZW50c1JlcXVlc3QSCgoCaWQYASABKAkSEQoJcGFnZV9zaXplGAIgASgFEhIKCnBhZ2VfdG9rZW4YAyABKAkiYAobTGlzdFdvcmtzcGFjZUV2ZW50c1Jlc3BvbnNlEigKBmV2ZW50cxgBIAMoCzIYLnJ1bmtvLnYxLldvcmtzcGFjZUV2ZW50EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSJRChxMaXN0V29ya3NwYWNlQWN0aXZpdHlSZXF1ZXN0EgoKAmlkGAEgASgJEhEKCXBhZ2Vfc2l6ZRgCIAEoBRISCgpwYWdlX3Rva2VuGAMgASgJImoKHUxpc3RXb3Jrc3BhY2VBY3Rpdml0eVJlc3BvbnNlEjAKBmV2ZW50cxgBIAMoCzIgLnJ1bmtvLnYxLldvcmtzcGFjZUFjdGl2aXR5RXZlbnQSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIiMKFVdhdGNoV29ya3NwYWNlUmVxdWVzdBIKCgJpZBgBIAEoCSJBChZXYXRjaFdvcmtzcGFjZVJlc3BvbnNlEicKBWV2ZW50GAEgASgLMhgucnVua28udjEuV29ya3NwYWNlRXZlbnQqswIKEldvcmtzcGFjZUV2ZW50VHlwZRIkCiBXT1JLU1BBQ0VfRVZFTlRfVFlQRV9VTlNQRUNJRklFRBAAEigKJFdPUktTUEFDRV9FVkVOVF9UWVBFX1NOQVBTSE9UX1BVU0hFRBABEiYKIldPUktTUEFDRV9FVkVOVF9UWVBFX0NIQU5HRV9QVVNIRUQQAhImCiJXT1JLU1BBQ0VfRVZFTlRfVFlQRV9DSEFOR0VfTEFOREVEEAMSKQolV09SS1NQQUNFX0VWRU5UX1RZUEVfQ0hBTkdFX0FCQU5ET05FRBAEEikKJVdPUktTUEFDRV9FVkVOVF9UWVBFX1dPUktTUEFDRV9DTE9TRUQQBRInCiNXT1JLU1BBQ0VfRVZFTlRfVFlQRV9BR0VOVF9BQ1RJVklUWRAGMsoGChBXb3Jrc3BhY2VTZXJ2aWNlElYKD0NyZWF0ZVdvcmtzcGFjZRIgLnJ1bmtvLnYxLkNyZWF0ZVdvcmtzcGFjZVJlcXVlc3QaIS5ydW5rby52MS5DcmVhdGVXb3Jrc3BhY2VSZXNwb25zZRJTCg5MaXN0V29ya3NwYWNlcxIfLnJ1bmtvLnYxLkxpc3RXb3Jrc3BhY2VzUmVxdWVzdBogLnJ1bmtvLnYxLkxpc3RXb3Jrc3BhY2VzUmVzcG9uc2USTQoMR2V0V29ya3NwYWNlEh0ucnVua28udjEuR2V0V29ya3NwYWNlUmVxdWVzdBoeLnJ1bmtvLnYxLkdldFdvcmtzcGFjZVJlc3BvbnNlEmIKE1VwZGF0ZVdvcmtzcGFjZUJhc2USJC5ydW5rby52MS5VcGRhdGVXb3Jrc3BhY2VCYXNlUmVxdWVzdBolLnJ1bmtvLnYxLlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXNwb25zZRJWCg9EZWxldGVXb3Jrc3BhY2USIC5ydW5rby52MS5EZWxldGVXb3Jrc3BhY2VSZXF1ZXN0GiEucnVua28udjEuRGVsZXRlV29ya3NwYWNlUmVzcG9uc2USWQoQR2V0V29ya3NwYWNlRGlmZhIhLnJ1bmtvLnYxLkdldFdvcmtzcGFjZURpZmZSZXF1ZXN0GiIucnVua28udjEuR2V0V29ya3NwYWNlRGlmZlJlc3BvbnNlEmIKE0xpc3RXb3Jrc3BhY2VFdmVudHMSJC5ydW5rby52MS5MaXN0V29ya3NwYWNlRXZlbnRzUmVxdWVzdBolLnJ1bmtvLnYxLkxpc3RXb3Jrc3BhY2VFdmVudHNSZXNwb25zZRJVCg5XYXRjaFdvcmtzcGFjZRIfLnJ1bmtvLnYxLldhdGNoV29ya3NwYWNlUmVxdWVzdBogLnJ1bmtvLnYxLldhdGNoV29ya3NwYWNlUmVzcG9uc2UwARJoChVMaXN0V29ya3NwYWNlQWN0aXZpdHkSJi5ydW5rby52MS5MaXN0V29ya3NwYWNlQWN0aXZpdHlSZXF1ZXN0GicucnVua28udjEuTGlzdFdvcmtzcGFjZUFjdGl2aXR5UmVzcG9uc2VCO1o5Z2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3Byb3RvL2dlbi9ydW5rby92MTtydW5rb3YxYgZwcm90bzM", [file_runko_v1_changes, file_runko_v1_common]);
 
 /**
  * @generated from message runko.v1.CreateWorkspaceRequest
@@ -395,6 +395,59 @@ export const ListWorkspaceEventsResponseSchema: GenMessage<ListWorkspaceEventsRe
   messageDesc(file_runko_v1_workspaces, 14);
 
 /**
+ * @generated from message runko.v1.ListWorkspaceActivityRequest
+ */
+export type ListWorkspaceActivityRequest = Message<"runko.v1.ListWorkspaceActivityRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * 0 = server default
+   *
+   * @generated from field: int32 page_size = 2;
+   */
+  pageSize: number;
+
+  /**
+   * plain offset token (proto/README.md item 6)
+   *
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
+};
+
+/**
+ * Describes the message runko.v1.ListWorkspaceActivityRequest.
+ * Use `create(ListWorkspaceActivityRequestSchema)` to create a new message.
+ */
+export const ListWorkspaceActivityRequestSchema: GenMessage<ListWorkspaceActivityRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 15);
+
+/**
+ * @generated from message runko.v1.ListWorkspaceActivityResponse
+ */
+export type ListWorkspaceActivityResponse = Message<"runko.v1.ListWorkspaceActivityResponse"> & {
+  /**
+   * @generated from field: repeated runko.v1.WorkspaceActivityEvent events = 1;
+   */
+  events: WorkspaceActivityEvent[];
+
+  /**
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
+};
+
+/**
+ * Describes the message runko.v1.ListWorkspaceActivityResponse.
+ * Use `create(ListWorkspaceActivityResponseSchema)` to create a new message.
+ */
+export const ListWorkspaceActivityResponseSchema: GenMessage<ListWorkspaceActivityResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 16);
+
+/**
  * @generated from message runko.v1.WatchWorkspaceRequest
  */
 export type WatchWorkspaceRequest = Message<"runko.v1.WatchWorkspaceRequest"> & {
@@ -409,7 +462,7 @@ export type WatchWorkspaceRequest = Message<"runko.v1.WatchWorkspaceRequest"> & 
  * Use `create(WatchWorkspaceRequestSchema)` to create a new message.
  */
 export const WatchWorkspaceRequestSchema: GenMessage<WatchWorkspaceRequest> = /*@__PURE__*/
-  messageDesc(file_runko_v1_workspaces, 15);
+  messageDesc(file_runko_v1_workspaces, 17);
 
 /**
  * @generated from message runko.v1.WatchWorkspaceResponse
@@ -428,7 +481,7 @@ export type WatchWorkspaceResponse = Message<"runko.v1.WatchWorkspaceResponse"> 
  * Use `create(WatchWorkspaceResponseSchema)` to create a new message.
  */
 export const WatchWorkspaceResponseSchema: GenMessage<WatchWorkspaceResponse> = /*@__PURE__*/
-  messageDesc(file_runko_v1_workspaces, 16);
+  messageDesc(file_runko_v1_workspaces, 18);
 
 /**
  * WorkspaceEventType mirrors runkod's workspace_events rows (§12.6).
@@ -465,6 +518,15 @@ export enum WorkspaceEventType {
    * @generated from enum value: WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED = 5;
    */
   WORKSPACE_CLOSED = 5,
+
+  /**
+   * Bus-only poke after an accepted §12.6.1 activity batch: never a
+   * stored timeline row - a WatchWorkspace frame carrying this says
+   * "refetch ListWorkspaceActivity".
+   *
+   * @generated from enum value: WORKSPACE_EVENT_TYPE_AGENT_ACTIVITY = 6;
+   */
+  AGENT_ACTIVITY = 6,
 }
 
 /**
@@ -575,6 +637,21 @@ export const WorkspaceService: GenService<{
     methodKind: "server_streaming";
     input: typeof WatchWorkspaceRequestSchema;
     output: typeof WatchWorkspaceResponseSchema;
+  },
+  /**
+   * ListWorkspaceActivity is the §12.6.1 harness-reported feed,
+   * newest-first: CLIENT-CLAIMED rows (see WorkspaceActivityEvent),
+   * capped per workspace server-side. Authenticated like the rest of
+   * this surface. Ingest is REST (POST /api/workspaces/{id}/activity,
+   * the CLI's `runko agent event`) - this RPC is the read side the
+   * WatchWorkspace pokes point at.
+   *
+   * @generated from rpc runko.v1.WorkspaceService.ListWorkspaceActivity
+   */
+  listWorkspaceActivity: {
+    methodKind: "unary";
+    input: typeof ListWorkspaceActivityRequestSchema;
+    output: typeof ListWorkspaceActivityResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_runko_v1_workspaces, 0);

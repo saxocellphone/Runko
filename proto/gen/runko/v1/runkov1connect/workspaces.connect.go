@@ -57,6 +57,9 @@ const (
 	// WorkspaceServiceWatchWorkspaceProcedure is the fully-qualified name of the WorkspaceService's
 	// WatchWorkspace RPC.
 	WorkspaceServiceWatchWorkspaceProcedure = "/runko.v1.WorkspaceService/WatchWorkspace"
+	// WorkspaceServiceListWorkspaceActivityProcedure is the fully-qualified name of the
+	// WorkspaceService's ListWorkspaceActivity RPC.
+	WorkspaceServiceListWorkspaceActivityProcedure = "/runko.v1.WorkspaceService/ListWorkspaceActivity"
 )
 
 // WorkspaceServiceClient is a client for the runko.v1.WorkspaceService service.
@@ -87,6 +90,13 @@ type WorkspaceServiceClient interface {
 	// a push; bursts collapse to the newest event). A frame with no event
 	// set is a keepalive (~25s cadence, holds proxies open).
 	WatchWorkspace(context.Context, *connect.Request[v1.WatchWorkspaceRequest]) (*connect.ServerStreamForClient[v1.WatchWorkspaceResponse], error)
+	// ListWorkspaceActivity is the §12.6.1 harness-reported feed,
+	// newest-first: CLIENT-CLAIMED rows (see WorkspaceActivityEvent),
+	// capped per workspace server-side. Authenticated like the rest of
+	// this surface. Ingest is REST (POST /api/workspaces/{id}/activity,
+	// the CLI's `runko agent event`) - this RPC is the read side the
+	// WatchWorkspace pokes point at.
+	ListWorkspaceActivity(context.Context, *connect.Request[v1.ListWorkspaceActivityRequest]) (*connect.Response[v1.ListWorkspaceActivityResponse], error)
 }
 
 // NewWorkspaceServiceClient constructs a client for the runko.v1.WorkspaceService service. By
@@ -148,19 +158,26 @@ func NewWorkspaceServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(workspaceServiceMethods.ByName("WatchWorkspace")),
 			connect.WithClientOptions(opts...),
 		),
+		listWorkspaceActivity: connect.NewClient[v1.ListWorkspaceActivityRequest, v1.ListWorkspaceActivityResponse](
+			httpClient,
+			baseURL+WorkspaceServiceListWorkspaceActivityProcedure,
+			connect.WithSchema(workspaceServiceMethods.ByName("ListWorkspaceActivity")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // workspaceServiceClient implements WorkspaceServiceClient.
 type workspaceServiceClient struct {
-	createWorkspace     *connect.Client[v1.CreateWorkspaceRequest, v1.CreateWorkspaceResponse]
-	listWorkspaces      *connect.Client[v1.ListWorkspacesRequest, v1.ListWorkspacesResponse]
-	getWorkspace        *connect.Client[v1.GetWorkspaceRequest, v1.GetWorkspaceResponse]
-	updateWorkspaceBase *connect.Client[v1.UpdateWorkspaceBaseRequest, v1.UpdateWorkspaceBaseResponse]
-	deleteWorkspace     *connect.Client[v1.DeleteWorkspaceRequest, v1.DeleteWorkspaceResponse]
-	getWorkspaceDiff    *connect.Client[v1.GetWorkspaceDiffRequest, v1.GetWorkspaceDiffResponse]
-	listWorkspaceEvents *connect.Client[v1.ListWorkspaceEventsRequest, v1.ListWorkspaceEventsResponse]
-	watchWorkspace      *connect.Client[v1.WatchWorkspaceRequest, v1.WatchWorkspaceResponse]
+	createWorkspace       *connect.Client[v1.CreateWorkspaceRequest, v1.CreateWorkspaceResponse]
+	listWorkspaces        *connect.Client[v1.ListWorkspacesRequest, v1.ListWorkspacesResponse]
+	getWorkspace          *connect.Client[v1.GetWorkspaceRequest, v1.GetWorkspaceResponse]
+	updateWorkspaceBase   *connect.Client[v1.UpdateWorkspaceBaseRequest, v1.UpdateWorkspaceBaseResponse]
+	deleteWorkspace       *connect.Client[v1.DeleteWorkspaceRequest, v1.DeleteWorkspaceResponse]
+	getWorkspaceDiff      *connect.Client[v1.GetWorkspaceDiffRequest, v1.GetWorkspaceDiffResponse]
+	listWorkspaceEvents   *connect.Client[v1.ListWorkspaceEventsRequest, v1.ListWorkspaceEventsResponse]
+	watchWorkspace        *connect.Client[v1.WatchWorkspaceRequest, v1.WatchWorkspaceResponse]
+	listWorkspaceActivity *connect.Client[v1.ListWorkspaceActivityRequest, v1.ListWorkspaceActivityResponse]
 }
 
 // CreateWorkspace calls runko.v1.WorkspaceService.CreateWorkspace.
@@ -203,6 +220,11 @@ func (c *workspaceServiceClient) WatchWorkspace(ctx context.Context, req *connec
 	return c.watchWorkspace.CallServerStream(ctx, req)
 }
 
+// ListWorkspaceActivity calls runko.v1.WorkspaceService.ListWorkspaceActivity.
+func (c *workspaceServiceClient) ListWorkspaceActivity(ctx context.Context, req *connect.Request[v1.ListWorkspaceActivityRequest]) (*connect.Response[v1.ListWorkspaceActivityResponse], error) {
+	return c.listWorkspaceActivity.CallUnary(ctx, req)
+}
+
 // WorkspaceServiceHandler is an implementation of the runko.v1.WorkspaceService service.
 type WorkspaceServiceHandler interface {
 	CreateWorkspace(context.Context, *connect.Request[v1.CreateWorkspaceRequest]) (*connect.Response[v1.CreateWorkspaceResponse], error)
@@ -231,6 +253,13 @@ type WorkspaceServiceHandler interface {
 	// a push; bursts collapse to the newest event). A frame with no event
 	// set is a keepalive (~25s cadence, holds proxies open).
 	WatchWorkspace(context.Context, *connect.Request[v1.WatchWorkspaceRequest], *connect.ServerStream[v1.WatchWorkspaceResponse]) error
+	// ListWorkspaceActivity is the §12.6.1 harness-reported feed,
+	// newest-first: CLIENT-CLAIMED rows (see WorkspaceActivityEvent),
+	// capped per workspace server-side. Authenticated like the rest of
+	// this surface. Ingest is REST (POST /api/workspaces/{id}/activity,
+	// the CLI's `runko agent event`) - this RPC is the read side the
+	// WatchWorkspace pokes point at.
+	ListWorkspaceActivity(context.Context, *connect.Request[v1.ListWorkspaceActivityRequest]) (*connect.Response[v1.ListWorkspaceActivityResponse], error)
 }
 
 // NewWorkspaceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -288,6 +317,12 @@ func NewWorkspaceServiceHandler(svc WorkspaceServiceHandler, opts ...connect.Han
 		connect.WithSchema(workspaceServiceMethods.ByName("WatchWorkspace")),
 		connect.WithHandlerOptions(opts...),
 	)
+	workspaceServiceListWorkspaceActivityHandler := connect.NewUnaryHandler(
+		WorkspaceServiceListWorkspaceActivityProcedure,
+		svc.ListWorkspaceActivity,
+		connect.WithSchema(workspaceServiceMethods.ByName("ListWorkspaceActivity")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/runko.v1.WorkspaceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case WorkspaceServiceCreateWorkspaceProcedure:
@@ -306,6 +341,8 @@ func NewWorkspaceServiceHandler(svc WorkspaceServiceHandler, opts ...connect.Han
 			workspaceServiceListWorkspaceEventsHandler.ServeHTTP(w, r)
 		case WorkspaceServiceWatchWorkspaceProcedure:
 			workspaceServiceWatchWorkspaceHandler.ServeHTTP(w, r)
+		case WorkspaceServiceListWorkspaceActivityProcedure:
+			workspaceServiceListWorkspaceActivityHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -345,4 +382,8 @@ func (UnimplementedWorkspaceServiceHandler) ListWorkspaceEvents(context.Context,
 
 func (UnimplementedWorkspaceServiceHandler) WatchWorkspace(context.Context, *connect.Request[v1.WatchWorkspaceRequest], *connect.ServerStream[v1.WatchWorkspaceResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.WorkspaceService.WatchWorkspace is not implemented"))
+}
+
+func (UnimplementedWorkspaceServiceHandler) ListWorkspaceActivity(context.Context, *connect.Request[v1.ListWorkspaceActivityRequest]) (*connect.Response[v1.ListWorkspaceActivityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.WorkspaceService.ListWorkspaceActivity is not implemented"))
 }

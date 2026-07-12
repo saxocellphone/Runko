@@ -46,6 +46,13 @@ service WorkspaceService {
   // a push; bursts collapse to the newest event). A frame with no event
   // set is a keepalive (~25s cadence, holds proxies open).
   rpc WatchWorkspace(WatchWorkspaceRequest) returns (stream WatchWorkspaceResponse);
+  // ListWorkspaceActivity is the §12.6.1 harness-reported feed,
+  // newest-first: CLIENT-CLAIMED rows (see WorkspaceActivityEvent),
+  // capped per workspace server-side. Authenticated like the rest of
+  // this surface. Ingest is REST (POST /api/workspaces/{id}/activity,
+  // the CLI's `runko agent event`) - this RPC is the read side the
+  // WatchWorkspace pokes point at.
+  rpc ListWorkspaceActivity(ListWorkspaceActivityRequest) returns (ListWorkspaceActivityResponse);
 }
 
 message CreateWorkspaceRequest {
@@ -108,6 +115,10 @@ enum WorkspaceEventType {
   WORKSPACE_EVENT_TYPE_CHANGE_LANDED = 3;
   WORKSPACE_EVENT_TYPE_CHANGE_ABANDONED = 4;
   WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED = 5;
+  // Bus-only poke after an accepted §12.6.1 activity batch: never a
+  // stored timeline row - a WatchWorkspace frame carrying this says
+  // "refetch ListWorkspaceActivity".
+  WORKSPACE_EVENT_TYPE_AGENT_ACTIVITY = 6;
 }
 
 // WorkspaceEvent is one stats-only timeline row: what happened and how big
@@ -135,6 +146,17 @@ message ListWorkspaceEventsRequest {
 
 message ListWorkspaceEventsResponse {
   repeated WorkspaceEvent events = 1;
+  string next_page_token = 2;
+}
+
+message ListWorkspaceActivityRequest {
+  string id = 1;
+  int32 page_size = 2;   // 0 = server default
+  string page_token = 3; // plain offset token (proto/README.md item 6)
+}
+
+message ListWorkspaceActivityResponse {
+  repeated WorkspaceActivityEvent events = 1;
   string next_page_token = 2;
 }
 

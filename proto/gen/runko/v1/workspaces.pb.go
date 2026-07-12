@@ -31,6 +31,10 @@ const (
 	WorkspaceEventType_WORKSPACE_EVENT_TYPE_CHANGE_LANDED    WorkspaceEventType = 3
 	WorkspaceEventType_WORKSPACE_EVENT_TYPE_CHANGE_ABANDONED WorkspaceEventType = 4
 	WorkspaceEventType_WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED WorkspaceEventType = 5
+	// Bus-only poke after an accepted §12.6.1 activity batch: never a
+	// stored timeline row - a WatchWorkspace frame carrying this says
+	// "refetch ListWorkspaceActivity".
+	WorkspaceEventType_WORKSPACE_EVENT_TYPE_AGENT_ACTIVITY WorkspaceEventType = 6
 )
 
 // Enum value maps for WorkspaceEventType.
@@ -42,6 +46,7 @@ var (
 		3: "WORKSPACE_EVENT_TYPE_CHANGE_LANDED",
 		4: "WORKSPACE_EVENT_TYPE_CHANGE_ABANDONED",
 		5: "WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED",
+		6: "WORKSPACE_EVENT_TYPE_AGENT_ACTIVITY",
 	}
 	WorkspaceEventType_value = map[string]int32{
 		"WORKSPACE_EVENT_TYPE_UNSPECIFIED":      0,
@@ -50,6 +55,7 @@ var (
 		"WORKSPACE_EVENT_TYPE_CHANGE_LANDED":    3,
 		"WORKSPACE_EVENT_TYPE_CHANGE_ABANDONED": 4,
 		"WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED": 5,
+		"WORKSPACE_EVENT_TYPE_AGENT_ACTIVITY":   6,
 	}
 )
 
@@ -895,6 +901,118 @@ func (x *ListWorkspaceEventsResponse) GetNextPageToken() string {
 	return ""
 }
 
+type ListWorkspaceActivityRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	PageSize      int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`   // 0 = server default
+	PageToken     string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"` // plain offset token (proto/README.md item 6)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkspaceActivityRequest) Reset() {
+	*x = ListWorkspaceActivityRequest{}
+	mi := &file_runko_v1_workspaces_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkspaceActivityRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkspaceActivityRequest) ProtoMessage() {}
+
+func (x *ListWorkspaceActivityRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_workspaces_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkspaceActivityRequest.ProtoReflect.Descriptor instead.
+func (*ListWorkspaceActivityRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ListWorkspaceActivityRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ListWorkspaceActivityRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListWorkspaceActivityRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListWorkspaceActivityResponse struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Events        []*WorkspaceActivityEvent `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	NextPageToken string                    `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkspaceActivityResponse) Reset() {
+	*x = ListWorkspaceActivityResponse{}
+	mi := &file_runko_v1_workspaces_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkspaceActivityResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkspaceActivityResponse) ProtoMessage() {}
+
+func (x *ListWorkspaceActivityResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_workspaces_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkspaceActivityResponse.ProtoReflect.Descriptor instead.
+func (*ListWorkspaceActivityResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListWorkspaceActivityResponse) GetEvents() []*WorkspaceActivityEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *ListWorkspaceActivityResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
 type WatchWorkspaceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -904,7 +1022,7 @@ type WatchWorkspaceRequest struct {
 
 func (x *WatchWorkspaceRequest) Reset() {
 	*x = WatchWorkspaceRequest{}
-	mi := &file_runko_v1_workspaces_proto_msgTypes[15]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -916,7 +1034,7 @@ func (x *WatchWorkspaceRequest) String() string {
 func (*WatchWorkspaceRequest) ProtoMessage() {}
 
 func (x *WatchWorkspaceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_workspaces_proto_msgTypes[15]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -929,7 +1047,7 @@ func (x *WatchWorkspaceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchWorkspaceRequest.ProtoReflect.Descriptor instead.
 func (*WatchWorkspaceRequest) Descriptor() ([]byte, []int) {
-	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{15}
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WatchWorkspaceRequest) GetId() string {
@@ -948,7 +1066,7 @@ type WatchWorkspaceResponse struct {
 
 func (x *WatchWorkspaceResponse) Reset() {
 	*x = WatchWorkspaceResponse{}
-	mi := &file_runko_v1_workspaces_proto_msgTypes[16]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -960,7 +1078,7 @@ func (x *WatchWorkspaceResponse) String() string {
 func (*WatchWorkspaceResponse) ProtoMessage() {}
 
 func (x *WatchWorkspaceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_runko_v1_workspaces_proto_msgTypes[16]
+	mi := &file_runko_v1_workspaces_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -973,7 +1091,7 @@ func (x *WatchWorkspaceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchWorkspaceResponse.ProtoReflect.Descriptor instead.
 func (*WatchWorkspaceResponse) Descriptor() ([]byte, []int) {
-	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{16}
+	return file_runko_v1_workspaces_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *WatchWorkspaceResponse) GetEvent() *WorkspaceEvent {
@@ -1041,18 +1159,27 @@ const file_runko_v1_workspaces_proto_rawDesc = "" +
 	"page_token\x18\x03 \x01(\tR\tpageToken\"w\n" +
 	"\x1bListWorkspaceEventsResponse\x120\n" +
 	"\x06events\x18\x01 \x03(\v2\x18.runko.v1.WorkspaceEventR\x06events\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"j\n" +
+	"\x1cListWorkspaceActivityRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"\x81\x01\n" +
+	"\x1dListWorkspaceActivityResponse\x128\n" +
+	"\x06events\x18\x01 \x03(\v2 .runko.v1.WorkspaceActivityEventR\x06events\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"'\n" +
 	"\x15WatchWorkspaceRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"H\n" +
 	"\x16WatchWorkspaceResponse\x12.\n" +
-	"\x05event\x18\x01 \x01(\v2\x18.runko.v1.WorkspaceEventR\x05event*\x8a\x02\n" +
+	"\x05event\x18\x01 \x01(\v2\x18.runko.v1.WorkspaceEventR\x05event*\xb3\x02\n" +
 	"\x12WorkspaceEventType\x12$\n" +
 	" WORKSPACE_EVENT_TYPE_UNSPECIFIED\x10\x00\x12(\n" +
 	"$WORKSPACE_EVENT_TYPE_SNAPSHOT_PUSHED\x10\x01\x12&\n" +
 	"\"WORKSPACE_EVENT_TYPE_CHANGE_PUSHED\x10\x02\x12&\n" +
 	"\"WORKSPACE_EVENT_TYPE_CHANGE_LANDED\x10\x03\x12)\n" +
 	"%WORKSPACE_EVENT_TYPE_CHANGE_ABANDONED\x10\x04\x12)\n" +
-	"%WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED\x10\x052\xe0\x05\n" +
+	"%WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED\x10\x05\x12'\n" +
+	"#WORKSPACE_EVENT_TYPE_AGENT_ACTIVITY\x10\x062\xca\x06\n" +
 	"\x10WorkspaceService\x12V\n" +
 	"\x0fCreateWorkspace\x12 .runko.v1.CreateWorkspaceRequest\x1a!.runko.v1.CreateWorkspaceResponse\x12S\n" +
 	"\x0eListWorkspaces\x12\x1f.runko.v1.ListWorkspacesRequest\x1a .runko.v1.ListWorkspacesResponse\x12M\n" +
@@ -1061,7 +1188,8 @@ const file_runko_v1_workspaces_proto_rawDesc = "" +
 	"\x0fDeleteWorkspace\x12 .runko.v1.DeleteWorkspaceRequest\x1a!.runko.v1.DeleteWorkspaceResponse\x12Y\n" +
 	"\x10GetWorkspaceDiff\x12!.runko.v1.GetWorkspaceDiffRequest\x1a\".runko.v1.GetWorkspaceDiffResponse\x12b\n" +
 	"\x13ListWorkspaceEvents\x12$.runko.v1.ListWorkspaceEventsRequest\x1a%.runko.v1.ListWorkspaceEventsResponse\x12U\n" +
-	"\x0eWatchWorkspace\x12\x1f.runko.v1.WatchWorkspaceRequest\x1a .runko.v1.WatchWorkspaceResponse0\x01B;Z9github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1b\x06proto3"
+	"\x0eWatchWorkspace\x12\x1f.runko.v1.WatchWorkspaceRequest\x1a .runko.v1.WatchWorkspaceResponse0\x01\x12h\n" +
+	"\x15ListWorkspaceActivity\x12&.runko.v1.ListWorkspaceActivityRequest\x1a'.runko.v1.ListWorkspaceActivityResponseB;Z9github.com/saxocellphone/runko/proto/gen/runko/v1;runkov1b\x06proto3"
 
 var (
 	file_runko_v1_workspaces_proto_rawDescOnce sync.Once
@@ -1076,61 +1204,67 @@ func file_runko_v1_workspaces_proto_rawDescGZIP() []byte {
 }
 
 var file_runko_v1_workspaces_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_runko_v1_workspaces_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_runko_v1_workspaces_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_runko_v1_workspaces_proto_goTypes = []any{
-	(WorkspaceEventType)(0),             // 0: runko.v1.WorkspaceEventType
-	(*CreateWorkspaceRequest)(nil),      // 1: runko.v1.CreateWorkspaceRequest
-	(*ListWorkspacesRequest)(nil),       // 2: runko.v1.ListWorkspacesRequest
-	(*ListWorkspacesResponse)(nil),      // 3: runko.v1.ListWorkspacesResponse
-	(*GetWorkspaceRequest)(nil),         // 4: runko.v1.GetWorkspaceRequest
-	(*DeleteWorkspaceRequest)(nil),      // 5: runko.v1.DeleteWorkspaceRequest
-	(*DeleteWorkspaceResponse)(nil),     // 6: runko.v1.DeleteWorkspaceResponse
-	(*UpdateWorkspaceBaseRequest)(nil),  // 7: runko.v1.UpdateWorkspaceBaseRequest
-	(*CreateWorkspaceResponse)(nil),     // 8: runko.v1.CreateWorkspaceResponse
-	(*GetWorkspaceResponse)(nil),        // 9: runko.v1.GetWorkspaceResponse
-	(*UpdateWorkspaceBaseResponse)(nil), // 10: runko.v1.UpdateWorkspaceBaseResponse
-	(*GetWorkspaceDiffRequest)(nil),     // 11: runko.v1.GetWorkspaceDiffRequest
-	(*GetWorkspaceDiffResponse)(nil),    // 12: runko.v1.GetWorkspaceDiffResponse
-	(*WorkspaceEvent)(nil),              // 13: runko.v1.WorkspaceEvent
-	(*ListWorkspaceEventsRequest)(nil),  // 14: runko.v1.ListWorkspaceEventsRequest
-	(*ListWorkspaceEventsResponse)(nil), // 15: runko.v1.ListWorkspaceEventsResponse
-	(*WatchWorkspaceRequest)(nil),       // 16: runko.v1.WatchWorkspaceRequest
-	(*WatchWorkspaceResponse)(nil),      // 17: runko.v1.WatchWorkspaceResponse
-	(*WorkspaceSummary)(nil),            // 18: runko.v1.WorkspaceSummary
-	(*FileDiff)(nil),                    // 19: runko.v1.FileDiff
-	(*Actor)(nil),                       // 20: runko.v1.Actor
+	(WorkspaceEventType)(0),               // 0: runko.v1.WorkspaceEventType
+	(*CreateWorkspaceRequest)(nil),        // 1: runko.v1.CreateWorkspaceRequest
+	(*ListWorkspacesRequest)(nil),         // 2: runko.v1.ListWorkspacesRequest
+	(*ListWorkspacesResponse)(nil),        // 3: runko.v1.ListWorkspacesResponse
+	(*GetWorkspaceRequest)(nil),           // 4: runko.v1.GetWorkspaceRequest
+	(*DeleteWorkspaceRequest)(nil),        // 5: runko.v1.DeleteWorkspaceRequest
+	(*DeleteWorkspaceResponse)(nil),       // 6: runko.v1.DeleteWorkspaceResponse
+	(*UpdateWorkspaceBaseRequest)(nil),    // 7: runko.v1.UpdateWorkspaceBaseRequest
+	(*CreateWorkspaceResponse)(nil),       // 8: runko.v1.CreateWorkspaceResponse
+	(*GetWorkspaceResponse)(nil),          // 9: runko.v1.GetWorkspaceResponse
+	(*UpdateWorkspaceBaseResponse)(nil),   // 10: runko.v1.UpdateWorkspaceBaseResponse
+	(*GetWorkspaceDiffRequest)(nil),       // 11: runko.v1.GetWorkspaceDiffRequest
+	(*GetWorkspaceDiffResponse)(nil),      // 12: runko.v1.GetWorkspaceDiffResponse
+	(*WorkspaceEvent)(nil),                // 13: runko.v1.WorkspaceEvent
+	(*ListWorkspaceEventsRequest)(nil),    // 14: runko.v1.ListWorkspaceEventsRequest
+	(*ListWorkspaceEventsResponse)(nil),   // 15: runko.v1.ListWorkspaceEventsResponse
+	(*ListWorkspaceActivityRequest)(nil),  // 16: runko.v1.ListWorkspaceActivityRequest
+	(*ListWorkspaceActivityResponse)(nil), // 17: runko.v1.ListWorkspaceActivityResponse
+	(*WatchWorkspaceRequest)(nil),         // 18: runko.v1.WatchWorkspaceRequest
+	(*WatchWorkspaceResponse)(nil),        // 19: runko.v1.WatchWorkspaceResponse
+	(*WorkspaceSummary)(nil),              // 20: runko.v1.WorkspaceSummary
+	(*FileDiff)(nil),                      // 21: runko.v1.FileDiff
+	(*Actor)(nil),                         // 22: runko.v1.Actor
+	(*WorkspaceActivityEvent)(nil),        // 23: runko.v1.WorkspaceActivityEvent
 }
 var file_runko_v1_workspaces_proto_depIdxs = []int32{
-	18, // 0: runko.v1.ListWorkspacesResponse.workspaces:type_name -> runko.v1.WorkspaceSummary
-	18, // 1: runko.v1.CreateWorkspaceResponse.workspace:type_name -> runko.v1.WorkspaceSummary
-	18, // 2: runko.v1.GetWorkspaceResponse.workspace:type_name -> runko.v1.WorkspaceSummary
-	18, // 3: runko.v1.UpdateWorkspaceBaseResponse.workspace:type_name -> runko.v1.WorkspaceSummary
-	19, // 4: runko.v1.GetWorkspaceDiffResponse.files:type_name -> runko.v1.FileDiff
+	20, // 0: runko.v1.ListWorkspacesResponse.workspaces:type_name -> runko.v1.WorkspaceSummary
+	20, // 1: runko.v1.CreateWorkspaceResponse.workspace:type_name -> runko.v1.WorkspaceSummary
+	20, // 2: runko.v1.GetWorkspaceResponse.workspace:type_name -> runko.v1.WorkspaceSummary
+	20, // 3: runko.v1.UpdateWorkspaceBaseResponse.workspace:type_name -> runko.v1.WorkspaceSummary
+	21, // 4: runko.v1.GetWorkspaceDiffResponse.files:type_name -> runko.v1.FileDiff
 	0,  // 5: runko.v1.WorkspaceEvent.type:type_name -> runko.v1.WorkspaceEventType
-	20, // 6: runko.v1.WorkspaceEvent.actor:type_name -> runko.v1.Actor
+	22, // 6: runko.v1.WorkspaceEvent.actor:type_name -> runko.v1.Actor
 	13, // 7: runko.v1.ListWorkspaceEventsResponse.events:type_name -> runko.v1.WorkspaceEvent
-	13, // 8: runko.v1.WatchWorkspaceResponse.event:type_name -> runko.v1.WorkspaceEvent
-	1,  // 9: runko.v1.WorkspaceService.CreateWorkspace:input_type -> runko.v1.CreateWorkspaceRequest
-	2,  // 10: runko.v1.WorkspaceService.ListWorkspaces:input_type -> runko.v1.ListWorkspacesRequest
-	4,  // 11: runko.v1.WorkspaceService.GetWorkspace:input_type -> runko.v1.GetWorkspaceRequest
-	7,  // 12: runko.v1.WorkspaceService.UpdateWorkspaceBase:input_type -> runko.v1.UpdateWorkspaceBaseRequest
-	5,  // 13: runko.v1.WorkspaceService.DeleteWorkspace:input_type -> runko.v1.DeleteWorkspaceRequest
-	11, // 14: runko.v1.WorkspaceService.GetWorkspaceDiff:input_type -> runko.v1.GetWorkspaceDiffRequest
-	14, // 15: runko.v1.WorkspaceService.ListWorkspaceEvents:input_type -> runko.v1.ListWorkspaceEventsRequest
-	16, // 16: runko.v1.WorkspaceService.WatchWorkspace:input_type -> runko.v1.WatchWorkspaceRequest
-	8,  // 17: runko.v1.WorkspaceService.CreateWorkspace:output_type -> runko.v1.CreateWorkspaceResponse
-	3,  // 18: runko.v1.WorkspaceService.ListWorkspaces:output_type -> runko.v1.ListWorkspacesResponse
-	9,  // 19: runko.v1.WorkspaceService.GetWorkspace:output_type -> runko.v1.GetWorkspaceResponse
-	10, // 20: runko.v1.WorkspaceService.UpdateWorkspaceBase:output_type -> runko.v1.UpdateWorkspaceBaseResponse
-	6,  // 21: runko.v1.WorkspaceService.DeleteWorkspace:output_type -> runko.v1.DeleteWorkspaceResponse
-	12, // 22: runko.v1.WorkspaceService.GetWorkspaceDiff:output_type -> runko.v1.GetWorkspaceDiffResponse
-	15, // 23: runko.v1.WorkspaceService.ListWorkspaceEvents:output_type -> runko.v1.ListWorkspaceEventsResponse
-	17, // 24: runko.v1.WorkspaceService.WatchWorkspace:output_type -> runko.v1.WatchWorkspaceResponse
-	17, // [17:25] is the sub-list for method output_type
-	9,  // [9:17] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	23, // 8: runko.v1.ListWorkspaceActivityResponse.events:type_name -> runko.v1.WorkspaceActivityEvent
+	13, // 9: runko.v1.WatchWorkspaceResponse.event:type_name -> runko.v1.WorkspaceEvent
+	1,  // 10: runko.v1.WorkspaceService.CreateWorkspace:input_type -> runko.v1.CreateWorkspaceRequest
+	2,  // 11: runko.v1.WorkspaceService.ListWorkspaces:input_type -> runko.v1.ListWorkspacesRequest
+	4,  // 12: runko.v1.WorkspaceService.GetWorkspace:input_type -> runko.v1.GetWorkspaceRequest
+	7,  // 13: runko.v1.WorkspaceService.UpdateWorkspaceBase:input_type -> runko.v1.UpdateWorkspaceBaseRequest
+	5,  // 14: runko.v1.WorkspaceService.DeleteWorkspace:input_type -> runko.v1.DeleteWorkspaceRequest
+	11, // 15: runko.v1.WorkspaceService.GetWorkspaceDiff:input_type -> runko.v1.GetWorkspaceDiffRequest
+	14, // 16: runko.v1.WorkspaceService.ListWorkspaceEvents:input_type -> runko.v1.ListWorkspaceEventsRequest
+	18, // 17: runko.v1.WorkspaceService.WatchWorkspace:input_type -> runko.v1.WatchWorkspaceRequest
+	16, // 18: runko.v1.WorkspaceService.ListWorkspaceActivity:input_type -> runko.v1.ListWorkspaceActivityRequest
+	8,  // 19: runko.v1.WorkspaceService.CreateWorkspace:output_type -> runko.v1.CreateWorkspaceResponse
+	3,  // 20: runko.v1.WorkspaceService.ListWorkspaces:output_type -> runko.v1.ListWorkspacesResponse
+	9,  // 21: runko.v1.WorkspaceService.GetWorkspace:output_type -> runko.v1.GetWorkspaceResponse
+	10, // 22: runko.v1.WorkspaceService.UpdateWorkspaceBase:output_type -> runko.v1.UpdateWorkspaceBaseResponse
+	6,  // 23: runko.v1.WorkspaceService.DeleteWorkspace:output_type -> runko.v1.DeleteWorkspaceResponse
+	12, // 24: runko.v1.WorkspaceService.GetWorkspaceDiff:output_type -> runko.v1.GetWorkspaceDiffResponse
+	15, // 25: runko.v1.WorkspaceService.ListWorkspaceEvents:output_type -> runko.v1.ListWorkspaceEventsResponse
+	19, // 26: runko.v1.WorkspaceService.WatchWorkspace:output_type -> runko.v1.WatchWorkspaceResponse
+	17, // 27: runko.v1.WorkspaceService.ListWorkspaceActivity:output_type -> runko.v1.ListWorkspaceActivityResponse
+	19, // [19:28] is the sub-list for method output_type
+	10, // [10:19] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_runko_v1_workspaces_proto_init() }
@@ -1146,7 +1280,7 @@ func file_runko_v1_workspaces_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runko_v1_workspaces_proto_rawDesc), len(file_runko_v1_workspaces_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

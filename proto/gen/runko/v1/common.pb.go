@@ -1567,9 +1567,13 @@ type WorkspaceSummary struct {
 	// Parallel lines of work: refs/workspaces/<id>/<branch>, derived from
 	// the refs at read time (§12.2 workspace branches) - never stored in
 	// the registry. Empty until the first snapshot lands a ref.
-	Branches      []string `protobuf:"bytes,8,rep,name=branches,proto3" json:"branches,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Branches []string `protobuf:"bytes,8,rep,name=branches,proto3" json:"branches,omitempty"`
+	// The workspace's newest harness-reported activity row (§12.6.1's
+	// at-a-glance line), served straight from storage - no presence store.
+	// Unset when nothing was ever reported; clients decide freshness.
+	LatestActivity *WorkspaceActivityEvent `protobuf:"bytes,9,opt,name=latest_activity,json=latestActivity,proto3" json:"latest_activity,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *WorkspaceSummary) Reset() {
@@ -1656,6 +1660,113 @@ func (x *WorkspaceSummary) GetBranches() []string {
 		return x.Branches
 	}
 	return nil
+}
+
+func (x *WorkspaceSummary) GetLatestActivity() *WorkspaceActivityEvent {
+	if x != nil {
+		return x.LatestActivity
+	}
+	return nil
+}
+
+// WorkspaceActivityEvent is one harness-reported agent-activity row
+// (§12.6.1): what the agent SAYS it is doing. CLIENT-CLAIMED and
+// observability-only by decision - render it, never gate on it. detail is
+// metadata (a path, a command line), truncated and secret-scanned at
+// ingest; kind is a soft string vocabulary (read|edit|command|search|note
+// today - unknown kinds coerce to note at ingest, so render defensively).
+// Lives here rather than workspaces.proto because WorkspaceSummary
+// carries one as latest_activity.
+type WorkspaceActivityEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"` // strictly increasing - order and dedupe on it
+	WorkspaceId   string                 `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	Kind          string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	Detail        string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	Actor         *Actor                 `protobuf:"bytes,5,opt,name=actor,proto3" json:"actor,omitempty"`                              // unset for the anonymous deploy token
+	SessionId     string                 `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`     // harness coding-session id (§7.2); "" when unreported
+	OccurredAt    int64                  `protobuf:"varint,7,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"` // unix seconds (the landed_at convention)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkspaceActivityEvent) Reset() {
+	*x = WorkspaceActivityEvent{}
+	mi := &file_runko_v1_common_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkspaceActivityEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkspaceActivityEvent) ProtoMessage() {}
+
+func (x *WorkspaceActivityEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_common_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkspaceActivityEvent.ProtoReflect.Descriptor instead.
+func (*WorkspaceActivityEvent) Descriptor() ([]byte, []int) {
+	return file_runko_v1_common_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *WorkspaceActivityEvent) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *WorkspaceActivityEvent) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *WorkspaceActivityEvent) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *WorkspaceActivityEvent) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *WorkspaceActivityEvent) GetActor() *Actor {
+	if x != nil {
+		return x.Actor
+	}
+	return nil
+}
+
+func (x *WorkspaceActivityEvent) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *WorkspaceActivityEvent) GetOccurredAt() int64 {
+	if x != nil {
+		return x.OccurredAt
+	}
+	return 0
 }
 
 var File_runko_v1_common_proto protoreflect.FileDescriptor
@@ -1762,7 +1873,7 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\fdetails_urls\x18\x05 \x03(\v2$.runko.v1.CheckGate.DetailsUrlsEntryR\vdetailsUrls\x1a>\n" +
 	"\x10DetailsUrlsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa3\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xee\x02\n" +
 	"\x10WorkspaceSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05owner\x18\x02 \x01(\tR\x05owner\x12#\n" +
@@ -1771,7 +1882,18 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\x0fwrite_allowlist\x18\x05 \x03(\tR\x0ewriteAllowlist\x12!\n" +
 	"\fsnapshot_ref\x18\x06 \x01(\tR\vsnapshotRef\x121\n" +
 	"\x06status\x18\a \x01(\x0e2\x19.runko.v1.WorkspaceStatusR\x06status\x12\x1a\n" +
-	"\bbranches\x18\b \x03(\tR\bbranches*h\n" +
+	"\bbranches\x18\b \x03(\tR\bbranches\x12I\n" +
+	"\x0flatest_activity\x18\t \x01(\v2 .runko.v1.WorkspaceActivityEventR\x0elatestActivity\"\xde\x01\n" +
+	"\x16WorkspaceActivityEvent\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12!\n" +
+	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x16\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\x12%\n" +
+	"\x05actor\x18\x05 \x01(\v2\x0f.runko.v1.ActorR\x05actor\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x06 \x01(\tR\tsessionId\x12\x1f\n" +
+	"\voccurred_at\x18\a \x01(\x03R\n" +
+	"occurredAt*h\n" +
 	"\tActorType\x12\x1a\n" +
 	"\x16ACTOR_TYPE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fACTOR_TYPE_USER\x10\x01\x12\x14\n" +
@@ -1828,30 +1950,31 @@ func file_runko_v1_common_proto_rawDescGZIP() []byte {
 }
 
 var file_runko_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_runko_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_runko_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_runko_v1_common_proto_goTypes = []any{
-	(ActorType)(0),              // 0: runko.v1.ActorType
-	(ProjectType)(0),            // 1: runko.v1.ProjectType
-	(Visibility)(0),             // 2: runko.v1.Visibility
-	(OwnersSource)(0),           // 3: runko.v1.OwnersSource
-	(ReasonCode)(0),             // 4: runko.v1.ReasonCode
-	(ChangeState)(0),            // 5: runko.v1.ChangeState
-	(CommentSide)(0),            // 6: runko.v1.CommentSide
-	(WorkspaceStatus)(0),        // 7: runko.v1.WorkspaceStatus
-	(*ErrorDetail)(nil),         // 8: runko.v1.ErrorDetail
-	(*Actor)(nil),               // 9: runko.v1.Actor
-	(*ProjectSummary)(nil),      // 10: runko.v1.ProjectSummary
-	(*Dependencies)(nil),        // 11: runko.v1.Dependencies
-	(*ProjectDetail)(nil),       // 12: runko.v1.ProjectDetail
-	(*OwnersResult)(nil),        // 13: runko.v1.OwnersResult
-	(*AffectedComputation)(nil), // 14: runko.v1.AffectedComputation
-	(*ChangeSummary)(nil),       // 15: runko.v1.ChangeSummary
-	(*MergeRequirements)(nil),   // 16: runko.v1.MergeRequirements
-	(*Comment)(nil),             // 17: runko.v1.Comment
-	(*OwnerGate)(nil),           // 18: runko.v1.OwnerGate
-	(*CheckGate)(nil),           // 19: runko.v1.CheckGate
-	(*WorkspaceSummary)(nil),    // 20: runko.v1.WorkspaceSummary
-	nil,                         // 21: runko.v1.CheckGate.DetailsUrlsEntry
+	(ActorType)(0),                 // 0: runko.v1.ActorType
+	(ProjectType)(0),               // 1: runko.v1.ProjectType
+	(Visibility)(0),                // 2: runko.v1.Visibility
+	(OwnersSource)(0),              // 3: runko.v1.OwnersSource
+	(ReasonCode)(0),                // 4: runko.v1.ReasonCode
+	(ChangeState)(0),               // 5: runko.v1.ChangeState
+	(CommentSide)(0),               // 6: runko.v1.CommentSide
+	(WorkspaceStatus)(0),           // 7: runko.v1.WorkspaceStatus
+	(*ErrorDetail)(nil),            // 8: runko.v1.ErrorDetail
+	(*Actor)(nil),                  // 9: runko.v1.Actor
+	(*ProjectSummary)(nil),         // 10: runko.v1.ProjectSummary
+	(*Dependencies)(nil),           // 11: runko.v1.Dependencies
+	(*ProjectDetail)(nil),          // 12: runko.v1.ProjectDetail
+	(*OwnersResult)(nil),           // 13: runko.v1.OwnersResult
+	(*AffectedComputation)(nil),    // 14: runko.v1.AffectedComputation
+	(*ChangeSummary)(nil),          // 15: runko.v1.ChangeSummary
+	(*MergeRequirements)(nil),      // 16: runko.v1.MergeRequirements
+	(*Comment)(nil),                // 17: runko.v1.Comment
+	(*OwnerGate)(nil),              // 18: runko.v1.OwnerGate
+	(*CheckGate)(nil),              // 19: runko.v1.CheckGate
+	(*WorkspaceSummary)(nil),       // 20: runko.v1.WorkspaceSummary
+	(*WorkspaceActivityEvent)(nil), // 21: runko.v1.WorkspaceActivityEvent
+	nil,                            // 22: runko.v1.CheckGate.DetailsUrlsEntry
 }
 var file_runko_v1_common_proto_depIdxs = []int32{
 	0,  // 0: runko.v1.Actor.type:type_name -> runko.v1.ActorType
@@ -1868,13 +1991,15 @@ var file_runko_v1_common_proto_depIdxs = []int32{
 	19, // 11: runko.v1.MergeRequirements.checks:type_name -> runko.v1.CheckGate
 	9,  // 12: runko.v1.Comment.author:type_name -> runko.v1.Actor
 	6,  // 13: runko.v1.Comment.side:type_name -> runko.v1.CommentSide
-	21, // 14: runko.v1.CheckGate.details_urls:type_name -> runko.v1.CheckGate.DetailsUrlsEntry
+	22, // 14: runko.v1.CheckGate.details_urls:type_name -> runko.v1.CheckGate.DetailsUrlsEntry
 	7,  // 15: runko.v1.WorkspaceSummary.status:type_name -> runko.v1.WorkspaceStatus
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	21, // 16: runko.v1.WorkspaceSummary.latest_activity:type_name -> runko.v1.WorkspaceActivityEvent
+	9,  // 17: runko.v1.WorkspaceActivityEvent.actor:type_name -> runko.v1.Actor
+	18, // [18:18] is the sub-list for method output_type
+	18, // [18:18] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_runko_v1_common_proto_init() }
@@ -1888,7 +2013,7 @@ func file_runko_v1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runko_v1_common_proto_rawDesc), len(file_runko_v1_common_proto_rawDesc)),
 			NumEnums:      8,
-			NumMessages:   14,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

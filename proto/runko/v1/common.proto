@@ -268,4 +268,26 @@ message WorkspaceSummary {
   // the refs at read time (§12.2 workspace branches) - never stored in
   // the registry. Empty until the first snapshot lands a ref.
   repeated string branches = 8;
+  // The workspace's newest harness-reported activity row (§12.6.1's
+  // at-a-glance line), served straight from storage - no presence store.
+  // Unset when nothing was ever reported; clients decide freshness.
+  WorkspaceActivityEvent latest_activity = 9;
+}
+
+// WorkspaceActivityEvent is one harness-reported agent-activity row
+// (§12.6.1): what the agent SAYS it is doing. CLIENT-CLAIMED and
+// observability-only by decision - render it, never gate on it. detail is
+// metadata (a path, a command line), truncated and secret-scanned at
+// ingest; kind is a soft string vocabulary (read|edit|command|search|note
+// today - unknown kinds coerce to note at ingest, so render defensively).
+// Lives here rather than workspaces.proto because WorkspaceSummary
+// carries one as latest_activity.
+message WorkspaceActivityEvent {
+  int64 id = 1;           // strictly increasing - order and dedupe on it
+  string workspace_id = 2;
+  string kind = 3;
+  string detail = 4;
+  Actor actor = 5;        // unset for the anonymous deploy token
+  string session_id = 6;  // harness coding-session id (§7.2); "" when unreported
+  int64 occurred_at = 7;  // unix seconds (the landed_at convention)
 }

@@ -819,8 +819,20 @@ func (r *rpcServer) ListWorkspaces(ctx context.Context, req *connect.Request[run
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	out := make([]*runkov1.WorkspaceSummary, len(list))
+	ids := make([]string, len(list))
 	for i, ws := range list {
 		out[i] = r.s.protoWorkspace(ws)
+		ids[i] = ws.ID
+	}
+	// The §12.6.1 at-a-glance line: one batched read for the whole page.
+	// Decoration, not payload - a failed lookup degrades to no presence
+	// line, the protoFileDiff project-tagging rule.
+	if latest, err := r.s.Store.LatestWorkspaceActivity(ctx, ids); err == nil {
+		for i, ws := range list {
+			if ev, ok := latest[ws.ID]; ok {
+				out[i].LatestActivity = r.s.protoWorkspaceActivity(ctx, ev)
+			}
+		}
 	}
 	return connect.NewResponse(&runkov1.ListWorkspacesResponse{Workspaces: out}), nil
 }
@@ -927,6 +939,38 @@ func (r *rpcServer) ListWorkspaceEvents(ctx context.Context, req *connect.Reques
 	return connect.NewResponse(&runkov1.ListWorkspaceEventsResponse{Events: out, NextPageToken: next}), nil
 }
 
+// ListWorkspaceActivity is the §12.6.1 harness-reported feed's read side,
+// ListWorkspaceEvents' shape verbatim: 404-guarded (a deleted workspace
+// answers NotFound, never 200-empty), offset paging, size+1 next-page.
+func (r *rpcServer) ListWorkspaceActivity(ctx context.Context, req *connect.Request[runkov1.ListWorkspaceActivityRequest]) (*connect.Response[runkov1.ListWorkspaceActivityResponse], error) {
+	if _, ok, err := r.s.Store.GetWorkspace(ctx, req.Msg.Id); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	} else if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace not found: %s", req.Msg.Id))
+	}
+	size := int(req.Msg.PageSize)
+	if size <= 0 {
+		size = 50
+	}
+	offset, err := pageOffset(req.Msg.PageToken)
+	if err != nil {
+		return nil, err
+	}
+	evs, err := r.s.Store.ListWorkspaceActivity(ctx, req.Msg.Id, size+1, offset)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	next := ""
+	if len(evs) > size {
+		evs, next = evs[:size], strconv.Itoa(offset+size)
+	}
+	out := make([]*runkov1.WorkspaceActivityEvent, len(evs))
+	for i, ev := range evs {
+		out[i] = r.s.protoWorkspaceActivity(ctx, ev)
+	}
+	return connect.NewResponse(&runkov1.ListWorkspaceActivityResponse{Events: out, NextPageToken: next}), nil
+}
+
 // watchKeepaliveInterval paces WatchWorkspace's empty frames: fast enough
 // to hold proxy read-timeouts (nginx-ingress defaults to 60s) open, slow
 // enough to cost nothing.
@@ -999,8 +1043,30 @@ func (s *Server) protoWorkspaceEvent(ctx context.Context, ev WorkspaceEvent) *ru
 	return out
 }
 
+// protoWorkspaceActivity maps a §12.6.1 activity row onto the wire shape,
+// protoWorkspaceEvent's actor-badge rule included.
+func (s *Server) protoWorkspaceActivity(ctx context.Context, ev WorkspaceActivity) *runkov1.WorkspaceActivityEvent {
+	out := &runkov1.WorkspaceActivityEvent{
+		Id: ev.ID, WorkspaceId: ev.WorkspaceID,
+		Kind: ev.Kind, Detail: ev.Detail, SessionId: ev.SessionID,
+	}
+	if !ev.OccurredAt.IsZero() {
+		out.OccurredAt = ev.OccurredAt.Unix()
+	}
+	if ev.Actor != "" {
+		t := runkov1.ActorType_ACTOR_TYPE_USER
+		if s.isAgentPrincipalName(ctx, ev.Actor) {
+			t = runkov1.ActorType_ACTOR_TYPE_AGENT
+		}
+		out.Actor = &runkov1.Actor{Type: t, Id: ev.Actor}
+	}
+	return out
+}
+
 func protoWorkspaceEventType(t string) runkov1.WorkspaceEventType {
 	switch t {
+	case WorkspaceEventAgentActivity:
+		return runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_AGENT_ACTIVITY
 	case WorkspaceEventSnapshotPushed:
 		return runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_SNAPSHOT_PUSHED
 	case WorkspaceEventChangePushed:

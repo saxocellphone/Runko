@@ -953,3 +953,115 @@ func TestRPCBaseBehindTrunk(t *testing.T) {
 		t.Fatalf("landed: want behind muted to 0, got %d", c.BaseBehindTrunk)
 	}
 }
+
+// TestRPCWorkspaceActivity drives the §12.6.1 read side over Connect:
+// ListWorkspaceActivity (newest-first, offset paging, agent badge, 404
+// guard), the ListWorkspaces latest_activity at-a-glance field, and a
+// WatchWorkspace AGENT_ACTIVITY poke fired by the REST ingest.
+func TestRPCWorkspaceActivity(t *testing.T) {
+	bare := newBareRepo(t)
+	store := NewMemStore()
+	ctx := context.Background()
+	if _, err := store.CreateWorkspace(ctx, Workspace{
+		ID: "act-ws", Owner: "agent-a", SnapshotRef: "refs/workspaces/act-ws/head", Status: "active",
+	}); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	bus := NewEventBus()
+	server := &Server{
+		RepoDir: bare, TrunkRef: "main", Store: store,
+		Processor: newTestProcessor(bare, store), Token: "sekret", Events: bus,
+		Principals: []Principal{{Name: "agent-a", Token: "agent-a-token", IsAgent: true, Policy: receive.DefaultAgentPolicy()}},
+	}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+	client := runkov1connect.NewWorkspaceServiceClient(srv.Client(), srv.URL, rpcAuth("sekret"))
+
+	if _, err := store.RecordWorkspaceActivity(ctx, []WorkspaceActivity{
+		{WorkspaceID: "act-ws", Actor: "agent-a", Kind: WorkspaceActivityRead, Detail: "runkod/api.go", SessionID: "sess-1"},
+		{WorkspaceID: "act-ws", Actor: "agent-a", Kind: WorkspaceActivityCommand, Detail: "go test ./..."},
+		{WorkspaceID: "act-ws", Actor: "agent-a", Kind: WorkspaceActivityEdit, Detail: "runkod/activity.go"},
+	}); err != nil {
+		t.Fatalf("RecordWorkspaceActivity: %v", err)
+	}
+
+	// Newest-first with paging: page 1 of 2, then the offset token.
+	page, err := client.ListWorkspaceActivity(ctx, connect.NewRequest(&runkov1.ListWorkspaceActivityRequest{Id: "act-ws", PageSize: 2}))
+	if err != nil {
+		t.Fatalf("ListWorkspaceActivity: %v", err)
+	}
+	evs := page.Msg.GetEvents()
+	if len(evs) != 2 || evs[0].GetKind() != "edit" || evs[1].GetKind() != "command" {
+		t.Fatalf("expected newest-first [edit, command], got %+v", evs)
+	}
+	if evs[0].GetDetail() != "runkod/activity.go" || evs[0].GetId() == 0 || evs[0].GetOccurredAt() == 0 {
+		t.Fatalf("fields missing on the wire: %+v", evs[0])
+	}
+	if evs[0].GetActor().GetType() != runkov1.ActorType_ACTOR_TYPE_AGENT || evs[0].GetActor().GetId() != "agent-a" {
+		t.Fatalf("agent badge missing: %+v", evs[0].GetActor())
+	}
+	if page.Msg.GetNextPageToken() == "" {
+		t.Fatalf("three rows, page_size 2: expected a next page token")
+	}
+	page2, err := client.ListWorkspaceActivity(ctx, connect.NewRequest(&runkov1.ListWorkspaceActivityRequest{
+		Id: "act-ws", PageSize: 2, PageToken: page.Msg.GetNextPageToken(),
+	}))
+	if err != nil {
+		t.Fatalf("ListWorkspaceActivity page 2: %v", err)
+	}
+	if evs := page2.Msg.GetEvents(); len(evs) != 1 || evs[0].GetKind() != "read" || evs[0].GetSessionId() != "sess-1" {
+		t.Fatalf("page 2 should hold the oldest row with its session id, got %+v", evs)
+	}
+	if _, err := client.ListWorkspaceActivity(ctx, connect.NewRequest(&runkov1.ListWorkspaceActivityRequest{Id: "no-such"})); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("unknown workspace: want NotFound, got %v", err)
+	}
+
+	// The at-a-glance field: ListWorkspaces carries each workspace's
+	// newest activity row.
+	wsList, err := client.ListWorkspaces(ctx, connect.NewRequest(&runkov1.ListWorkspacesRequest{}))
+	if err != nil {
+		t.Fatalf("ListWorkspaces: %v", err)
+	}
+	if n := len(wsList.Msg.GetWorkspaces()); n != 1 {
+		t.Fatalf("want one workspace, got %d", n)
+	}
+	glance := wsList.Msg.GetWorkspaces()[0].GetLatestActivity()
+	if glance.GetKind() != "edit" || glance.GetDetail() != "runkod/activity.go" {
+		t.Fatalf("latest_activity should be the newest row, got %+v", glance)
+	}
+
+	// An ingest batch pokes an open watch stream with AGENT_ACTIVITY.
+	watchCtx, cancelWatch := context.WithCancel(ctx)
+	defer cancelWatch()
+	watchReq := connect.NewRequest(&runkov1.WatchWorkspaceRequest{Id: "act-ws"})
+	watchReq.Header().Set("Authorization", "Bearer sekret")
+	stream, err := client.WatchWorkspace(watchCtx, watchReq)
+	if err != nil {
+		t.Fatalf("WatchWorkspace: %v", err)
+	}
+	if !stream.Receive() || stream.Msg().GetEvent() != nil {
+		t.Fatalf("expected the immediate liveness frame, got %+v err=%v", stream.Msg(), stream.Err())
+	}
+	resp := postActivity(t, srv, "act-ws", "agent-a-token", `{"events":[{"kind":"command","detail":"make check"}]}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ingest: want 200, got %d", resp.StatusCode)
+	}
+	if !stream.Receive() {
+		t.Fatalf("expected a poke after the batch, got err=%v", stream.Err())
+	}
+	poked := stream.Msg().GetEvent()
+	if poked.GetType() != runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_AGENT_ACTIVITY || poked.GetActor().GetId() != "agent-a" {
+		t.Fatalf("poke frame should be AGENT_ACTIVITY by agent-a, got %+v", poked)
+	}
+	refetch, err := client.ListWorkspaceActivity(ctx, connect.NewRequest(&runkov1.ListWorkspaceActivityRequest{Id: "act-ws", PageSize: 1}))
+	if err != nil {
+		t.Fatalf("refetch: %v", err)
+	}
+	if evs := refetch.Msg.GetEvents(); len(evs) != 1 || evs[0].GetDetail() != "make check" {
+		t.Fatalf("the poke's refetch should see the new row, got %+v", evs)
+	}
+}
