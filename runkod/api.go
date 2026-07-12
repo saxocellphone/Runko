@@ -254,6 +254,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/workspaces/{id}", s.requireAuth(s.handleGetWorkspace))
 	mux.HandleFunc("POST /api/workspaces/{id}/base", s.requireAuth(s.handleUpdateWorkspaceBase))
 	mux.HandleFunc("DELETE /api/workspaces/{id}", s.requireAuth(s.handleDeleteWorkspace))
+	mux.HandleFunc("POST /api/workspaces/{id}/activity", s.requireAuth(s.handleRecordWorkspaceActivity))
 
 	// Ephemeral agent identity (agentprincipal.go): mint/list/revoke.
 	mux.HandleFunc("POST /api/agents", s.requireAuth(s.handleMintAgentPrincipal))

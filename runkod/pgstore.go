@@ -1030,6 +1030,83 @@ func (s *PostgresStore) DeleteWorkspaceEvents(ctx context.Context, workspaceID s
 	})
 }
 
+func (s *PostgresStore) RecordWorkspaceActivity(ctx context.Context, events []WorkspaceActivity) ([]WorkspaceActivity, error) {
+	out := make([]WorkspaceActivity, 0, len(events))
+	for _, ev := range events {
+		row, err := s.Queries.InsertWorkspaceActivity(ctx, s.Pool, dbgen.InsertWorkspaceActivityParams{
+			OrgID: s.OrgID, MonorepoID: s.MonorepoID,
+			WorkspaceID: ev.WorkspaceID, Actor: ev.Actor, Kind: ev.Kind,
+			Detail: ev.Detail, SessionID: ev.SessionID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, workspaceActivityFromRow(row))
+	}
+	// Prune best-effort once per batch (§12.6.1 retention): a failed
+	// prune costs bounded extra rows, never the batch. Ingest builds
+	// batches per workspace, so the first event's id covers them all.
+	if len(events) > 0 {
+		_ = s.Queries.PruneWorkspaceActivity(ctx, s.Pool, dbgen.PruneWorkspaceActivityParams{
+			MonorepoID: s.MonorepoID, WorkspaceID: events[0].WorkspaceID, Limit: workspaceActivityRetentionCap,
+		})
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) ListWorkspaceActivity(ctx context.Context, workspaceID string, limit, offset int) ([]WorkspaceActivity, error) {
+	lim := int32(limit)
+	if limit <= 0 {
+		lim = math.MaxInt32
+	}
+	rows, err := s.Queries.ListWorkspaceActivity(ctx, s.Pool, dbgen.ListWorkspaceActivityParams{
+		MonorepoID: s.MonorepoID, WorkspaceID: workspaceID, Limit: lim, Offset: int32(offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]WorkspaceActivity, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, workspaceActivityFromRow(row))
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) LatestWorkspaceActivity(ctx context.Context, workspaceIDs []string) (map[string]WorkspaceActivity, error) {
+	if len(workspaceIDs) == 0 {
+		return map[string]WorkspaceActivity{}, nil
+	}
+	rows, err := s.Queries.LatestWorkspaceActivity(ctx, s.Pool, dbgen.LatestWorkspaceActivityParams{
+		MonorepoID: s.MonorepoID, WorkspaceIds: workspaceIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]WorkspaceActivity, len(rows))
+	for _, row := range rows {
+		ev := workspaceActivityFromRow(row)
+		out[ev.WorkspaceID] = ev
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) DeleteWorkspaceActivity(ctx context.Context, workspaceID string) error {
+	return s.Queries.DeleteWorkspaceActivity(ctx, s.Pool, dbgen.DeleteWorkspaceActivityParams{
+		MonorepoID: s.MonorepoID, WorkspaceID: workspaceID,
+	})
+}
+
+func workspaceActivityFromRow(row *dbgen.WorkspaceActivity) WorkspaceActivity {
+	ev := WorkspaceActivity{
+		ID: row.ID, WorkspaceID: row.WorkspaceID, Actor: row.Actor,
+		Kind: row.Kind, Detail: row.Detail, SessionID: row.SessionID,
+	}
+	if row.OccurredAt.Valid {
+		ev.OccurredAt = row.OccurredAt.Time
+	}
+	return ev
+}
+
 func workspaceEventFromRow(row *dbgen.WorkspaceEvent) WorkspaceEvent {
 	ev := WorkspaceEvent{
 		ID: row.ID, Type: row.EventType,

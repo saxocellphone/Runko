@@ -425,9 +425,13 @@ func (s *Server) deleteWorkspaceCore(ctx context.Context, id string, principal *
 	if err := s.Store.DeleteWorkspace(ctx, id); err != nil {
 		return internalErr(err)
 	}
-	// Timeline goes with the workspace (§12.6: close keeps history,
-	// delete does not) - last, it's the least load-bearing row family.
+	// Timeline and activity feed go with the workspace (§12.6/§12.6.1:
+	// close keeps history, delete does not) - last, they're the least
+	// load-bearing row families.
 	if err := s.Store.DeleteWorkspaceEvents(ctx, id); err != nil {
+		return internalErr(err)
+	}
+	if err := s.Store.DeleteWorkspaceActivity(ctx, id); err != nil {
 		return internalErr(err)
 	}
 	return nil

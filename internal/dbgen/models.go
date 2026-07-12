@@ -592,6 +592,18 @@ type Workspace struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+type WorkspaceActivity struct {
+	ID          int64              `json:"id"`
+	OrgID       uuid.UUID          `json:"org_id"`
+	MonorepoID  uuid.UUID          `json:"monorepo_id"`
+	WorkspaceID string             `json:"workspace_id"`
+	Actor       string             `json:"actor"`
+	Kind        string             `json:"kind"`
+	Detail      string             `json:"detail"`
+	SessionID   string             `json:"session_id"`
+	OccurredAt  pgtype.Timestamptz `json:"occurred_at"`
+}
+
 type WorkspaceEvent struct {
 	ID           int64              `json:"id"`
 	OrgID        uuid.UUID          `json:"org_id"`

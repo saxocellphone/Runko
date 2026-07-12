@@ -164,6 +164,49 @@ const (
 // RecordWorkspaceEvent prunes oldest-first past this after every insert.
 const workspaceEventRetentionCap = 500
 
+// WorkspaceEventAgentActivity is the bus-only poke type published after an
+// accepted activity batch (§12.6.1). It is deliberately NOT in the stored
+// const block above: passing it to RecordWorkspaceEvent would violate the
+// workspace_events event_type CHECK (loudly in Postgres, silently in
+// MemStore). Activity rows live in workspace_activity; the bus frame only
+// tells watchers to refetch via ListWorkspaceActivity.
+const WorkspaceEventAgentActivity = "agent_activity"
+
+// WorkspaceActivity is one harness-reported agent-activity row (§12.6.1,
+// stage 19): what the agent SAYS it is doing - reading, editing, running.
+// Client-claimed and observability-only by decision: nothing may feed
+// these rows into policy, gates, or affected computation. Detail is
+// metadata (a path, a command line), truncated and secret-scanned at
+// ingest - never file content (§12.1). IDs are strictly increasing per
+// store, like WorkspaceEvent's.
+type WorkspaceActivity struct {
+	ID          int64
+	WorkspaceID string
+	Actor       string // principal name from ingest auth; "" = the anonymous deploy token
+	Kind        string // one of the WorkspaceActivity* consts below
+	Detail      string
+	SessionID   string // harness coding-session id (§7.2's audit link); "" when unreported
+	OccurredAt  time.Time
+}
+
+// Workspace-activity kinds (§12.6.1) - mirrored by the workspace_activity
+// kind CHECK constraint. The vocabulary is deliberately soft at the edge:
+// ingest coerces unknown kinds to "note" (telemetry never fails the work
+// it describes), so only these ever reach the store.
+const (
+	WorkspaceActivityRead    = "read"
+	WorkspaceActivityEdit    = "edit"
+	WorkspaceActivityCommand = "command"
+	WorkspaceActivitySearch  = "search"
+	WorkspaceActivityNote    = "note"
+)
+
+// workspaceActivityRetentionCap bounds each workspace's activity feed
+// (§12.6.1): RecordWorkspaceActivity prunes oldest-first past this after
+// every batch. Higher than the timeline's cap - agents emit tool calls at
+// hertz - and still bounded: this is a live view, not an archive.
+const workspaceActivityRetentionCap = 1000
+
 // MirrorCursor is one (remote, ref) sync cursor (§18.6): what the mirror
 // last agreed with us about, and whether mirroring that ref is frozen.
 type MirrorCursor struct {
@@ -345,6 +388,21 @@ type Store interface {
 	// ListWorkspaceEvents returns a workspace's timeline newest-first;
 	// limit <= 0 means unbounded (the ListReleases convention).
 	ListWorkspaceEvents(ctx context.Context, workspaceID string, limit, offset int) ([]WorkspaceEvent, error)
+	// RecordWorkspaceActivity appends one harness-reported batch
+	// (§12.6.1) and prunes the workspace's feed to
+	// workspaceActivityRetentionCap. Ingest normalizes kind/detail
+	// before calling; rows come back with IDs and timestamps assigned.
+	RecordWorkspaceActivity(ctx context.Context, events []WorkspaceActivity) ([]WorkspaceActivity, error)
+	// ListWorkspaceActivity returns a workspace's activity feed
+	// newest-first; limit <= 0 means unbounded.
+	ListWorkspaceActivity(ctx context.Context, workspaceID string, limit, offset int) ([]WorkspaceActivity, error)
+	// LatestWorkspaceActivity returns each listed workspace's newest
+	// activity row (§12.6.1's at-a-glance line); workspaces that never
+	// reported are absent from the map.
+	LatestWorkspaceActivity(ctx context.Context, workspaceIDs []string) (map[string]WorkspaceActivity, error)
+	// DeleteWorkspaceActivity removes a workspace's whole feed -
+	// workspace delete only (close keeps it), like the timeline.
+	DeleteWorkspaceActivity(ctx context.Context, workspaceID string) error
 	// DeleteWorkspaceEvents removes a workspace's whole timeline -
 	// deleteWorkspaceCore's companion to DeleteWorkspace. Closing a
 	// workspace keeps its history; deleting it does not.
@@ -375,20 +433,22 @@ type StoredPrincipal struct {
 }
 
 type MemStore struct {
-	mu         sync.Mutex
-	changes    map[string]Change
-	checkRuns  map[string]map[string]checks.CheckRunView // changeKey|headSHA -> name -> run
-	approvals  map[string]map[string]Approval            // changeKey -> ownerRef -> approval
-	comments   map[string][]Comment                      // changeKey -> comments, creation order
-	reviewReqs map[string]map[string]ReviewRequest       // changeKey -> reviewer -> request
-	releases   map[string][]Release                      // projectName -> releases, creation order
-	workspaces map[string]Workspace
-	wsEvents   map[string][]WorkspaceEvent // workspaceID -> events, id order
-	wsEventSeq int64
-	agents     map[string]AgentPrincipal
-	principals map[string]StoredPrincipal
-	deliveries map[string]*memDelivery
-	mirrors    map[string]MirrorCursor
+	mu            sync.Mutex
+	changes       map[string]Change
+	checkRuns     map[string]map[string]checks.CheckRunView // changeKey|headSHA -> name -> run
+	approvals     map[string]map[string]Approval            // changeKey -> ownerRef -> approval
+	comments      map[string][]Comment                      // changeKey -> comments, creation order
+	reviewReqs    map[string]map[string]ReviewRequest       // changeKey -> reviewer -> request
+	releases      map[string][]Release                      // projectName -> releases, creation order
+	workspaces    map[string]Workspace
+	wsEvents      map[string][]WorkspaceEvent // workspaceID -> events, id order
+	wsEventSeq    int64
+	wsActivity    map[string][]WorkspaceActivity // workspaceID -> activity, id order
+	wsActivitySeq int64
+	agents        map[string]AgentPrincipal
+	principals    map[string]StoredPrincipal
+	deliveries    map[string]*memDelivery
+	mirrors       map[string]MirrorCursor
 	// Directory state (orghub.go): org registry + memberships + settings.
 	// Only the hub's designated directory store (the default org's)
 	// carries these - per-org MemStores leave them empty.
@@ -425,6 +485,7 @@ func NewMemStore() *MemStore {
 		releases:   make(map[string][]Release),
 		workspaces: make(map[string]Workspace),
 		wsEvents:   make(map[string][]WorkspaceEvent),
+		wsActivity: make(map[string][]WorkspaceActivity),
 		agents:     make(map[string]AgentPrincipal),
 		deliveries: make(map[string]*memDelivery),
 		mirrors:    make(map[string]MirrorCursor),
@@ -989,6 +1050,63 @@ func (s *MemStore) DeleteWorkspaceEvents(ctx context.Context, workspaceID string
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.wsEvents, workspaceID)
+	return nil
+}
+
+func (s *MemStore) RecordWorkspaceActivity(ctx context.Context, events []WorkspaceActivity) ([]WorkspaceActivity, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]WorkspaceActivity, 0, len(events))
+	for _, ev := range events {
+		s.wsActivitySeq++
+		ev.ID = s.wsActivitySeq
+		if ev.OccurredAt.IsZero() {
+			ev.OccurredAt = s.now()
+		}
+		evs := append(s.wsActivity[ev.WorkspaceID], ev)
+		if over := len(evs) - workspaceActivityRetentionCap; over > 0 {
+			evs = append([]WorkspaceActivity(nil), evs[over:]...)
+		}
+		s.wsActivity[ev.WorkspaceID] = evs
+		out = append(out, ev)
+	}
+	return out, nil
+}
+
+func (s *MemStore) ListWorkspaceActivity(ctx context.Context, workspaceID string, limit, offset int) ([]WorkspaceActivity, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all := s.wsActivity[workspaceID]
+	rev := make([]WorkspaceActivity, len(all))
+	for i, ev := range all {
+		rev[len(all)-1-i] = ev
+	}
+	if offset >= len(rev) {
+		return []WorkspaceActivity{}, nil
+	}
+	rev = rev[offset:]
+	if limit > 0 && limit < len(rev) {
+		rev = rev[:limit]
+	}
+	return rev, nil
+}
+
+func (s *MemStore) LatestWorkspaceActivity(ctx context.Context, workspaceIDs []string) (map[string]WorkspaceActivity, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]WorkspaceActivity, len(workspaceIDs))
+	for _, id := range workspaceIDs {
+		if evs := s.wsActivity[id]; len(evs) > 0 {
+			out[id] = evs[len(evs)-1]
+		}
+	}
+	return out, nil
+}
+
+func (s *MemStore) DeleteWorkspaceActivity(ctx context.Context, workspaceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.wsActivity, workspaceID)
 	return nil
 }
 

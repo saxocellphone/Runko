@@ -947,3 +947,84 @@ func TestPostgresStoreWorkspaceEventsRoundTrip(t *testing.T) {
 		t.Fatalf("other org's timeline must survive, got %+v", evs)
 	}
 }
+
+// TestPostgresStoreWorkspaceActivityRoundTrip pins the §12.6.1
+// client-claimed feed: batch inserts with BIGSERIAL order, the kind CHECK
+// (only normalized kinds arrive here), LatestWorkspaceActivity's
+// DISTINCT ON, org scoping, the prune SQL, and whole-workspace delete.
+func TestPostgresStoreWorkspaceActivityRoundTrip(t *testing.T) {
+	dsn := pgTestDSN(t)
+	ctx := context.Background()
+
+	store, err := BootstrapPostgresStore(ctx, dsn, "wsact-acme", "main")
+	if err != nil {
+		t.Fatalf("BootstrapPostgresStore: %v", err)
+	}
+	defer store.Pool.Close()
+	other, err := BootstrapPostgresStore(ctx, dsn, "wsact-globex", "main")
+	if err != nil {
+		t.Fatalf("BootstrapPostgresStore (other org): %v", err)
+	}
+	defer other.Pool.Close()
+
+	batch, err := store.RecordWorkspaceActivity(ctx, []WorkspaceActivity{
+		{WorkspaceID: "ws-a", Actor: "agent-x", Kind: WorkspaceActivityRead, Detail: "runkod/api.go", SessionID: "sess-1"},
+		{WorkspaceID: "ws-a", Actor: "agent-x", Kind: WorkspaceActivityCommand, Detail: "go test ./..."},
+	})
+	if err != nil {
+		t.Fatalf("RecordWorkspaceActivity: %v", err)
+	}
+	if len(batch) != 2 || batch[0].ID == 0 || batch[1].ID <= batch[0].ID || batch[0].OccurredAt.IsZero() {
+		t.Fatalf("expected increasing IDs and timestamps, got %+v", batch)
+	}
+	if _, err := store.RecordWorkspaceActivity(ctx, []WorkspaceActivity{
+		{WorkspaceID: "ws-b", Kind: WorkspaceActivityEdit, Detail: "web/src/App.tsx"},
+	}); err != nil {
+		t.Fatalf("RecordWorkspaceActivity (ws-b): %v", err)
+	}
+	if _, err := other.RecordWorkspaceActivity(ctx, []WorkspaceActivity{
+		{WorkspaceID: "ws-a", Kind: WorkspaceActivityNote, Detail: "other-org"},
+	}); err != nil {
+		t.Fatalf("RecordWorkspaceActivity (other org): %v", err)
+	}
+
+	evs, err := store.ListWorkspaceActivity(ctx, "ws-a", 0, 0)
+	if err != nil {
+		t.Fatalf("ListWorkspaceActivity: %v", err)
+	}
+	if len(evs) != 2 || evs[0].ID != batch[1].ID || evs[1].SessionID != "sess-1" {
+		t.Fatalf("expected org-scoped newest-first with fields intact, got %+v", evs)
+	}
+	if page, _ := store.ListWorkspaceActivity(ctx, "ws-a", 1, 1); len(page) != 1 || page[0].ID != batch[0].ID {
+		t.Fatalf("limit/offset paging broken: %+v", page)
+	}
+
+	latest, err := store.LatestWorkspaceActivity(ctx, []string{"ws-a", "ws-b", "ws-none"})
+	if err != nil {
+		t.Fatalf("LatestWorkspaceActivity: %v", err)
+	}
+	if len(latest) != 2 || latest["ws-a"].ID != batch[1].ID || latest["ws-b"].Kind != WorkspaceActivityEdit {
+		t.Fatalf("DISTINCT ON latest rows wrong: %+v", latest)
+	}
+
+	// Prune SQL directly with a tiny cap (the store method applies
+	// workspaceActivityRetentionCap): keep-newest-1, org-scoped.
+	if err := store.Queries.PruneWorkspaceActivity(ctx, store.Pool, dbgen.PruneWorkspaceActivityParams{
+		MonorepoID: store.MonorepoID, WorkspaceID: "ws-a", Limit: 1,
+	}); err != nil {
+		t.Fatalf("PruneWorkspaceActivity: %v", err)
+	}
+	if evs, _ := store.ListWorkspaceActivity(ctx, "ws-a", 0, 0); len(evs) != 1 || evs[0].ID != batch[1].ID {
+		t.Fatalf("prune to 1 must keep only the newest row, got %+v", evs)
+	}
+
+	if err := store.DeleteWorkspaceActivity(ctx, "ws-a"); err != nil {
+		t.Fatalf("DeleteWorkspaceActivity: %v", err)
+	}
+	if evs, _ := store.ListWorkspaceActivity(ctx, "ws-a", 0, 0); len(evs) != 0 {
+		t.Fatalf("expected empty feed after delete, got %+v", evs)
+	}
+	if evs, _ := other.ListWorkspaceActivity(ctx, "ws-a", 0, 0); len(evs) != 1 || evs[0].Detail != "other-org" {
+		t.Fatalf("other org's feed must survive, got %+v", evs)
+	}
+}

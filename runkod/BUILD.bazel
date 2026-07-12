@@ -4,6 +4,7 @@ go_library(
     name = "runkod",
     srcs = [
         "actions.go",
+        "activity.go",
         "agentprincipal.go",
         "api.go",
         "auth.go",
@@ -67,6 +68,7 @@ go_library(
 go_test(
     name = "runkod_test",
     srcs = [
+        "activity_test.go",
         "affectedcache_test.go",
         "agentprincipal_test.go",
         "api_test.go",
