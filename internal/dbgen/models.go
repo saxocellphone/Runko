@@ -344,6 +344,18 @@ type AgentPolicy struct {
 	CreatedAt                pgtype.Timestamptz `json:"created_at"`
 }
 
+type AgentPrincipal struct {
+	ID        uuid.UUID          `json:"id"`
+	OrgID     uuid.UUID          `json:"org_id"`
+	Name      string             `json:"name"`
+	Task      string             `json:"task"`
+	TokenHash string             `json:"token_hash"`
+	CreatedBy string             `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	Revoked   bool               `json:"revoked"`
+}
+
 type Change struct {
 	ID                uuid.UUID          `json:"id"`
 	MonorepoID        uuid.UUID          `json:"monorepo_id"`

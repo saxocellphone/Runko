@@ -199,6 +199,11 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/workspaces/{id}", s.requireAuth(s.handleGetWorkspace))
 	mux.HandleFunc("POST /api/workspaces/{id}/base", s.requireAuth(s.handleUpdateWorkspaceBase))
 	mux.HandleFunc("DELETE /api/workspaces/{id}", s.requireAuth(s.handleDeleteWorkspace))
+
+	// Ephemeral agent identity (agentprincipal.go): mint/list/revoke.
+	mux.HandleFunc("POST /api/agents", s.requireAuth(s.handleMintAgentPrincipal))
+	mux.HandleFunc("GET /api/agents", s.requireAuth(s.handleListAgentPrincipals))
+	mux.HandleFunc("POST /api/agents/{name}/revoke", s.requireAuth(s.handleRevokeAgentPrincipal))
 	mux.HandleFunc("GET /api/sparse-patterns", s.requireAuth(s.handleSparsePatterns))
 
 	// The Connect RPC surface for the web frontend (proto/runko/v1, §17.4;

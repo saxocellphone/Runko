@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/saxocellphone/runko/platform/receive"
 )
@@ -96,6 +97,15 @@ func (p *Processor) principalByName(name string) *Principal {
 	if lookup != nil {
 		if sp, found, err := lookup(context.Background(), name); err == nil && found {
 			return &Principal{Name: sp.Name, Stored: true}
+		}
+	}
+	// Ephemeral agent principals (agentprincipal.go): by the time a push
+	// reaches the funnel the credential already authenticated, so a live
+	// row here arms the §8.7 enforcement (per-change caps, affinity, the
+	// DAG nudge) under the agent's task-named identity.
+	if p.Store != nil {
+		if ap, found, err := p.Store.GetAgentPrincipalByName(context.Background(), name); err == nil && found && ap.Live(time.Now()) {
+			return ap.principal()
 		}
 	}
 	return nil

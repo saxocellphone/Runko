@@ -882,7 +882,69 @@ func (s *PostgresStore) UpdateWorkspaceBase(ctx context.Context, id, baseRevisio
 	return s.dbWorkspaceToWorkspace(ctx, updated)
 }
 
-// SetWorkspaceStatus is UpdateWorkspaceStatus's first caller (generated at
+// Agent principals (agentprincipal.go): ephemeral per-task identities,
+// org-scoped rows. Mint sweeps long-expired rows opportunistically so the
+// table never grows with history (attribution lives in actors, not here).
+func (s *PostgresStore) MintAgentPrincipal(ctx context.Context, ap AgentPrincipal) (AgentPrincipal, error) {
+	_ = s.Queries.DeleteExpiredAgentPrincipals(ctx, s.Pool, dbgen.DeleteExpiredAgentPrincipalsParams{
+		OrgID: s.OrgID, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(-agentSweepGrace), Valid: true},
+	})
+	row, err := s.Queries.MintAgentPrincipal(ctx, s.Pool, dbgen.MintAgentPrincipalParams{
+		OrgID: s.OrgID, Name: ap.Name, Task: ap.Task, TokenHash: ap.TokenHash,
+		CreatedBy: ap.CreatedBy, ExpiresAt: pgtype.Timestamptz{Time: ap.ExpiresAt, Valid: true},
+	})
+	if err != nil {
+		return AgentPrincipal{}, err
+	}
+	return agentPrincipalFromRow(row), nil
+}
+
+func (s *PostgresStore) GetAgentPrincipalByName(ctx context.Context, name string) (AgentPrincipal, bool, error) {
+	row, err := s.Queries.GetAgentPrincipalByName(ctx, s.Pool, dbgen.GetAgentPrincipalByNameParams{OrgID: s.OrgID, Name: name})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AgentPrincipal{}, false, nil
+	}
+	if err != nil {
+		return AgentPrincipal{}, false, err
+	}
+	return agentPrincipalFromRow(row), true, nil
+}
+
+func (s *PostgresStore) GetAgentPrincipalByTokenHash(ctx context.Context, hash string) (AgentPrincipal, bool, error) {
+	row, err := s.Queries.GetAgentPrincipalByTokenHash(ctx, s.Pool, dbgen.GetAgentPrincipalByTokenHashParams{OrgID: s.OrgID, TokenHash: hash})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AgentPrincipal{}, false, nil
+	}
+	if err != nil {
+		return AgentPrincipal{}, false, err
+	}
+	return agentPrincipalFromRow(row), true, nil
+}
+
+func (s *PostgresStore) ListAgentPrincipals(ctx context.Context) ([]AgentPrincipal, error) {
+	rows, err := s.Queries.ListAgentPrincipals(ctx, s.Pool, s.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AgentPrincipal, len(rows))
+	for i, r := range rows {
+		out[i] = agentPrincipalFromRow(r)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) RevokeAgentPrincipal(ctx context.Context, name string) error {
+	return s.Queries.RevokeAgentPrincipal(ctx, s.Pool, dbgen.RevokeAgentPrincipalParams{OrgID: s.OrgID, Name: name})
+}
+
+func agentPrincipalFromRow(r *dbgen.AgentPrincipal) AgentPrincipal {
+	return AgentPrincipal{
+		Name: r.Name, Task: r.Task, TokenHash: r.TokenHash, CreatedBy: r.CreatedBy,
+		CreatedAt: r.CreatedAt.Time, ExpiresAt: r.ExpiresAt.Time, Revoked: r.Revoked,
+	}
+}
+
+// SetWorkspaceStatus is UpdateWorkspaceStatus's first caller// SetWorkspaceStatus is UpdateWorkspaceStatus's first caller (generated at
 // stage 2; the status column was decorative until single-use agent
 // workspaces made "closed" load-bearing at receive time).
 func (s *PostgresStore) SetWorkspaceStatus(ctx context.Context, id, status string) error {

@@ -103,6 +103,12 @@ func (s *Server) callerForBearer(token string) caller {
 			return caller{ok: true, principal: &s.Principals[i]}
 		}
 	}
+	// Ephemeral agent principals (agentprincipal.go): one indexed lookup
+	// by token hash; expired/revoked rows do not authenticate. Org-scoped
+	// rows in THIS server's store, so no membership gate applies.
+	if pr := s.agentByToken(token); pr != nil {
+		return caller{ok: true, principal: pr}
+	}
 	return caller{}
 }
 
@@ -132,6 +138,12 @@ func (s *Server) callerForBasicOpts(user, pass string, gated bool) caller {
 	}
 	if constantTimeEquals(pass, s.Token) {
 		return caller{ok: true}
+	}
+	// Ephemeral agent principals: name + token both matching, like every
+	// Basic credential; cheap (one sha256) so checked before the PBKDF2
+	// account path.
+	if pr := s.agentByBasic(user, pass); pr != nil {
+		return caller{ok: true, principal: pr}
 	}
 	// Store-backed principals (§15.1 sign-up, signup.go): checked LAST so
 	// operator config always wins a name. The PBKDF2 verification is
