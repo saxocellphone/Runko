@@ -2240,3 +2240,28 @@ tr.thread-row > td {
   margin-top: 4px;
   font-size: 12.5px;
 }
+
+/* Agent session activity (§12.6.1): the harness-reported feed's detail
+   line (a path, a command line - can be long) and the at-a-glance
+   presence line. */
+.ws-activity-detail {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-now {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.activity-now .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}

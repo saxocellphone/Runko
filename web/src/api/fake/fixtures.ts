@@ -17,11 +17,13 @@ import {
   type MergeRequirements,
   type ProjectDetail,
   type WorkspaceSummary,
+  type WorkspaceActivityEvent,
   ActorSchema,
   ChangeSummarySchema,
   CommentSchema,
   MergeRequirementsSchema,
   ProjectDetailSchema,
+  WorkspaceActivityEventSchema,
   WorkspaceSummarySchema,
 } from "../../gen/runko/v1/common_pb";
 import {
@@ -931,6 +933,57 @@ export const workspaceEvents = new Map<string, WorkspaceEvent[]>([
       wsEvent({ id: 1, type: WorkspaceEventType.SNAPSHOT_PUSHED, ws: "refactor-bot-cfg", actor: "refactor-bot", agent: true, sha: fakeSha("ws-bot-snap-1"), files: 4, adds: 88, dels: 61 }),
       wsEvent({ id: 2, type: WorkspaceEventType.CHANGE_PUSHED, ws: "refactor-bot-cfg", actor: "refactor-bot", agent: true, sha: agentChange.headSha, changeId: agentChange.id, files: 4 }),
       wsEvent({ id: 3, type: WorkspaceEventType.SNAPSHOT_PUSHED, ws: "refactor-bot-cfg", actor: "refactor-bot", agent: true, sha: fakeSha("ws-bot-snap-2"), files: 1, adds: 9, dels: 2 }),
+    ],
+  ],
+]);
+
+// ---------------------------------------- agent session activity (§12.6.1)
+
+const wsActivityEvent = (init: {
+  id: number;
+  ws: string;
+  kind: string;
+  detail: string;
+  actor: string;
+  agent?: boolean;
+  session?: string;
+  occurredAt?: number;
+}): WorkspaceActivityEvent =>
+  create(WorkspaceActivityEventSchema, {
+    id: BigInt(init.id),
+    workspaceId: init.ws,
+    kind: init.kind,
+    detail: init.detail,
+    actor: wsActor(init.actor, init.agent),
+    sessionId: init.session ?? "",
+    // Deterministic id-spaced timestamps, except where a row must read as
+    // "now" for the presence line (§12.6.1 at-a-glance) to show in /demo.
+    occurredAt: BigInt(init.occurredAt ?? 1_780_000_000 + init.id * 45),
+  });
+
+// Module-load "now": fresh enough for the presence line, stable within a
+// session (the landedAt determinism lesson applies to ORDER, which keys
+// on id here, never time).
+const activityNow = Math.floor(Date.now() / 1000);
+
+// Harness-reported feeds (§12.6.1): CLIENT-CLAIMED rows the real daemon
+// ingests via POST /activity - the bot's feed reads as a live coding
+// session, val's as a human who wired the hooks up too.
+export const workspaceActivity = new Map<string, WorkspaceActivityEvent[]>([
+  [
+    "refactor-bot-cfg",
+    [
+      wsActivityEvent({ id: 1, ws: "refactor-bot-cfg", kind: "read", detail: "commerce/checkout-api/config.go", actor: "refactor-bot", agent: true, session: "sess-refactor-1" }),
+      wsActivityEvent({ id: 2, ws: "refactor-bot-cfg", kind: "search", detail: "envconfig.Process", actor: "refactor-bot", agent: true, session: "sess-refactor-1" }),
+      wsActivityEvent({ id: 3, ws: "refactor-bot-cfg", kind: "command", detail: "go test ./commerce/checkout-api/...", actor: "refactor-bot", agent: true, session: "sess-refactor-1" }),
+      wsActivityEvent({ id: 4, ws: "refactor-bot-cfg", kind: "edit", detail: "commerce/checkout-api/config.go", actor: "refactor-bot", agent: true, session: "sess-refactor-1", occurredAt: activityNow - 15 }),
+    ],
+  ],
+  [
+    "sku-validation",
+    [
+      wsActivityEvent({ id: 1, ws: "sku-validation", kind: "read", detail: "commerce/cart/validate.ts", actor: "val" }),
+      wsActivityEvent({ id: 2, ws: "sku-validation", kind: "edit", detail: "commerce/cart/validate.test.ts", actor: "val" }),
     ],
   ],
 ]);

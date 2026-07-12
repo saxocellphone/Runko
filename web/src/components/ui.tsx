@@ -1,7 +1,12 @@
 import type { ConnectError } from "@connectrpc/connect";
 import { Link } from "react-router-dom";
-import { ChangeState, type Actor, type MergeRequirements } from "../gen/runko/v1/common_pb";
-import { actorLabel, changeStateLabel, isAgent } from "../lib/format";
+import {
+  ChangeState,
+  type Actor,
+  type MergeRequirements,
+  type WorkspaceActivityEvent,
+} from "../gen/runko/v1/common_pb";
+import { absoluteTime, actorLabel, changeStateLabel, isAgent, timeAgo } from "../lib/format";
 import { checksRollup, dotStatus, reviewRollup } from "../lib/status";
 
 // Detail pages render this above their header so there's always a visible
@@ -74,6 +79,24 @@ export function StateBadge({ state }: { state: ChangeState }) {
         ? "badge-landed"
         : "badge-abandoned";
   return <span className={`badge-state ${cls}`}>{changeStateLabel(state)}</span>;
+}
+
+// ActivityPresence is the §12.6.1 at-a-glance line: the newest
+// harness-reported event, rendered only while FRESH - the reporting hook
+// fires per tool call, so a quiet two minutes means the session moved on,
+// and a stale "now:" claim is worse than none. Client-claimed data:
+// presentation only, never a gate input.
+const ACTIVITY_FRESH_SECONDS = 120;
+
+export function ActivityPresence({ ev }: { ev: WorkspaceActivityEvent | undefined }) {
+  if (!ev) return null;
+  const age = Math.floor(Date.now() / 1000) - Number(ev.occurredAt);
+  if (age < 0 || age > ACTIVITY_FRESH_SECONDS) return null;
+  return (
+    <span className="activity-now" title={absoluteTime(ev.occurredAt)}>
+      now: {ev.kind} <span className="mono">{ev.detail}</span> · {timeAgo(ev.occurredAt)}
+    </span>
+  );
 }
 
 export function AuthorChip({ author }: { author: Actor | undefined }) {

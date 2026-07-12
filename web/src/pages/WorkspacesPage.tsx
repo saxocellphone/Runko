@@ -5,7 +5,7 @@ import { ChangeState, WorkspaceStatus } from "../gen/runko/v1/common_pb";
 import { shortSha } from "../lib/format";
 import { branchesForWorkspace, changesByOrigin } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
-import { EmptyState, ErrorNote, InfoTip, Spinner } from "../components/ui";
+import { ActivityPresence, EmptyState, ErrorNote, InfoTip, Spinner } from "../components/ui";
 
 const statusLabel: Record<number, string> = {
   [WorkspaceStatus.ACTIVE]: "active",
@@ -85,6 +85,11 @@ export function WorkspacesPage() {
                     <Link to={`/workspaces/${w.id}`} title="Live WIP diff + activity timeline (§12.6)">
                       {w.id}
                     </Link>
+                    {/* §12.6.1 at-a-glance: what the agent is doing right
+                        now, straight off latest_activity while fresh. */}
+                    <div>
+                      <ActivityPresence ev={w.latestActivity} />
+                    </div>
                   </td>
                   <td>{w.owner}</td>
                   <td className="mono">{shortSha(w.baseRevision)}</td>

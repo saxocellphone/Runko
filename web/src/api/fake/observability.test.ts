@@ -77,4 +77,79 @@ describe("fake workspace observability", () => {
     expect(after.events.length).toBe(before.events.length + 1);
     expect(after.events[0].type).toBe(WorkspaceEventType.SNAPSHOT_PUSHED);
   });
+
+  // The §12.6.1 half: the harness-reported feed, its at-a-glance surfacing
+  // on ListWorkspaces, deletion riding workspace delete, and the stream's
+  // AGENT_ACTIVITY poke moving the feed.
+  it("lists agent activity newest-first with offset tokens", async () => {
+    const ws = createClient(WorkspaceService, createFakeTransport());
+
+    const full = await ws.listWorkspaceActivity({ id: "refactor-bot-cfg" });
+    const ids = full.events.map((ev) => ev.id);
+    expect(ids).toEqual([...ids].sort((a, b) => Number(b - a)));
+    expect(full.events[0].kind).toBe("edit");
+    expect(full.events[0].actor?.id).toBe("refactor-bot");
+    expect(full.events[0].sessionId).toBe("sess-refactor-1");
+
+    const first = await ws.listWorkspaceActivity({ id: "refactor-bot-cfg", pageSize: 3 });
+    expect(first.nextPageToken).not.toBe("");
+    const second = await ws.listWorkspaceActivity({
+      id: "refactor-bot-cfg",
+      pageSize: 3,
+      pageToken: first.nextPageToken,
+    });
+    expect([...first.events, ...second.events].map((ev) => ev.id)).toEqual(ids);
+
+    await expect(ws.listWorkspaceActivity({ id: "no-such" })).rejects.toThrow(/workspace/);
+  });
+
+  it("surfaces the newest activity as latest_activity on the workspace list", async () => {
+    const ws = createClient(WorkspaceService, createFakeTransport());
+    const list = await ws.listWorkspaces({});
+    const bot = list.workspaces.find((w) => w.id === "refactor-bot-cfg");
+    expect(bot?.latestActivity?.kind).toBe("edit");
+    expect(bot?.latestActivity?.detail).toBe("commerce/checkout-api/config.go");
+    // A workspace that never reported carries no claim at all.
+    const quiet = list.workspaces.find((w) => w.id === "authz-cache");
+    expect(quiet?.latestActivity).toBeUndefined();
+  });
+
+  it("drops the activity feed with the workspace", async () => {
+    const ws = createClient(WorkspaceService, createFakeTransport());
+    // pricing-spike has no open changes, so deletion is allowed - seed a
+    // row through state by watching? No: fixtures only cover two feeds,
+    // so assert on sku-validation's after abandoning its blocker is
+    // overkill; instead delete pricing-spike and confirm the feed read
+    // 404s with the workspace, which is the coupling under test.
+    await ws.deleteWorkspace({ id: "pricing-spike" });
+    await expect(ws.listWorkspaceActivity({ id: "pricing-spike" })).rejects.toThrow(/workspace/);
+  });
+
+  // Timeout: the scripted scene is 2.5s (snapshot beat) + 1.8s (activity
+  // beat) before the third frame arrives.
+  it("streams an AGENT_ACTIVITY poke whose refetch sees the new activity row", { timeout: 10_000 }, async () => {
+    const transport = createFakeTransport();
+    const ws = createClient(WorkspaceService, transport);
+    const before = await ws.listWorkspaceActivity({ id: "refactor-bot-cfg" });
+
+    const abort = new AbortController();
+    const frames: { hasEvent: boolean; type?: WorkspaceEventType }[] = [];
+    for await (const frame of ws.watchWorkspace(
+      { id: "refactor-bot-cfg" },
+      { signal: abort.signal },
+    )) {
+      frames.push({ hasEvent: frame.event !== undefined, type: frame.event?.type });
+      if (frames.length === 3) {
+        abort.abort();
+        break;
+      }
+    }
+    expect(frames[2].hasEvent).toBe(true);
+    expect(frames[2].type).toBe(WorkspaceEventType.AGENT_ACTIVITY);
+
+    const after = await ws.listWorkspaceActivity({ id: "refactor-bot-cfg" });
+    expect(after.events.length).toBe(before.events.length + 1);
+    expect(after.events[0].detail).toBe("commerce/checkout-api/config_test.go");
+    expect(after.events[0].sessionId).toBe("sess-live");
+  });
 });

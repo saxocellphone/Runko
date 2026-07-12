@@ -67,7 +67,12 @@ import {
   DeleteWorkspaceResponseSchema,
   WatchWorkspaceResponseSchema,
   WorkspaceEventSchema,
+  ListWorkspaceActivityResponseSchema,
 } from "../../gen/runko/v1/workspaces_pb";
+import {
+  WorkspaceActivityEventSchema,
+  type WorkspaceActivityEvent,
+} from "../../gen/runko/v1/common_pb";
 import { SearchService, SearchCodeResponseSchema } from "../../gen/runko/v1/search_pb";
 import {
   RepoService,
@@ -90,6 +95,7 @@ import {
   searchCorpus,
   workspaces as fixtureWorkspaces,
   workspaceEvents as fixtureWorkspaceEvents,
+  workspaceActivity as fixtureWorkspaceActivity,
   workspaceWip as fixtureWorkspaceWip,
   fakeSha,
   fsFiles,
@@ -116,6 +122,10 @@ interface FakeState {
   // WIP ("<id>/<branch>" keys). watchWorkspace's scripted event appends
   // here so the poke's refetch visibly moves the timeline.
   workspaceEvents: Map<string, WorkspaceEvent[]>;
+  // Agent session activity (§12.6.1): the client-claimed feed. The
+  // watchWorkspace script appends here too, so /demo's Agent activity
+  // card visibly ticks.
+  workspaceActivity: Map<string, WorkspaceActivityEvent[]>;
   workspaceWip: Map<string, { snapshotSha: string; files: FileDiff[] }>;
 }
 
@@ -145,6 +155,12 @@ function freshState(): FakeState {
       [...fixtureWorkspaceEvents].map(([id, list]) => [
         id,
         list.map((ev) => clone(WorkspaceEventSchema, ev)),
+      ]),
+    ),
+    workspaceActivity: new Map(
+      [...fixtureWorkspaceActivity].map(([id, list]) => [
+        id,
+        list.map((ev) => clone(WorkspaceActivityEventSchema, ev)),
       ]),
     ),
     workspaceWip: new Map(fixtureWorkspaceWip),
@@ -927,6 +943,12 @@ export function createFakeTransport(): Transport {
     service(WorkspaceService, {
       async listWorkspaces() {
         await delay();
+        // The §12.6.1 at-a-glance field, derived at serve time exactly
+        // like the daemon's batched LatestWorkspaceActivity read.
+        for (const w of state.workspaces.values()) {
+          const feed = state.workspaceActivity.get(w.id);
+          w.latestActivity = feed && feed.length > 0 ? feed[feed.length - 1] : undefined;
+        }
         return create(ListWorkspacesResponseSchema, {
           workspaces: [...state.workspaces.values()],
         });
@@ -990,6 +1012,7 @@ export function createFakeTransport(): Transport {
         }
         state.workspaces.delete(req.id);
         state.workspaceEvents.delete(req.id); // timeline goes with the workspace (§12.6)
+        state.workspaceActivity.delete(req.id); // the §12.6.1 feed too
         return create(DeleteWorkspaceResponseSchema, {});
       },
 
@@ -1023,10 +1046,25 @@ export function createFakeTransport(): Transport {
         });
       },
 
+      async listWorkspaceActivity(req) {
+        await delay();
+        if (!state.workspaces.has(req.id)) throw notFound("workspace", req.id);
+        const all = [...(state.workspaceActivity.get(req.id) ?? [])].sort((a, b) =>
+          Number(b.id - a.id),
+        );
+        const size = req.pageSize > 0 ? req.pageSize : 50;
+        const offset = req.pageToken ? Number.parseInt(req.pageToken, 10) : 0;
+        return create(ListWorkspaceActivityResponseSchema, {
+          events: all.slice(offset, offset + size),
+          nextPageToken: offset + size < all.length ? String(offset + size) : "",
+        });
+      },
+
       // The playground's live feed: the immediate liveness frame, then one
       // scripted snapshot event (appended to state, so the poke's refetch
       // genuinely moves the timeline and the dot demonstrably works), then
-      // hold the stream open until the client goes away.
+      // a scripted §12.6.1 activity event so the Agent activity card ticks
+      // too, then hold the stream open until the client goes away.
       async *watchWorkspace(req, ctx) {
         if (!state.workspaces.has(req.id)) throw notFound("workspace", req.id);
         yield create(WatchWorkspaceResponseSchema, {});
@@ -1049,6 +1087,35 @@ export function createFakeTransport(): Transport {
         list.push(ev);
         state.workspaceEvents.set(req.id, list);
         yield create(WatchWorkspaceResponseSchema, { event: ev });
+
+        // The §12.6.1 half of the scene: an activity row lands in state,
+        // then the frame is a bus-style AGENT_ACTIVITY poke (the real
+        // daemon's frames carry no activity payload - clients refetch).
+        await abortableSleep(1800, ctx.signal);
+        const feed = state.workspaceActivity.get(req.id) ?? [];
+        const nextActID = feed.reduce((max, a) => (a.id > max ? a.id : max), 0n) + 1n;
+        feed.push(
+          create(WorkspaceActivityEventSchema, {
+            id: nextActID,
+            workspaceId: req.id,
+            kind: "edit",
+            detail: "commerce/checkout-api/config_test.go",
+            actor: w.owner ? { type: ActorType.AGENT, id: w.owner } : undefined,
+            sessionId: "sess-live",
+            occurredAt: BigInt(Math.floor(Date.now() / 1000)),
+          }),
+        );
+        state.workspaceActivity.set(req.id, feed);
+        yield create(WatchWorkspaceResponseSchema, {
+          event: create(WorkspaceEventSchema, {
+            id: nextID + 1n,
+            type: WorkspaceEventType.AGENT_ACTIVITY,
+            workspaceId: req.id,
+            actor: w.owner ? { type: ActorType.AGENT, id: w.owner } : undefined,
+            occurredAt: BigInt(Math.floor(Date.now() / 1000)),
+          }),
+        });
+
         // Park, honoring abort - keepalives every 25s like the real daemon.
         for (;;) {
           await abortableSleep(25_000, ctx.signal);

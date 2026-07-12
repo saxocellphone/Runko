@@ -3,12 +3,21 @@ import { Link, useParams } from "react-router-dom";
 import { changesClient, publicBrowse, workspacesClient } from "../api/client";
 import { ChangeState, WorkspaceStatus } from "../gen/runko/v1/common_pb";
 import { WorkspaceEventType, type WorkspaceEvent } from "../gen/runko/v1/workspaces_pb";
+import type { WorkspaceActivityEvent } from "../gen/runko/v1/common_pb";
 import { absoluteTime, shortSha, timeAgo } from "../lib/format";
 import { branchesForWorkspace, changesByOrigin } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
 import { useWatch, type WatchState } from "../lib/useWatch";
 import { DiffView } from "../components/DiffView";
-import { AuthorChip, BackLink, EmptyState, ErrorNote, InfoTip, Spinner } from "../components/ui";
+import {
+  ActivityPresence,
+  AuthorChip,
+  BackLink,
+  EmptyState,
+  ErrorNote,
+  InfoTip,
+  Spinner,
+} from "../components/ui";
 
 const statusLabel: Record<number, string> = {
   [WorkspaceStatus.ACTIVE]: "active",
@@ -48,11 +57,18 @@ export function WorkspacePage() {
     () => workspacesClient.listWorkspaceEvents({ id: workspaceId, pageSize: 100 }),
     `${workspaceId}/events`,
   );
+  // The §12.6.1 harness-reported feed - capped server-side like the
+  // timeline, so one page covers the card.
+  const activity = useRpc(
+    () => workspacesClient.listWorkspaceActivity({ id: workspaceId, pageSize: 100 }),
+    `${workspaceId}/activity`,
+  );
 
   const live = useWatch(publicBrowse ? "" : workspaceId, () => {
     meta.reload();
     diff.reload();
     events.reload();
+    activity.reload();
   });
 
   const back = <BackLink to="/workspaces">Workspaces</BackLink>;
@@ -85,6 +101,7 @@ export function WorkspacePage() {
               </Link>
             ))}
           </span>
+          <ActivityPresence ev={activity.data?.events[0]} />
         </div>
       </header>
 
@@ -135,6 +152,29 @@ export function WorkspacePage() {
         <aside>
           <section className="card side-card">
             <h2>
+              Agent activity
+              <InfoTip text="What the workspace's agent reports it is doing - reads, edits, commands - live, before anything is pushed (§12.6.1). Client-claimed and observability-only: it never feeds gates. Wire it up with `runko agent hooks`." />
+            </h2>
+            {activity.loading && <Spinner />}
+            {activity.error && <ErrorNote error={activity.error} />}
+            {activity.data && activity.data.events.length === 0 && (
+              <EmptyState>
+                Nothing reported yet — wire the harness with{" "}
+                <span className="mono">runko agent hooks</span> and reads, edits, and commands
+                appear here live.
+              </EmptyState>
+            )}
+            {activity.data && activity.data.events.length > 0 && (
+              <ul className="ws-timeline">
+                {activity.data.events.map((ev) => (
+                  <ActivityRow key={String(ev.id)} ev={ev} />
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="card side-card">
+            <h2>
               Activity
               <InfoTip text="Stats-only timeline recorded at receive/land time (§12.6): snapshots, change pushes, lands, abandons, closure. Line counts are numstat totals; file content never leaves Git." />
             </h2>
@@ -178,6 +218,26 @@ const eventLabel: Record<number, string> = {
   [WorkspaceEventType.CHANGE_ABANDONED]: "abandoned",
   [WorkspaceEventType.WORKSPACE_CLOSED]: "workspace closed",
 };
+
+// ActivityRow is one §12.6.1 harness-reported event: kind + who + when,
+// with the detail (a path, a command line) on its own mono line.
+function ActivityRow({ ev }: { ev: WorkspaceActivityEvent }) {
+  return (
+    <li className="ws-timeline-row">
+      <div className="ws-timeline-head">
+        <span className="chip">{ev.kind}</span>
+        {ev.actor && <AuthorChip author={ev.actor} />}
+        <span className="spacer" />
+        <span title={absoluteTime(ev.occurredAt)}>{timeAgo(ev.occurredAt)}</span>
+      </div>
+      <div className="ws-timeline-body">
+        <span className="mono ws-activity-detail" title={ev.detail}>
+          {ev.detail}
+        </span>
+      </div>
+    </li>
+  );
+}
 
 function TimelineRow({ ev }: { ev: WorkspaceEvent }) {
   const isChange = ev.changeId !== "";
