@@ -230,3 +230,26 @@ func TestMintValidation(t *testing.T) {
 func basicAuth(user, pass string) string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 }
+
+// TestAgentPrincipalsAreNeverOperators pins the escalation found on the
+// feature's first prod smoke: whoami reported an ephemeral agent as
+// operator, and the hub's isOperator granted every non-store-account
+// principal - agents included - server-wide org-management powers.
+func TestAgentPrincipalsAreNeverOperators(t *testing.T) {
+	hs, _, _, _, _ := agentTestServer(t)
+	_, token, _, _ := mintAgent(t, hs, "Bearer sekret", "no-escalation")
+
+	if _, who := whoami(t, hs, "Bearer "+token); who["operator"] != false {
+		t.Fatalf("an agent must never read as operator: %v", who)
+	}
+	if isOperator(caller{principal: &Principal{Name: "agent-x", IsAgent: true}}) {
+		t.Fatalf("isOperator must refuse agent principals (flag-config or minted)")
+	}
+	if isOperator(caller{principal: &Principal{Name: "cfg-agent", IsAgent: true, Stored: false}}) {
+		t.Fatalf("flag-config ;agent principals must not be operators either")
+	}
+	// The exemptions that SHOULD hold, still do.
+	if !isOperator(caller{}) || !isOperator(caller{principal: &Principal{Name: "op"}}) {
+		t.Fatalf("deploy token and flag-config human principals stay operators")
+	}
+}

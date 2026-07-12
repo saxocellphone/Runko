@@ -245,7 +245,7 @@ func (s *Server) handleWhoami(w http.ResponseWriter, r *http.Request) {
 			"name": c.principal.Name, "is_agent": c.principal.IsAgent, "anonymous": false,
 			// operator: flag-configured (server config), not a signup row -
 			// the deployment admin surface keys on this (orghub.go).
-			"operator": !c.principal.Stored, "admin": c.principal.Admin,
+			"operator": !c.principal.Stored && !c.principal.IsAgent, "admin": c.principal.Admin,
 		})
 	case c.lane != nil:
 		writeJSON(w, http.StatusOK, map[string]any{

@@ -539,11 +539,19 @@ func (h *OrgHub) hubCaller(r *http.Request) (caller, *apiError) {
 	return c, nil
 }
 
-// isOperator: the anonymous deploy token and flag-configured principals
-// are operator-level - server-wide, membership-exempt. (hubCaller already
-// rejected bot lanes.)
+// isOperator: the anonymous deploy token and flag-configured HUMAN
+// principals are operator-level - server-wide, membership-exempt.
+// (hubCaller already rejected bot lanes.) Agents are NEVER operators,
+// whatever minted them: an ephemeral task identity (agentprincipal.go)
+// reading as operator was a real escalation - org creation, member
+// management, membership exemption - found live on the feature's first
+// prod smoke, and a flag-config ;agent principal had the same hole from
+// the start.
 func isOperator(c caller) bool {
-	return c.principal == nil || !c.principal.Stored
+	if c.principal == nil {
+		return true
+	}
+	return !c.principal.Stored && !c.principal.IsAgent
 }
 
 type orgInfo struct {
