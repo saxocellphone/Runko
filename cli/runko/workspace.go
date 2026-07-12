@@ -124,7 +124,9 @@ func absWorkspacePaths(cloneDir, dir string) (string, string, error) {
 // working tree; only worktrees do, each under its own sparse cone.
 func ensureSharedClone(cloneDir, remoteURL string) error {
 	if _, err := os.Stat(filepath.Join(cloneDir, ".git")); err == nil {
-		return nil
+		// The nudge below arrived after some shared clones existed -
+		// installing on every create/attach retrofits them too.
+		return installWorkspaceHooks(cloneDir)
 	}
 	if _, err := runGit(".", "clone", "--filter=blob:none", "--no-checkout", remoteURL, cloneDir); err != nil {
 		return fmt.Errorf("blobless clone: %w", err)
@@ -142,6 +144,19 @@ func ensureSharedClone(cloneDir, remoteURL string) error {
 	// gits ignore the unknown key and keep today's behavior (fine on
 	// private orgs, where the challenge fires).
 	if _, err := runGit(cloneDir, "config", "http.proactiveAuth", "basic"); err != nil {
+		return err
+	}
+	return installWorkspaceHooks(cloneDir)
+}
+
+// installWorkspaceHooks stamps the shared clone's hooks dir (worktrees
+// inherit it) with the advisory pre-commit verb nudge, so a raw
+// `git commit` in ANY workspace worktree answers with the native verbs
+// (§6.9 UX one moment earlier; the materialized environment should teach
+// the verbs, not just AGENTS.md). Advisory only - a foreign pre-commit
+// hook is silently left in place, and the nudge never blocks a commit.
+func installWorkspaceHooks(cloneDir string) error {
+	if _, err := InstallVerbNudgeHook(cloneDir); err != nil {
 		return err
 	}
 	return nil

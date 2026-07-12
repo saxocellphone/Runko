@@ -91,3 +91,22 @@ func TestCommandsMatchesCLIContract(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateTeachesRawGitIsTransportOnly: a fresh agent's default scm
+// verb is git out of sheer training-data muscle memory - the generated
+// orientation must say, up front, that raw git is transport only and name
+// the native verbs (the same rule the workspace pre-commit nudge and the
+// receive funnel's §6.9 rejection teach at their own moments).
+func TestGenerateTeachesRawGitIsTransportOnly(t *testing.T) {
+	got := Generate()
+	for _, want := range []string{
+		"Raw git is transport only",
+		"`runko change create`",
+		"never `git commit`/`git push`",
+		"jj is for surgical history work",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected the generated orientation to contain %q", want)
+		}
+	}
+}

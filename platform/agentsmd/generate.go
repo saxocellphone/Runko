@@ -76,6 +76,7 @@ func Generate() string {
 	b.WriteString("## Orientation\n\n")
 	for _, line := range []string{
 		"Use the `runko`/`runko-ci` CLI (`--json` output); do not full-clone.",
+		"Raw git is transport only (clone/fetch): commit with `runko change create`, submit with `runko change push` - never `git commit`/`git push`. jj is for surgical history work (`jj edit`/`jj split`), not the basic loop.",
 		"Prefer `runko project create` over hand-authoring PROJECT.yaml.",
 		"Stay within workspace affinity; use `runko-ci checkout` for deps/prefetch.",
 		"Open a Change (`runko change push`) before large refactors; respect who_owns.",
@@ -95,8 +96,8 @@ func Generate() string {
 		"Report what you are doing: wire your harness's post-tool-use hook to `runko agent event --from-hook` (print the snippet with `runko agent hooks`) and the workspace page shows your reads/edits/commands LIVE (§12.6.1). Observability only - it never gates anything; export RUNKO_RUNKOD_URL/RUNKO_TOKEN in the harness env and it just works.",
 		"Work under a TASK identity, never a shared credential: if you hold a human/admin credential, demote yourself first - `runko agent create --task <slug>` - and use the returned name:token for everything (git remote and --token alike). Attribution, policy, and workspace ownership then follow the task; the credential dies by TTL on its own.",
 		"One task = one fresh workspace: start every new task with `runko workspace create`; never attach or bind a workspace you didn't create. Agent workspaces CLOSE when their last change lands or is abandoned - a push into a closed workspace is refused, so reuse is not a shortcut, it is a dead end.",
-		"Stack small changes, never one big one: one reviewable step per change (`jj new` between steps, `jj split` after the fact); a single `runko change push` pushes the whole stack. Size caps are PER CHANGE - a big change is refused where the same work as a stack passes - and smaller changes scope required checks narrower, so they land faster.",
-		"Stack only what DEPENDS: orthogonal changes go on PARALLEL workspace branches (`runko workspace branch <name>`; jj: a separate `jj new 'main@origin'` line each), where they review and land independently - stacked, the upper one needlessly waits out the lower. The push output nudges you when a stacked step touches nothing its parent touches.",
+		"Stack small changes, never one big one: one reviewable step per change - a fresh `runko change create` per step stacks naturally (`jj split` is the surgical fix for one that grew too big); a single `runko change push` pushes the whole stack. Size caps are PER CHANGE - a big change is refused where the same work as a stack passes - and smaller changes scope required checks narrower, so they land faster.",
+		"Stack only what DEPENDS: orthogonal changes go on PARALLEL workspace branches (`runko workspace branch <name>`), where they review and land independently - stacked, the upper one needlessly waits out the lower. The push output nudges you when a stacked step touches nothing its parent touches.",
 		"Submit: `runko change create -m <msg>` then `runko change push`. Stacks land BOTTOM-UP; a child is not mergeable until its parent lands.",
 		"Trunk moved (land says revalidate): `runko change land` already runs the recovery loop itself (sync, re-push, wait, retry); `runko workspace sync` is the manual form. Never force.",
 		"Do not poll for green: after pushing, arm `runko change automerge --change <id>` and MOVE ON - the server lands it the moment checks and approvals pass, under your name. Poll-and-land loops are the anti-pattern automerge exists to delete.",

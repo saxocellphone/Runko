@@ -1,6 +1,6 @@
 ---
 name: runko-workspaces
-description: Use BEFORE making any code change to this repository (Runko developed on Runko itself). The correct workspace/branch/change workflow - one workspace per workstream, one branch per stack, snapshot cadence, the jj-first submit/land loop, revalidation recovery, and what the server will refuse. Load it before creating a workspace, pushing a change, or landing.
+description: Use BEFORE making any code change to this repository (Runko developed on Runko itself). The correct workspace/branch/change workflow - one workspace per workstream, one branch per stack, snapshot cadence, the runko-first submit/land loop (jj is surgical-only), revalidation recovery, and what the server will refuse. Load it before creating a workspace, pushing a change, or landing.
 ---
 
 # Working on Runko, through Runko
@@ -39,18 +39,18 @@ an afternoon of structured rejections.
   dead end, not a shortcut. A task can still hold several changes
   (a stack) and parallel branches - that's what branches are for.
 - **Stack small changes; never push one big one.** One reviewable step
-  per change: `jj new` between steps while working, `jj split` to carve
-  up something that grew. One `runko change push` pushes the whole
-  stack. Agent size caps are PER CHANGE - a monolith is refused where
-  the same work as a stack passes - and smaller changes scope required
-  checks narrower, so stacks genuinely land faster.
+  per change: a fresh `runko change create -m ...` per step stacks
+  naturally (`jj split` is the surgical fix when one grew too big). One
+  `runko change push` pushes the whole stack. Agent size caps are PER
+  CHANGE - a monolith is refused where the same work as a stack passes -
+  and smaller changes scope required checks narrower, so stacks
+  genuinely land faster.
 - **Stack only what depends; parallelize the rest (DAG, not line).**
   If step B doesn't build on step A, they belong on PARALLEL workspace
-  branches (`runko workspace branch <name>`; jj: a separate
-  `jj new 'main@origin'` line per independent change) - each reviews
-  and lands on its own, neither waits for the other, and the workspace
-  card renders the fork honestly. The push output nudges you when a
-  stacked step touches nothing its parent touches.
+  branches (`runko workspace branch <name>`) - each reviews and lands
+  on its own, neither waits for the other, and the workspace card
+  renders the fork honestly. The push output nudges you when a stacked
+  step touches nothing its parent touches.
 - **One branch = one stack = one reviewable line.** `head` is the
   default. Parallel/unrelated work in the same workstream gets
   `runko workspace branch <name>`. The server refuses a second
@@ -72,7 +72,11 @@ Prefer working INSIDE the created worktree: the sparse cone stops
 out-of-scope edits client-side, and `runko change push` stamps the
 origin claim from the worktree's own config.
 
-jj mode (colocated clones cannot live inside git worktrees): clone with
+jj is SURGICAL-ONLY (§21, repositioned 2026-07-11): the basic loop -
+create/push/land/snapshot - is runko in every checkout. Reach for jj
+when you need mid-stack rework (`jj edit`/`jj squash`; descendants
+auto-rebase), `jj split`, or history diagnosis. If you do want a
+colocated checkout (they cannot live inside git worktrees): clone with
 `jj git clone --colocate <remote>`, run `runko doctor --install-hook`
 (wires Change-Id trailers to jj change ids), then bind it:
 `git config runko.workspace <id>` + `git config runko.branch head`.
@@ -83,10 +87,10 @@ URL-embedded basic auth), rebase with `jj rebase -d 'main@origin'`.
 
 1. Edit. **Snapshot often**: `runko workspace snapshot -m "wip"` -
    durable, secret-scanned; a killed session loses nothing.
-2. Submit: `runko change create -m "<title>..."` (or `jj describe`),
-   then `runko change push`. One push updates the WHOLE stack
-   (series receive) - after editing a stack's root, jj auto-rebases
-   descendants and one push restacks the server.
+2. Submit: `runko change create -m "<title>..."`, then
+   `runko change push`. One push updates the WHOLE stack (series
+   receive) - after surgically editing a stack's root with jj, jj
+   auto-rebases descendants and one push restacks the server.
 3. Gate: `runko change requirements --change <Id>` until mergeable.
    A stacked child is NOT mergeable until its parent lands - land
    bottom-up.

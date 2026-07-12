@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -171,6 +175,148 @@ func TestInstalledHookGeneratesDistinctChangeIDs(t *testing.T) {
 			t.Fatalf("commit %d: Change-Id %s repeats an earlier commit's id", i, id)
 		}
 		seen[id] = true
+	}
+}
+
+// rawGitCommit stages everything and commits the way a human or agent
+// would type it - a direct git subprocess, NOT runGit (which marks itself
+// RUNKO_INTERNAL_GIT=1) - returning the commit's stderr, where hooks speak.
+func rawGitCommit(t *testing.T, dir, msg string, extraEnv []string) string {
+	t.Helper()
+	if _, err := runGit(dir, "add", "-A"); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	cmd := exec.Command("git", "commit", "-m", msg)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+	cmd.Env = append(cmd.Env, extraEnv...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("raw git commit: %v: %s", err, stderr.String())
+	}
+	return stderr.String()
+}
+
+// TestVerbNudgeHookFiresOnRawGitCommitOnly is the fresh-agent moment the
+// nudge exists for (§6.9's rejection UX one moment earlier): a raw
+// `git commit` still succeeds - plain git is a contract, not a fallback -
+// AND prints the native verbs to stderr; the same commit run the way
+// runko's own verbs run git (RUNKO_INTERNAL_GIT=1) stays silent, so
+// `change create`/`workspace snapshot` never nudge about themselves.
+func TestVerbNudgeHookFiresOnRawGitCommitOnly(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("init")
+	if installed, err := InstallVerbNudgeHook(repo.Dir); err != nil || !installed {
+		t.Fatalf("InstallVerbNudgeHook: installed=%v err=%v", installed, err)
+	}
+
+	repo.WriteFile("a.txt", "content\n")
+	stderr := rawGitCommit(t, repo.Dir, "raw commit", nil)
+	if !strings.Contains(stderr, "runko change create") {
+		t.Fatalf("expected the verb nudge on a raw git commit, stderr:\n%s", stderr)
+	}
+
+	repo.WriteFile("b.txt", "content\n")
+	stderr = rawGitCommit(t, repo.Dir, "runko-verb commit", []string{"RUNKO_INTERNAL_GIT=1"})
+	if strings.Contains(stderr, "runko change create") {
+		t.Fatalf("expected silence when git runs under a runko verb, stderr:\n%s", stderr)
+	}
+}
+
+// TestVerbNudgeHookTeachesRunkoEvenInJJColocatedCheckouts: the runko CLI
+// is the primary interface for basic operations EVERYWHERE (§21,
+// repositioned 2026-07-11) - a jj colocated checkout (a .jj dir at the
+// top level) gets the same runko verbs, plus a note that jj is the
+// surgical tool there. jj itself runs no git hooks, so only a raw git
+// commit ever sees any of this.
+func TestVerbNudgeHookTeachesRunkoEvenInJJColocatedCheckouts(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("init")
+	if err := os.MkdirAll(filepath.Join(repo.Dir, ".jj"), 0o755); err != nil {
+		t.Fatalf("mkdir .jj: %v", err)
+	}
+	if installed, err := InstallVerbNudgeHook(repo.Dir); err != nil || !installed {
+		t.Fatalf("InstallVerbNudgeHook: installed=%v err=%v", installed, err)
+	}
+
+	repo.WriteFile("a.txt", "content\n")
+	stderr := rawGitCommit(t, repo.Dir, "raw commit in a colocated checkout", nil)
+	if !strings.Contains(stderr, "runko change create") {
+		t.Fatalf("expected the runko verbs even in a colocated checkout, stderr:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "surgery") {
+		t.Fatalf("expected the jj-is-surgical note in a colocated checkout, stderr:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "jj commit") {
+		t.Fatalf("the nudge must not teach jj commit as a basic verb, stderr:\n%s", stderr)
+	}
+}
+
+// TestVerbNudgeHookRefusesToClobberForeignPreCommit: the nudge is advisory
+// sugar - a pre-commit hook someone actually wrote always wins, and the
+// report must not claim the nudge is installed.
+func TestVerbNudgeHookRefusesToClobberForeignPreCommit(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("init")
+
+	hooksDir, err := hooksDirectory(repo.Dir)
+	if err != nil {
+		t.Fatalf("hooksDirectory: %v", err)
+	}
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatalf("mkdir hooks: %v", err)
+	}
+	foreign := "#!/bin/sh\n# somebody's lint gate\nexit 0\n"
+	hookPath := filepath.Join(hooksDir, "pre-commit")
+	if err := os.WriteFile(hookPath, []byte(foreign), 0o755); err != nil {
+		t.Fatalf("write foreign hook: %v", err)
+	}
+
+	installed, err := InstallVerbNudgeHook(repo.Dir)
+	if err != nil {
+		t.Fatalf("InstallVerbNudgeHook: %v", err)
+	}
+	if installed {
+		t.Fatalf("expected the foreign pre-commit hook to be left alone")
+	}
+	content, err := os.ReadFile(hookPath)
+	if err != nil || string(content) != foreign {
+		t.Fatalf("foreign hook was clobbered: %q err=%v", content, err)
+	}
+
+	report, err := RunDoctor(repo.Dir, "main")
+	if err != nil {
+		t.Fatalf("RunDoctor: %v", err)
+	}
+	if report.HasVerbNudgeHook {
+		t.Fatalf("report claims the nudge is installed over a foreign hook: %+v", report)
+	}
+}
+
+// TestInstallVerbNudgeHookIsDetectedAndIdempotent: doctor reports it, and
+// re-installing over our own hook is fine (picks up new wording).
+func TestInstallVerbNudgeHookIsDetectedAndIdempotent(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("init")
+
+	for i := 0; i < 2; i++ {
+		if installed, err := InstallVerbNudgeHook(repo.Dir); err != nil || !installed {
+			t.Fatalf("install %d: installed=%v err=%v", i, installed, err)
+		}
+	}
+	report, err := RunDoctor(repo.Dir, "main")
+	if err != nil {
+		t.Fatalf("RunDoctor: %v", err)
+	}
+	if !report.HasVerbNudgeHook {
+		t.Fatalf("expected HasVerbNudgeHook after install: %+v", report)
 	}
 }
 

@@ -41,6 +41,42 @@ if ! grep -q '^Change-Id: I[0-9a-f]\{40\}$' "$1"; then
 fi
 `
 
+// verbNudgeHookScript is an advisory pre-commit hook: when a raw
+// `git commit` runs in a Runko-managed checkout, it prints the native
+// verbs to stderr and ALWAYS exits 0 - plain git is a contract, not a
+// fallback (§6.9's parity rule), so the nudge must never block. The §6.9
+// rejection UX applied one moment earlier: agents (and humans) read the
+// exact next command at the moment they reach for muscle-memory git,
+// instead of first meeting it as a pre-receive rejection at push time.
+// The verbs are the runko CLI's in EVERY checkout - jj colocated included
+// (§21, repositioned 2026-07-11: runko is the primary interface for basic
+// operations; jj is the surgical tool) - so a colocated checkout gets the
+// same verbs plus a note on where jj now fits.
+// Two silences are load-bearing: runko's own verbs run git with
+// RUNKO_INTERNAL_GIT=1 (git.go) so `change create`/`workspace snapshot`
+// don't nudge about themselves, and jj runs no git hooks at all, so jj
+// surgery never sees it - it fires precisely and only on a raw git commit.
+const verbNudgeHookScript = `#!/bin/sh
+# runko-verb-nudge: advisory, installed by runko (docs/design.md §6.9, §21).
+# Prints the native verbs on a raw git commit; never blocks (always exit 0).
+[ -n "$RUNKO_INTERNAL_GIT" ] && exit 0
+cat >&2 <<'MSG'
+runko: raw git commit works, but this checkout has native verbs:
+  runko change create -m "<msg>"   # commit all work, Change-Id stamped
+  runko change push                # submit the stack for review
+MSG
+if [ -d "$(git rev-parse --show-toplevel 2>/dev/null)/.jj" ]; then
+  echo '(jj here is for surgery - jj edit/squash/split; the basic loop is runko)' >&2
+else
+  echo '(runko doctor prints the full cheat-sheet)' >&2
+fi
+exit 0
+`
+
+// verbNudgeMarker identifies OUR pre-commit hook, so installs are
+// idempotent but a foreign pre-commit hook is never clobbered.
+const verbNudgeMarker = "runko-verb-nudge"
+
 // DoctorReport is what `runko doctor` checks (§6.9): a new engineer's
 // first-week onboarding should not require a wiki page.
 type DoctorReport struct {
@@ -50,10 +86,13 @@ type DoctorReport struct {
 	RemoteName      string
 	RemoteURL       string
 	HasChangeIDHook bool
-	HooksDir        string
-	GitVersion      string
-	GitVersionOK    bool
-	GitVersionError string // set when git --version itself couldn't be parsed
+	// HasVerbNudgeHook: the advisory pre-commit hook that answers a raw
+	// `git commit` with the native verbs (never blocking - §6.9).
+	HasVerbNudgeHook bool
+	HooksDir         string
+	GitVersion       string
+	GitVersionOK     bool
+	GitVersionError  string // set when git --version itself couldn't be parsed
 	// jj-first client (§7.4, decided 2026-07-08): a colocated jj workspace
 	// is the intended daily driver - amend anywhere in a stack, jj
 	// auto-rebases descendants, one push updates every Change (the funnel's
@@ -88,7 +127,8 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 		return DoctorReport{}, fmt.Errorf("doctor: resolve hooks directory: %w", err)
 	}
 	report.HooksDir = hooksDir
-	report.HasChangeIDHook = hookInstalledAt(filepath.Join(hooksDir, "commit-msg"))
+	report.HasChangeIDHook = hookContains(filepath.Join(hooksDir, "commit-msg"), "Change-Id")
+	report.HasVerbNudgeHook = hookContains(filepath.Join(hooksDir, "pre-commit"), verbNudgeMarker)
 
 	if v, err := gitversion.Detect(); err != nil {
 		report.GitVersionError = err.Error()
@@ -153,12 +193,12 @@ func hooksDirectory(repoDir string) (string, error) {
 	return filepath.Join(gitDir, "hooks"), nil
 }
 
-func hookInstalledAt(path string) bool {
+func hookContains(path, marker string) bool {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(content), "Change-Id")
+	return strings.Contains(string(content), marker)
 }
 
 // InstallChangeIDHook writes changeIDHookScript to repoDir's commit-msg hook.
@@ -175,6 +215,29 @@ func InstallChangeIDHook(repoDir string) error {
 		return fmt.Errorf("doctor: write commit-msg hook: %w", err)
 	}
 	return nil
+}
+
+// InstallVerbNudgeHook writes verbNudgeHookScript to repoDir's pre-commit
+// hook. A pre-commit hook we didn't write is left alone (installed=false):
+// the nudge is advisory sugar, never worth clobbering a real hook - the
+// same refusal SetupJJChangeIDs applies to a foreign trailers template.
+// Re-installing over our own is fine (idempotent, picks up new wording).
+func InstallVerbNudgeHook(repoDir string) (installed bool, err error) {
+	hooksDir, err := hooksDirectory(repoDir)
+	if err != nil {
+		return false, fmt.Errorf("doctor: resolve hooks directory: %w", err)
+	}
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		return false, fmt.Errorf("doctor: create hooks directory: %w", err)
+	}
+	path := filepath.Join(hooksDir, "pre-commit")
+	if _, statErr := os.Stat(path); statErr == nil && !hookContains(path, verbNudgeMarker) {
+		return false, nil
+	}
+	if err := os.WriteFile(path, []byte(verbNudgeHookScript), 0o755); err != nil {
+		return false, fmt.Errorf("doctor: write pre-commit hook: %w", err)
+	}
+	return true, nil
 }
 
 // PrintCheatSheet renders the report as the "personal cheat-sheet" §6.9 asks
@@ -199,6 +262,11 @@ func PrintCheatSheet(w io.Writer, report DoctorReport) {
 	} else {
 		fmt.Fprintln(w, "  commit-msg hook: NOT installed - run `runko doctor --install-hook`")
 	}
+	if report.HasVerbNudgeHook {
+		fmt.Fprintln(w, "  pre-commit hook: installed (nudges raw `git commit` toward the native verbs)")
+	} else {
+		fmt.Fprintln(w, "  pre-commit hook: NOT installed - run `runko doctor --install-hook`")
+	}
 	if report.IsJJWorkspace {
 		if report.JJChangeIDsWired {
 			fmt.Fprintln(w, "  jj workspace:    detected; Change-Id trailers derive from jj change ids")
@@ -207,15 +275,16 @@ func PrintCheatSheet(w io.Writer, report DoctorReport) {
 		}
 	}
 	fmt.Fprintln(w)
-	if report.IsJJWorkspace {
-		fmt.Fprintln(w, "The jj loop (amend anywhere, descendants auto-rebase, one push updates the whole stack):")
-		fmt.Fprintln(w, "  jj commit -m \"...\"                          # stack up work; each commit is a Change")
-		fmt.Fprintln(w, "  jj edit <rev>  /  jj squash                 # rework ANY change in the stack - jj restacks the rest")
-		fmt.Fprintln(w, "  runko change push                           # one push; every Change in the stack updates")
-		fmt.Fprintln(w)
-	}
-	fmt.Fprintln(w, "Three commands that matter:")
+	fmt.Fprintln(w, "The commands that matter:")
+	fmt.Fprintln(w, "  runko change create -m \"...\"               # commit all work as one Change (stack by repeating)")
 	fmt.Fprintln(w, "  runko change push                          # push your stack's tip for review")
 	fmt.Fprintln(w, "  runko change requirements                  # owners + checks outstanding")
 	fmt.Fprintf(w, "  git push origin HEAD:refs/for/%s          # same as `runko change push`, no CLI required\n", report.TrunkRef)
+	if report.IsJJWorkspace {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "jj (surgical use - the basic loop above is runko everywhere, this checkout included):")
+		fmt.Fprintln(w, "  jj edit <rev>  /  jj squash                 # rework ANY change mid-stack - jj restacks descendants")
+		fmt.Fprintln(w, "  jj split                                    # carve an oversized change into reviewable steps")
+		fmt.Fprintln(w, "  runko change push                           # one push; every Change in the stack updates")
+	}
 }

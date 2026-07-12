@@ -456,3 +456,34 @@ func TestWorkspaceCreateRelativeDirLandsInCallerCwd(t *testing.T) {
 		t.Fatalf("worktree must NOT be nested inside the shared clone")
 	}
 }
+
+// TestWorkspaceMaterializationInstallsVerbNudge: the golden path must hand
+// a fresh agent an environment that TEACHES the native verbs, not just
+// documentation that hopes to be read - a raw `git commit` inside any
+// workspace worktree prints the nudge (§6.9's rejection UX one moment
+// earlier), while runko's own verbs stay silent (runGit marks itself
+// RUNKO_INTERNAL_GIT=1). Hooks live in the SHARED clone's git dir, so one
+// install covers every worktree hanging off it - including pre-existing
+// clones, which ensureSharedClone retrofits on the next create/attach.
+func TestWorkspaceMaterializationInstallsVerbNudge(t *testing.T) {
+	srv, _ := startWorkspaceServer(t)
+	root := t.TempDir()
+	cloneDir := filepath.Join(root, "mono")
+	wsDir := filepath.Join(root, "nudge-ws")
+
+	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"nudge-ws", "alice", []string{"checkout-api"}, cloneDir, wsDir); err != nil {
+		t.Fatalf("WorkspaceCreate: %v", err)
+	}
+	if !hookContains(filepath.Join(cloneDir, ".git", "hooks", "pre-commit"), verbNudgeMarker) {
+		t.Fatalf("expected the shared clone to carry the verb-nudge pre-commit hook")
+	}
+
+	mustGit(t, wsDir, "config", "user.email", "t@example.com")
+	mustGit(t, wsDir, "config", "user.name", "t")
+	writeFile(t, wsDir, "commerce/checkout/raw.go", "package main // raw\n")
+	stderr := rawGitCommit(t, wsDir, "raw commit in a workspace", nil)
+	if !strings.Contains(stderr, "runko change create") {
+		t.Fatalf("expected the verb nudge on a raw commit in a workspace worktree, stderr:\n%s", stderr)
+	}
+}

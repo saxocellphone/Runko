@@ -144,7 +144,7 @@ func cmdDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	repoDir := fs.String("repo", ".", "path to the local repo")
 	trunk := fs.String("trunk", "main", "trunk ref name")
-	installHook := fs.Bool("install-hook", false, "install the commit-msg Change-Id hook")
+	installHook := fs.Bool("install-hook", false, "install the commit-msg Change-Id hook + the advisory pre-commit verb nudge")
 	jsonOut := fs.Bool("json", false, "emit the doctor report as JSON instead of the cheat-sheet")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -153,6 +153,14 @@ func cmdDoctor(args []string) error {
 	if *installHook {
 		if err := InstallChangeIDHook(*repoDir); err != nil {
 			return err
+		}
+		// The verb nudge answers raw `git commit` with the native verbs
+		// (jj-aware, advisory, never blocks - doctor.go). A foreign
+		// pre-commit hook wins: say so instead of clobbering it.
+		if installed, err := InstallVerbNudgeHook(*repoDir); err != nil {
+			return err
+		} else if !installed {
+			fmt.Fprintln(os.Stderr, "note: a pre-commit hook already exists; leaving it alone (the verb nudge is optional)")
 		}
 		// A jj workspace gets its Change-Id identity from the trailer
 		// template, not the hook (jj runs no git hooks) - one flag sets up
