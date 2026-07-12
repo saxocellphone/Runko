@@ -303,12 +303,13 @@ func cmdChange(args []string) error {
 	remote := fs.String("remote", "origin", "git remote to push to")
 	trunk := fs.String("trunk", "main", "trunk ref name")
 	noSync := fs.Bool("no-sync", false, "push as-is even when the base is stale (skip the automatic rebase onto the trunk tip)")
+	noSnapshot := fs.Bool("no-snapshot", false, "skip the automatic workspace snapshot before pushing (§12.6)")
 	jsonOut := fs.Bool("json", false, "emit {change_id, ref} as JSON instead of a human summary")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
 
-	changeID, err := pushChange(*repoDir, *remote, *trunk, !*noSync)
+	changeID, err := pushChange(*repoDir, *remote, *trunk, !*noSync, !*noSnapshot)
 	if err != nil {
 		return err
 	}
@@ -669,7 +670,7 @@ func (s *stringSliceFlag) Set(v string) error {
 // mechanics; this is flag parsing and output shaping only.
 func cmdWorkspace(args []string) error {
 	if len(args) < 1 {
-		return usageError("usage: runko workspace create|list|attach|snapshot|branch|sync|delete ...")
+		return usageError("usage: runko workspace create|list|attach|snapshot|watch|branch|sync|delete ...")
 	}
 	sub, rest := args[0], args[1:]
 	ctx := context.Background()
@@ -839,6 +840,17 @@ func cmdWorkspace(args []string) error {
 		}
 		fmt.Printf("snapshot pushed to %s\n", ref)
 		return nil
+
+	case "watch":
+		fs := flag.NewFlagSet("workspace watch", flag.ExitOnError)
+		dir := fs.String("dir", ".", "workspace worktree directory")
+		interval := fs.Duration("interval", 15*time.Second, "check-and-push cadence while dirty")
+		once := fs.Bool("once", false, "one check-and-push tick, then exit (tests, CI)")
+		jsonOut := fs.Bool("json", false, "NDJSON: one {ref, sha} line per pushed snapshot")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		return WorkspaceWatch(WatchOptions{Dir: *dir, Interval: *interval, Once: *once, JSON: *jsonOut})
 
 	case "branch":
 		fs := flag.NewFlagSet("workspace branch", flag.ExitOnError)

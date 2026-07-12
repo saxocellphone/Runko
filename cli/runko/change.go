@@ -30,14 +30,21 @@ var warnWriter io.Writer = os.Stderr
 // here since the ref is meant to always reflect the Change's latest commit,
 // never a history to preserve.
 func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
-	return pushChange(repoDir, remote, trunk, true)
+	return pushChange(repoDir, remote, trunk, true, true)
 }
 
 // pushChange with autoSync=true rebases a stale base onto the remote
 // trunk tip BEFORE pushing (2026-07-10, the sync feature): a stale base
 // only postpones the same rebase to the §13.5 revalidation loop, with a
 // round of checks wasted in between. --no-sync opts out.
-func pushChange(repoDir, remote, trunk string, autoSync bool) (changeID string, err error) {
+//
+// autoSnapshot=true is §12.6's promised auto-snapshot on change push: a
+// workspace-bound checkout parks its snapshot ref at the submitted state
+// (out-of-band, watch.go's mechanics) right before pushing. Best-effort
+// by contract - a snapshot failure warns and never blocks the submit;
+// --no-snapshot opts out. Land's internal revalidation re-push passes
+// false: it re-submits server-known state, there is nothing new to save.
+func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (changeID string, err error) {
 	if autoSync && staleBase(repoDir, remote, trunk) {
 		if _, err := SyncToTrunk(repoDir, remote, trunk); err != nil {
 			return "", err
@@ -135,6 +142,14 @@ func pushChange(repoDir, remote, trunk string, autoSync bool) (changeID string, 
 		}
 		if _, err := runGit(repoDir, "commit", "--amend", "-m", newMsg); err != nil {
 			return "", fmt.Errorf("amend commit with Change-Id trailer: %w", err)
+		}
+	}
+
+	if autoSnapshot {
+		if ws, _ := runGit(repoDir, "config", "runko.workspace"); ws != "" {
+			if _, _, _, serr := WorkspaceWatchSnapshot(repoDir, "auto on change push", ""); serr != nil {
+				fmt.Fprintf(warnWriter, "warning: auto-snapshot before push failed (the push continues): %v\n", serr)
+			}
 		}
 	}
 

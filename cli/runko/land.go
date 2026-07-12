@@ -101,7 +101,7 @@ func LandWithSync(ctx context.Context, client *http.Client, cred Credential, cha
 		if _, syncErr := SyncToTrunk(dir, remote, trunk); syncErr != nil {
 			return outcome, syncErr
 		}
-		if _, pushErr := pushChange(dir, remote, trunk, false); pushErr != nil {
+		if _, pushErr := pushChange(dir, remote, trunk, false, false); pushErr != nil {
 			return outcome, pushErr
 		}
 		fmt.Fprintln(progress, "runko: waiting for required checks against the new base")
