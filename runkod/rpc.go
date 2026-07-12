@@ -18,9 +18,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -825,6 +827,169 @@ func (r *rpcServer) DeleteWorkspace(ctx context.Context, req *connect.Request[ru
 		return nil, connectErr(apiErr)
 	}
 	return connect.NewResponse(&runkov1.DeleteWorkspaceResponse{}), nil
+}
+
+func (r *rpcServer) GetWorkspaceDiff(ctx context.Context, req *connect.Request[runkov1.GetWorkspaceDiffRequest]) (*connect.Response[runkov1.GetWorkspaceDiffResponse], error) {
+	ws, ok, err := r.s.Store.GetWorkspace(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace not found: %s", req.Msg.Id))
+	}
+	branch := req.Msg.Branch
+	if branch == "" {
+		branch = "head" // the default branch every workspace starts with (§12.2)
+	}
+	// The branch names a ref segment - charset-validate BEFORE it is
+	// interpolated into a ref path (the same rule the receive funnel
+	// enforces on snapshot pushes, workspace.go's workspaceIDPattern).
+	if !workspaceIDPattern.MatchString(branch) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid workspace branch %q", branch))
+	}
+	resp := &runkov1.GetWorkspaceDiffResponse{Id: req.Msg.Id, Branch: branch, BaseSha: ws.BaseRevision}
+	out, err := exec.Command("git", "--git-dir", r.s.RepoDir, "rev-parse", "--verify", "--quiet", "refs/workspaces/"+req.Msg.Id+"/"+branch).Output()
+	snapSHA := strings.TrimSpace(string(out))
+	if err != nil || snapSHA == "" {
+		// No snapshot pushed on this branch yet: an empty workspace is a
+		// state, not an error (§12.6).
+		return connect.NewResponse(resp), nil
+	}
+	resp.SnapshotSha = snapSHA
+	files, err := computeChangeDiff(r.s.RepoDir, ws.BaseRevision, snapSHA)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	// Project tagging at the snapshot's own tree, same degradation rule as
+	// GetChangeDiff: the tag is presentation, the diff is the payload.
+	var indexed []index.IndexedProject
+	if scanned, serr := index.Scan(gitstore.New(r.s.RepoDir), core.Revision(snapSHA), nil); serr == nil {
+		indexed = scanned
+	}
+	resp.Files = make([]*runkov1.FileDiff, len(files))
+	for i, f := range files {
+		resp.Files[i] = protoFileDiff(f, indexed)
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (r *rpcServer) ListWorkspaceEvents(ctx context.Context, req *connect.Request[runkov1.ListWorkspaceEventsRequest]) (*connect.Response[runkov1.ListWorkspaceEventsResponse], error) {
+	if _, ok, err := r.s.Store.GetWorkspace(ctx, req.Msg.Id); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	} else if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace not found: %s", req.Msg.Id))
+	}
+	size := int(req.Msg.PageSize)
+	if size <= 0 {
+		size = 50
+	}
+	offset, err := pageOffset(req.Msg.PageToken)
+	if err != nil {
+		return nil, err
+	}
+	// One extra row to learn whether a next page exists (the ListChanges
+	// store-paging convention; the §12.6 cap bounds the whole timeline).
+	evs, err := r.s.Store.ListWorkspaceEvents(ctx, req.Msg.Id, size+1, offset)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	next := ""
+	if len(evs) > size {
+		evs, next = evs[:size], strconv.Itoa(offset+size)
+	}
+	out := make([]*runkov1.WorkspaceEvent, len(evs))
+	for i, ev := range evs {
+		out[i] = r.s.protoWorkspaceEvent(ctx, ev)
+	}
+	return connect.NewResponse(&runkov1.ListWorkspaceEventsResponse{Events: out, NextPageToken: next}), nil
+}
+
+// watchKeepaliveInterval paces WatchWorkspace's empty frames: fast enough
+// to hold proxy read-timeouts (nginx-ingress defaults to 60s) open, slow
+// enough to cost nothing.
+const watchKeepaliveInterval = 25 * time.Second
+
+// WatchWorkspace is the surface's first server-streaming RPC (§12.6).
+// Frames are pokes off the org's EventBus - the client refetches via the
+// unary RPCs on every frame and every (re)connect; an empty frame is a
+// keepalive. Exits promptly on client disconnect (ctx) and bus teardown
+// (sub.Done), so graceful shutdown is never held hostage by a stream.
+func (r *rpcServer) WatchWorkspace(ctx context.Context, req *connect.Request[runkov1.WatchWorkspaceRequest], stream *connect.ServerStream[runkov1.WatchWorkspaceResponse]) error {
+	if _, ok, err := r.s.Store.GetWorkspace(ctx, req.Msg.Id); err != nil {
+		return connect.NewError(connect.CodeInternal, err)
+	} else if !ok {
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace not found: %s", req.Msg.Id))
+	}
+	sub, cancel := r.s.Events.Subscribe(req.Msg.Id)
+	defer cancel()
+
+	// An immediate first frame proves liveness: the client's "refetch on
+	// (re)connect" rule keys on receiving it, not on transport open.
+	if err := stream.Send(&runkov1.WatchWorkspaceResponse{}); err != nil {
+		return nil
+	}
+	keepalive := time.NewTicker(watchKeepaliveInterval)
+	defer keepalive.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil // client gone or server draining
+		case <-sub.Done():
+			return nil // bus torn down (a nil bus is born done: stream ends honestly)
+		case <-sub.Ready():
+			ev, ok := sub.Take()
+			if !ok {
+				continue // a stale signal an earlier Take already drained
+			}
+			if err := stream.Send(&runkov1.WatchWorkspaceResponse{Event: r.s.protoWorkspaceEvent(ctx, ev)}); err != nil {
+				return nil
+			}
+		case <-keepalive.C:
+			if err := stream.Send(&runkov1.WatchWorkspaceResponse{}); err != nil {
+				return nil
+			}
+		}
+	}
+}
+
+// protoWorkspaceEvent maps a Store row onto the wire shape. The actor's
+// agent badge resolves through isAgentPrincipalName (flag-config AND
+// minted ephemeral agents) - protoChange's Principals-only scan predates
+// minted agents and stays as-is for now.
+func (s *Server) protoWorkspaceEvent(ctx context.Context, ev WorkspaceEvent) *runkov1.WorkspaceEvent {
+	out := &runkov1.WorkspaceEvent{
+		Id: ev.ID, Type: protoWorkspaceEventType(ev.Type),
+		WorkspaceId: ev.WorkspaceID, Branch: ev.Branch,
+		Sha: ev.SHA, ChangeId: ev.ChangeKey,
+		FilesChanged: int32(ev.FilesChanged), Additions: int32(ev.Additions), Deletions: int32(ev.Deletions),
+	}
+	if !ev.OccurredAt.IsZero() {
+		out.OccurredAt = ev.OccurredAt.Unix()
+	}
+	if ev.Actor != "" {
+		t := runkov1.ActorType_ACTOR_TYPE_USER
+		if s.isAgentPrincipalName(ctx, ev.Actor) {
+			t = runkov1.ActorType_ACTOR_TYPE_AGENT
+		}
+		out.Actor = &runkov1.Actor{Type: t, Id: ev.Actor}
+	}
+	return out
+}
+
+func protoWorkspaceEventType(t string) runkov1.WorkspaceEventType {
+	switch t {
+	case WorkspaceEventSnapshotPushed:
+		return runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_SNAPSHOT_PUSHED
+	case WorkspaceEventChangePushed:
+		return runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_CHANGE_PUSHED
+	case WorkspaceEventChangeLanded:
+		return runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_CHANGE_LANDED
+	case WorkspaceEventChangeAbandoned:
+		return runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_CHANGE_ABANDONED
+	case WorkspaceEventWorkspaceClosed:
+		return runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED
+	}
+	return runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_UNSPECIFIED
 }
 
 // ---- SearchService ----

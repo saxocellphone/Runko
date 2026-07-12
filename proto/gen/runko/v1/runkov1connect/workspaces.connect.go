@@ -48,6 +48,15 @@ const (
 	// WorkspaceServiceDeleteWorkspaceProcedure is the fully-qualified name of the WorkspaceService's
 	// DeleteWorkspace RPC.
 	WorkspaceServiceDeleteWorkspaceProcedure = "/runko.v1.WorkspaceService/DeleteWorkspace"
+	// WorkspaceServiceGetWorkspaceDiffProcedure is the fully-qualified name of the WorkspaceService's
+	// GetWorkspaceDiff RPC.
+	WorkspaceServiceGetWorkspaceDiffProcedure = "/runko.v1.WorkspaceService/GetWorkspaceDiff"
+	// WorkspaceServiceListWorkspaceEventsProcedure is the fully-qualified name of the
+	// WorkspaceService's ListWorkspaceEvents RPC.
+	WorkspaceServiceListWorkspaceEventsProcedure = "/runko.v1.WorkspaceService/ListWorkspaceEvents"
+	// WorkspaceServiceWatchWorkspaceProcedure is the fully-qualified name of the WorkspaceService's
+	// WatchWorkspace RPC.
+	WorkspaceServiceWatchWorkspaceProcedure = "/runko.v1.WorkspaceService/WatchWorkspace"
 )
 
 // WorkspaceServiceClient is a client for the runko.v1.WorkspaceService service.
@@ -61,6 +70,23 @@ type WorkspaceServiceClient interface {
 	// (operators exempt); refused while the workspace has OPEN changes -
 	// land or abandon them first (§12.2).
 	DeleteWorkspace(context.Context, *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[v1.DeleteWorkspaceResponse], error)
+	// GetWorkspaceDiff is the live WIP view (§12.6): one workspace branch's
+	// snapshot tip diffed against the registry base_revision, the same
+	// FileDiff shape GetChangeDiff serves. A branch with no snapshot ref yet
+	// answers snapshot_sha "" and zero files - an empty workspace is a
+	// state, not an error.
+	GetWorkspaceDiff(context.Context, *connect.Request[v1.GetWorkspaceDiffRequest]) (*connect.Response[v1.GetWorkspaceDiffResponse], error)
+	// ListWorkspaceEvents is the §12.6 activity timeline, newest-first:
+	// stats-only rows (numstat totals, shas, actors - never file content)
+	// recorded at receive/land time, capped per workspace server-side.
+	ListWorkspaceEvents(context.Context, *connect.Request[v1.ListWorkspaceEventsRequest]) (*connect.Response[v1.ListWorkspaceEventsResponse], error)
+	// WatchWorkspace streams live pokes for one workspace (§12.6). Frames
+	// carry event metadata only - never diffs; a client refetches via the
+	// unary RPCs on EVERY frame and on every (re)connect, because delivery
+	// is deliberately lossy-with-coalescing (a slow stream can never block
+	// a push; bursts collapse to the newest event). A frame with no event
+	// set is a keepalive (~25s cadence, holds proxies open).
+	WatchWorkspace(context.Context, *connect.Request[v1.WatchWorkspaceRequest]) (*connect.ServerStreamForClient[v1.WatchWorkspaceResponse], error)
 }
 
 // NewWorkspaceServiceClient constructs a client for the runko.v1.WorkspaceService service. By
@@ -104,6 +130,24 @@ func NewWorkspaceServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(workspaceServiceMethods.ByName("DeleteWorkspace")),
 			connect.WithClientOptions(opts...),
 		),
+		getWorkspaceDiff: connect.NewClient[v1.GetWorkspaceDiffRequest, v1.GetWorkspaceDiffResponse](
+			httpClient,
+			baseURL+WorkspaceServiceGetWorkspaceDiffProcedure,
+			connect.WithSchema(workspaceServiceMethods.ByName("GetWorkspaceDiff")),
+			connect.WithClientOptions(opts...),
+		),
+		listWorkspaceEvents: connect.NewClient[v1.ListWorkspaceEventsRequest, v1.ListWorkspaceEventsResponse](
+			httpClient,
+			baseURL+WorkspaceServiceListWorkspaceEventsProcedure,
+			connect.WithSchema(workspaceServiceMethods.ByName("ListWorkspaceEvents")),
+			connect.WithClientOptions(opts...),
+		),
+		watchWorkspace: connect.NewClient[v1.WatchWorkspaceRequest, v1.WatchWorkspaceResponse](
+			httpClient,
+			baseURL+WorkspaceServiceWatchWorkspaceProcedure,
+			connect.WithSchema(workspaceServiceMethods.ByName("WatchWorkspace")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -114,6 +158,9 @@ type workspaceServiceClient struct {
 	getWorkspace        *connect.Client[v1.GetWorkspaceRequest, v1.GetWorkspaceResponse]
 	updateWorkspaceBase *connect.Client[v1.UpdateWorkspaceBaseRequest, v1.UpdateWorkspaceBaseResponse]
 	deleteWorkspace     *connect.Client[v1.DeleteWorkspaceRequest, v1.DeleteWorkspaceResponse]
+	getWorkspaceDiff    *connect.Client[v1.GetWorkspaceDiffRequest, v1.GetWorkspaceDiffResponse]
+	listWorkspaceEvents *connect.Client[v1.ListWorkspaceEventsRequest, v1.ListWorkspaceEventsResponse]
+	watchWorkspace      *connect.Client[v1.WatchWorkspaceRequest, v1.WatchWorkspaceResponse]
 }
 
 // CreateWorkspace calls runko.v1.WorkspaceService.CreateWorkspace.
@@ -141,6 +188,21 @@ func (c *workspaceServiceClient) DeleteWorkspace(ctx context.Context, req *conne
 	return c.deleteWorkspace.CallUnary(ctx, req)
 }
 
+// GetWorkspaceDiff calls runko.v1.WorkspaceService.GetWorkspaceDiff.
+func (c *workspaceServiceClient) GetWorkspaceDiff(ctx context.Context, req *connect.Request[v1.GetWorkspaceDiffRequest]) (*connect.Response[v1.GetWorkspaceDiffResponse], error) {
+	return c.getWorkspaceDiff.CallUnary(ctx, req)
+}
+
+// ListWorkspaceEvents calls runko.v1.WorkspaceService.ListWorkspaceEvents.
+func (c *workspaceServiceClient) ListWorkspaceEvents(ctx context.Context, req *connect.Request[v1.ListWorkspaceEventsRequest]) (*connect.Response[v1.ListWorkspaceEventsResponse], error) {
+	return c.listWorkspaceEvents.CallUnary(ctx, req)
+}
+
+// WatchWorkspace calls runko.v1.WorkspaceService.WatchWorkspace.
+func (c *workspaceServiceClient) WatchWorkspace(ctx context.Context, req *connect.Request[v1.WatchWorkspaceRequest]) (*connect.ServerStreamForClient[v1.WatchWorkspaceResponse], error) {
+	return c.watchWorkspace.CallServerStream(ctx, req)
+}
+
 // WorkspaceServiceHandler is an implementation of the runko.v1.WorkspaceService service.
 type WorkspaceServiceHandler interface {
 	CreateWorkspace(context.Context, *connect.Request[v1.CreateWorkspaceRequest]) (*connect.Response[v1.CreateWorkspaceResponse], error)
@@ -152,6 +214,23 @@ type WorkspaceServiceHandler interface {
 	// (operators exempt); refused while the workspace has OPEN changes -
 	// land or abandon them first (§12.2).
 	DeleteWorkspace(context.Context, *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[v1.DeleteWorkspaceResponse], error)
+	// GetWorkspaceDiff is the live WIP view (§12.6): one workspace branch's
+	// snapshot tip diffed against the registry base_revision, the same
+	// FileDiff shape GetChangeDiff serves. A branch with no snapshot ref yet
+	// answers snapshot_sha "" and zero files - an empty workspace is a
+	// state, not an error.
+	GetWorkspaceDiff(context.Context, *connect.Request[v1.GetWorkspaceDiffRequest]) (*connect.Response[v1.GetWorkspaceDiffResponse], error)
+	// ListWorkspaceEvents is the §12.6 activity timeline, newest-first:
+	// stats-only rows (numstat totals, shas, actors - never file content)
+	// recorded at receive/land time, capped per workspace server-side.
+	ListWorkspaceEvents(context.Context, *connect.Request[v1.ListWorkspaceEventsRequest]) (*connect.Response[v1.ListWorkspaceEventsResponse], error)
+	// WatchWorkspace streams live pokes for one workspace (§12.6). Frames
+	// carry event metadata only - never diffs; a client refetches via the
+	// unary RPCs on EVERY frame and on every (re)connect, because delivery
+	// is deliberately lossy-with-coalescing (a slow stream can never block
+	// a push; bursts collapse to the newest event). A frame with no event
+	// set is a keepalive (~25s cadence, holds proxies open).
+	WatchWorkspace(context.Context, *connect.Request[v1.WatchWorkspaceRequest], *connect.ServerStream[v1.WatchWorkspaceResponse]) error
 }
 
 // NewWorkspaceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -191,6 +270,24 @@ func NewWorkspaceServiceHandler(svc WorkspaceServiceHandler, opts ...connect.Han
 		connect.WithSchema(workspaceServiceMethods.ByName("DeleteWorkspace")),
 		connect.WithHandlerOptions(opts...),
 	)
+	workspaceServiceGetWorkspaceDiffHandler := connect.NewUnaryHandler(
+		WorkspaceServiceGetWorkspaceDiffProcedure,
+		svc.GetWorkspaceDiff,
+		connect.WithSchema(workspaceServiceMethods.ByName("GetWorkspaceDiff")),
+		connect.WithHandlerOptions(opts...),
+	)
+	workspaceServiceListWorkspaceEventsHandler := connect.NewUnaryHandler(
+		WorkspaceServiceListWorkspaceEventsProcedure,
+		svc.ListWorkspaceEvents,
+		connect.WithSchema(workspaceServiceMethods.ByName("ListWorkspaceEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	workspaceServiceWatchWorkspaceHandler := connect.NewServerStreamHandler(
+		WorkspaceServiceWatchWorkspaceProcedure,
+		svc.WatchWorkspace,
+		connect.WithSchema(workspaceServiceMethods.ByName("WatchWorkspace")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/runko.v1.WorkspaceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case WorkspaceServiceCreateWorkspaceProcedure:
@@ -203,6 +300,12 @@ func NewWorkspaceServiceHandler(svc WorkspaceServiceHandler, opts ...connect.Han
 			workspaceServiceUpdateWorkspaceBaseHandler.ServeHTTP(w, r)
 		case WorkspaceServiceDeleteWorkspaceProcedure:
 			workspaceServiceDeleteWorkspaceHandler.ServeHTTP(w, r)
+		case WorkspaceServiceGetWorkspaceDiffProcedure:
+			workspaceServiceGetWorkspaceDiffHandler.ServeHTTP(w, r)
+		case WorkspaceServiceListWorkspaceEventsProcedure:
+			workspaceServiceListWorkspaceEventsHandler.ServeHTTP(w, r)
+		case WorkspaceServiceWatchWorkspaceProcedure:
+			workspaceServiceWatchWorkspaceHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -230,4 +333,16 @@ func (UnimplementedWorkspaceServiceHandler) UpdateWorkspaceBase(context.Context,
 
 func (UnimplementedWorkspaceServiceHandler) DeleteWorkspace(context.Context, *connect.Request[v1.DeleteWorkspaceRequest]) (*connect.Response[v1.DeleteWorkspaceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.WorkspaceService.DeleteWorkspace is not implemented"))
+}
+
+func (UnimplementedWorkspaceServiceHandler) GetWorkspaceDiff(context.Context, *connect.Request[v1.GetWorkspaceDiffRequest]) (*connect.Response[v1.GetWorkspaceDiffResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.WorkspaceService.GetWorkspaceDiff is not implemented"))
+}
+
+func (UnimplementedWorkspaceServiceHandler) ListWorkspaceEvents(context.Context, *connect.Request[v1.ListWorkspaceEventsRequest]) (*connect.Response[v1.ListWorkspaceEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.WorkspaceService.ListWorkspaceEvents is not implemented"))
+}
+
+func (UnimplementedWorkspaceServiceHandler) WatchWorkspace(context.Context, *connect.Request[v1.WatchWorkspaceRequest], *connect.ServerStream[v1.WatchWorkspaceResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.WorkspaceService.WatchWorkspace is not implemented"))
 }
