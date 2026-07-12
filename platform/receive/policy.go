@@ -148,6 +148,14 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 
 func withinAffinity(changedPath string, affinity []string) bool {
 	for _, root := range affinity {
+		// The ROOT project's path is "" (repo root, owning what no deeper
+		// manifest claims): as an allowlist entry it grants the whole
+		// tree. Without this case the prefix arithmetic below can never
+		// match it (no path starts with "/"), which write-blocked every
+		// agent granted root affinity (migration-findings #40).
+		if root == "" {
+			return true
+		}
 		if changedPath == root || (len(changedPath) > len(root) && changedPath[:len(root)] == root && changedPath[len(root)] == '/') {
 			return true
 		}

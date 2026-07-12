@@ -408,6 +408,20 @@ planning; entries marked `[observed]` happened during execution.
     guard). The web app degrades to reconnect-and-refetch if any of this
     regresses - the page stays correct, just not live.
 
+40. **[observed, first root-affinity agent workspace] Root-project
+    affinity write-blocks agents entirely.** The root project's path is
+    `""` (it owns what no deeper manifest claims - AGENTS.md, README,
+    go.mod), so `workspace create --project repo` computes `[""]` as the
+    write allowlist - and `withinAffinity`'s prefix check can never
+    match an empty root (no path starts with `/`), so EVERY file the
+    agent touches is `path_outside_affinity`. Found regenerating
+    AGENTS.md from a root-affinity workspace (the §12.6 stack's
+    follow-up). Fixed: `""` in an allowlist now grants the whole tree -
+    which is exactly what root affinity means; pinned by
+    TestEvaluatePolicyRootAffinityGrantsWholeTree. Note the enforcement
+    lives in the DEPLOYED daemon: the fix gates nothing until runkod
+    redeploys (same rollout class as #35's parser skew).
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,

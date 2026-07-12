@@ -22,6 +22,23 @@ func TestEvaluatePolicySatisfied(t *testing.T) {
 	}
 }
 
+// TestEvaluatePolicyRootAffinityGrantsWholeTree pins migration finding
+// #40: the ROOT project's path is "" (it owns what no deeper manifest
+// claims), so a workspace with root affinity carries [""] as its write
+// allowlist - which the prefix arithmetic could never match (no path
+// starts with "/"), write-blocking every agent granted root affinity.
+func TestEvaluatePolicyRootAffinityGrantsWholeTree(t *testing.T) {
+	policy := DefaultAgentPolicy()
+	summary := PushSummary{
+		ChangedFiles:      []string{"AGENTS.md", "docs/design.md", "deep/nested/file.go"},
+		DiffBytes:         100,
+		WorkspaceAffinity: []string{""},
+	}
+	if v := EvaluatePolicy(policy, summary); len(v) != 0 {
+		t.Fatalf("root affinity must admit any path, got %+v", v)
+	}
+}
+
 func TestEvaluatePolicyTable(t *testing.T) {
 	cases := []struct {
 		name    string
