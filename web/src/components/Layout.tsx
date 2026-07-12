@@ -95,7 +95,12 @@ export function Layout() {
             <button
               className="btn btn-sm theme-toggle"
               onClick={() => {
-                window.location.href = "/?signin=1";
+                // Stay on the CURRENT path: nginx gives the bare "/" to the
+                // product landing page (location = /, path-matched - the
+                // query string doesn't save it), so "/?signin=1" would serve
+                // the pitch instead of the gate. Any SPA route + ?signin=1
+                // reaches AnonGate, which forces the sign-in page.
+                window.location.href = `${window.location.pathname}?signin=1`;
               }}
             >
               Sign in
