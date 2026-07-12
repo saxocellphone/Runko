@@ -81,7 +81,11 @@ export function WorkspacesPage() {
                 const branches = branchesForWorkspace(w.branches, data.stacks, w.id);
                 return (
                 <tr key={w.id}>
-                  <td className="mono">{w.id}</td>
+                  <td className="mono">
+                    <Link to={`/workspaces/${w.id}`} title="Live WIP diff + activity timeline (§12.6)">
+                      {w.id}
+                    </Link>
+                  </td>
                   <td>{w.owner}</td>
                   <td className="mono">{shortSha(w.baseRevision)}</td>
                   <td>

@@ -17,12 +17,18 @@ import {
   type MergeRequirements,
   type ProjectDetail,
   type WorkspaceSummary,
+  ActorSchema,
   ChangeSummarySchema,
   CommentSchema,
   MergeRequirementsSchema,
   ProjectDetailSchema,
   WorkspaceSummarySchema,
 } from "../../gen/runko/v1/common_pb";
+import {
+  WorkspaceEventSchema,
+  WorkspaceEventType,
+  type WorkspaceEvent,
+} from "../../gen/runko/v1/workspaces_pb";
 import {
   DiffLineType,
   FileDiffStatus,
@@ -868,6 +874,129 @@ export const workspaces: WorkspaceSummary[] = [
     status: WorkspaceStatus.DETACHED,
   }),
 ];
+
+// ------------------------------------------- workspace observability (§12.6)
+
+const wsActor = (id: string, agent = false) =>
+  create(ActorSchema, { type: agent ? ActorType.AGENT : ActorType.USER, id });
+
+const wsEvent = (init: {
+  id: number;
+  type: WorkspaceEventType;
+  ws: string;
+  branch?: string;
+  actor?: string;
+  agent?: boolean;
+  sha?: string;
+  changeId?: string;
+  files?: number;
+  adds?: number;
+  dels?: number;
+}): WorkspaceEvent =>
+  create(WorkspaceEventSchema, {
+    id: BigInt(init.id),
+    type: init.type,
+    workspaceId: init.ws,
+    branch: init.branch ?? "head",
+    actor: init.actor ? wsActor(init.actor, init.agent) : undefined,
+    sha: init.sha ?? "",
+    changeId: init.changeId ?? "",
+    filesChanged: init.files ?? 0,
+    additions: init.adds ?? 0,
+    deletions: init.dels ?? 0,
+    // Deterministic, id-spaced timestamps (the landedAt fixture lesson).
+    occurredAt: BigInt(1_780_000_000 + init.id * 90),
+  });
+
+// Stats-only timeline rows (§12.6), per workspace - the real daemon
+// records these at receive/land time; newest-first is the SERVE order,
+// the fixture stores insertion order like Postgres does.
+export const workspaceEvents = new Map<string, WorkspaceEvent[]>([
+  [
+    "sku-validation",
+    [
+      wsEvent({ id: 1, type: WorkspaceEventType.SNAPSHOT_PUSHED, ws: "sku-validation", actor: "val", sha: fakeSha("ws-sku-snap-1"), files: 2, adds: 40, dels: 3 }),
+      wsEvent({ id: 2, type: WorkspaceEventType.CHANGE_PUSHED, ws: "sku-validation", actor: "val", sha: stackBottom.headSha, changeId: stackBottom.id, files: 2 }),
+      wsEvent({ id: 3, type: WorkspaceEventType.SNAPSHOT_PUSHED, ws: "sku-validation", branch: "inline-errors", actor: "val", sha: fakeSha("ws-sku-snap-2"), files: 1, adds: 18 }),
+      wsEvent({ id: 4, type: WorkspaceEventType.SNAPSHOT_PUSHED, ws: "sku-validation", actor: "val", sha: fakeSha("ws-sku-snap-3"), files: 3, adds: 66, dels: 12 }),
+    ],
+  ],
+  [
+    "refactor-bot-cfg",
+    [
+      wsEvent({ id: 1, type: WorkspaceEventType.SNAPSHOT_PUSHED, ws: "refactor-bot-cfg", actor: "refactor-bot", agent: true, sha: fakeSha("ws-bot-snap-1"), files: 4, adds: 88, dels: 61 }),
+      wsEvent({ id: 2, type: WorkspaceEventType.CHANGE_PUSHED, ws: "refactor-bot-cfg", actor: "refactor-bot", agent: true, sha: agentChange.headSha, changeId: agentChange.id, files: 4 }),
+      wsEvent({ id: 3, type: WorkspaceEventType.SNAPSHOT_PUSHED, ws: "refactor-bot-cfg", actor: "refactor-bot", agent: true, sha: fakeSha("ws-bot-snap-2"), files: 1, adds: 9, dels: 2 }),
+    ],
+  ],
+]);
+
+// Per-branch WIP: the snapshot tip vs base the live view renders. Absent
+// entry = no snapshot pushed yet ("" sha), the honest empty state -
+// authz-cache stays that way on purpose.
+export const workspaceWip = new Map<string, { snapshotSha: string; files: FileDiff[] }>([
+  [
+    "sku-validation/head",
+    {
+      snapshotSha: fakeSha("ws-sku-snap-3"),
+      files: [
+        file({
+          path: "commerce/cart/validate.ts",
+          status: FileDiffStatus.MODIFIED,
+          project: "commerce/cart",
+          hunks: [
+            hunk(12, 12, "export function validateSku(sku: string) {", [
+              " export function validateSku(sku: string) {",
+              "-  return sku.length > 0;",
+              "+  // WIP: tighten to the catalog's documented SKU grammar.",
+              "+  return /^[A-Z]{2,4}-\\d{3,6}$/.test(sku);",
+              " }",
+            ]),
+          ],
+        }),
+        addedFileDiff(
+          "commerce/cart/validate.test.ts",
+          "commerce/cart",
+          'import { validateSku } from "./validate";\n\ntest("rejects empty", () => {\n  expect(validateSku("")).toBe(false);\n});\n',
+        ),
+      ],
+    },
+  ],
+  [
+    "sku-validation/inline-errors",
+    {
+      snapshotSha: fakeSha("ws-sku-snap-2"),
+      files: [
+        addedFileDiff(
+          "web/storefront/src/InlineError.tsx",
+          "web/storefront",
+          "export function InlineError({ message }: { message: string }) {\n  return <p className=\"inline-error\">{message}</p>;\n}\n",
+        ),
+      ],
+    },
+  ],
+  [
+    "refactor-bot-cfg/head",
+    {
+      snapshotSha: fakeSha("ws-bot-snap-2"),
+      files: [
+        file({
+          path: "commerce/checkout-api/config.go",
+          status: FileDiffStatus.MODIFIED,
+          project: "commerce/checkout-api",
+          hunks: [
+            hunk(3, 3, "import (", [
+              " import (",
+              '-\t"github.com/kelseyhightower/envconfig"',
+              '+\t"acme/internal/config"',
+              " )",
+            ]),
+          ],
+        }),
+      ],
+    },
+  ],
+]);
 
 // --------------------------------------------------------------------- tree
 

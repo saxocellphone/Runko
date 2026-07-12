@@ -1,0 +1,217 @@
+import { useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { changesClient, publicBrowse, workspacesClient } from "../api/client";
+import { ChangeState, WorkspaceStatus } from "../gen/runko/v1/common_pb";
+import { WorkspaceEventType, type WorkspaceEvent } from "../gen/runko/v1/workspaces_pb";
+import { absoluteTime, shortSha, timeAgo } from "../lib/format";
+import { branchesForWorkspace, changesByOrigin } from "../lib/stacks";
+import { useRpc } from "../lib/useRpc";
+import { useWatch, type WatchState } from "../lib/useWatch";
+import { DiffView } from "../components/DiffView";
+import { AuthorChip, BackLink, EmptyState, ErrorNote, InfoTip, Spinner } from "../components/ui";
+
+const statusLabel: Record<number, string> = {
+  [WorkspaceStatus.ACTIVE]: "active",
+  [WorkspaceStatus.DETACHED]: "detached",
+  [WorkspaceStatus.CLOSED]: "closed",
+};
+
+// WorkspacePage is the §12.6 live view: what is this workspace's agent (or
+// human) doing RIGHT NOW - the per-branch WIP diff of its snapshot tip vs
+// base, plus the stats-only activity timeline. Liveness is stream-as-poke:
+// WatchWorkspace frames just fire reload() on the same unary useRpc hooks
+// a plain page load uses.
+export function WorkspacePage() {
+  const { workspaceId = "" } = useParams();
+  const [branchChoice, setBranchChoice] = useState("");
+
+  const meta = useRpc(async () => {
+    const [w, open] = await Promise.all([
+      workspacesClient.getWorkspace({ id: workspaceId }),
+      changesClient.listChanges({ state: ChangeState.OPEN }),
+    ]);
+    return { workspace: w.workspace!, stacks: changesByOrigin(open.changes) };
+  }, workspaceId);
+
+  const branches = meta.data
+    ? branchesForWorkspace(meta.data.workspace.branches, meta.data.stacks, workspaceId)
+    : [];
+  const branch = branchChoice || (branches.includes("head") ? "head" : (branches[0] ?? "head"));
+
+  const diff = useRpc(
+    () => workspacesClient.getWorkspaceDiff({ id: workspaceId, branch }),
+    `${workspaceId}/${branch}/diff`,
+  );
+  // The server caps each workspace's timeline (§12.6 retention), so one
+  // generous page covers the rail; no pager.
+  const events = useRpc(
+    () => workspacesClient.listWorkspaceEvents({ id: workspaceId, pageSize: 100 }),
+    `${workspaceId}/events`,
+  );
+
+  const live = useWatch(publicBrowse ? "" : workspaceId, () => {
+    meta.reload();
+    diff.reload();
+    events.reload();
+  });
+
+  const back = <BackLink to="/workspaces">Workspaces</BackLink>;
+  if (meta.loading) return <div className="page">{back}<Spinner /></div>;
+  if (meta.error) return <div className="page">{back}<ErrorNote error={meta.error} /></div>;
+  if (!meta.data) return null;
+  const ws = meta.data.workspace;
+
+  return (
+    <div className="page">
+      {back}
+      <header className="page-header">
+        <h1 className="page-title">
+          <span className="mono">{ws.id}</span>
+          <span className={`chip ${ws.status === WorkspaceStatus.ACTIVE ? "chip-green" : ""}`}>
+            {statusLabel[ws.status] ?? "unknown"}
+          </span>
+          <LiveDot state={live} />
+        </h1>
+        <div className="change-meta-row">
+          <span>{ws.owner}</span>
+          <span className="mono" title={`base ${ws.baseRevision}`}>
+            base {shortSha(ws.baseRevision)}
+          </span>
+          <InfoTip text="The trunk revision this workspace's WIP is diffed against - what its next stack forks from (§12.2)." />
+          <span className="chip-row">
+            {ws.projectAffinity.map((p) => (
+              <Link className="chip" key={p} to={`/projects/${p}`}>
+                {p}
+              </Link>
+            ))}
+          </span>
+        </div>
+      </header>
+
+      <div className="change-layout">
+        <div>
+          {branches.length > 1 && (
+            <div className="tabs">
+              {branches.map((b) => (
+                <button
+                  key={b}
+                  className={`tab ${b === branch ? "active" : ""}`}
+                  onClick={() => setBranchChoice(b)}
+                >
+                  {b}
+                </button>
+              ))}
+            </div>
+          )}
+          {diff.loading && <Spinner />}
+          {diff.error && <ErrorNote error={diff.error} />}
+          {diff.data && diff.data.snapshotSha === "" && (
+            <EmptyState>
+              No snapshot on <span className="mono">{branch}</span> yet — WIP appears here the
+              moment the workspace pushes one (<span className="mono">runko workspace watch</span>{" "}
+              keeps it continuous, §12.6).
+            </EmptyState>
+          )}
+          {diff.data && diff.data.snapshotSha !== "" && (
+            <>
+              <div className="change-meta-row">
+                <span>
+                  WIP at <span className="mono">{shortSha(diff.data.snapshotSha)}</span> vs base
+                </span>
+                <InfoTip text="The branch's snapshot tip diffed against the workspace base - the work in flight BEFORE any change is pushed for review. Snapshots amend in place, so this is always the current state, not history." />
+              </div>
+              {diff.data.files.length === 0 ? (
+                <EmptyState>
+                  Snapshot matches the base — nothing in flight on{" "}
+                  <span className="mono">{branch}</span>.
+                </EmptyState>
+              ) : (
+                <DiffView files={diff.data.files} />
+              )}
+            </>
+          )}
+        </div>
+
+        <aside>
+          <section className="card side-card">
+            <h2>
+              Activity
+              <InfoTip text="Stats-only timeline recorded at receive/land time (§12.6): snapshots, change pushes, lands, abandons, closure. Line counts are numstat totals; file content never leaves Git." />
+            </h2>
+            {events.loading && <Spinner />}
+            {events.error && <ErrorNote error={events.error} />}
+            {events.data && events.data.events.length === 0 && (
+              <EmptyState>Nothing recorded yet.</EmptyState>
+            )}
+            {events.data && events.data.events.length > 0 && (
+              <ul className="ws-timeline">
+                {events.data.events.map((ev) => (
+                  <TimelineRow key={String(ev.id)} ev={ev} />
+                ))}
+              </ul>
+            )}
+          </section>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function LiveDot({ state }: { state: WatchState }) {
+  const label: Record<WatchState, string> = {
+    live: "live — updates stream in as the workspace works",
+    connecting: "connecting to the live feed…",
+    offline: "live feed unreachable — showing the last loaded state, retrying",
+  };
+  return (
+    <span className={`live-dot live-dot-${state}`} title={label[state]}>
+      <span className="live-dot-pip" />
+      {state}
+    </span>
+  );
+}
+
+const eventLabel: Record<number, string> = {
+  [WorkspaceEventType.SNAPSHOT_PUSHED]: "snapshot",
+  [WorkspaceEventType.CHANGE_PUSHED]: "change pushed",
+  [WorkspaceEventType.CHANGE_LANDED]: "landed",
+  [WorkspaceEventType.CHANGE_ABANDONED]: "abandoned",
+  [WorkspaceEventType.WORKSPACE_CLOSED]: "workspace closed",
+};
+
+function TimelineRow({ ev }: { ev: WorkspaceEvent }) {
+  const isChange = ev.changeId !== "";
+  return (
+    <li className="ws-timeline-row">
+      <div className="ws-timeline-head">
+        <span className={`chip ${ev.type === WorkspaceEventType.CHANGE_LANDED ? "chip-green" : ""}`}>
+          {eventLabel[ev.type] ?? "event"}
+        </span>
+        {ev.branch && <span className="chip mono">{ev.branch}</span>}
+        <span className="spacer" />
+        <span title={absoluteTime(ev.occurredAt)}>{timeAgo(ev.occurredAt)}</span>
+      </div>
+      <div className="ws-timeline-body">
+        {ev.actor && <AuthorChip author={ev.actor} />}
+        {isChange ? (
+          <Link className="mono" to={`/changes/${ev.changeId}`} title={ev.changeId}>
+            {ev.changeId.slice(0, 13)}…
+          </Link>
+        ) : (
+          ev.sha && (
+            <span className="mono" title={ev.sha}>
+              {shortSha(ev.sha)}
+            </span>
+          )
+        )}
+        {ev.type === WorkspaceEventType.SNAPSHOT_PUSHED && (
+          <span>
+            {ev.filesChanged} file{ev.filesChanged === 1 ? "" : "s"}{" "}
+            <span className="added-count">+{ev.additions}</span>{" "}
+            <span className="deleted-count">−{ev.deletions}</span>
+          </span>
+        )}
+      </div>
+    </li>
+  );
+}

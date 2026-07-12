@@ -55,11 +55,17 @@ import {
 } from "../../gen/runko/v1/projects_pb";
 import {
   WorkspaceService,
+  WorkspaceEventType,
+  type WorkspaceEvent,
   CreateWorkspaceResponseSchema,
   GetWorkspaceResponseSchema,
+  GetWorkspaceDiffResponseSchema,
   ListWorkspacesResponseSchema,
+  ListWorkspaceEventsResponseSchema,
   UpdateWorkspaceBaseResponseSchema,
   DeleteWorkspaceResponseSchema,
+  WatchWorkspaceResponseSchema,
+  WorkspaceEventSchema,
 } from "../../gen/runko/v1/workspaces_pb";
 import { SearchService, SearchCodeResponseSchema } from "../../gen/runko/v1/search_pb";
 import {
@@ -82,6 +88,8 @@ import {
   projects as fixtureProjects,
   searchCorpus,
   workspaces as fixtureWorkspaces,
+  workspaceEvents as fixtureWorkspaceEvents,
+  workspaceWip as fixtureWorkspaceWip,
   fakeSha,
   fsFiles,
   historyForPath,
@@ -103,6 +111,11 @@ interface FakeState {
   comments: Map<string, Comment[]>;
   reviewRequests: Map<string, Map<string, string>>;
   nextCommentID: number;
+  // Workspace observability (§12.6): stats-only timelines + per-branch
+  // WIP ("<id>/<branch>" keys). watchWorkspace's scripted event appends
+  // here so the poke's refetch visibly moves the timeline.
+  workspaceEvents: Map<string, WorkspaceEvent[]>;
+  workspaceWip: Map<string, { snapshotSha: string; files: FileDiff[] }>;
 }
 
 // Deep-clone the fixtures: each transport owns mutable state (approve,
@@ -127,6 +140,13 @@ function freshState(): FakeState {
     ),
     reviewRequests: new Map([...fixtureReviewRequests].map(([id, m]) => [id, new Map(m)])),
     nextCommentID: 1000,
+    workspaceEvents: new Map(
+      [...fixtureWorkspaceEvents].map(([id, list]) => [
+        id,
+        list.map((ev) => clone(WorkspaceEventSchema, ev)),
+      ]),
+    ),
+    workspaceWip: new Map(fixtureWorkspaceWip),
   };
   for (const r of state.requirements.values()) {
     recompute(r);
@@ -500,6 +520,20 @@ function planProject(state: FakeState, intent: CreateProjectIntent | undefined) 
 const simulatedDelayMs = 150;
 const delay = () =>
   new Promise((resolve) => setTimeout(resolve, Math.random() * simulatedDelayMs));
+
+// abortableSleep parks a streaming handler without outliving its client:
+// the abort signal (stream cancelled, page navigated away) rejects the
+// sleep so the generator unwinds instead of leaking a timer.
+const abortableSleep = (ms: number, signal: AbortSignal | undefined) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new ConnectError("stream cancelled", Code.Canceled));
+    };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
 export function createFakeTransport(): Transport {
   const state = freshState();
@@ -933,7 +967,71 @@ export function createFakeTransport(): Transport {
           );
         }
         state.workspaces.delete(req.id);
+        state.workspaceEvents.delete(req.id); // timeline goes with the workspace (§12.6)
         return create(DeleteWorkspaceResponseSchema, {});
+      },
+
+      async getWorkspaceDiff(req) {
+        await delay();
+        const w = state.workspaces.get(req.id);
+        if (!w) throw notFound("workspace", req.id);
+        const branch = req.branch || "head";
+        const wip = state.workspaceWip.get(`${req.id}/${branch}`);
+        return create(GetWorkspaceDiffResponseSchema, {
+          id: req.id,
+          branch,
+          baseSha: w.baseRevision,
+          // "" = no snapshot on this branch yet - a state, not an error.
+          snapshotSha: wip?.snapshotSha ?? "",
+          files: wip?.files ?? [],
+        });
+      },
+
+      async listWorkspaceEvents(req) {
+        await delay();
+        if (!state.workspaces.has(req.id)) throw notFound("workspace", req.id);
+        const all = [...(state.workspaceEvents.get(req.id) ?? [])].sort((a, b) =>
+          Number(b.id - a.id),
+        );
+        const size = req.pageSize > 0 ? req.pageSize : 50;
+        const offset = req.pageToken ? Number.parseInt(req.pageToken, 10) : 0;
+        return create(ListWorkspaceEventsResponseSchema, {
+          events: all.slice(offset, offset + size),
+          nextPageToken: offset + size < all.length ? String(offset + size) : "",
+        });
+      },
+
+      // The playground's live feed: the immediate liveness frame, then one
+      // scripted snapshot event (appended to state, so the poke's refetch
+      // genuinely moves the timeline and the dot demonstrably works), then
+      // hold the stream open until the client goes away.
+      async *watchWorkspace(req, ctx) {
+        if (!state.workspaces.has(req.id)) throw notFound("workspace", req.id);
+        yield create(WatchWorkspaceResponseSchema, {});
+        await abortableSleep(2500, ctx.signal);
+        const list = state.workspaceEvents.get(req.id) ?? [];
+        const nextID = list.reduce((max, ev) => (ev.id > max ? ev.id : max), 0n) + 1n;
+        const w = state.workspaces.get(req.id)!;
+        const ev = create(WorkspaceEventSchema, {
+          id: nextID,
+          type: WorkspaceEventType.SNAPSHOT_PUSHED,
+          workspaceId: req.id,
+          branch: "head",
+          actor: w.owner ? { type: ActorType.USER, id: w.owner } : undefined,
+          sha: fakeSha(`live-snap-${req.id}-${String(nextID)}`),
+          filesChanged: 1,
+          additions: 7,
+          deletions: 1,
+          occurredAt: BigInt(Math.floor(Date.now() / 1000)),
+        });
+        list.push(ev);
+        state.workspaceEvents.set(req.id, list);
+        yield create(WatchWorkspaceResponseSchema, { event: ev });
+        // Park, honoring abort - keepalives every 25s like the real daemon.
+        for (;;) {
+          await abortableSleep(25_000, ctx.signal);
+          yield create(WatchWorkspaceResponseSchema, {});
+        }
       },
     });
 

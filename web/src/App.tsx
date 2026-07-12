@@ -20,6 +20,7 @@ import { OrgSettingsPage } from "./pages/OrgSettingsPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SearchPage } from "./pages/SearchPage";
+import { WorkspacePage } from "./pages/WorkspacePage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
 
 export default function App() {
@@ -106,6 +107,8 @@ function AppRoutes() {
         {/* Splat: project names contain slashes (commerce/cart). */}
         <Route path="/projects/*" element={<ProjectPage />} />
         <Route path="/workspaces" element={<WorkspacesPage />} />
+        {/* Workspace ids are single ref segments - no slashes, plain param. */}
+        <Route path="/workspaces/:workspaceId" element={<WorkspacePage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/settings" element={<OrgSettingsPage />} />
         <Route path="/admin" element={<AdminPage />} />

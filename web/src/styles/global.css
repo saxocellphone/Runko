@@ -2182,3 +2182,61 @@ tr.thread-row > td {
 :root[data-theme="dark"] .line-content .hljs-template-variable {
   color: #f0b26b;
 }
+
+/* workspace observability (§12.6): live dot + activity timeline */
+.live-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-2);
+  margin-left: 10px;
+  vertical-align: middle;
+}
+.live-dot-pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-3, #999);
+}
+.live-dot-live .live-dot-pip {
+  background: #2da160;
+  box-shadow: 0 0 0 3px rgba(45, 161, 96, 0.18);
+}
+.live-dot-connecting .live-dot-pip {
+  background: #d9a514;
+}
+.live-dot-offline .live-dot-pip {
+  background: #b3261e;
+}
+
+.ws-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ws-timeline-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ws-timeline-row:last-child {
+  border-bottom: 0;
+}
+.ws-timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.ws-timeline-head .spacer {
+  flex: 1;
+}
+.ws-timeline-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12.5px;
+}
