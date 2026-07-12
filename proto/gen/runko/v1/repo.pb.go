@@ -474,7 +474,18 @@ type CommitInfo struct {
 	ChangeId    string                 `protobuf:"bytes,6,opt,name=change_id,json=changeId,proto3" json:"change_id,omitempty"`        // Change-Id trailer, "" when the commit has none
 	// State of the Change named by change_id when this control plane has
 	// its row; UNSPECIFIED otherwise (pre-Runko history, foreign imports).
-	ChangeState   ChangeState `protobuf:"varint,7,opt,name=change_state,json=changeState,proto3,enum=runko.v1.ChangeState" json:"change_state,omitempty"`
+	ChangeState ChangeState `protobuf:"varint,7,opt,name=change_state,json=changeState,proto3,enum=runko.v1.ChangeState" json:"change_state,omitempty"`
+	// Committer time (unix seconds). Distinct from authored_at on purpose:
+	// rebase-land preserves author dates, so along trunk they are NOT
+	// monotonic - a change authored early and landed late reads older than
+	// commits beneath it (2026-07-11, finding #43). History displays
+	// landing time, not authoring time.
+	CommittedAt int64 `protobuf:"varint,8,opt,name=committed_at,json=committedAt,proto3" json:"committed_at,omitempty"`
+	// When the Change named by change_id landed (unix seconds, the control
+	// plane's own clock - the only land-time source no client clock can
+	// skew). 0 when there is no landed Change row (pre-Runko history,
+	// imports, open/abandoned changes); display falls back to committed_at.
+	LandedAt      int64 `protobuf:"varint,9,opt,name=landed_at,json=landedAt,proto3" json:"landed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -556,6 +567,20 @@ func (x *CommitInfo) GetChangeState() ChangeState {
 		return x.ChangeState
 	}
 	return ChangeState_CHANGE_STATE_UNSPECIFIED
+}
+
+func (x *CommitInfo) GetCommittedAt() int64 {
+	if x != nil {
+		return x.CommittedAt
+	}
+	return 0
+}
+
+func (x *CommitInfo) GetLandedAt() int64 {
+	if x != nil {
+		return x.LandedAt
+	}
+	return 0
 }
 
 type ListCommitsResponse struct {
@@ -887,7 +912,7 @@ const file_runko_v1_repo_proto_rawDesc = "" +
 	"\x03rev\x18\x02 \x01(\tR\x03rev\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x04 \x01(\tR\tpageToken\"\xf4\x01\n" +
+	"page_token\x18\x04 \x01(\tR\tpageToken\"\xb4\x02\n" +
 	"\n" +
 	"CommitInfo\x12\x10\n" +
 	"\x03sha\x18\x01 \x01(\tR\x03sha\x12\x18\n" +
@@ -898,7 +923,9 @@ const file_runko_v1_repo_proto_rawDesc = "" +
 	"\vauthored_at\x18\x05 \x01(\x03R\n" +
 	"authoredAt\x12\x1b\n" +
 	"\tchange_id\x18\x06 \x01(\tR\bchangeId\x128\n" +
-	"\fchange_state\x18\a \x01(\x0e2\x15.runko.v1.ChangeStateR\vchangeState\"\x7f\n" +
+	"\fchange_state\x18\a \x01(\x0e2\x15.runko.v1.ChangeStateR\vchangeState\x12!\n" +
+	"\fcommitted_at\x18\b \x01(\x03R\vcommittedAt\x12\x1b\n" +
+	"\tlanded_at\x18\t \x01(\x03R\blandedAt\"\x7f\n" +
 	"\x13ListCommitsResponse\x12.\n" +
 	"\acommits\x18\x01 \x03(\v2\x14.runko.v1.CommitInfoR\acommits\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12\x10\n" +

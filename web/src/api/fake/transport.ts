@@ -1193,6 +1193,8 @@ export function createFakeTransport(): Transport {
             authorName: c.authorName,
             authorEmail: c.authorEmail,
             authoredAt: BigInt(c.authoredAt),
+            committedAt: BigInt(c.committedAt),
+            landedAt: BigInt(c.landedAt),
             changeId: c.changeId,
             changeState: c.changeState,
           })),

@@ -39,8 +39,10 @@ type commitInfo struct {
 	AuthorName  string
 	AuthorEmail string
 	AuthoredAt  int64 // unix seconds
+	CommittedAt int64 // unix seconds - monotonic-ish along trunk, unlike AuthoredAt
 	ChangeID    string
 	ChangeState string // "" when no Change row exists for ChangeID
+	LandedAt    int64  // unix seconds the Change landed (server clock); 0 without a landed row
 }
 
 type blameRegion struct {
@@ -69,8 +71,11 @@ func (s *Server) gitOut(args ...string) ([]byte, error) {
 
 // logFormat renders one record per commit: unit-separated fields, record-
 // separated entries. %(trailers:key=Change-Id,valueonly,separator=%x2C)
-// yields the trailer value(s) with no "Change-Id:" prefix.
-const logFormat = "%H%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%(trailers:key=Change-Id,valueonly,separator=%x2C)%x1e"
+// yields the trailer value(s) with no "Change-Id:" prefix. Both times ride
+// along: author time is when the work was born (survives amends and
+// rebase-land, so NOT monotonic along trunk - finding #43), committer time
+// is when this commit object was made.
+const logFormat = "%H%x1f%an%x1f%ae%x1f%at%x1f%ct%x1f%s%x1f%(trailers:key=Change-Id,valueonly,separator=%x2C)%x1e"
 
 // listCommits reads up to limit+1 commits touching path (repo-wide when
 // "") starting at offset, newest first. The +1 is the has-more probe.
@@ -113,14 +118,15 @@ func parseLogRecords(out []byte) []commitInfo {
 			continue
 		}
 		f := strings.Split(rec, "\x1f")
-		if len(f) < 6 {
+		if len(f) < 7 {
 			continue
 		}
 		at, _ := strconv.ParseInt(f[3], 10, 64)
+		ct, _ := strconv.ParseInt(f[4], 10, 64)
 		commits = append(commits, commitInfo{
-			SHA: f[0], AuthorName: f[1], AuthorEmail: f[2], AuthoredAt: at,
-			Subject:  f[4],
-			ChangeID: firstChangeID(f[5]),
+			SHA: f[0], AuthorName: f[1], AuthorEmail: f[2], AuthoredAt: at, CommittedAt: ct,
+			Subject:  f[5],
+			ChangeID: firstChangeID(f[6]),
 		})
 	}
 	return commits
@@ -133,24 +139,36 @@ func firstChangeID(v string) string {
 	return strings.TrimSpace(v)
 }
 
-// resolveChangeStates fills ChangeState for every commit whose Change-Id
-// has a row on this control plane. Lookup failures leave the field empty -
-// history must render even if the store is having a bad day.
+// resolveChangeStates fills ChangeState and LandedAt for every commit
+// whose Change-Id has a row on this control plane. LandedAt is the
+// server-clock landing time - the display time for history (finding #43:
+// author dates go backwards along a rebase-landed trunk, and committer
+// dates on fast-forward lands are client-stamped). Lookup failures leave
+// the fields zero - history must render even if the store is having a bad
+// day.
 func (s *Server) resolveChangeStates(ctx context.Context, commits []commitInfo) {
-	states := map[string]string{}
+	type rowFacts struct {
+		state    string
+		landedAt int64
+	}
+	rows := map[string]rowFacts{}
 	for i := range commits {
 		id := commits[i].ChangeID
 		if id == "" {
 			continue
 		}
-		state, seen := states[id]
+		facts, seen := rows[id]
 		if !seen {
 			if change, ok, err := s.Store.GetChange(ctx, id); err == nil && ok {
-				state = change.State
+				facts.state = change.State
+				if !change.LandedAt.IsZero() {
+					facts.landedAt = change.LandedAt.Unix()
+				}
 			}
-			states[id] = state
+			rows[id] = facts
 		}
-		commits[i].ChangeState = state
+		commits[i].ChangeState = facts.state
+		commits[i].LandedAt = facts.landedAt
 	}
 }
 

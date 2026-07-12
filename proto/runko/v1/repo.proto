@@ -90,6 +90,17 @@ message CommitInfo {
   // State of the Change named by change_id when this control plane has
   // its row; UNSPECIFIED otherwise (pre-Runko history, foreign imports).
   ChangeState change_state = 7;
+  // Committer time (unix seconds). Distinct from authored_at on purpose:
+  // rebase-land preserves author dates, so along trunk they are NOT
+  // monotonic - a change authored early and landed late reads older than
+  // commits beneath it (2026-07-11, finding #43). History displays
+  // landing time, not authoring time.
+  int64 committed_at = 8;
+  // When the Change named by change_id landed (unix seconds, the control
+  // plane's own clock - the only land-time source no client clock can
+  // skew). 0 when there is no landed Change row (pre-Runko history,
+  // imports, open/abandoned changes); display falls back to committed_at.
+  int64 landed_at = 9;
 }
 
 message ListCommitsResponse {

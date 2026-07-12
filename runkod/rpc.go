@@ -1221,6 +1221,7 @@ func (r *rpcServer) ListCommits(ctx context.Context, req *connect.Request[runkov
 		resp.Commits = append(resp.Commits, &runkov1.CommitInfo{
 			Sha: c.SHA, Subject: c.Subject,
 			AuthorName: c.AuthorName, AuthorEmail: c.AuthorEmail, AuthoredAt: c.AuthoredAt,
+			CommittedAt: c.CommittedAt, LandedAt: c.LandedAt,
 			ChangeId: c.ChangeID, ChangeState: protoChangeState(c.ChangeState),
 		})
 	}

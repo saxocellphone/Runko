@@ -72,6 +72,12 @@ func TestListCommitsHistory(t *testing.T) {
 	if got[1].AuthorName == "" || got[1].AuthoredAt == 0 {
 		t.Fatalf("author metadata missing: %+v", got[1])
 	}
+	if got[1].CommittedAt == 0 {
+		t.Fatalf("committer time missing: %+v", got[1])
+	}
+	if got[1].LandedAt != 0 {
+		t.Fatalf("an OPEN change must not carry a landing time: %+v", got[1])
+	}
 
 	// Path scoping: sub/ was only ever touched by c1.
 	resp, err = rpc.ListCommits(ctx, connect.NewRequest(&runkov1.ListCommitsRequest{Path: "sub"}))
@@ -105,6 +111,34 @@ func TestListCommitsHistory(t *testing.T) {
 	}
 	if len(pages) != 3 || len(pages[0]) != 1 || pages[0][0].Sha != shas[2] {
 		t.Fatalf("pagination should yield 3 single-commit pages: %+v", pages)
+	}
+}
+
+// TestListCommitsLandedTime pins finding #43's fix: history rows carry the
+// Change's server-clock landing time (the display time - author dates go
+// backwards along a rebase-landed trunk, committer dates on fast-forward
+// lands are client-stamped), and rows without a landed Change stay 0 so
+// the client falls back to committer time.
+func TestListCommitsLandedTime(t *testing.T) {
+	rpc, shas := historyFixture(t)
+	ctx := context.Background()
+
+	if _, err := rpc.s.Store.MarkChangeLanded(ctx, changeIDB, shas[1], "alice", false); err != nil {
+		t.Fatalf("MarkChangeLanded: %v", err)
+	}
+	resp, err := rpc.ListCommits(ctx, connect.NewRequest(&runkov1.ListCommitsRequest{}))
+	if err != nil {
+		t.Fatalf("ListCommits: %v", err)
+	}
+	got := resp.Msg.Commits
+	if len(got) != 3 {
+		t.Fatalf("want 3 commits, got %d", len(got))
+	}
+	if got[1].LandedAt == 0 {
+		t.Fatalf("landed change's history row must carry landed_at: %+v", got[1])
+	}
+	if got[0].LandedAt != 0 || got[2].LandedAt != 0 {
+		t.Fatalf("rows without a landed Change row must stay 0: %+v %+v", got[0], got[2])
 	}
 }
 

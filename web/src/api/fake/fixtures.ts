@@ -1376,6 +1376,8 @@ export interface FakeCommit {
   authorName: string;
   authorEmail: string;
   authoredAt: number; // unix seconds
+  committedAt: number; // unix seconds (>= authoredAt: amends/rebases refresh it)
+  landedAt: number; // unix seconds the Change landed (server clock); 0 = no landed row
   changeId: string; // "" = pre-Runko history (no trailer)
   changeState: ChangeState; // UNSPECIFIED when no Change row exists
   paths: string[]; // files this commit touched
@@ -1392,16 +1394,23 @@ export const fakeHistory: FakeCommit[] = [
     authorName: "Val Kim",
     authorEmail: "val@acme.dev",
     authoredAt: daysAgo(0.2),
+    committedAt: daysAgo(0.15),
+    landedAt: 0, // still open - byline falls back to committer time
     changeId: soloChange.id,
     changeState: ChangeState.OPEN,
     paths: ["platform/authz/cache.go", "platform/authz/authz.go"],
   },
   {
+    // Authored BEFORE hist-inline-error below but landed long after -
+    // the finding #43 shape: an author-dated history would read
+    // backwards here; the landed time keeps it monotonic.
     sha: fakeSha("landed-rounding"),
     subject: "cart: fix rounding in order totals",
     authorName: "Priya Shah",
     authorEmail: "priya@acme.dev",
-    authoredAt: daysAgo(1.5),
+    authoredAt: daysAgo(8),
+    committedAt: daysAgo(1.5),
+    landedAt: daysAgo(1.4),
     changeId: landedChange.id,
     changeState: ChangeState.LANDED,
     paths: ["commerce/cart/totals.go", "commerce/cart/sku_test.go"],
@@ -1412,6 +1421,8 @@ export const fakeHistory: FakeCommit[] = [
     authorName: "Val Kim",
     authorEmail: "val@acme.dev",
     authoredAt: daysAgo(6),
+    committedAt: daysAgo(6),
+    landedAt: 0,
     changeId: "",
     changeState: ChangeState.UNSPECIFIED,
     paths: ["web/storefront/src/cart/InlineError.tsx", "web/storefront/src/cart/AddToCart.tsx"],
@@ -1422,6 +1433,8 @@ export const fakeHistory: FakeCommit[] = [
     authorName: "Priya Shah",
     authorEmail: "priya@acme.dev",
     authoredAt: daysAgo(19),
+    committedAt: daysAgo(19),
+    landedAt: 0,
     changeId: "",
     changeState: ChangeState.UNSPECIFIED,
     paths: ["commerce/cart/sku.go", "commerce/cart/sku_test.go", "commerce/cart/item.go"],
@@ -1432,6 +1445,8 @@ export const fakeHistory: FakeCommit[] = [
     authorName: "Sam Ortiz",
     authorEmail: "sam@acme.dev",
     authoredAt: daysAgo(120),
+    committedAt: daysAgo(120),
+    landedAt: 0,
     changeId: "",
     changeState: ChangeState.UNSPECIFIED,
     paths: Object.keys(fsFiles),

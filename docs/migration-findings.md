@@ -463,6 +463,26 @@ planning; entries marked `[observed]` happened during execution.
     task is NOT done, and stage 19's activity feed now makes the same
     liveness signal explicit).
 
+43. **[observed, web UI] History displayed author time, which runs
+    BACKWARDS along a rebase-landed trunk.** Ica9f0e4b (the finding #41
+    change) was authored 21:40, synced onto I9ae945aa's 21:48 landing,
+    and landed 22:01 - graph order and landing order agree (trunk only
+    fast-forwards), but the Browse history byline rendered `%at`, so the
+    tip-side commit displayed a time EIGHT MINUTES OLDER than the commit
+    beneath it ("landed after, appears before"). Author dates survive
+    amends and rebases by git design; under rebase-land they measure
+    when work STARTED, never when it reached trunk. Second-order trap:
+    committer dates don't fix it either - a fast-forward land ships the
+    client-created commit verbatim, committer timestamp stamped by the
+    CLIENT's clock (observed: c31fd65 cd 21:58 vs landed_at 22:01).
+    The only clock that provably matches landing order is the control
+    plane's own changes.landed_at. Fixed: CommitInfo carries
+    committed_at + landed_at (the history join already resolved every
+    row's Change - it now keeps the landing time instead of discarding
+    it), and the history byline shows "landed <t>" falling back to
+    committer time for pre-Runko rows; author time moved to the tooltip.
+    Pinned by TestListCommitsLandedTime.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,

@@ -8,7 +8,7 @@ import {
   type CommitInfo,
   type TreeEntry,
 } from "../gen/runko/v1/repo_pb";
-import { shortSha, timeAgo } from "../lib/format";
+import { absoluteTime, shortSha, timeAgo } from "../lib/format";
 import type { Token } from "../lib/highlight";
 import { useRpc } from "../lib/useRpc";
 import { EmptyState, ErrorNote, Spinner, StateBadge } from "../components/ui";
@@ -542,8 +542,18 @@ function HistoryList({ path }: { path: string }) {
             ) : (
               <span className="history-subject">{c.subject}</span>
             )}
-            <div className="history-byline">
-              {c.authorName} · {timeAgo(c.authoredAt)}
+            {/* History shows when the commit ENTERED TRUNK - the Change's
+                server-side landing time, falling back to committer time
+                for pre-Runko/imported commits. Author time reads backwards
+                along a rebase-landed trunk (a change authored early and
+                landed late shows older than commits beneath it), so it
+                lives in the tooltip, not the byline. */}
+            <div
+              className="history-byline"
+              title={`authored ${absoluteTime(c.authoredAt)}${c.landedAt > 0n ? `, landed ${absoluteTime(c.landedAt)}` : ""}`}
+            >
+              {c.authorName} · {c.landedAt > 0n ? "landed " : ""}
+              {timeAgo(c.landedAt > 0n ? c.landedAt : c.committedAt)}
             </div>
           </div>
           {c.changeState !== ChangeState.UNSPECIFIED && <StateBadge state={c.changeState} />}
