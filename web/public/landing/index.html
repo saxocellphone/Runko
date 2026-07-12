@@ -237,17 +237,19 @@
         <tbody>
           <tr><td class="aspect">Checkout</td><td class="them">A full tree per worktree</td><td class="us">One shared clone; each workspace materializes only its slice</td></tr>
           <tr><td class="aspect">Work in progress</td><td class="them">Stranded on one machine</td><td class="us">Snapshotted to the server — kill the box, re-attach anywhere</td></tr>
-          <tr><td class="aspect">Identity</td><td class="them">Every agent pushes as you</td><td class="us">Each agent is a named principal with its own token</td></tr>
-          <tr><td class="aspect">Guardrails</td><td class="them">Whatever your token allows</td><td class="us">Path allowlists, diff caps, secret scan, no self-approval — enforced at the server</td></tr>
-          <tr><td class="aspect">Getting code in</td><td class="them">Hand-merge the branches later</td><td class="us">Each agent's work arrives as stacked, reviewable changes behind the same gates as humans</td></tr>
+          <tr><td class="aspect">Identity</td><td class="them">Every agent pushes as you</td><td class="us">One command mints a per-task identity — named for the work, its own token, dead by TTL</td></tr>
+          <tr><td class="aspect">Guardrails</td><td class="them">Whatever your token allows</td><td class="us">Path allowlists, per-change size caps, secret scan, no self-approval — enforced at the server</td></tr>
+          <tr><td class="aspect">Lifecycle</td><td class="them">Stale worktrees pile up</td><td class="us">One task, one workspace, enforced — auto-closed when its last change lands or is abandoned</td></tr>
+          <tr><td class="aspect">Getting code in</td><td class="them">Hand-merge the branches later</td><td class="us">Each agent's work arrives as stacked, reviewable changes behind the same gates as humans — oversized changes are refused with the split workflow in the message</td></tr>
         </tbody>
       </table>
       </div>
       <p class="sectionsub" style="margin-top:28px; margin-bottom:14px;">The agent's whole interface is the same CLI your engineers use — taught by a generated <code>AGENTS.md</code>, with policy enforced where it can't be prompt-engineered away:</p>
       <div class="terminal">
+<span class="g">$</span> runko agent create <span class="v">--task</span> fix-sku  <span class="c"># ephemeral identity: agent-fix-sku-3f2a, dies by TTL</span><br>
 <span class="g">$</span> runko change push          <span class="c"># stack's tip → review; every change in the stack updates</span><br>
 <span class="g">$</span> runko change requirements  <span class="c"># owners + checks outstanding, as structured JSON with --json</span><br>
-<span class="g">$</span> runko change land          <span class="c"># gates enforced server-side; agents can never approve themselves</span>
+<span class="g">$</span> runko change automerge     <span class="c"># arm once and move on — the server lands it when the gates go green</span>
       </div>
     </div>
   </section>
@@ -262,6 +264,9 @@
         <div class="card"><h3><span class="glyph">⚡</span>Land without re-running the world</h3><p>Rebase-based landing re-runs checks only when trunk actually touched something your change depends on. A lost race is a retry, never a silent overwrite.</p></div>
         <div class="card"><h3><span class="glyph">◎</span>CI runs only what can break</h3><p>Changed paths map to projects and their dependents, fail-closed, with optional build-graph refinement (Bazel first). Your runners, your pipelines — we never run your CI.</p></div>
         <div class="card"><h3><span class="glyph">🛡</span>One door into trunk</h3><p>Direct push is closed. Every write — human, agent, or bot — passes the same policy, secret scanning (gitleaks), and change tracking on the server.</p></div>
+        <div class="card"><h3><span class="glyph">⏻</span>Arm it and walk away</h3><p>Automerge is a bit, not a babysitter: arm a change once and the server lands it the moment owners and checks go green — through the same gates, attributed to whoever armed it, never forced.</p></div>
+        <div class="card"><h3><span class="glyph">⦿</span>Releases are immutable</h3><p><code>runko release create</code> versions a project, derives the changelog from the changes that actually landed, and writes the tag server-side under tag policy. No edit, no delete — a wrong release is followed by a corrected one.</p></div>
+        <div class="card"><h3><span class="glyph">❋</span>Checks declare their class</h3><p><code>run_when: direct</code> lanes run only when a project's own code changes; integration lanes still ride the dependency closure. A dependent's unit tests stop re-running for changes that can't break them.</p></div>
         <div class="card"><h3><span class="glyph">⇄</span>Mirror to any git host</h3><p>Adopt gradually: keep a leased, divergence-guarded mirror on GitHub, GitLab, Gitea — anything that speaks git. Trust lives where you want it; truth stays yours.</p></div>
       </div>
     </div>

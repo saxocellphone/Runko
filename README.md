@@ -44,12 +44,16 @@ current test of record). The build plan lives in `docs/design.md` §28; the
 per-stage engineering history is
 [`docs/implementation-log.md`](docs/implementation-log.md). Implemented: the
 `runkod` daemon (smart-HTTP git, receive funnel, REST + Connect APIs,
-merge gates, multi-org, outbound mirror), the `runko`/`runko-ci` CLIs,
-workspaces (snapshot refs + sparse cones), affected computation with a
-Bazel build-graph adapter, code search (Zoekt), an MCP server, the web UI
-(review, code browser, search), public read-only orgs, and a measured
-docker-compose eval loop. Expect rough edges; hardening findings land as
-ordinary changes.
+merge gates, automerge, multi-org, outbound mirror), the `runko`/`runko-ci`
+CLIs, workspaces (snapshot refs + sparse cones; single-use for agents),
+ephemeral per-task agent identities with server-enforced policy, affected
+computation with a Bazel build-graph adapter and per-check classes
+(`run_when: direct | affected`), immutable releases with changelogs derived
+from landed changes and tag governance at receive, code search (Zoekt), an
+MCP server, the web UI (stacked review with syntax-highlighted folding
+diffs, a code browser with history and blame, search), public read-only
+orgs, a CI watchdog, and a measured docker-compose eval loop. Expect rough
+edges; hardening findings land as ordinary changes.
 
 ## Repository layout
 
@@ -95,6 +99,7 @@ runko workspace create --name fix-sku --project payments-api --by you  # your sl
 runko change push                        # -> review; checks scoped to what changed
 runko change requirements --json         # owners + checks outstanding, machine-readable
 runko change land                        # rebase-lands once the gates are green
+runko change automerge --change I…       # or: arm once, it lands itself when they go green
 ```
 
 Design rules, documented in [`docs/cli-contract.md`](docs/cli-contract.md):
@@ -105,6 +110,28 @@ binary, taught by a generated `AGENTS.md` (`runko agents-md`); CI uses
 `runko-ci` (`affected` computes impact offline from the tree, `checkout`
 does partial-clone sparse checkouts, `report-check` posts results with
 retries).
+
+## Running coding agents
+
+Agents are ordinary API clients with stricter, server-enforced defaults —
+none of it is prompt engineering:
+
+```bash
+runko agent create --task fix-sku        # mints agent-fix-sku-3f2a: its own token, dead by TTL
+runko workspace create --name fix-sku …  # one task = one workspace, enforced
+runko change push                        # per-change size caps nudge stacks, not monoliths
+runko change automerge --change I…       # the agent never polls; the server lands when green
+```
+
+Each agent identity is minted per task and named for the work, so
+`authored_by`, workspace ownership, and the review badge all answer "what
+was this agent doing" by construction. Agent workspaces are single-use and
+auto-close when their last change concludes; oversized changes are refused
+at receive with the split workflow in the message (a stack of small
+changes passes where the same volume as one change is refused); agents can
+never approve their own changes, mint other agents, or hold operator
+powers. This repo is built almost entirely by agents working under exactly
+these rules.
 
 ### Installing
 
