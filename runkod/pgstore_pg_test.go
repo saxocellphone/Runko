@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/saxocellphone/runko/internal/dbgen"
 	"github.com/saxocellphone/runko/internal/dbtest"
 	"github.com/saxocellphone/runko/platform/checks"
 )
@@ -853,5 +854,88 @@ func TestPostgresStoreAgentPrincipalRoundTrip(t *testing.T) {
 	}
 	if revoked, ok, _ := store.GetAgentPrincipalByName(ctx, ap.Name); !ok || revoked.Live(time.Now()) {
 		t.Fatalf("revoked row must persist and read as not-live: %+v ok=%v", revoked, ok)
+	}
+}
+
+// TestPostgresStoreWorkspaceEventsRoundTrip pins the §12.6 stats-only
+// timeline: BIGSERIAL IDs order newest-first, numstat totals round-trip,
+// org scoping holds, the retention prune drops oldest-first, and
+// DeleteWorkspaceEvents clears exactly one workspace's history.
+func TestPostgresStoreWorkspaceEventsRoundTrip(t *testing.T) {
+	dsn := pgTestDSN(t)
+	ctx := context.Background()
+
+	store, err := BootstrapPostgresStore(ctx, dsn, "wsevents-acme", "main")
+	if err != nil {
+		t.Fatalf("BootstrapPostgresStore: %v", err)
+	}
+	defer store.Pool.Close()
+	other, err := BootstrapPostgresStore(ctx, dsn, "wsevents-globex", "main")
+	if err != nil {
+		t.Fatalf("BootstrapPostgresStore (other org): %v", err)
+	}
+	defer other.Pool.Close()
+
+	first, err := store.RecordWorkspaceEvent(ctx, WorkspaceEvent{
+		Type: WorkspaceEventSnapshotPushed, WorkspaceID: "ws-a", Branch: "head",
+		Actor: "agent-x", SHA: "aaa111", FilesChanged: 2, Additions: 10, Deletions: 3,
+	})
+	if err != nil {
+		t.Fatalf("RecordWorkspaceEvent: %v", err)
+	}
+	if first.ID == 0 || first.OccurredAt.IsZero() {
+		t.Fatalf("expected assigned ID and timestamp: %+v", first)
+	}
+	second, err := store.RecordWorkspaceEvent(ctx, WorkspaceEvent{
+		Type: WorkspaceEventChangeLanded, WorkspaceID: "ws-a", Branch: "head",
+		Actor: "agent-x", SHA: "bbb222", ChangeKey: "Iabc",
+	})
+	if err != nil {
+		t.Fatalf("RecordWorkspaceEvent: %v", err)
+	}
+	if second.ID <= first.ID {
+		t.Fatalf("IDs must be strictly increasing: %d then %d", first.ID, second.ID)
+	}
+	// Same workspace id in ANOTHER org must not leak into this org's list.
+	if _, err := other.RecordWorkspaceEvent(ctx, WorkspaceEvent{
+		Type: WorkspaceEventSnapshotPushed, WorkspaceID: "ws-a", SHA: "other-org",
+	}); err != nil {
+		t.Fatalf("RecordWorkspaceEvent (other org): %v", err)
+	}
+
+	evs, err := store.ListWorkspaceEvents(ctx, "ws-a", 0, 0)
+	if err != nil {
+		t.Fatalf("ListWorkspaceEvents: %v", err)
+	}
+	if len(evs) != 2 || evs[0].ID != second.ID || evs[1].ID != first.ID {
+		t.Fatalf("expected org-scoped newest-first [second, first], got %+v", evs)
+	}
+	if evs[1].FilesChanged != 2 || evs[1].Additions != 10 || evs[1].Deletions != 3 || evs[1].Type != WorkspaceEventSnapshotPushed {
+		t.Fatalf("numstat/type lost in round-trip: %+v", evs[1])
+	}
+	if page, _ := store.ListWorkspaceEvents(ctx, "ws-a", 1, 1); len(page) != 1 || page[0].ID != first.ID {
+		t.Fatalf("limit/offset paging broken: %+v", page)
+	}
+
+	// Exercise the prune SQL directly with a tiny cap (the store method
+	// applies workspaceEventRetentionCap; 500 inserts here buys nothing):
+	// keep-newest-1 must drop exactly the older event, org-scoped.
+	if err := store.Queries.PruneWorkspaceEvents(ctx, store.Pool, dbgen.PruneWorkspaceEventsParams{
+		MonorepoID: store.MonorepoID, WorkspaceID: "ws-a", Limit: 1,
+	}); err != nil {
+		t.Fatalf("PruneWorkspaceEvents: %v", err)
+	}
+	if evs, _ := store.ListWorkspaceEvents(ctx, "ws-a", 0, 0); len(evs) != 1 || evs[0].ID != second.ID {
+		t.Fatalf("prune to 1 must keep only the newest event, got %+v", evs)
+	}
+
+	if err := store.DeleteWorkspaceEvents(ctx, "ws-a"); err != nil {
+		t.Fatalf("DeleteWorkspaceEvents: %v", err)
+	}
+	if evs, _ := store.ListWorkspaceEvents(ctx, "ws-a", 0, 0); len(evs) != 0 {
+		t.Fatalf("expected empty timeline after delete, got %+v", evs)
+	}
+	if evs, _ := other.ListWorkspaceEvents(ctx, "ws-a", 0, 0); len(evs) != 1 || evs[0].SHA != "other-org" {
+		t.Fatalf("other org's timeline must survive, got %+v", evs)
 	}
 }

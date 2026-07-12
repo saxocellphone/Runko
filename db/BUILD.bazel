@@ -30,6 +30,8 @@ go_library(
         "migrations/0012_releases.up.sql",
         "migrations/0013_agent_principals.down.sql",
         "migrations/0013_agent_principals.up.sql",
+        "migrations/0014_workspace_events.down.sql",
+        "migrations/0014_workspace_events.up.sql",
     ],
     importpath = "github.com/saxocellphone/runko/db",
     visibility = ["//visibility:public"],

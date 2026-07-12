@@ -123,6 +123,40 @@ type Release struct {
 	CreatedAt     time.Time
 }
 
+// WorkspaceEvent is one stats-only workspace-activity row (§12.6, stage
+// 18): what happened in a workspace and how big it was - never file
+// content (§12.1). IDs are strictly increasing per store (BIGSERIAL in
+// Postgres; MemStore mirrors that) - the timeline orders and clients
+// dedupe by them.
+type WorkspaceEvent struct {
+	ID           int64
+	Type         string // one of the WorkspaceEvent* consts below
+	WorkspaceID  string
+	Branch       string
+	Actor        string // principal name; "" = the anonymous deploy token
+	SHA          string // snapshot/head sha at emission
+	ChangeKey    string // set on change_* events
+	FilesChanged int
+	Additions    int // numstat totals; binary files count 0/0
+	Deletions    int
+	OccurredAt   time.Time
+}
+
+// Workspace-event types (§12.6) - mirrored by the workspace_events
+// event_type CHECK constraint; a new type is a migration, not just a
+// const.
+const (
+	WorkspaceEventSnapshotPushed  = "snapshot_pushed"
+	WorkspaceEventChangePushed    = "change_pushed"
+	WorkspaceEventChangeLanded    = "change_landed"
+	WorkspaceEventChangeAbandoned = "change_abandoned"
+	WorkspaceEventWorkspaceClosed = "workspace_closed"
+)
+
+// workspaceEventRetentionCap bounds each workspace's timeline (§12.6):
+// RecordWorkspaceEvent prunes oldest-first past this after every insert.
+const workspaceEventRetentionCap = 500
+
 // MirrorCursor is one (remote, ref) sync cursor (§18.6): what the mirror
 // last agreed with us about, and whether mirroring that ref is frozen.
 type MirrorCursor struct {
@@ -292,6 +326,19 @@ type Store interface {
 	// both, guards included). Deleting an unknown id is an error.
 	DeleteWorkspace(ctx context.Context, id string) error
 
+	// RecordWorkspaceEvent appends one stats-only activity row (§12.6)
+	// and prunes the workspace's timeline to workspaceEventRetentionCap.
+	// The returned event carries the store-assigned strictly-increasing
+	// ID. Zero OccurredAt means "now".
+	RecordWorkspaceEvent(ctx context.Context, ev WorkspaceEvent) (WorkspaceEvent, error)
+	// ListWorkspaceEvents returns a workspace's timeline newest-first;
+	// limit <= 0 means unbounded (the ListReleases convention).
+	ListWorkspaceEvents(ctx context.Context, workspaceID string, limit, offset int) ([]WorkspaceEvent, error)
+	// DeleteWorkspaceEvents removes a workspace's whole timeline -
+	// deleteWorkspaceCore's companion to DeleteWorkspace. Closing a
+	// workspace keeps its history; deleting it does not.
+	DeleteWorkspaceEvents(ctx context.Context, workspaceID string) error
+
 	// Ping reports whether the Store's backing service is reachable -
 	// /readyz's dependency probe (§9.4's stage-14 conventions). Cheap
 	// enough to call on every readiness scrape.
@@ -325,6 +372,8 @@ type MemStore struct {
 	reviewReqs map[string]map[string]ReviewRequest       // changeKey -> reviewer -> request
 	releases   map[string][]Release                      // projectName -> releases, creation order
 	workspaces map[string]Workspace
+	wsEvents   map[string][]WorkspaceEvent // workspaceID -> events, id order
+	wsEventSeq int64
 	agents     map[string]AgentPrincipal
 	principals map[string]StoredPrincipal
 	deliveries map[string]*memDelivery
@@ -364,6 +413,7 @@ func NewMemStore() *MemStore {
 		reviewReqs: make(map[string]map[string]ReviewRequest),
 		releases:   make(map[string][]Release),
 		workspaces: make(map[string]Workspace),
+		wsEvents:   make(map[string][]WorkspaceEvent),
 		agents:     make(map[string]AgentPrincipal),
 		deliveries: make(map[string]*memDelivery),
 		mirrors:    make(map[string]MirrorCursor),
@@ -871,6 +921,47 @@ func (s *MemStore) DeleteWorkspace(ctx context.Context, id string) error {
 		return fmt.Errorf("runkod: no such workspace %q", id)
 	}
 	delete(s.workspaces, id)
+	return nil
+}
+
+func (s *MemStore) RecordWorkspaceEvent(ctx context.Context, ev WorkspaceEvent) (WorkspaceEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.wsEventSeq++
+	ev.ID = s.wsEventSeq
+	if ev.OccurredAt.IsZero() {
+		ev.OccurredAt = s.now()
+	}
+	evs := append(s.wsEvents[ev.WorkspaceID], ev)
+	if over := len(evs) - workspaceEventRetentionCap; over > 0 {
+		evs = append([]WorkspaceEvent(nil), evs[over:]...)
+	}
+	s.wsEvents[ev.WorkspaceID] = evs
+	return ev, nil
+}
+
+func (s *MemStore) ListWorkspaceEvents(ctx context.Context, workspaceID string, limit, offset int) ([]WorkspaceEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all := s.wsEvents[workspaceID]
+	rev := make([]WorkspaceEvent, len(all))
+	for i, ev := range all {
+		rev[len(all)-1-i] = ev
+	}
+	if offset >= len(rev) {
+		return []WorkspaceEvent{}, nil
+	}
+	rev = rev[offset:]
+	if limit > 0 && limit < len(rev) {
+		rev = rev[:limit]
+	}
+	return rev, nil
+}
+
+func (s *MemStore) DeleteWorkspaceEvents(ctx context.Context, workspaceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.wsEvents, workspaceID)
 	return nil
 }
 

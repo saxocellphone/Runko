@@ -589,3 +589,19 @@ type Workspace struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
+
+type WorkspaceEvent struct {
+	ID           int64              `json:"id"`
+	OrgID        uuid.UUID          `json:"org_id"`
+	MonorepoID   uuid.UUID          `json:"monorepo_id"`
+	WorkspaceID  string             `json:"workspace_id"`
+	Branch       string             `json:"branch"`
+	EventType    string             `json:"event_type"`
+	Actor        string             `json:"actor"`
+	Sha          string             `json:"sha"`
+	ChangeKey    string             `json:"change_key"`
+	FilesChanged int32              `json:"files_changed"`
+	Additions    int32              `json:"additions"`
+	Deletions    int32              `json:"deletions"`
+	OccurredAt   pgtype.Timestamptz `json:"occurred_at"`
+}

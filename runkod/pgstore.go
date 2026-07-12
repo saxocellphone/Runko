@@ -973,6 +973,61 @@ func (s *PostgresStore) DeleteWorkspace(ctx context.Context, id string) error {
 	return s.Queries.DeleteWorkspace(ctx, s.Pool, row.ID)
 }
 
+func (s *PostgresStore) RecordWorkspaceEvent(ctx context.Context, ev WorkspaceEvent) (WorkspaceEvent, error) {
+	row, err := s.Queries.InsertWorkspaceEvent(ctx, s.Pool, dbgen.InsertWorkspaceEventParams{
+		OrgID: s.OrgID, MonorepoID: s.MonorepoID,
+		WorkspaceID: ev.WorkspaceID, Branch: ev.Branch, EventType: ev.Type,
+		Actor: ev.Actor, Sha: ev.SHA, ChangeKey: ev.ChangeKey,
+		FilesChanged: int32(ev.FilesChanged), Additions: int32(ev.Additions), Deletions: int32(ev.Deletions),
+	})
+	if err != nil {
+		return WorkspaceEvent{}, err
+	}
+	// Prune best-effort after insert (§12.6 retention): a failed prune
+	// costs bounded extra rows, never the event.
+	_ = s.Queries.PruneWorkspaceEvents(ctx, s.Pool, dbgen.PruneWorkspaceEventsParams{
+		MonorepoID: s.MonorepoID, WorkspaceID: ev.WorkspaceID, Limit: workspaceEventRetentionCap,
+	})
+	return workspaceEventFromRow(row), nil
+}
+
+func (s *PostgresStore) ListWorkspaceEvents(ctx context.Context, workspaceID string, limit, offset int) ([]WorkspaceEvent, error) {
+	lim := int32(limit)
+	if limit <= 0 {
+		lim = math.MaxInt32
+	}
+	rows, err := s.Queries.ListWorkspaceEvents(ctx, s.Pool, dbgen.ListWorkspaceEventsParams{
+		MonorepoID: s.MonorepoID, WorkspaceID: workspaceID, Limit: lim, Offset: int32(offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]WorkspaceEvent, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, workspaceEventFromRow(row))
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) DeleteWorkspaceEvents(ctx context.Context, workspaceID string) error {
+	return s.Queries.DeleteWorkspaceEvents(ctx, s.Pool, dbgen.DeleteWorkspaceEventsParams{
+		MonorepoID: s.MonorepoID, WorkspaceID: workspaceID,
+	})
+}
+
+func workspaceEventFromRow(row *dbgen.WorkspaceEvent) WorkspaceEvent {
+	ev := WorkspaceEvent{
+		ID: row.ID, Type: row.EventType,
+		WorkspaceID: row.WorkspaceID, Branch: row.Branch,
+		Actor: row.Actor, SHA: row.Sha, ChangeKey: row.ChangeKey,
+		FilesChanged: int(row.FilesChanged), Additions: int(row.Additions), Deletions: int(row.Deletions),
+	}
+	if row.OccurredAt.Valid {
+		ev.OccurredAt = row.OccurredAt.Time
+	}
+	return ev
+}
+
 func (s *PostgresStore) dbWorkspaceToWorkspace(ctx context.Context, row *dbgen.Workspace) (Workspace, error) {
 	id, ok := SnapshotRefWorkspaceID(row.SnapshotRef)
 	if !ok {

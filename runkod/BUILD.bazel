@@ -102,11 +102,13 @@ go_test(
         "workspace_test.go",
         "workspacebranch_test.go",
         "workspacedelete_test.go",
+        "wsevents_test.go",
         "zoekt_test.go",
     ],
     embed = [":runkod"],
     deps = [
         "//internal/clierr",
+        "//internal/dbgen",
         "//internal/dbtest",
         "//internal/gitfixture",
         "//platform/affected",
