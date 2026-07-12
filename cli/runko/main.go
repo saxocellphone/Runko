@@ -267,9 +267,9 @@ func cmdProjectList(args []string) error {
 }
 
 func cmdChange(args []string) error {
-	valid := map[string]bool{"create": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "rerun-check": true, "comment": true, "comments": true, "resolve": true, "request-review": true}
+	valid := map[string]bool{"create": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "automerge": true, "rerun-check": true, "comment": true, "comments": true, "resolve": true, "request-review": true}
 	if len(args) < 1 || !valid[args[0]] {
-		return usageError("usage: runko change create|push|requirements|land|approve|list|abandon|rerun-check|comment|comments|resolve|request-review ... (see docs/cli-contract.md)")
+		return usageError("usage: runko change create|push|requirements|land|approve|list|abandon|automerge|rerun-check|comment|comments|resolve|request-review ... (see docs/cli-contract.md)")
 	}
 	switch args[0] {
 	case "create":

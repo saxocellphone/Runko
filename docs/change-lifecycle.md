@@ -101,3 +101,8 @@ These refuse the *event*, not the state — the Change stays where it was:
   authorization carve-out on the **land** event, not a new transition:
   terminal states, stacked-parent ordering, and conflicts still refuse, and
   the Change durably records `landed_forced`.
+- Automerge (§13.5 "when ready", 2026-07-12): `automerge` is a durable BIT
+  on an open Change, not a state - arming it makes the server fire the
+  ordinary **land** event itself the moment merge requirements go green
+  (same gate, never force, attributed to the armer). It survives amends;
+  landed/abandoned refuse arming (`invalid_state`), disarm always works.
