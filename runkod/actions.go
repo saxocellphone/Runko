@@ -648,6 +648,14 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 			log.Printf("runkod: change %s landed via bot lane %q", key, lane.Name)
 		}
 		s.enqueueLandedWebhook(ctx, change, outcome.LandedSHA)
+		if change.OriginWorkspace != "" {
+			// §12.6 timeline - before maybeCloseAgentWorkspace, so a
+			// single-use workspace's closed event follows its landed one.
+			recordWorkspaceEvent(ctx, s.Store, s.Events, WorkspaceEvent{
+				Type: WorkspaceEventChangeLanded, WorkspaceID: change.OriginWorkspace, Branch: change.OriginBranch,
+				Actor: landedBy, SHA: outcome.LandedSHA, ChangeKey: key,
+			})
+		}
 		s.maybeCloseAgentWorkspace(ctx, change.OriginWorkspace)
 		// A landed parent may have made an armed child's base reachable
 		// (stacked automerge: the whole stack drains bottom-up).
@@ -687,6 +695,16 @@ func (s *Server) abandonChangeCore(ctx context.Context, key string, principal *P
 	}
 	if principal != nil {
 		log.Printf("runkod: change %s abandoned by %q", key, principal.Name)
+	}
+	if change.OriginWorkspace != "" {
+		actor := ""
+		if principal != nil {
+			actor = principal.Name
+		}
+		recordWorkspaceEvent(ctx, s.Store, s.Events, WorkspaceEvent{
+			Type: WorkspaceEventChangeAbandoned, WorkspaceID: change.OriginWorkspace, Branch: change.OriginBranch,
+			Actor: actor, SHA: change.HeadSHA, ChangeKey: key,
+		})
 	}
 	s.maybeCloseAgentWorkspace(ctx, change.OriginWorkspace)
 	return change, nil

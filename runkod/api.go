@@ -39,6 +39,11 @@ type Server struct {
 	Store     Store
 	Processor *Processor
 	Token     string // deploy token (REST API) and pre-receive shared secret
+	// Events is the §12.6 in-process live feed - one bus per org, the
+	// SAME instance as Processor.Events (the receive side publishes,
+	// WatchWorkspace subscribes here). Nil-safe: without it the timeline
+	// rows still land, only the live poke is absent.
+	Events *EventBus
 	// Searcher backs GET /api/search (§8.3's search_code tool). Defaults to
 	// search.NotConfiguredSearcher{} in Handler if left nil, so a daemon
 	// started without --search-url still answers with a structured "not
