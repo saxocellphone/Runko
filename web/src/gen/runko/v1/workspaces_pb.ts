@@ -2,9 +2,11 @@
 // @generated from file runko/v1/workspaces.proto (package runko.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { WorkspaceSummary } from "./common_pb";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { FileDiff } from "./changes_pb";
+import { file_runko_v1_changes } from "./changes_pb";
+import type { Actor, WorkspaceSummary } from "./common_pb";
 import { file_runko_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file runko/v1/workspaces.proto.
  */
 export const file_runko_v1_workspaces: GenFile = /*@__PURE__*/
-  fileDesc("ChlydW5rby92MS93b3Jrc3BhY2VzLnByb3RvEghydW5rby52MSJHChZDcmVhdGVXb3Jrc3BhY2VSZXF1ZXN0EgwKBG5hbWUYASABKAkSDQoFb3duZXIYAiABKAkSEAoIcHJvamVjdHMYAyADKAkiFwoVTGlzdFdvcmtzcGFjZXNSZXF1ZXN0IkgKFkxpc3RXb3Jrc3BhY2VzUmVzcG9uc2USLgoKd29ya3NwYWNlcxgBIAMoCzIaLnJ1bmtvLnYxLldvcmtzcGFjZVN1bW1hcnkiIQoTR2V0V29ya3NwYWNlUmVxdWVzdBIKCgJpZBgBIAEoCSIkChZEZWxldGVXb3Jrc3BhY2VSZXF1ZXN0EgoKAmlkGAEgASgJIhkKF0RlbGV0ZVdvcmtzcGFjZVJlc3BvbnNlIj8KGlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXF1ZXN0EgoKAmlkGAEgASgJEhUKDWJhc2VfcmV2aXNpb24YAiABKAkiSAoXQ3JlYXRlV29ya3NwYWNlUmVzcG9uc2USLQoJd29ya3NwYWNlGAEgASgLMhoucnVua28udjEuV29ya3NwYWNlU3VtbWFyeSJFChRHZXRXb3Jrc3BhY2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5IkwKG1VwZGF0ZVdvcmtzcGFjZUJhc2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5MsoDChBXb3Jrc3BhY2VTZXJ2aWNlElYKD0NyZWF0ZVdvcmtzcGFjZRIgLnJ1bmtvLnYxLkNyZWF0ZVdvcmtzcGFjZVJlcXVlc3QaIS5ydW5rby52MS5DcmVhdGVXb3Jrc3BhY2VSZXNwb25zZRJTCg5MaXN0V29ya3NwYWNlcxIfLnJ1bmtvLnYxLkxpc3RXb3Jrc3BhY2VzUmVxdWVzdBogLnJ1bmtvLnYxLkxpc3RXb3Jrc3BhY2VzUmVzcG9uc2USTQoMR2V0V29ya3NwYWNlEh0ucnVua28udjEuR2V0V29ya3NwYWNlUmVxdWVzdBoeLnJ1bmtvLnYxLkdldFdvcmtzcGFjZVJlc3BvbnNlEmIKE1VwZGF0ZVdvcmtzcGFjZUJhc2USJC5ydW5rby52MS5VcGRhdGVXb3Jrc3BhY2VCYXNlUmVxdWVzdBolLnJ1bmtvLnYxLlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXNwb25zZRJWCg9EZWxldGVXb3Jrc3BhY2USIC5ydW5rby52MS5EZWxldGVXb3Jrc3BhY2VSZXF1ZXN0GiEucnVua28udjEuRGVsZXRlV29ya3NwYWNlUmVzcG9uc2VCO1o5Z2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3Byb3RvL2dlbi9ydW5rby92MTtydW5rb3YxYgZwcm90bzM", [file_runko_v1_common]);
+  fileDesc("ChlydW5rby92MS93b3Jrc3BhY2VzLnByb3RvEghydW5rby52MSJHChZDcmVhdGVXb3Jrc3BhY2VSZXF1ZXN0EgwKBG5hbWUYASABKAkSDQoFb3duZXIYAiABKAkSEAoIcHJvamVjdHMYAyADKAkiFwoVTGlzdFdvcmtzcGFjZXNSZXF1ZXN0IkgKFkxpc3RXb3Jrc3BhY2VzUmVzcG9uc2USLgoKd29ya3NwYWNlcxgBIAMoCzIaLnJ1bmtvLnYxLldvcmtzcGFjZVN1bW1hcnkiIQoTR2V0V29ya3NwYWNlUmVxdWVzdBIKCgJpZBgBIAEoCSIkChZEZWxldGVXb3Jrc3BhY2VSZXF1ZXN0EgoKAmlkGAEgASgJIhkKF0RlbGV0ZVdvcmtzcGFjZVJlc3BvbnNlIj8KGlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXF1ZXN0EgoKAmlkGAEgASgJEhUKDWJhc2VfcmV2aXNpb24YAiABKAkiSAoXQ3JlYXRlV29ya3NwYWNlUmVzcG9uc2USLQoJd29ya3NwYWNlGAEgASgLMhoucnVua28udjEuV29ya3NwYWNlU3VtbWFyeSJFChRHZXRXb3Jrc3BhY2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5IkwKG1VwZGF0ZVdvcmtzcGFjZUJhc2VSZXNwb25zZRItCgl3b3Jrc3BhY2UYASABKAsyGi5ydW5rby52MS5Xb3Jrc3BhY2VTdW1tYXJ5IjUKF0dldFdvcmtzcGFjZURpZmZSZXF1ZXN0EgoKAmlkGAEgASgJEg4KBmJyYW5jaBgCIAEoCSKBAQoYR2V0V29ya3NwYWNlRGlmZlJlc3BvbnNlEgoKAmlkGAEgASgJEg4KBmJyYW5jaBgCIAEoCRIQCghiYXNlX3NoYRgDIAEoCRIUCgxzbmFwc2hvdF9zaGEYBCABKAkSIQoFZmlsZXMYBSADKAsyEi5ydW5rby52MS5GaWxlRGlmZiKAAgoOV29ya3NwYWNlRXZlbnQSCgoCaWQYASABKAMSKgoEdHlwZRgCIAEoDjIcLnJ1bmtvLnYxLldvcmtzcGFjZUV2ZW50VHlwZRIUCgx3b3Jrc3BhY2VfaWQYAyABKAkSDgoGYnJhbmNoGAQgASgJEh4KBWFjdG9yGAUgASgLMg8ucnVua28udjEuQWN0b3ISCwoDc2hhGAYgASgJEhEKCWNoYW5nZV9pZBgHIAEoCRIVCg1maWxlc19jaGFuZ2VkGAggASgFEhEKCWFkZGl0aW9ucxgJIAEoBRIRCglkZWxldGlvbnMYCiABKAUSEwoLb2NjdXJyZWRfYXQYCyABKAMiTwoaTGlzdFdvcmtzcGFjZUV2ZW50c1JlcXVlc3QSCgoCaWQYASABKAkSEQoJcGFnZV9zaXplGAIgASgFEhIKCnBhZ2VfdG9rZW4YAyABKAkiYAobTGlzdFdvcmtzcGFjZUV2ZW50c1Jlc3BvbnNlEigKBmV2ZW50cxgBIAMoCzIYLnJ1bmtvLnYxLldvcmtzcGFjZUV2ZW50EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIjChVXYXRjaFdvcmtzcGFjZVJlcXVlc3QSCgoCaWQYASABKAkiQQoWV2F0Y2hXb3Jrc3BhY2VSZXNwb25zZRInCgVldmVudBgBIAEoCzIYLnJ1bmtvLnYxLldvcmtzcGFjZUV2ZW50KooCChJXb3Jrc3BhY2VFdmVudFR5cGUSJAogV09SS1NQQUNFX0VWRU5UX1RZUEVfVU5TUEVDSUZJRUQQABIoCiRXT1JLU1BBQ0VfRVZFTlRfVFlQRV9TTkFQU0hPVF9QVVNIRUQQARImCiJXT1JLU1BBQ0VfRVZFTlRfVFlQRV9DSEFOR0VfUFVTSEVEEAISJgoiV09SS1NQQUNFX0VWRU5UX1RZUEVfQ0hBTkdFX0xBTkRFRBADEikKJVdPUktTUEFDRV9FVkVOVF9UWVBFX0NIQU5HRV9BQkFORE9ORUQQBBIpCiVXT1JLU1BBQ0VfRVZFTlRfVFlQRV9XT1JLU1BBQ0VfQ0xPU0VEEAUy4AUKEFdvcmtzcGFjZVNlcnZpY2USVgoPQ3JlYXRlV29ya3NwYWNlEiAucnVua28udjEuQ3JlYXRlV29ya3NwYWNlUmVxdWVzdBohLnJ1bmtvLnYxLkNyZWF0ZVdvcmtzcGFjZVJlc3BvbnNlElMKDkxpc3RXb3Jrc3BhY2VzEh8ucnVua28udjEuTGlzdFdvcmtzcGFjZXNSZXF1ZXN0GiAucnVua28udjEuTGlzdFdvcmtzcGFjZXNSZXNwb25zZRJNCgxHZXRXb3Jrc3BhY2USHS5ydW5rby52MS5HZXRXb3Jrc3BhY2VSZXF1ZXN0Gh4ucnVua28udjEuR2V0V29ya3NwYWNlUmVzcG9uc2USYgoTVXBkYXRlV29ya3NwYWNlQmFzZRIkLnJ1bmtvLnYxLlVwZGF0ZVdvcmtzcGFjZUJhc2VSZXF1ZXN0GiUucnVua28udjEuVXBkYXRlV29ya3NwYWNlQmFzZVJlc3BvbnNlElYKD0RlbGV0ZVdvcmtzcGFjZRIgLnJ1bmtvLnYxLkRlbGV0ZVdvcmtzcGFjZVJlcXVlc3QaIS5ydW5rby52MS5EZWxldGVXb3Jrc3BhY2VSZXNwb25zZRJZChBHZXRXb3Jrc3BhY2VEaWZmEiEucnVua28udjEuR2V0V29ya3NwYWNlRGlmZlJlcXVlc3QaIi5ydW5rby52MS5HZXRXb3Jrc3BhY2VEaWZmUmVzcG9uc2USYgoTTGlzdFdvcmtzcGFjZUV2ZW50cxIkLnJ1bmtvLnYxLkxpc3RXb3Jrc3BhY2VFdmVudHNSZXF1ZXN0GiUucnVua28udjEuTGlzdFdvcmtzcGFjZUV2ZW50c1Jlc3BvbnNlElUKDldhdGNoV29ya3NwYWNlEh8ucnVua28udjEuV2F0Y2hXb3Jrc3BhY2VSZXF1ZXN0GiAucnVua28udjEuV2F0Y2hXb3Jrc3BhY2VSZXNwb25zZTABQjtaOWdpdGh1Yi5jb20vc2F4b2NlbGxwaG9uZS9ydW5rby9wcm90by9nZW4vcnVua28vdjE7cnVua292MWIGcHJvdG8z", [file_runko_v1_changes, file_runko_v1_common]);
 
 /**
  * @generated from message runko.v1.CreateWorkspaceRequest
@@ -194,12 +196,296 @@ export const UpdateWorkspaceBaseResponseSchema: GenMessage<UpdateWorkspaceBaseRe
   messageDesc(file_runko_v1_workspaces, 9);
 
 /**
+ * @generated from message runko.v1.GetWorkspaceDiffRequest
+ */
+export type GetWorkspaceDiffRequest = Message<"runko.v1.GetWorkspaceDiffRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * "" means "head", the default branch (§12.2)
+   *
+   * @generated from field: string branch = 2;
+   */
+  branch: string;
+};
+
+/**
+ * Describes the message runko.v1.GetWorkspaceDiffRequest.
+ * Use `create(GetWorkspaceDiffRequestSchema)` to create a new message.
+ */
+export const GetWorkspaceDiffRequestSchema: GenMessage<GetWorkspaceDiffRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 10);
+
+/**
+ * @generated from message runko.v1.GetWorkspaceDiffResponse
+ */
+export type GetWorkspaceDiffResponse = Message<"runko.v1.GetWorkspaceDiffResponse"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string branch = 2;
+   */
+  branch: string;
+
+  /**
+   * the registry base_revision
+   *
+   * @generated from field: string base_sha = 3;
+   */
+  baseSha: string;
+
+  /**
+   * "" when the branch has no snapshot ref yet
+   *
+   * @generated from field: string snapshot_sha = 4;
+   */
+  snapshotSha: string;
+
+  /**
+   * @generated from field: repeated runko.v1.FileDiff files = 5;
+   */
+  files: FileDiff[];
+};
+
+/**
+ * Describes the message runko.v1.GetWorkspaceDiffResponse.
+ * Use `create(GetWorkspaceDiffResponseSchema)` to create a new message.
+ */
+export const GetWorkspaceDiffResponseSchema: GenMessage<GetWorkspaceDiffResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 11);
+
+/**
+ * WorkspaceEvent is one stats-only timeline row: what happened and how big
+ * it was, never file content (§12.1). ids are strictly increasing - order
+ * and dedupe on them.
+ *
+ * @generated from message runko.v1.WorkspaceEvent
+ */
+export type WorkspaceEvent = Message<"runko.v1.WorkspaceEvent"> & {
+  /**
+   * @generated from field: int64 id = 1;
+   */
+  id: bigint;
+
+  /**
+   * @generated from field: runko.v1.WorkspaceEventType type = 2;
+   */
+  type: WorkspaceEventType;
+
+  /**
+   * @generated from field: string workspace_id = 3;
+   */
+  workspaceId: string;
+
+  /**
+   * @generated from field: string branch = 4;
+   */
+  branch: string;
+
+  /**
+   * unset for the anonymous deploy token
+   *
+   * @generated from field: runko.v1.Actor actor = 5;
+   */
+  actor?: Actor | undefined;
+
+  /**
+   * snapshot/landed sha at emission
+   *
+   * @generated from field: string sha = 6;
+   */
+  sha: string;
+
+  /**
+   * set on change_* events
+   *
+   * @generated from field: string change_id = 7;
+   */
+  changeId: string;
+
+  /**
+   * @generated from field: int32 files_changed = 8;
+   */
+  filesChanged: number;
+
+  /**
+   * numstat totals; binary files count 0/0
+   *
+   * @generated from field: int32 additions = 9;
+   */
+  additions: number;
+
+  /**
+   * @generated from field: int32 deletions = 10;
+   */
+  deletions: number;
+
+  /**
+   * unix seconds (the landed_at convention)
+   *
+   * @generated from field: int64 occurred_at = 11;
+   */
+  occurredAt: bigint;
+};
+
+/**
+ * Describes the message runko.v1.WorkspaceEvent.
+ * Use `create(WorkspaceEventSchema)` to create a new message.
+ */
+export const WorkspaceEventSchema: GenMessage<WorkspaceEvent> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 12);
+
+/**
+ * @generated from message runko.v1.ListWorkspaceEventsRequest
+ */
+export type ListWorkspaceEventsRequest = Message<"runko.v1.ListWorkspaceEventsRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * 0 = server default
+   *
+   * @generated from field: int32 page_size = 2;
+   */
+  pageSize: number;
+
+  /**
+   * plain offset token (proto/README.md item 6)
+   *
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
+};
+
+/**
+ * Describes the message runko.v1.ListWorkspaceEventsRequest.
+ * Use `create(ListWorkspaceEventsRequestSchema)` to create a new message.
+ */
+export const ListWorkspaceEventsRequestSchema: GenMessage<ListWorkspaceEventsRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 13);
+
+/**
+ * @generated from message runko.v1.ListWorkspaceEventsResponse
+ */
+export type ListWorkspaceEventsResponse = Message<"runko.v1.ListWorkspaceEventsResponse"> & {
+  /**
+   * @generated from field: repeated runko.v1.WorkspaceEvent events = 1;
+   */
+  events: WorkspaceEvent[];
+
+  /**
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
+};
+
+/**
+ * Describes the message runko.v1.ListWorkspaceEventsResponse.
+ * Use `create(ListWorkspaceEventsResponseSchema)` to create a new message.
+ */
+export const ListWorkspaceEventsResponseSchema: GenMessage<ListWorkspaceEventsResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 14);
+
+/**
+ * @generated from message runko.v1.WatchWorkspaceRequest
+ */
+export type WatchWorkspaceRequest = Message<"runko.v1.WatchWorkspaceRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message runko.v1.WatchWorkspaceRequest.
+ * Use `create(WatchWorkspaceRequestSchema)` to create a new message.
+ */
+export const WatchWorkspaceRequestSchema: GenMessage<WatchWorkspaceRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 15);
+
+/**
+ * @generated from message runko.v1.WatchWorkspaceResponse
+ */
+export type WatchWorkspaceResponse = Message<"runko.v1.WatchWorkspaceResponse"> & {
+  /**
+   * unset = keepalive: refetch nothing, stay connected
+   *
+   * @generated from field: runko.v1.WorkspaceEvent event = 1;
+   */
+  event?: WorkspaceEvent | undefined;
+};
+
+/**
+ * Describes the message runko.v1.WatchWorkspaceResponse.
+ * Use `create(WatchWorkspaceResponseSchema)` to create a new message.
+ */
+export const WatchWorkspaceResponseSchema: GenMessage<WatchWorkspaceResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_workspaces, 16);
+
+/**
+ * WorkspaceEventType mirrors runkod's workspace_events rows (§12.6).
+ *
+ * @generated from enum runko.v1.WorkspaceEventType
+ */
+export enum WorkspaceEventType {
+  /**
+   * @generated from enum value: WORKSPACE_EVENT_TYPE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: WORKSPACE_EVENT_TYPE_SNAPSHOT_PUSHED = 1;
+   */
+  SNAPSHOT_PUSHED = 1,
+
+  /**
+   * @generated from enum value: WORKSPACE_EVENT_TYPE_CHANGE_PUSHED = 2;
+   */
+  CHANGE_PUSHED = 2,
+
+  /**
+   * @generated from enum value: WORKSPACE_EVENT_TYPE_CHANGE_LANDED = 3;
+   */
+  CHANGE_LANDED = 3,
+
+  /**
+   * @generated from enum value: WORKSPACE_EVENT_TYPE_CHANGE_ABANDONED = 4;
+   */
+  CHANGE_ABANDONED = 4,
+
+  /**
+   * @generated from enum value: WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED = 5;
+   */
+  WORKSPACE_CLOSED = 5,
+}
+
+/**
+ * Describes the enum runko.v1.WorkspaceEventType.
+ */
+export const WorkspaceEventTypeSchema: GenEnum<WorkspaceEventType> = /*@__PURE__*/
+  enumDesc(file_runko_v1_workspaces, 0);
+
+/**
  * WorkspaceService mirrors runkod's workspace registry API (§12.2/§12.3,
  * §28.3 stage 12b): CreateWorkspace/ListWorkspaces/GetWorkspace/
  * UpdateWorkspaceBase. Snapshotting itself (`runko workspace snapshot`) is
  * local git + a push to the snapshot ref through the ordinary receive
  * funnel, not a control-plane RPC - see proto/README.md for why that
  * action deliberately has no RPC here.
+ *
+ * The observability trio (§12.6, stage 18) reads what those snapshots
+ * leave behind: GetWorkspaceDiff (the live WIP view), ListWorkspaceEvents
+ * (the stats-only timeline), and WatchWorkspace - this surface's first
+ * server-streaming RPC. None are on the §15.2 public-read allowlist;
+ * workspace state is always authenticated.
  *
  * @generated from service runko.v1.WorkspaceService
  */
@@ -248,6 +534,47 @@ export const WorkspaceService: GenService<{
     methodKind: "unary";
     input: typeof DeleteWorkspaceRequestSchema;
     output: typeof DeleteWorkspaceResponseSchema;
+  },
+  /**
+   * GetWorkspaceDiff is the live WIP view (§12.6): one workspace branch's
+   * snapshot tip diffed against the registry base_revision, the same
+   * FileDiff shape GetChangeDiff serves. A branch with no snapshot ref yet
+   * answers snapshot_sha "" and zero files - an empty workspace is a
+   * state, not an error.
+   *
+   * @generated from rpc runko.v1.WorkspaceService.GetWorkspaceDiff
+   */
+  getWorkspaceDiff: {
+    methodKind: "unary";
+    input: typeof GetWorkspaceDiffRequestSchema;
+    output: typeof GetWorkspaceDiffResponseSchema;
+  },
+  /**
+   * ListWorkspaceEvents is the §12.6 activity timeline, newest-first:
+   * stats-only rows (numstat totals, shas, actors - never file content)
+   * recorded at receive/land time, capped per workspace server-side.
+   *
+   * @generated from rpc runko.v1.WorkspaceService.ListWorkspaceEvents
+   */
+  listWorkspaceEvents: {
+    methodKind: "unary";
+    input: typeof ListWorkspaceEventsRequestSchema;
+    output: typeof ListWorkspaceEventsResponseSchema;
+  },
+  /**
+   * WatchWorkspace streams live pokes for one workspace (§12.6). Frames
+   * carry event metadata only - never diffs; a client refetches via the
+   * unary RPCs on EVERY frame and on every (re)connect, because delivery
+   * is deliberately lossy-with-coalescing (a slow stream can never block
+   * a push; bursts collapse to the newest event). A frame with no event
+   * set is a keepalive (~25s cadence, holds proxies open).
+   *
+   * @generated from rpc runko.v1.WorkspaceService.WatchWorkspace
+   */
+  watchWorkspace: {
+    methodKind: "server_streaming";
+    input: typeof WatchWorkspaceRequestSchema;
+    output: typeof WatchWorkspaceResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_runko_v1_workspaces, 0);

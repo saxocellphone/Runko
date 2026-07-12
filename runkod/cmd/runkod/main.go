@@ -403,6 +403,10 @@ func cmdServe(args []string) error {
 	// instead of dropping them mid-land, and slow-loris connections can't
 	// hold header slots open indefinitely. No global Read/WriteTimeout:
 	// git smart-HTTP transfers are legitimately long-running.
+	// No global WriteTimeout, deliberately: WatchWorkspace (§12.6) holds a
+	// server-streaming response open indefinitely (keepalive frames every
+	// ~25s), and a WriteTimeout would sever every live stream at the
+	// deadline. Per-handler deadlines belong on the handlers that need them.
 	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 	sigCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()

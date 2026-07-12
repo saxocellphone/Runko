@@ -751,3 +751,136 @@ func TestRPCReleases(t *testing.T) {
 		t.Fatalf("expected NotFound for an unknown project, got %v", err)
 	}
 }
+
+// TestRPCWorkspaceObservability covers the §12.6 trio end-to-end over the
+// wire: GetWorkspaceDiff (empty state -> real snapshot diff, branch charset
+// guard), ListWorkspaceEvents (stats rows + offset paging), and
+// WatchWorkspace - the surface's first server-streaming RPC (immediate
+// liveness frame, then a poke per accepted snapshot).
+func TestRPCWorkspaceObservability(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\n")
+	repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+	trunkSHA, err := gitfixtureRunGit(bare, "rev-parse", "refs/heads/main")
+	if err != nil {
+		t.Fatalf("rev-parse trunk: %v", err)
+	}
+
+	store := NewMemStore()
+	if _, err := store.CreateWorkspace(context.Background(), Workspace{
+		ID: "obs-ws", Owner: "alice", BaseRevision: trunkSHA,
+		SnapshotRef: "refs/workspaces/obs-ws/head", Status: "active",
+	}); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	bus := NewEventBus()
+	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store, Events: bus}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", Events: bus}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+	ctx := context.Background()
+	client := runkov1connect.NewWorkspaceServiceClient(srv.Client(), srv.URL, rpcAuth("sekret"))
+
+	// Empty state: no snapshot ref yet is an answer, not an error.
+	diff, err := client.GetWorkspaceDiff(ctx, connect.NewRequest(&runkov1.GetWorkspaceDiffRequest{Id: "obs-ws"}))
+	if err != nil {
+		t.Fatalf("GetWorkspaceDiff (empty): %v", err)
+	}
+	if diff.Msg.GetSnapshotSha() != "" || len(diff.Msg.GetFiles()) != 0 || diff.Msg.GetBranch() != "head" || diff.Msg.GetBaseSha() != trunkSHA {
+		t.Fatalf("empty-state diff: %+v", diff.Msg)
+	}
+
+	// The branch parameter is a ref segment: charset-guard before any git
+	// interpolation (the funnel's own rule).
+	if _, err := client.GetWorkspaceDiff(ctx, connect.NewRequest(&runkov1.GetWorkspaceDiffRequest{Id: "obs-ws", Branch: "evil/../../ref"})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("bad branch: want InvalidArgument, got %v", err)
+	}
+	if _, err := client.GetWorkspaceDiff(ctx, connect.NewRequest(&runkov1.GetWorkspaceDiffRequest{Id: "no-such"})); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("unknown workspace: want NotFound, got %v", err)
+	}
+
+	// Open the watch stream BEFORE the snapshot: first frame is the
+	// immediate liveness keepalive (no event).
+	watchCtx, cancelWatch := context.WithCancel(ctx)
+	defer cancelWatch()
+	watchReq := connect.NewRequest(&runkov1.WatchWorkspaceRequest{Id: "obs-ws"})
+	watchReq.Header().Set("Authorization", "Bearer sekret")
+	stream, err := client.WatchWorkspace(watchCtx, watchReq)
+	if err != nil {
+		t.Fatalf("WatchWorkspace: %v", err)
+	}
+	if !stream.Receive() {
+		t.Fatalf("expected the immediate liveness frame, got err=%v", stream.Err())
+	}
+	if stream.Msg().GetEvent() != nil {
+		t.Fatalf("first frame must be a keepalive, got %+v", stream.Msg())
+	}
+
+	// A real snapshot through the funnel: WIP on top of trunk.
+	repo.WriteFile("commerce/checkout/wip.go", "package checkout\n")
+	repo.Commit("wip")
+	oldSHA, snapSHA := pushCommit(t, repo, bare, "refs/workspaces/obs-ws/head")
+	result := processor.Process(ctx, RefUpdate{OldSHA: oldSHA, NewSHA: snapSHA, Ref: "refs/workspaces/obs-ws/head"},
+		[]string{"REMOTE_USER=alice"})
+	if !result.Accepted {
+		t.Fatalf("snapshot rejected: %+v", result)
+	}
+
+	if !stream.Receive() {
+		t.Fatalf("expected a poke after the snapshot, got err=%v", stream.Err())
+	}
+	poked := stream.Msg().GetEvent()
+	if poked.GetType() != runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_SNAPSHOT_PUSHED || poked.GetSha() != snapSHA {
+		t.Fatalf("poke frame: %+v", poked)
+	}
+	if poked.GetActor().GetId() != "alice" || poked.GetId() == 0 || poked.GetOccurredAt() == 0 {
+		t.Fatalf("poke must carry actor, id, and timestamp: %+v", poked)
+	}
+
+	// The unary refetch pair the poke points at.
+	diff, err = client.GetWorkspaceDiff(ctx, connect.NewRequest(&runkov1.GetWorkspaceDiffRequest{Id: "obs-ws"}))
+	if err != nil {
+		t.Fatalf("GetWorkspaceDiff: %v", err)
+	}
+	if diff.Msg.GetSnapshotSha() != snapSHA || len(diff.Msg.GetFiles()) != 1 {
+		t.Fatalf("snapshot diff: %+v", diff.Msg)
+	}
+	f := diff.Msg.GetFiles()[0]
+	if f.GetPath() != "commerce/checkout/wip.go" || f.GetProject() != "checkout-api" {
+		t.Fatalf("diff file (want project-tagged wip.go): %+v", f)
+	}
+
+	events, err := client.ListWorkspaceEvents(ctx, connect.NewRequest(&runkov1.ListWorkspaceEventsRequest{Id: "obs-ws", PageSize: 1}))
+	if err != nil {
+		t.Fatalf("ListWorkspaceEvents: %v", err)
+	}
+	if len(events.Msg.GetEvents()) != 1 || events.Msg.GetEvents()[0].GetType() != runkov1.WorkspaceEventType_WORKSPACE_EVENT_TYPE_SNAPSHOT_PUSHED {
+		t.Fatalf("events page: %+v", events.Msg)
+	}
+	if events.Msg.GetEvents()[0].GetAdditions() == 0 || events.Msg.GetEvents()[0].GetFilesChanged() != 1 {
+		t.Fatalf("event stats: %+v", events.Msg.GetEvents()[0])
+	}
+	if events.Msg.GetNextPageToken() != "" {
+		t.Fatalf("one event, page_size 1: no next page expected, got %q", events.Msg.GetNextPageToken())
+	}
+
+	// Streaming honors the same gate as every workspace RPC: no token, no
+	// frames - CodeUnauthenticated at the first Receive.
+	bare2 := runkov1connect.NewWorkspaceServiceClient(srv.Client(), srv.URL)
+	anonStream, err := bare2.WatchWorkspace(ctx, connect.NewRequest(&runkov1.WatchWorkspaceRequest{Id: "obs-ws"}))
+	if err == nil {
+		if anonStream.Receive() {
+			t.Fatalf("unauthenticated watch must not stream frames")
+		}
+		err = anonStream.Err()
+	}
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("unauthenticated watch: want CodeUnauthenticated, got %v", err)
+	}
+}
