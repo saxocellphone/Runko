@@ -884,3 +884,72 @@ func TestRPCWorkspaceObservability(t *testing.T) {
 		t.Fatalf("unauthenticated watch: want CodeUnauthenticated, got %v", err)
 	}
 }
+
+// TestRPCBaseBehindTrunk pins the §13.5 staleness signal ChangeSummary
+// carries since 2026-07-11: base_behind_trunk counts the trunk landings
+// since base_sha (0 = based on the tip), so the changes list can stop
+// rendering an ancestor base as "current with main" - the exact confusion
+// behind "the UI said main, the land said trunk moved".
+func TestRPCBaseBehindTrunk(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\n")
+	repo.Commit("initial")
+	_, baseSHA := pushCommit(t, repo, bare, "refs/heads/main")
+
+	repo.WriteFile("commerce/checkout/main.go", "package main\n")
+	repo.Commit("add main.go\n\nChange-Id: Ifeedfacefeedfacefeedfacefeedfacefeedface")
+	_, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store}
+	result := processor.Process(context.Background(), RefUpdate{OldSHA: baseSHA, NewSHA: headSHA, Ref: "refs/for/main"}, nil)
+	if !result.Accepted {
+		t.Fatalf("seed push was rejected: %+v", result)
+	}
+	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	handler, err := srv.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	httpSrv := httptest.NewServer(handler)
+	defer httpSrv.Close()
+	client := runkov1connect.NewChangeServiceClient(httpSrv.Client(), httpSrv.URL, rpcAuth("sekret"))
+
+	get := func() *runkov1.ChangeSummary {
+		t.Helper()
+		resp, err := client.GetChange(context.Background(), connect.NewRequest(&runkov1.GetChangeRequest{ChangeId: result.ChangeID}))
+		if err != nil {
+			t.Fatalf("GetChange: %v", err)
+		}
+		return resp.Msg.Change
+	}
+
+	// Based on the tip: on trunk, zero behind.
+	c := get()
+	if !c.BaseOnTrunk || c.BaseBehindTrunk != 0 {
+		t.Fatalf("at tip: want on-trunk 0 behind, got onTrunk=%v behind=%d", c.BaseOnTrunk, c.BaseBehindTrunk)
+	}
+
+	// Land something else on trunk (a sibling of the change, not its
+	// commit): the change stays on trunk but is now one landing behind.
+	repo.Run("reset --hard " + baseSHA)
+	repo.WriteFile("docs/notes.md", "note\n")
+	repo.Commit("trunk moves")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	c = get()
+	if !c.BaseOnTrunk || c.BaseBehindTrunk != 1 {
+		t.Fatalf("after trunk move: want on-trunk 1 behind, got onTrunk=%v behind=%d", c.BaseOnTrunk, c.BaseBehindTrunk)
+	}
+
+	// Landed changes are history - the staleness signal mutes to 0 even
+	// though their base is by construction behind.
+	if _, err := store.MarkChangeLanded(context.Background(), result.ChangeID, headSHA, "tester", false); err != nil {
+		t.Fatalf("MarkChangeLanded: %v", err)
+	}
+	c = get()
+	if c.BaseBehindTrunk != 0 {
+		t.Fatalf("landed: want behind muted to 0, got %d", c.BaseBehindTrunk)
+	}
+}

@@ -134,6 +134,12 @@ type Server struct {
 	scanMu    sync.Mutex
 	scanCache map[core.Revision][]index.IndexedProject
 
+	// baseRelMu/baseRelCache memoize baseTrunkRelation (history.go) by
+	// (base SHA, tip SHA) - the same never-stale keying as its siblings
+	// above. One entry per open change's base per trunk position.
+	baseRelMu    sync.Mutex
+	baseRelCache map[string]baseRel
+
 	// automerge is the when-ready land worker (automerge.go); nil when
 	// none was started (tests, one-shot tools). KickAutomerge is the
 	// nil-safe nudge the mergeability-flipping handlers call.
@@ -177,6 +183,13 @@ func (s *Server) indexedProjectsAt(gstore *gitstore.Store, rev core.Revision) ([
 type affectedEntry struct {
 	result  affected.Result
 	indexed []index.IndexedProject
+}
+
+// baseRel is one memoized baseTrunkRelation answer: trunk ancestry plus
+// landings-behind-tip for a change's base at one trunk position.
+type baseRel struct {
+	onTrunk bool
+	behind  int32
 }
 
 // effectiveGlobalChecks is the org-wide required-check set the §13.5 gate

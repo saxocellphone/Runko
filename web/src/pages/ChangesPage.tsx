@@ -336,6 +336,7 @@ function StackRow({
           {c.originBranch && c.originBranch !== HOME_BRANCH && (
             <OriginChip workspace={c.originWorkspace} branch={c.originBranch} branchOnly />
           )}
+          <BehindTipChip change={c} />
         </span>
       </div>
       <span className="change-chips">
@@ -351,6 +352,24 @@ function StackRow({
         )}
       </span>
     </div>
+  );
+}
+
+// The §13.5 staleness signal: this change sits on main, but N landings
+// have stacked on top of its base since. "base: main" alone reads as
+// "current with main's tip" - which is exactly what it does NOT mean when
+// landing answers "trunk moved" (2026-07-11). Trunk-rooted open changes
+// only; the server mutes the count for landed/abandoned ones.
+function BehindTipChip({ change }: { change: ChangeSummary }) {
+  if (!change.baseOnTrunk || change.baseBehindTrunk <= 0) return null;
+  const n = change.baseBehindTrunk;
+  return (
+    <span
+      className="chip chip-amber"
+      title={`based on main, but ${n} landing${n === 1 ? " has" : "s have"} stacked on trunk since - landing will sync, and re-runs checks if the trunk delta overlaps this change's affected set (§13.5)`}
+    >
+      {n} behind tip
+    </span>
   );
 }
 

@@ -265,6 +265,10 @@ export const changes: ChangeSummary[] = [
   for (const c of changes) c.baseOnTrunk = !heads.has(c.baseSha);
 }
 
+// base_behind_trunk parity (2026-07-11): trunk moved under one open
+// trunk-rooted change so the demo shows the §13.5 staleness chip.
+soloChange.baseBehindTrunk = 2;
+
 
 // ------------------------------------------------------- merge requirements
 

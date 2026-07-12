@@ -1021,9 +1021,17 @@ type ChangeSummary struct {
 	AutomergeBy string `protobuf:"bytes,18,opt,name=automerge_by,json=automergeBy,proto3" json:"automerge_by,omitempty"`
 	// When the change landed (unix seconds; 0 until state == LANDED) -
 	// changes.landed_at, recorded by MarkChangeLanded. Display metadata.
-	LandedAt      int64 `protobuf:"varint,16,opt,name=landed_at,json=landedAt,proto3" json:"landed_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LandedAt int64 `protobuf:"varint,16,opt,name=landed_at,json=landedAt,proto3" json:"landed_at,omitempty"`
+	// How many trunk commits have landed since base_sha (`git rev-list
+	// --count base..trunk`); 0 = based on trunk's very tip. Meaningful only
+	// when base_on_trunk is true - 0 otherwise. Display metadata for the
+	// §13.5 staleness signal: base_on_trunk alone reads as "current with
+	// main" in a UI, but a behind base is exactly what makes landing
+	// revalidate (2026-07-11: "the UI said main, the land said trunk
+	// moved").
+	BaseBehindTrunk int32 `protobuf:"varint,19,opt,name=base_behind_trunk,json=baseBehindTrunk,proto3" json:"base_behind_trunk,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ChangeSummary) Reset() {
@@ -1178,6 +1186,13 @@ func (x *ChangeSummary) GetAutomergeBy() string {
 func (x *ChangeSummary) GetLandedAt() int64 {
 	if x != nil {
 		return x.LandedAt
+	}
+	return 0
+}
+
+func (x *ChangeSummary) GetBaseBehindTrunk() int32 {
+	if x != nil {
+		return x.BaseBehindTrunk
 	}
 	return 0
 }
@@ -1691,7 +1706,7 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\bprojects\x18\x02 \x03(\v2\x18.runko.v1.ProjectSummaryR\bprojects\x12\x14\n" +
 	"\x05paths\x18\x03 \x03(\tR\x05paths\x127\n" +
 	"\freason_codes\x18\x04 \x03(\x0e2\x14.runko.v1.ReasonCodeR\vreasonCodes\x12%\n" +
-	"\x0erun_everything\x18\x05 \x01(\bR\rrunEverything\"\xc5\x04\n" +
+	"\x0erun_everything\x18\x05 \x01(\bR\rrunEverything\"\xf1\x04\n" +
 	"\rChangeSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12+\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x15.runko.v1.ChangeStateR\x05state\x12\x19\n" +
@@ -1713,7 +1728,8 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\rbase_on_trunk\x18\x0f \x01(\bR\vbaseOnTrunk\x12\x1c\n" +
 	"\tautomerge\x18\x11 \x01(\bR\tautomerge\x12!\n" +
 	"\fautomerge_by\x18\x12 \x01(\tR\vautomergeBy\x12\x1b\n" +
-	"\tlanded_at\x18\x10 \x01(\x03R\blandedAt\"\xe9\x01\n" +
+	"\tlanded_at\x18\x10 \x01(\x03R\blandedAt\x12*\n" +
+	"\x11base_behind_trunk\x18\x13 \x01(\x05R\x0fbaseBehindTrunk\"\xe9\x01\n" +
 	"\x11MergeRequirements\x12\x1b\n" +
 	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12+\n" +
 	"\x06owners\x18\x02 \x01(\v2\x13.runko.v1.OwnerGateR\x06owners\x12+\n" +

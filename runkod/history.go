@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/saxocellphone/runko/internal/clierr"
+	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/platform/core"
 )
 
@@ -318,12 +319,68 @@ func (s *Server) attachBlameChanges(ctx context.Context, regions []blameRegion) 
 // trunk) counts as on-trunk; any error counts as NOT (never claim trunk
 // ancestry we can't prove).
 func (s *Server) baseOnTrunk(base string) bool {
+	onTrunk, _ := s.baseTrunkRelation(base)
+	return onTrunk
+}
+
+// baseTrunkRelation reports both halves of the §13.5 staleness signal in
+// one git call: whether base is an ancestor of trunk, and how many trunk
+// commits have landed since it (0 = based on the very tip; also 0 when
+// base is NOT an ancestor - behind-ness is meaningless off trunk).
+// `rev-list --count --left-right base...trunk` answers both at once: a
+// zero left count IS ancestry, the right count IS the landings since.
+// Memoized by (base, tip) - both SHAs, so entries never go stale
+// (scanCache's rule); the tip resolve stays per-call because it is what
+// keys the cache.
+func (s *Server) baseTrunkRelation(base string) (onTrunk bool, behind int32) {
 	if base == "" {
-		return true
+		return true, 0
 	}
-	cmd := exec.Command("git", "merge-base", "--is-ancestor", base, "refs/heads/"+s.TrunkRef)
+	gstore := gitstore.New(s.RepoDir)
+	tip, err := gstore.ResolveRef("refs/heads/" + s.TrunkRef)
+	if err != nil {
+		return false, 0
+	}
+	if base == string(tip) {
+		return true, 0
+	}
+	key := base + "\x00" + string(tip)
+	s.baseRelMu.Lock()
+	if rel, ok := s.baseRelCache[key]; ok {
+		s.baseRelMu.Unlock()
+		return rel.onTrunk, rel.behind
+	}
+	s.baseRelMu.Unlock()
+
+	cmd := exec.Command("git", "rev-list", "--count", "--left-right", base+"..."+string(tip))
 	cmd.Dir = s.RepoDir
-	return cmd.Run() == nil
+	out, err := cmd.Output()
+	if err != nil {
+		return false, 0
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) != 2 {
+		return false, 0
+	}
+	left, lerr := strconv.Atoi(fields[0])
+	right, rerr := strconv.Atoi(fields[1])
+	if lerr != nil || rerr != nil {
+		return false, 0
+	}
+	rel := baseRel{onTrunk: left == 0}
+	if rel.onTrunk {
+		rel.behind = int32(right)
+	}
+	s.baseRelMu.Lock()
+	if s.baseRelCache == nil {
+		s.baseRelCache = map[string]baseRel{}
+	}
+	if len(s.baseRelCache) >= 512 {
+		s.baseRelCache = map[string]baseRel{}
+	}
+	s.baseRelCache[key] = rel
+	s.baseRelMu.Unlock()
+	return rel.onTrunk, rel.behind
 }
 
 // changeWithHead finds the Change (any state) whose head is the given

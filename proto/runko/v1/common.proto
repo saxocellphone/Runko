@@ -175,6 +175,14 @@ message ChangeSummary {
   // When the change landed (unix seconds; 0 until state == LANDED) -
   // changes.landed_at, recorded by MarkChangeLanded. Display metadata.
   int64 landed_at = 16;
+  // How many trunk commits have landed since base_sha (`git rev-list
+  // --count base..trunk`); 0 = based on trunk's very tip. Meaningful only
+  // when base_on_trunk is true - 0 otherwise. Display metadata for the
+  // §13.5 staleness signal: base_on_trunk alone reads as "current with
+  // main" in a UI, but a behind base is exactly what makes landing
+  // revalidate (2026-07-11: "the UI said main, the land said trunk
+  // moved").
+  int32 base_behind_trunk = 19;
 }
 
 // The same structure surfaced to humans (Change page) and agents

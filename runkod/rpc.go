@@ -1205,6 +1205,13 @@ func (r *rpcServer) BlameFile(ctx context.Context, req *connect.Request[runkov1.
 // until the daemon exposes them (common.proto's field comments are the
 // contract for that).
 func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
+	baseOnTrunk, baseBehind := s.baseTrunkRelation(c.BaseSHA)
+	// Landed changes are history: their base is by definition behind
+	// whatever landed after them, and no one is about to land them again -
+	// the staleness signal is for OPEN changes only.
+	if c.State != "open" {
+		baseBehind = 0
+	}
 	out := &runkov1.ChangeSummary{
 		Id:              c.ChangeKey,
 		State:           protoChangeState(c.State),
@@ -1217,7 +1224,8 @@ func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
 		LandedAt:        landedAtUnix(c),
 		OriginWorkspace: c.OriginWorkspace,
 		OriginBranch:    c.OriginBranch,
-		BaseOnTrunk:     s.baseOnTrunk(c.BaseSHA),
+		BaseOnTrunk:     baseOnTrunk,
+		BaseBehindTrunk: baseBehind,
 		Automerge:       c.Automerge,
 		AutomergeBy:     c.AutomergeBy,
 	}
