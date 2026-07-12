@@ -296,13 +296,21 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		}
 	}
 
-	// First-ever push to this magic ref arrives with old == zero; the
-	// push's real delta is against trunk, not the empty tree (the
-	// evaluateSnapshot fix's sibling - pre-fix, policy judged the pusher
-	// as authoring the entire repository, e.g. "modifies owners" via
-	// trunk's own manifests). Unborn trunk keeps the empty-tree base.
+	// A magic-ref push's delta is ALWAYS against trunk (merge-base), never
+	// against the ref's previous value: refs/for/<trunk> is a literal,
+	// repeatedly-overwritten ref (PushChange force-pushes it, see
+	// cli/runko/change.go), so its old value is whatever unrelated push
+	// rotated it last. Diffing against that smuggles foreign paths into
+	// whole-push policy - found live in the first concurrent-agent week of
+	// self-hosting: trunk advanced with another workspace's land, this
+	// agent auto-synced onto it, and its next push was refused
+	// path_outside_affinity for files only the OTHER agent ever touched
+	// (docs/migration-findings.md #37). The zero-old first push is the
+	// same rule's special case (pre-fix, policy judged the pusher as
+	// authoring the entire repository); an unborn trunk (no merge-base)
+	// keeps the raw base, which diff() maps to the empty tree.
 	diffBase := u.OldSHA
-	if diffBase == zeroOID {
+	if isMagicRef || diffBase == zeroOID {
 		if mb, mbErr := p.runGit(extraEnv, "merge-base", u.NewSHA, "refs/heads/"+p.TrunkRef); mbErr == nil && strings.TrimSpace(mb) != "" {
 			diffBase = strings.TrimSpace(mb)
 		}

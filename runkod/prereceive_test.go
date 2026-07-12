@@ -364,3 +364,50 @@ func TestProcessBatchRejectsWholePushIfAnyRefFails(t *testing.T) {
 		t.Fatalf("expected no Change to be persisted when the batch as a whole is rejected")
 	}
 }
+
+// TestMagicRefPushDiffsAgainstTrunkNotRotatingRefValue pins migration
+// finding #37: refs/for/<trunk> is a literal rotating ref, so u.OldSHA is
+// whatever unrelated push touched it last - never this push's base. An
+// agent push evaluated against that old value gets charged with FOREIGN
+// paths (another workspace's work present in the old tip but not in this
+// agent's line reads as "changed") and is refused path_outside_affinity
+// for files it never touched. The delta must be computed against
+// merge-base with trunk.
+func TestMagicRefPushDiffsAgainstTrunkNotRotatingRefValue(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("proj/PROJECT.yaml", "schema: project/v1\nname: proj\ntype: library\n")
+	repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	// A concurrent workspace's line rotates the magic ref and stays
+	// unlanded - the state every second agent's push then observes.
+	repo.WriteFile("outside/foreign.txt", "another workspace's work\n")
+	repo.Commit("foreign work\n\nChange-Id: Iffffffffffffffffffffffffffffffffffffffff")
+	_, foreignSHA := pushCommit(t, repo, bare, "refs/for/main")
+	repo.Run("reset --hard HEAD~1")
+
+	// This agent's own line touches only its cone.
+	repo.WriteFile("proj/mine.go", "package proj\n")
+	repo.Commit("agent work\n\nChange-Id: I0123456789012345678901234567890123456789")
+	_, agentSHA := pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	if _, err := store.CreateWorkspace(context.Background(), Workspace{
+		ID: "agent-ws", Owner: "bot", BaseRevision: "whatever",
+		SnapshotRef: "refs/workspaces/agent-ws/head", Status: "active",
+		WriteAllowlist: []string{"proj"},
+	}); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	p := newTestProcessor(bare, store)
+	p.Principals = []Principal{{Name: "bot", IsAgent: true, Policy: receive.DefaultAgentPolicy()}}
+
+	result := p.Process(context.Background(), RefUpdate{OldSHA: foreignSHA, NewSHA: agentSHA, Ref: "refs/for/main"},
+		[]string{"REMOTE_USER=bot",
+			"GIT_PUSH_OPTION_COUNT=1",
+			"GIT_PUSH_OPTION_0=workspace=agent-ws"})
+	if !result.Accepted {
+		t.Fatalf("push judged against the rotating ref's old value instead of trunk: %+v", result)
+	}
+}

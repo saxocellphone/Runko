@@ -358,6 +358,24 @@ planning; entries marked `[observed]` happened during execution.
     "deploys-are-wired" preflight in the release workflow once the
     token is expected to exist.
 
+37. **[observed, first concurrent-agent week] An agent's push is judged
+    by the rotating magic ref's OLD VALUE, so another workspace's work
+    gets charged to its affinity.** `refs/for/<trunk>` is a literal,
+    repeatedly-overwritten ref (the no-Gerrit-rewriting design,
+    cli/runko/change.go); the funnel's whole-push `changedPaths` diffed
+    `u.OldSHA..u.NewSHA` - i.e. against whatever unrelated push rotated
+    the ref last. Under two concurrent agents this refused a
+    workspace-clean push with `path_outside_affinity` naming files ONLY
+    the other agent ever touched (paths present in the stale old tip but
+    not in the pusher's line read as "changed"). Fixed: a magic-ref
+    push's delta is now always `merge-base(tip, trunk)..tip` (the
+    zero-old first-push special case generalized); pinned by
+    TestMagicRefPushDiffsAgainstTrunkNotRotatingRefValue. Single-agent
+    dogfooding could never see this - the rotating ref always held your
+    own previous tip; the moment a second workspace pushes, every
+    rebase-then-push window is exposed. Secret-scan/size inputs ride the
+    same diff, so those now also measure exactly the pushed line.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
