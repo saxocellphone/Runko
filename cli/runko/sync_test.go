@@ -139,7 +139,7 @@ func TestPushChangeAutoSyncsStaleBase(t *testing.T) {
 func TestPushChangeNoSyncPushesStaleBaseAsIs(t *testing.T) {
 	repo, remote, newTip := syncFixture(t, false)
 
-	if _, err := pushChange(repo.Dir, "origin", "main", false); err != nil {
+	if _, err := pushChange(repo.Dir, "origin", "main", false, false); err != nil {
 		t.Fatalf("pushChange(no sync): %v", err)
 	}
 	pushed, _ := runGit(remote, "rev-parse", "refs/for/main")
