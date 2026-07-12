@@ -817,3 +817,41 @@ func TestPostgresStoreReleaseRoundTrip(t *testing.T) {
 		t.Fatalf("release columns did not round-trip: %+v", list[1])
 	}
 }
+
+// TestPostgresStoreAgentPrincipalRoundTrip: mint/lookup/list/revoke over
+// the real table (migration 0013), including the hash lookup path auth
+// rides on every request.
+func TestPostgresStoreAgentPrincipalRoundTrip(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+
+	ap := AgentPrincipal{
+		Name: "agent-pg-task-ab12", Task: "pg-task",
+		TokenHash: hashAgentToken("tok"), CreatedBy: "admin",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	minted, err := store.MintAgentPrincipal(ctx, ap)
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	if minted.Name != ap.Name || minted.Revoked {
+		t.Fatalf("minted row: %+v", minted)
+	}
+	if _, err := store.MintAgentPrincipal(ctx, ap); err == nil {
+		t.Fatalf("name collision must error (the mint loop's retry signal)")
+	}
+
+	byHash, ok, err := store.GetAgentPrincipalByTokenHash(ctx, hashAgentToken("tok"))
+	if err != nil || !ok || byHash.Name != ap.Name || !byHash.Live(time.Now()) {
+		t.Fatalf("by hash: %+v ok=%v err=%v", byHash, ok, err)
+	}
+	if list, err := store.ListAgentPrincipals(ctx); err != nil || len(list) != 1 {
+		t.Fatalf("list: %+v err=%v", list, err)
+	}
+	if err := store.RevokeAgentPrincipal(ctx, ap.Name); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if revoked, ok, _ := store.GetAgentPrincipalByName(ctx, ap.Name); !ok || revoked.Live(time.Now()) {
+		t.Fatalf("revoked row must persist and read as not-live: %+v ok=%v", revoked, ok)
+	}
+}

@@ -268,6 +268,17 @@ type Store interface {
 	// handler rejects colliding names before calling this).
 	CreatePrincipal(ctx context.Context, name, credentialHash string) error
 	GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error)
+
+	// Agent principals: ephemeral per-task identities (agentprincipal.go).
+	// Mint errors on a name collision (the caller retries with a fresh
+	// suffix); lookups return rows regardless of liveness - callers apply
+	// Live() so an expired credential fails auth while its row still
+	// answers "who was this" for attribution.
+	MintAgentPrincipal(ctx context.Context, ap AgentPrincipal) (AgentPrincipal, error)
+	GetAgentPrincipalByName(ctx context.Context, name string) (AgentPrincipal, bool, error)
+	GetAgentPrincipalByTokenHash(ctx context.Context, hash string) (AgentPrincipal, bool, error)
+	ListAgentPrincipals(ctx context.Context) ([]AgentPrincipal, error)
+	RevokeAgentPrincipal(ctx context.Context, name string) error
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	UpdateWorkspaceBase(ctx context.Context, id, baseRevision string) (Workspace, error)
 	// SetWorkspaceStatus moves a workspace between active/detached/closed
@@ -314,6 +325,7 @@ type MemStore struct {
 	reviewReqs map[string]map[string]ReviewRequest       // changeKey -> reviewer -> request
 	releases   map[string][]Release                      // projectName -> releases, creation order
 	workspaces map[string]Workspace
+	agents     map[string]AgentPrincipal
 	principals map[string]StoredPrincipal
 	deliveries map[string]*memDelivery
 	mirrors    map[string]MirrorCursor
@@ -352,6 +364,7 @@ func NewMemStore() *MemStore {
 		reviewReqs: make(map[string]map[string]ReviewRequest),
 		releases:   make(map[string][]Release),
 		workspaces: make(map[string]Workspace),
+		agents:     make(map[string]AgentPrincipal),
 		deliveries: make(map[string]*memDelivery),
 		mirrors:    make(map[string]MirrorCursor),
 	}
@@ -763,6 +776,57 @@ func (s *MemStore) GetStoredPrincipal(ctx context.Context, name string) (StoredP
 	defer s.mu.Unlock()
 	sp, ok := s.principals[name]
 	return sp, ok, nil
+}
+
+func (s *MemStore) MintAgentPrincipal(ctx context.Context, ap AgentPrincipal) (AgentPrincipal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, taken := s.agents[ap.Name]; taken {
+		return AgentPrincipal{}, fmt.Errorf("runkod: agent principal %q already exists", ap.Name)
+	}
+	s.agents[ap.Name] = ap
+	return ap, nil
+}
+
+func (s *MemStore) GetAgentPrincipalByName(ctx context.Context, name string) (AgentPrincipal, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ap, ok := s.agents[name]
+	return ap, ok, nil
+}
+
+func (s *MemStore) GetAgentPrincipalByTokenHash(ctx context.Context, hash string) (AgentPrincipal, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ap := range s.agents {
+		if ap.TokenHash == hash {
+			return ap, true, nil
+		}
+	}
+	return AgentPrincipal{}, false, nil
+}
+
+func (s *MemStore) ListAgentPrincipals(ctx context.Context) ([]AgentPrincipal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]AgentPrincipal, 0, len(s.agents))
+	for _, ap := range s.agents {
+		out = append(out, ap)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (s *MemStore) RevokeAgentPrincipal(ctx context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ap, ok := s.agents[name]
+	if !ok {
+		return fmt.Errorf("runkod: no such agent principal %q", name)
+	}
+	ap.Revoked = true
+	s.agents[name] = ap
+	return nil
 }
 
 func (s *MemStore) ListWorkspaces(ctx context.Context) ([]Workspace, error) {

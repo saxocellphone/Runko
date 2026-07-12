@@ -14,6 +14,14 @@ an afternoon of structured rejections.
 
 ## The model (get this right and everything else follows)
 
+- **Step zero: work under a TASK identity.** If you're holding a human
+  or admin credential, demote yourself before anything else:
+  `runko agent create --task <slug>` mints `agent-<slug>-<x>` with a
+  token (shown once, dies by TTL - default 8h). Use that name:token for
+  the git remote and every `--token` from then on. Attribution, agent
+  policy, workspace ownership, and auto-close all follow the task
+  identity; ten concurrent agents = ten identities, zero shared
+  credentials. (An agent credential cannot mint - no self-replication.)
 - **One workspace = one task.** Start every new task with
   `runko workspace create`; when the task's changes have all landed or
   been abandoned, the workspace is DONE - `runko workspace delete <id>`

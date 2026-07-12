@@ -314,7 +314,7 @@ func (s *Server) maybeCloseAgentWorkspace(ctx context.Context, wsID string) {
 	if err != nil || !ok || ws.Status == "closed" {
 		return
 	}
-	if !s.isAgentPrincipalName(ws.Owner) {
+	if !s.isAgentPrincipalName(ctx, ws.Owner) {
 		return
 	}
 	open, err := s.Store.ListChanges(ctx, "open")
@@ -334,16 +334,23 @@ func (s *Server) maybeCloseAgentWorkspace(ctx context.Context, wsID string) {
 	log.Printf("runkod: closed agent workspace %q - its last open change concluded (single-use policy)", wsID)
 }
 
-// isAgentPrincipalName reports whether name is a flag-config agent
-// principal. Store-backed principals are always human, so no directory
-// lookup is needed here.
-func (s *Server) isAgentPrincipalName(name string) bool {
+// isAgentPrincipalName reports whether name is an agent principal -
+// flag-config (;agent) or an ephemeral minted one (agentprincipal.go).
+// Store-backed ACCOUNTS are always human. Liveness deliberately does not
+// matter here: an expired agent's workspace is still an agent workspace
+// (if anything, more deserving of closure).
+func (s *Server) isAgentPrincipalName(ctx context.Context, name string) bool {
 	if name == "" {
 		return false
 	}
 	for i := range s.Principals {
 		if s.Principals[i].Name == name {
 			return s.Principals[i].IsAgent
+		}
+	}
+	if s.Store != nil {
+		if _, found, err := s.Store.GetAgentPrincipalByName(ctx, name); err == nil && found {
+			return true
 		}
 	}
 	return false

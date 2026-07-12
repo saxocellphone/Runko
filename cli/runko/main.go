@@ -62,6 +62,8 @@ func main() {
 		err = cmdChange(os.Args[2:])
 	case "agents-md":
 		err = cmdAgentsMD(os.Args[2:])
+	case "agent":
+		err = cmdAgent(os.Args[2:])
 	case "workspace":
 		err = cmdWorkspace(os.Args[2:])
 	case "mcp":
@@ -111,6 +113,9 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
   workspace attach <id> --runkod-url <url> --token <t> [--branch <b>]   restore a workspace branch from its snapshot ref [--json]
   workspace delete <id> --runkod-url <url> --token <t>       delete the registry row + snapshot refs (refused while it has open changes) [--json]
+  agent create --task <slug> --runkod-url <url> --token <t> [--ttl 8h]   mint an ephemeral task identity (agent-<task>-<x>); token printed ONCE [--json]
+  agent list --runkod-url <url> --token <t>                  live and expired agent identities [--json]
+  agent revoke <name> --runkod-url <url> --token <t>         kill an agent credential immediately [--json]
   workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir .]                           fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
   workspace sync --runkod-url <url> --token <t> [--dir .]    sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)
