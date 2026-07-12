@@ -386,6 +386,8 @@ function FlatList({ changes }: { changes: ChangeSummary[] }) {
 }
 
 function StateBadgeDot({ state }: { state: ChangeState }) {
-  const cls = state === ChangeState.LANDED ? "dot-ready" : "";
+  // Landed is history, not health: it gets the accent dot that matches
+  // badge-landed, never the green that means "active" elsewhere.
+  const cls = state === ChangeState.LANDED ? "dot-landed" : "";
   return <span className={`dot ${cls}`} />;
 }
