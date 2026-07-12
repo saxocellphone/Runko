@@ -195,3 +195,17 @@ func TestCmdAgentsMDCustomOut(t *testing.T) {
 		t.Fatalf("expected --out to control the written filename: %v", err)
 	}
 }
+
+// TestChangeAutomergeIsDispatched pins the valid-map/switch pairing the
+// automerge verb shipped without: the case existed but the usage guard's
+// map lacked the entry, so `runko change automerge` answered exit-2 usage
+// instead of ever reaching its own flag parsing.
+func TestChangeAutomergeIsDispatched(t *testing.T) {
+	err := cmdChange([]string{"automerge"})
+	if err == nil || strings.Contains(err.Error(), "usage: runko change") {
+		t.Fatalf("automerge must dispatch past the usage guard, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--change is required") {
+		t.Fatalf("expected automerge's own required-flag error, got: %v", err)
+	}
+}
