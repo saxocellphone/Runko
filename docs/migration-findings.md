@@ -443,6 +443,26 @@ planning; entries marked `[observed]` happened during execution.
     disease for merge-requirements reads ("landed/open tabs load
     slowly") - this is the scan-layer generalization it asked for.
 
+42. **[observed twice, stage-19 workstream] Single-use agent workspaces
+    plus eager landing kill a multi-change task's workspace mid-task.**
+    `--single-use-agent-workspaces` (default ON) closes an agent
+    workspace the moment its last open change concludes - correct for
+    one-change tasks, but a stack built and pushed INCREMENTALLY has a
+    kill-window between "change N landed" and "change N+1 pushed". Hit
+    both ways in one session: (a) arming automerge on change 1 of 5
+    before pushing change 2 - the land closed the workspace and the
+    watch loop's next snapshot was refused; (b) with no automerge armed
+    at all, an operator hand-landing the only open change from the web
+    UI did the same. The workflow consequence (now in the workspace
+    skill's spirit, worth teaching in AGENTS.md too): push the WHOLE
+    stack before arming or inviting any land - series receive exists
+    precisely so one push holds the full task open. Possible platform
+    fix if this keeps biting: a grace window, or close-on-idle instead
+    of close-on-conclude (the workspace knows its watch loop is still
+    snapshotting - "concluded changes + fresh snapshots" is a signal the
+    task is NOT done, and stage 19's activity feed now makes the same
+    liveness signal explicit).
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
