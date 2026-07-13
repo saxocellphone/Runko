@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ConnectError } from "@connectrpc/connect";
 import { authUser, changesClient } from "../api/client";
 import { ChangeState, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
@@ -44,7 +44,15 @@ const tabs = [
 const PAGE_SIZE = 25;
 
 export function ChangesPage() {
-  const [tab, setTab] = useState<ChangeState>(ChangeState.OPEN);
+  // The tab deep-links as /changes?tab=landed (open stays the bare URL, like
+  // ProjectsPage's ?focus= convention) so a refresh - or a shared link -
+  // lands back on the same tab instead of always snapping to Open.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = tabs.find((t) => t.label.toLowerCase() === searchParams.get("tab"))?.state ?? ChangeState.OPEN;
+  const setTab = (next: ChangeState) => {
+    const label = tabs.find((t) => t.state === next)?.label.toLowerCase();
+    setSearchParams(label && label !== "open" ? { tab: label } : {}, { replace: true });
+  };
 
   return (
     <div className="page">
