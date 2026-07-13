@@ -81,6 +81,8 @@ func TestSignupFlow(t *testing.T) {
 		{`{"name":"alice","password":"hunter2hunter2","code":"join-us"}`, http.StatusConflict}, // operator name reserved
 		{`{"name":"val","password":"hunter2hunter2","code":"join-us"}`, http.StatusCreated},
 		{`{"name":"val","password":"other-password","code":"join-us"}`, http.StatusConflict}, // duplicate
+		{`{"name":"val","password":"hunter2hunter2","code":"join-us"}`, http.StatusCreated},  // same credential = idempotent recovery (finding #44)
+		{`{"name":"val","password":"hunter2hunter2","code":"wrong"}`, http.StatusForbidden},  // recovery passes the front gates too
 	}
 	for _, c := range cases {
 		resp := postJSON(t, srv, "/api/signup", c.body)

@@ -103,6 +103,28 @@ func (s *Server) signupCore(ctx context.Context, req signupRequest) *apiError {
 	return nil
 }
 
+// signupOrRecoverCore is signupCore plus idempotent recovery (finding
+// #44): when the name already belongs to a stored account AND the
+// presented password verifies, this "signup" is the same person
+// re-presenting their own credential - typically retrying after an
+// interrupted org-create stranded the account - so the account half is a
+// no-op instead of a 409, and the caller proceeds to the org half. The
+// front gates (signup enabled, invite code) apply unchanged, and a
+// non-matching password keeps the name_taken contract - recovery never
+// becomes an oracle beyond what sign-in already answers.
+func (s *Server) signupOrRecoverCore(ctx context.Context, req signupRequest) (recovered bool, apiErr *apiError) {
+	if lookup := s.accountLookup(); lookup != nil && s.AllowSignup &&
+		(s.SignupCode == "" || constantTimeEquals(req.Code, s.SignupCode)) {
+		if sp, found, err := lookup(ctx, req.Name); err == nil && found {
+			if s.credCache.hit(req.Name, req.Password) || verifyCredential(req.Password, sp.CredentialHash) {
+				s.credCache.remember(req.Name, req.Password)
+				return true, nil
+			}
+		}
+	}
+	return false, s.signupCore(ctx, req)
+}
+
 // handleSignup is deliberately UNAUTHENTICATED (it mints the credential);
 // handleAuthConfig too (the login page needs to know whether to offer
 // sign-up before anyone has signed in). Neither leaks anything a 401
@@ -137,7 +159,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 		}))
 		return
 	}
-	if apiErr := s.signupCore(r.Context(), req); apiErr != nil {
+	if _, apiErr := s.signupOrRecoverCore(r.Context(), req); apiErr != nil {
 		writeAPIError(w, apiErr)
 		return
 	}

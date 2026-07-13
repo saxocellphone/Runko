@@ -325,7 +325,12 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if apiErr := h.Default.signupCore(r.Context(), signupRequest{Name: req.Name, Password: req.Password, Code: req.Code}); apiErr != nil {
+	// Idempotent recovery (finding #44): an interrupted create-mode signup
+	// used to strand its account - real, valid, member of nothing, and
+	// 409ed on every retry. Re-presenting the SAME name+password now
+	// recovers instead: the account half no-ops and the org half runs.
+	recovered, apiErr := h.Default.signupOrRecoverCore(r.Context(), signupRequest{Name: req.Name, Password: req.Password, Code: req.Code})
+	if apiErr != nil {
 		writeAPIError(w, apiErr)
 		return
 	}
@@ -334,8 +339,13 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 	case "create":
 		if apiErr := h.createOrg(r.Context(), req.Org, req.Name, true); apiErr != nil {
 			// Account exists, org lost a race (or infra failed): report it
-			// honestly - the account is real and usable.
-			apiErr.Err.Message = fmt.Sprintf("account %q was created, but the org was not: %s", req.Name, apiErr.Err.Message)
+			// honestly - the account is real, and retrying this same
+			// signup recovers it (no fresh strand either way).
+			state := "was created"
+			if recovered {
+				state = "already exists"
+			}
+			apiErr.Err.Message = fmt.Sprintf("account %q %s, but the org was not created: %s", req.Name, state, apiErr.Err.Message)
 			writeAPIError(w, apiErr)
 			return
 		}
@@ -346,6 +356,12 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 		if err := h.Directory.EnsureOrg(r.Context(), req.Org); err != nil {
 			writeAPIError(w, internalErr(err))
 			return
+		}
+		// A recovered re-join must never demote: an existing membership
+		// (an admin re-presenting their credential) keeps its role.
+		if existing, member, err := h.Directory.OrgMemberRole(r.Context(), req.Org, req.Name); err == nil && member {
+			role = existing
+			break
 		}
 		if err := h.Directory.UpsertOrgMember(r.Context(), req.Org, req.Name, "member"); err != nil {
 			writeAPIError(w, internalErr(err))

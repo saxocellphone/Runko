@@ -483,6 +483,25 @@ planning; entries marked `[observed]` happened during execution.
     committer time for pre-Runko rows; author time moved to the tooltip.
     Pinned by TestListCommitsLandedTime.
 
+44. **[found by the sign-in smoke matrix; CLOSED same session] An
+    interrupted create-mode signup stranded its account.** POST
+    /api/signup validates the org half before creating the account
+    precisely so a REJECTED org never half-registers anyone - but an
+    org half that fails AFTER validation (store/infra error, lost
+    create race) left a real account that was a member of nothing:
+    every retry 409ed `name_taken`, every org surface answered 403,
+    and the selector was empty. Only an admin adding a membership by
+    hand could recover it. Fixed with idempotent recovery: re-presenting
+    the SAME name+password to /api/signup treats the account half as a
+    no-op (front gates - signup enabled, invite code - unchanged; a
+    wrong password keeps `name_taken`), re-joins never demote an
+    existing role, and the create-failure message flips to "already
+    exists" so the user learns the credential is real. The same matrix
+    run also caught handleAddOrgMember 500ing on the default org in mem
+    mode (no directory row until first join) - EnsureOrg-first, like
+    the signup join path. Pinned by TestSignupInterruptedOrgCreate,
+    TestSignupRecoveryAfterInterruptedCreate, TestSignupRejoinPreservesRole.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,

@@ -396,10 +396,11 @@ func TestSigninEdgeRefusalsAreStructured(t *testing.T) {
 }
 
 // TestSignupInterruptedOrgCreate pins R13: when org assembly fails AFTER
-// the account row is created, the 500 names the half-done state honestly
-// - and documents today's recovery path (an admin adds the membership;
-// the account itself cannot re-signup or reach any org until then).
-// Finding #44 tracks making this self-service.
+// the account row is created, the 500 names the half-done state honestly,
+// a retry is another honest 500 (never a name_taken dead end - finding
+// #44), and the account stays usable through both recovery paths: an
+// admin adding the membership, or the account's own re-signup once the
+// infrastructure recovers.
 func TestSignupInterruptedOrgCreate(t *testing.T) {
 	fx := newSigninHub(t)
 	srv := fx.srv
@@ -411,31 +412,87 @@ func TestSignupInterruptedOrgCreate(t *testing.T) {
 		"name": "zed", "password": "zedpw12345", "org": "doomed", "org_mode": "create",
 	})
 	status, raw := doRawAuth(t, srv, "POST", "/api/signup", "", strings.NewReader(string(req)))
-	if status != http.StatusInternalServerError || !strings.Contains(raw, `account "zed" was created, but the org was not`) {
+	if status != http.StatusInternalServerError || !strings.Contains(raw, `account "zed" was created, but the org was not created`) {
 		t.Fatalf("interrupted signup must fail honestly: %d %q", status, raw)
 	}
 
-	// The trap: the account exists, so the retry collides ...
-	status, body := signupOrg(t, srv, "zed", "zedpw12345", "doomed", "create")
-	if status != http.StatusConflict || body["Code"] != "name_taken" {
-		t.Fatalf("retry after interruption: %d %v", status, body)
+	// The retry recovers the account half (same name+password) and fails
+	// only on the still-broken org half - with the wording flipped to
+	// "already exists" so the user learns their credential is real.
+	status, raw = doRawAuth(t, srv, "POST", "/api/signup", "", strings.NewReader(string(req)))
+	if status != http.StatusInternalServerError || !strings.Contains(raw, `account "zed" already exists, but the org was not created`) {
+		t.Fatalf("retry after interruption: %d %q", status, raw)
 	}
-	// ... and the credential, though valid, reaches nothing: member of no
-	// org, 403 everywhere, an empty selector.
+	// A retry under the WRONG password is not a recovery - the name_taken
+	// contract holds (no oracle beyond what sign-in answers).
+	status, body := signupOrg(t, srv, "zed", "not-zeds-password", "doomed", "create")
+	if status != http.StatusConflict || body["Code"] != "name_taken" {
+		t.Fatalf("wrong-password retry: %d %v", status, body)
+	}
+	// Until an org half succeeds the credential reaches nothing: member
+	// of no org, 403 on org surfaces, an empty selector.
 	if status, _ := hubDo(t, srv, "GET", "/o/defaultorg/api/whoami", "zed", "zedpw12345", "", nil); status != http.StatusForbidden {
-		t.Fatalf("stranded account on an org: want 403, got %d", status)
+		t.Fatalf("orgless account on an org: want 403, got %d", status)
 	}
 	status, body = hubDo(t, srv, "GET", "/api/orgs", "zed", "zedpw12345", "", nil)
 	if status != http.StatusOK || len(body["orgs"].([]any)) != 0 {
-		t.Fatalf("stranded account org list: %d %v", status, body)
+		t.Fatalf("orgless account org list: %d %v", status, body)
 	}
 
-	// Today's recovery is administrative: an operator (or org admin) adds
-	// the membership, and the account works normally from then on.
+	// Administrative recovery still works: an operator (or org admin)
+	// adds the membership, and the account works normally from then on.
 	if status, _ := hubDo(t, srv, "POST", "/api/orgs/defaultorg/members", "", "", "sekret", map[string]string{"name": "zed"}); status != http.StatusOK {
 		t.Fatalf("operator recovery failed: %d", status)
 	}
 	if status, who := hubDo(t, srv, "GET", "/o/defaultorg/api/whoami", "zed", "zedpw12345", "", nil); status != http.StatusOK || who["name"] != "zed" {
 		t.Fatalf("recovered account sign-in: %d %v", status, who)
+	}
+}
+
+// TestSignupRecoveryAfterInterruptedCreate is finding #44's happy ending:
+// the org store fails once, the user retries the exact same signup, and
+// the second attempt completes end to end - org created, admin role,
+// sign-in clean. No admin involved.
+func TestSignupRecoveryAfterInterruptedCreate(t *testing.T) {
+	fx := newSigninHub(t)
+	srv := fx.srv
+	fx.mu.Lock()
+	fx.failOrgStore["phoenix"] = 1 // fail once, then recover
+	fx.mu.Unlock()
+
+	status, body := signupOrg(t, srv, "pat", "patpw12345", "phoenix", "create")
+	if status != http.StatusInternalServerError {
+		t.Fatalf("first attempt should hit the injected failure: %d %v", status, body)
+	}
+	status, body = signupOrg(t, srv, "pat", "patpw12345", "phoenix", "create")
+	if status != http.StatusCreated {
+		t.Fatalf("retry must recover: %d %v", status, body)
+	}
+	if org := body["org"].(map[string]any); org["name"] != "phoenix" || org["role"] != "admin" {
+		t.Fatalf("recovered signup org info: %v", body)
+	}
+	if status, who := hubDo(t, srv, "GET", "/o/phoenix/api/whoami", "pat", "patpw12345", "", nil); status != http.StatusOK || who["admin"] != true {
+		t.Fatalf("recovered creator sign-in: %d %v", status, who)
+	}
+}
+
+// TestSignupRejoinPreservesRole: re-presenting a valid credential to the
+// signup endpoint is idempotent, and a re-join never demotes - an org's
+// admin who re-signups into their own org keeps the admin role.
+func TestSignupRejoinPreservesRole(t *testing.T) {
+	fx := newSigninHub(t)
+	srv := fx.srv
+	if status, _ := signupOrg(t, srv, "alice", "alicepw123", "acme", "create"); status != http.StatusCreated {
+		t.Fatalf("alice signup failed")
+	}
+	status, body := signupOrg(t, srv, "alice", "alicepw123", "acme", "join")
+	if status != http.StatusCreated {
+		t.Fatalf("re-join: %d %v", status, body)
+	}
+	if org := body["org"].(map[string]any); org["role"] != "admin" {
+		t.Fatalf("re-join must preserve the admin role, got %v", org)
+	}
+	if status, body := signupOrg(t, srv, "alice", "wrong-password", "acme", "join"); status != http.StatusConflict || body["Code"] != "name_taken" {
+		t.Fatalf("re-join under a wrong password: %d %v", status, body)
 	}
 }

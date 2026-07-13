@@ -111,7 +111,7 @@ The two-sided contract:
 | R10 | Member management: non-admin 403 `not_org_admin`; unknown account 404 `unknown_principal`; bad role 400 `invalid_role` |
 | R11 | Stored org-admin on the deployment admin surface | 403 `operator_only` |
 | R12 | Account names are case-sensitive end to end (sign-in with the wrong case is a 401, not a match) | 401 |
-| R13 | Interrupted create-mode signup (org assembly fails after the account row) | honest 500 naming the half-done state; the account must be recoverable — see finding #44 |
+| R13 | Interrupted create-mode signup (org assembly fails after the account row) | honest 500 naming the half-done state; retrying the SAME name+password recovers (idempotent signup, finding #44) — wrong password keeps 409 `name_taken`; re-joins never demote an existing role |
 
 Related, covered elsewhere: anonymous public-org discovery and the
 no-silent-downgrade rule (`publicread_test.go`), signup over the plain
