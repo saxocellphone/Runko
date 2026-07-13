@@ -464,3 +464,84 @@ func TestClientPushToChangeRefsNamespaceIsRejected(t *testing.T) {
 		t.Fatalf("tag pushes must stay accepted: %+v", tag)
 	}
 }
+
+// landStackWithIntervening pushes a stack A->B (A touches aPath, B touches
+// bPath), lands an unrelated change on interveningPath FIRST (so the parent A
+// rebase-lands, changing its SHA), lands A, then returns B's land outcome.
+// interveningPath is kept disjoint from A's project so A itself lands cleanly.
+func landStackWithIntervening(t *testing.T, aPath, bPath, interveningPath string) (landDecision, *apiError) {
+	t.Helper()
+	bare := newBareRepo(t)
+	store := NewMemStore()
+	ctx := context.Background()
+
+	repo := gitfixture.New(t)
+	repo.WriteFile("alpha/PROJECT.yaml", "schema: project/v1\nname: alpha\ntype: library\n")
+	repo.WriteFile("beta/PROJECT.yaml", "schema: project/v1\nname: beta\ntype: library\n")
+	trunk0 := repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+	p := newTestProcessor(bare, store)
+	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: p, AllowUnpolicedLand: true}
+
+	repo.WriteFile(aPath, "a\n")
+	repo.Commit("change A\n\nChange-Id: " + stackIDA)
+	_, hA := pushCommit(t, repo, bare, "refs/for/main")
+	p.Process(ctx, RefUpdate{OldSHA: zeroOID, NewSHA: hA, Ref: "refs/for/main"}, nil)
+	repo.WriteFile(bPath, "b\n")
+	repo.Commit("change B\n\nChange-Id: " + stackIDB)
+	_, hB := pushCommit(t, repo, bare, "refs/for/main")
+	p.Process(ctx, RefUpdate{OldSHA: hA, NewSHA: hB, Ref: "refs/for/main"}, nil)
+
+	// An unrelated change lands FIRST (advance trunk directly), so landing A
+	// must rebase - its landed SHA differs from the head B was built on.
+	repo.Run("checkout --detach " + trunk0)
+	repo.WriteFile(interveningPath, "x\n")
+	repo.Commit("unrelated change")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	chA, _, _ := store.GetChange(ctx, stackIDA)
+	if dec, apiErr := srv.landChangeCore(ctx, stackIDA, chA, nil, nil, false); apiErr != nil || !dec.Landed {
+		t.Fatalf("land A: %+v %+v", dec, apiErr)
+	}
+	if a, _, _ := store.GetChange(ctx, stackIDA); a.LandedSHA == hA {
+		t.Fatalf("parent should have rebase-landed (SHA != pushed head)")
+	}
+	chB, _, _ := store.GetChange(ctx, stackIDB)
+	return srv.landChangeCore(ctx, stackIDB, chB, nil, nil, false)
+}
+
+// A child whose parent rebase-landed absorbing a DISJOINT change must land
+// cleanly - no revalidation, no stacked-base refusal (finding 2026-07-13:
+// the "it landed as a different commit - rebase and re-push" gate was too
+// conservative; land.Land rebases the child and only revalidates on a real
+// affected-set intersection, §13.5).
+func TestStackedChildLandsAfterParentRebaseLandDisjoint(t *testing.T) {
+	// A and B both in alpha; the intervening change is in beta (disjoint
+	// from A so A lands, and from B so B lands with no revalidation).
+	dec, apiErr := landStackWithIntervening(t, "alpha/a.txt", "alpha/b.txt", "beta/x.txt")
+	if apiErr != nil {
+		t.Fatalf("child refused after parent rebase-landed on a DISJOINT change: %q - %q",
+			apiErr.Err.Code, apiErr.Err.Suggestion)
+	}
+	if dec.RequiresRevalidation {
+		t.Fatalf("child must NOT revalidate for a disjoint intervening change")
+	}
+	if !dec.Landed {
+		t.Fatalf("child did not land: %+v", dec)
+	}
+}
+
+// When the intervening change touches the child's OWN project, revalidation
+// IS correct - the child's checks never saw it.
+func TestStackedChildRevalidatesOnOverlappingIntervening(t *testing.T) {
+	// A in alpha (so it lands cleanly past the beta intervening change), B
+	// in beta - the SAME project the intervening change touched, so B's
+	// checks are stale and it must revalidate.
+	dec, apiErr := landStackWithIntervening(t, "alpha/a.txt", "beta/b.txt", "beta/x.txt")
+	if apiErr != nil {
+		t.Fatalf("unexpected refusal: %q - %q", apiErr.Err.Code, apiErr.Err.Suggestion)
+	}
+	if !dec.RequiresRevalidation {
+		t.Fatalf("child SHOULD revalidate when an intervening change touches its project: %+v", dec)
+	}
+}

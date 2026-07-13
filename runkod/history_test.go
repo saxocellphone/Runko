@@ -294,15 +294,23 @@ func TestMergeRequirementsStackedBaseBlockers(t *testing.T) {
 		t.Fatalf("abandoned-parent blocker wrong: %+v", req)
 	}
 
-	// LANDED (rebased) parent: base still not on trunk - blocker teaches
-	// rebase-and-re-push. (Reopen, then mark landed at a DIFFERENT sha.)
-	seed(changeIDA, trunkTip, parentHead, "parent: add a") // reopen
-	if _, err := store.MarkChangeLanded(ctx, changeIDA, "0000000000000000000000000000000000000001", "alice", false); err != nil {
-		t.Fatalf("land parent: %v", err)
+	// LANDED parent whose commit is ON trunk (the real rebase/re-stamp
+	// land, §7.5): the child is now MERGEABLE. The parent's content is on
+	// trunk under its landed SHA, so land.Land rebases the child's delta
+	// onto the tip and re-runs checks only if the trunk delta intersects it
+	// (§13.5) - no hard "rebase and re-push" refusal just because the
+	// parent's SHA changed on landing. Reopen A (from abandoned) and land
+	// it for real; it lands re-stamped (SHA != pushed head).
+	seed(changeIDA, trunkTip, parentHead, "parent: add a")
+	chA, _, _ := store.GetChange(ctx, changeIDA)
+	if dec, apiErr := srv.landChangeCore(ctx, changeIDA, chA, nil, nil, false); apiErr != nil || !dec.Landed {
+		t.Fatalf("land parent onto trunk: %+v %+v", dec, apiErr)
 	}
-	req = requirements(changeIDB)
-	if req.Mergeable || !strings.Contains(strings.Join(req.Blockers, " "), "landed as a different commit") {
-		t.Fatalf("landed-parent blocker wrong: %+v", req)
+	if landedA, _, _ := store.GetChange(ctx, changeIDA); landedA.LandedSHA == parentHead {
+		t.Fatalf("expected the parent to land re-stamped (landed SHA != pushed head %s)", parentHead)
+	}
+	if req := requirements(changeIDB); !req.Mergeable {
+		t.Fatalf("child of an on-trunk landed parent must be mergeable, got blockers: %v", req.Blockers)
 	}
 
 	// Unknown base (a real commit, but no Change owns it and trunk does
