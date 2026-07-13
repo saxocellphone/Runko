@@ -1,13 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   backendUrl,
-  browsePublicOrg,
   fetchAuthConfig,
-  fetchOrgs,
   signIn,
   signUp,
   type AuthConfig,
-  type OrgInfo,
 } from "../api/client";
 
 // Sign-in gate for a live (VITE_RUNKO_URL-configured) deployment with no
@@ -34,13 +31,8 @@ export function LoginPage() {
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
 
-  // Public orgs (§15.2): anonymous GET /api/orgs lists exactly the
-  // public_read set, so the gate can offer read-only browsing without an
-  // account at all.
-  const [publicOrgs, setPublicOrgs] = useState<OrgInfo[]>([]);
   useEffect(() => {
     void fetchAuthConfig().then(setConfig);
-    void fetchOrgs().then(setPublicOrgs);
   }, []);
 
   const signingUp = mode === "signup" && config.signupEnabled;
@@ -78,21 +70,6 @@ export function LoginPage() {
         {backendUrl && (
           <p className="login-endpoint" title="The runkod control plane this browser is talking to">
             <code>{backendUrl}</code>
-          </p>
-        )}
-        {!signingUp && publicOrgs.length > 0 && (
-          <p className="login-sub">
-            Or browse without an account:{" "}
-            {publicOrgs.map((o) => (
-              <button
-                key={o.name}
-                type="button"
-                className="btn btn-sm"
-                onClick={() => browsePublicOrg(o.name)}
-              >
-                {o.name} (read-only)
-              </button>
-            ))}
           </p>
         )}
         {!signingUp && (
