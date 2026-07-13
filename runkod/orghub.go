@@ -921,6 +921,13 @@ func (h *OrgHub) handleAddOrgMember(w http.ResponseWriter, r *http.Request) {
 		}))
 		return
 	}
+	// EnsureOrg first, same as the signup join path: the DEFAULT org is
+	// routable without a directory row (mem mode) until someone joins it,
+	// and upserting a membership into a rowless org is a 500.
+	if err := h.Directory.EnsureOrg(r.Context(), orgName); err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
 	if err := h.Directory.UpsertOrgMember(r.Context(), orgName, body.Name, body.Role); err != nil {
 		writeAPIError(w, internalErr(err))
 		return
