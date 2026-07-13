@@ -79,6 +79,7 @@ go_test(
         "comment_test.go",
         "createproject_test.go",
         "describe_test.go",
+        "descriptiongate_test.go",
         "diff_test.go",
         "eventbus_test.go",
         "gitleaks_test.go",

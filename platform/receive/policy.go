@@ -11,19 +11,28 @@ import (
 // codegen exists (same debt as project.Manifest, see project/doc.go).
 type AgentPolicy struct {
 	RequireWorkspaceAffinity bool
-	MaxChangedFiles          int
-	MaxDiffBytes             int64
-	CanCreateProjects        bool
-	CanLandChanges           bool
-	CanModifyOwners          bool
-	CanEnableCapabilities    []string
-	DenylistPaths            []string // glob patterns, affected.MatchPath syntax
+	// RequireDescription makes the §8.6 change description (`runko change
+	// describe`) mandatory for an agent's changes: its absence becomes a
+	// MERGE blocker (runkod's mergeRequirements, §8.7 gate on §8.6 state) -
+	// so an agent cannot land work no reviewer can read without the diff.
+	// Unlike the size caps this is NOT a receive-time gate (the blurb is set
+	// after the push, and never derived from the commit message, §8.6); it
+	// is evaluated at land/merge-requirements time against change.Description.
+	RequireDescription    bool
+	MaxChangedFiles       int
+	MaxDiffBytes          int64
+	CanCreateProjects     bool
+	CanLandChanges        bool
+	CanModifyOwners       bool
+	CanEnableCapabilities []string
+	DenylistPaths         []string // glob patterns, affected.MatchPath syntax
 }
 
 // DefaultAgentPolicy mirrors the illustrative org defaults in §8.7.
 func DefaultAgentPolicy() AgentPolicy {
 	return AgentPolicy{
 		RequireWorkspaceAffinity: true,
+		RequireDescription:       true,
 		MaxChangedFiles:          40,
 		MaxDiffBytes:             512000,
 		CanCreateProjects:        true,

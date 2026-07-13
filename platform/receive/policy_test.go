@@ -10,6 +10,15 @@ func violationCodes(v []PolicyViolation) map[string]bool {
 	return out
 }
 
+// TestDefaultAgentPolicyRequiresDescription pins §8.7's default: agent
+// changes must carry a §8.6 description, enforced as a merge gate in runkod's
+// mergeRequirements (never at receive - the blurb is set after the push).
+func TestDefaultAgentPolicyRequiresDescription(t *testing.T) {
+	if !DefaultAgentPolicy().RequireDescription {
+		t.Fatal("the default agent policy must require a description (§8.7 gate on §8.6)")
+	}
+}
+
 func TestEvaluatePolicySatisfied(t *testing.T) {
 	policy := DefaultAgentPolicy()
 	summary := PushSummary{
