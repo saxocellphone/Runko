@@ -307,9 +307,12 @@ func WorkspaceSnapshot(dir, message string) (ref string, err error) {
 	// configured (fresh VM, agent container - §12.5's "the glue CLI exists
 	// to paper exactly these" edges). Fall back to a runko identity ONLY
 	// when none is configured; a real user.name/user.email always wins.
+	// One placeholder shared with `change create` (no more "Runko
+	// Workspace"); it never reaches the mirror - the daemon re-stamps the
+	// canonical landing identity at land time (§7.5).
 	var identity []string
 	if email, _ := runGit(dir, "config", "user.email"); email == "" {
-		identity = []string{"-c", "user.name=Runko Workspace", "-c", "user.email=runko-workspace@localhost"}
+		identity = []string{"-c", "user.name=Runko", "-c", "user.email=runko@localhost"}
 	}
 	commit := func(args ...string) error {
 		_, err := runGit(dir, append(append(append([]string{}, identity...), "commit"), args...)...)

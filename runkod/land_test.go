@@ -130,6 +130,21 @@ func TestHandleLandChangeFastForwards(t *testing.T) {
 		t.Fatalf("expected Change marked landed with the landed SHA recorded, got %+v", change)
 	}
 
+	// Even a fast-forward land re-mints the commit under the canonical
+	// landing identity (§7.5): the landed SHA differs from the pushed head,
+	// and both author and committer are the machine, never the client's git
+	// config.
+	if got.LandedSHA == change.HeadSHA {
+		t.Fatalf("fast-forward land must re-stamp identity (a new SHA), not reuse the pushed head %s", change.HeadSHA)
+	}
+	ident, err := gitfixtureRunGit(bare, "log", "-1", "--format=%an%x00%cn", got.LandedSHA)
+	if err != nil {
+		t.Fatalf("read landed identity: %v", err)
+	}
+	if parts := strings.Split(ident, "\x00"); len(parts) != 2 || parts[0] != "Runko" || parts[1] != "Runko" {
+		t.Fatalf("fast-forward land must stamp author+committer = Runko, got %q", ident)
+	}
+
 	// A second land request against an already-landed Change is idempotent,
 	// not an error or a re-attempt.
 	resp2 := postLand(t, srv, changeID, "sekret")
@@ -245,13 +260,28 @@ func TestHandleLandChangeBootstrapsUnbornTrunk(t *testing.T) {
 	}
 	var got landResponse
 	json.NewDecoder(resp.Body).Decode(&got)
-	if !got.Landed || got.LandedSHA != headSHA {
-		t.Fatalf("expected the first-ever land to bootstrap trunk to %s, got %+v", headSHA, got)
+	if !got.Landed || got.LandedSHA == "" {
+		t.Fatalf("expected the first-ever land to bootstrap trunk, got %+v", got)
 	}
 
 	tip, err := gitfixtureRunGit(bare, "rev-parse", "refs/heads/main")
-	if err != nil || tip != headSHA {
-		t.Fatalf("expected refs/heads/main == %s, got %s (err %v)", headSHA, tip, err)
+	if err != nil || tip != got.LandedSHA {
+		t.Fatalf("expected refs/heads/main == landed SHA %s, got %s (err %v)", got.LandedSHA, tip, err)
+	}
+	// The bootstrap land re-mints a root commit under the canonical landing
+	// identity (§7.5): a new SHA distinct from the pushed head, but the same
+	// tree (content preserved), authored and committed by the machine.
+	if got.LandedSHA == headSHA {
+		t.Fatalf("bootstrap land must re-stamp identity (a new SHA), not reuse the pushed head %s", headSHA)
+	}
+	wantTree, _ := gitfixtureRunGit(bare, "rev-parse", headSHA+"^{tree}")
+	gotTree, _ := gitfixtureRunGit(bare, "rev-parse", got.LandedSHA+"^{tree}")
+	if wantTree == "" || wantTree != gotTree {
+		t.Fatalf("bootstrap land must preserve content: tree %s != %s", gotTree, wantTree)
+	}
+	ident, _ := gitfixtureRunGit(bare, "log", "-1", "--format=%an%x00%cn", got.LandedSHA)
+	if parts := strings.Split(ident, "\x00"); len(parts) != 2 || parts[0] != "Runko" || parts[1] != "Runko" {
+		t.Fatalf("bootstrap land must stamp author+committer = Runko, got %q", ident)
 	}
 }
 
@@ -568,12 +598,14 @@ func TestRevalidationRebaseRepushLands(t *testing.T) {
 	}
 }
 
-// TestRebaseLandPreservesAuthorship: a fast-forward land keeps the pushed
-// commit verbatim, but the rebase path creates a new commit - it must
-// carry the original author and full message (committer becomes the
-// landing machine), not re-author history as "Runko" with a title-only
-// message. Observed live on the mirror before the fix.
-func TestRebaseLandPreservesAuthorship(t *testing.T) {
+// TestLandNormalizesIdentity: every landed commit carries the canonical
+// landing identity as BOTH author and committer (§7.5, changelog
+// 2026-07-13), so trunk and the outbound mirror are uniform regardless of
+// the client's git config - which historically leaked "Runko",
+// "Runko Workspace", and the same person under two emails onto the mirror.
+// The full message (body + Change-Id) must still survive the re-mint; only
+// the identity is normalized, not the content.
+func TestLandNormalizesIdentity(t *testing.T) {
 	bare := newBareRepo(t)
 	store := NewMemStore()
 	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, AllowUnpolicedLand: true}
@@ -632,14 +664,14 @@ func TestRebaseLandPreservesAuthorship(t *testing.T) {
 	if len(parts) != 4 {
 		t.Fatalf("unexpected log output: %q", got)
 	}
-	if parts[0] != "Alice" || parts[1] != "alice@x.dev" {
-		t.Fatalf("rebase-land must preserve the author, got %q <%q>", parts[0], parts[1])
+	if parts[0] != "Runko" || parts[1] != "runko@localhost" {
+		t.Fatalf("landed author must be the canonical landing identity, not the client's (Alice); got %q <%q>", parts[0], parts[1])
 	}
 	if parts[2] != "Runko" {
 		t.Fatalf("committer should be the landing machine, got %q", parts[2])
 	}
 	if !strings.Contains(parts[3], "A body line that must survive.") || !strings.Contains(parts[3], "Change-Id: Iaaa") {
-		t.Fatalf("rebase-land must preserve the full message, got:\n%s", parts[3])
+		t.Fatalf("landing must preserve the full message, got:\n%s", parts[3])
 	}
 }
 

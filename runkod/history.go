@@ -341,6 +341,46 @@ func (s *Server) baseOnTrunk(base string) bool {
 	return onTrunk
 }
 
+// parentReStampedInPlace reports whether base names the pre-land head of a
+// change that LANDED with an identical tree - an identity-only re-mint
+// (§7.5). Every land now re-stamps the canonical landing identity, so a
+// fast-forward parent lands as a NEW commit (same tree, same parent) whose
+// SHA differs from the head its child was built on. Such a child is not
+// stacked on missing history: trunk carries the parent's exact content
+// under the re-stamped SHA, and attemptLand rebases its base..head delta
+// (empty across the re-stamp) onto the tip cleanly. A GENUINELY
+// rebase-landed parent absorbed the trunk delta into a DIFFERENT tree and
+// is deliberately not covered - that child still needs a re-sync (the
+// "it landed as a different commit" blocker in mergeRequirements).
+func (s *Server) parentReStampedInPlace(ctx context.Context, base string) bool {
+	if base == "" {
+		return false
+	}
+	parent, ok := s.changeWithHead(ctx, base)
+	if !ok || parent.State != "landed" || parent.LandedSHA == "" {
+		return false
+	}
+	if !s.baseOnTrunk(parent.LandedSHA) {
+		return false
+	}
+	return s.sameTree(base, parent.LandedSHA)
+}
+
+// sameTree reports whether two commit-ishes resolve to the identical tree
+// object.
+func (s *Server) sameTree(a, b string) bool {
+	ta := s.treeSHA(a)
+	return ta != "" && ta == s.treeSHA(b)
+}
+
+func (s *Server) treeSHA(rev string) string {
+	out, err := exec.Command("git", "-C", s.RepoDir, "rev-parse", rev+"^{tree}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // baseTrunkRelation reports both halves of the §13.5 staleness signal in
 // one git call: whether base is an ancestor of trunk, and how many trunk
 // commits have landed since it (0 = based on the very tip; also 0 when

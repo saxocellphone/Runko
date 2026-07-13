@@ -24,6 +24,7 @@ import (
 	"github.com/saxocellphone/runko/platform/checks"
 	"github.com/saxocellphone/runko/platform/core"
 	"github.com/saxocellphone/runko/platform/index"
+	"github.com/saxocellphone/runko/platform/land"
 	"github.com/saxocellphone/runko/platform/search"
 )
 
@@ -110,6 +111,16 @@ type Server struct {
 	// Now overrides the clock the §14.4.2 check-staleness comparison uses;
 	// nil means time.Now (tests inject a fake clock).
 	Now func() time.Time
+
+	// LandIdentity is stamped as BOTH author and committer on every commit
+	// this server lands, so trunk (and the outbound mirror that transports
+	// it verbatim) carries a single canonical identity rather than whatever
+	// git identity the client happened to have (§7.5; changelog
+	// 2026-07-13). Per-author attribution lives in authored_by/landed_by,
+	// not the git author field. The zero value falls back to
+	// land.DefaultIdentity (see landIdentity); cmd/runkod wires
+	// --land-identity here.
+	LandIdentity land.Identity
 
 	// affectedMu/affectedCache memoize computeAffected by (base_sha,
 	// head_sha). Both key halves are commit SHAs, so an entry can never go
@@ -1007,7 +1018,7 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	// Saying "mergeable" while land 409s was a lie the UI faithfully
 	// repeated (found live: abandon a stack's bottom and the pending
 	// child kept its green chip). Name the parent when we know it.
-	if !s.baseOnTrunk(change.BaseSHA) {
+	if !s.baseOnTrunk(change.BaseSHA) && !s.parentReStampedInPlace(ctx, change.BaseSHA) {
 		req.Mergeable = false
 		if parent, ok := s.changeWithHead(ctx, change.BaseSHA); ok {
 			verb := "land it first"

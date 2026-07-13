@@ -6,6 +6,7 @@ go_library(
     importpath = "github.com/saxocellphone/runko/runkod/cmd/runkod",
     visibility = ["//visibility:private"],
     deps = [
+        "//platform/land",
         "//platform/mirror",
         "//platform/receive",
         "//platform/search",

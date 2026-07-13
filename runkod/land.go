@@ -25,6 +25,17 @@ import (
 // race_retry_exhausted, not a reason to loop forever.
 const maxLandRaceRetries = 5
 
+// landIdentity is the git identity stamped as BOTH author and committer on
+// every commit this server lands (and, as the committer, on the heads
+// SyncChange rebases). Configured via --land-identity; the neutral
+// placeholder keeps existing embedders and tests unchanged.
+func (s *Server) landIdentity() land.Identity {
+	if s.LandIdentity.Name != "" && s.LandIdentity.Email != "" {
+		return s.LandIdentity
+	}
+	return land.DefaultIdentity
+}
+
 // attemptLand runs land.Land against the current trunk tip, retrying on
 // RaceRetry: each attempt re-reads the trunk tip and recomputes the trunk
 // delta from scratch, since a losing attempt's view of trunk is stale by
@@ -52,24 +63,40 @@ func (s *Server) refuseUnlandedParent(ctx context.Context, key string, change Ch
 	cmd := exec.Command("git", "merge-base", "--is-ancestor", change.BaseSHA, "refs/heads/"+s.TrunkRef)
 	cmd.Dir = s.RepoDir
 	if cmd.Run() == nil {
-		return nil // base is on trunk - not stacked (or the parent already landed)
+		return nil // base is on trunk - not stacked
 	}
 
-	suggestion := "land the parent change first, or rebase this change onto trunk and re-push"
-	if open, err := s.Store.ListChanges(ctx, "open"); err == nil {
-		for _, parent := range open {
-			if parent.HeadSHA == change.BaseSHA {
-				suggestion = fmt.Sprintf("land %s first, or rebase this change onto trunk and re-push", parent.ChangeKey)
-				break
-			}
+	// The base isn't literally on trunk. Since every land now re-mints the
+	// commit under the canonical landing identity (§7.5, changelog
+	// 2026-07-13), a LANDED parent's head no longer appears verbatim on
+	// trunk - trunk carries the same tree under a re-stamped SHA. So a base
+	// missing from trunk no longer proves the parent is pending: refuse
+	// only when an OPEN change still owns this base as its head (its content
+	// genuinely isn't on trunk). Otherwise the parent landed, and the
+	// child's base..head delta rebases cleanly onto the tip that carries the
+	// parent's content - attemptLand does exactly that below. Fail closed if
+	// open changes can't be enumerated: refusing a retryable land beats
+	// landing a child without its parent.
+	open, err := s.Store.ListChanges(ctx, "open")
+	if err != nil {
+		return typedErr(http.StatusConflict, clierr.Error{
+			Code: "parent_change_not_landed", Field: "change",
+			Message:    fmt.Sprintf("change %s is stacked on a commit trunk does not have (base %s); open changes could not be checked: %v", key, change.BaseSHA, err),
+			Suggestion: "retry the land, or rebase this change onto trunk and re-push",
+			DocURL:     "docs/design.md#74-change",
+		})
+	}
+	for _, parent := range open {
+		if parent.HeadSHA == change.BaseSHA {
+			return typedErr(http.StatusConflict, clierr.Error{
+				Code: "parent_change_not_landed", Field: "change",
+				Message:    fmt.Sprintf("change %s is stacked on unlanded change %s (base %s)", key, parent.ChangeKey, change.BaseSHA),
+				Suggestion: fmt.Sprintf("land %s first, or rebase this change onto trunk and re-push", parent.ChangeKey),
+				DocURL:     "docs/design.md#74-change",
+			})
 		}
 	}
-	return typedErr(http.StatusConflict, clierr.Error{
-		Code: "parent_change_not_landed", Field: "change",
-		Message:    fmt.Sprintf("change %s is stacked on a commit trunk does not have (base %s)", key, change.BaseSHA),
-		Suggestion: suggestion,
-		DocURL:     "docs/design.md#74-change",
-	})
+	return nil
 }
 
 func (s *Server) attemptLand(ctx context.Context, change Change, scope land.RevalidationScope) (land.Outcome, error) {
@@ -112,25 +139,25 @@ func (s *Server) attemptLand(ctx context.Context, change Change, scope land.Reva
 		}
 		changeAffected := affected.Compute(projects, changedPaths, opts)
 
-		// A fast-forward land preserves the pushed commit verbatim; the
-		// rebase path creates a NEW commit and must not degrade it - read
-		// the original author and full message from the change head
-		// instead of re-authoring as the machine with a title-only
-		// message (observed on GitHub as history attributed to "Runko").
+		// Both land paths re-mint the commit under the canonical landing
+		// identity (§7.5, changelog 2026-07-13), so authorship is uniform
+		// on trunk and the mirror; only the full message must survive the
+		// re-mint (the title-only fallback loses the body and, for
+		// trailer-less pushes, the Change-Id link).
 		meta := core.CommitMeta{Message: change.Title + "\n\nChange-Id: " + change.ChangeKey + "\n"}
-		if an, ae, msg, err := commitIdentity(s.RepoDir, change.HeadSHA); err == nil {
+		if _, _, msg, err := commitIdentity(s.RepoDir, change.HeadSHA); err == nil {
 			if !strings.Contains(msg, "Change-Id: "+change.ChangeKey) {
 				// Server-minted ids (trailer-less pushes) aren't in the
 				// original message; the landed commit must stay linkable.
 				msg = strings.TrimRight(msg, "\n") + "\n\nChange-Id: " + change.ChangeKey + "\n"
 			}
-			meta = core.CommitMeta{AuthorName: an, AuthorEmail: ae, Message: msg}
+			meta.Message = msg
 		} else {
-			log.Printf("runkod: %s: reading head commit identity (landing with fallback identity): %v", change.ChangeKey, err)
+			log.Printf("runkod: %s: reading head commit message (landing with title-only message): %v", change.ChangeKey, err)
 		}
 
 		outcome, err := land.Land(gstore, s.RepoDir, s.TrunkRef, base, change.HeadSHA,
-			scope, changeAffected, projects, opts, meta)
+			scope, changeAffected, projects, opts, meta, s.landIdentity())
 		if err != nil {
 			return land.Outcome{}, err
 		}

@@ -22,16 +22,21 @@ func TestLandFastForwardWhenTrunkUnchanged(t *testing.T) {
 	store := gitstore.New(repo.Dir)
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
 		RevalidationAffectedIntersection, affected.Result{}, nil, affected.Options{},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
-	if !outcome.Landed || outcome.LandedSHA != changeHead {
-		t.Fatalf("expected fast-forward land to changeHead, got %+v", outcome)
+	// A fast-forward land re-stamps identity (§7.5), so it mints a NEW
+	// commit - a different SHA from the pushed head, but the same tree.
+	if !outcome.Landed || outcome.LandedSHA == changeHead {
+		t.Fatalf("expected a re-stamped fast-forward land (new SHA), got %+v", outcome)
 	}
 	tip, err := store.ResolveRef("refs/heads/main")
-	if err != nil || string(tip) != changeHead {
-		t.Fatalf("expected refs/heads/main == changeHead, got %s (err %v)", tip, err)
+	if err != nil || string(tip) != outcome.LandedSHA {
+		t.Fatalf("expected refs/heads/main == landed SHA %s, got %s (err %v)", outcome.LandedSHA, tip, err)
+	}
+	if wantTree, gotTree := mustTree(t, repo.Dir, changeHead), mustTree(t, repo.Dir, outcome.LandedSHA); wantTree != gotTree {
+		t.Fatalf("fast-forward re-stamp must preserve the tree: %s != %s", gotTree, wantTree)
 	}
 }
 
@@ -58,7 +63,7 @@ func TestLandRebasesWhenNoIntersection(t *testing.T) {
 	store := gitstore.New(repo.Dir)
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
 		RevalidationAffectedIntersection, changeAffected, projects, affected.Options{},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
@@ -98,7 +103,7 @@ func TestLandRequiresRevalidationOnIntersection(t *testing.T) {
 	store := gitstore.New(repo.Dir)
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
 		RevalidationAffectedIntersection, changeAffected, projects, affected.Options{},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
@@ -142,7 +147,7 @@ func TestLandRevalidationAlwaysOverridesIntersection(t *testing.T) {
 	// Even though the sets don't intersect, RevalidationAlways must force it.
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
 		RevalidationAlways, changeAffected, projects, affected.Options{},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
@@ -174,7 +179,7 @@ func TestLandConflict(t *testing.T) {
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
 		RevalidationAffectedIntersection, affected.Result{}, nil,
 		affected.Options{Strictness: affected.StrictnessAggressive},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
@@ -219,7 +224,7 @@ func TestLandChangeRunEverythingForcesRevalidation(t *testing.T) {
 	store := gitstore.New(repo.Dir)
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
 		RevalidationAffectedIntersection, changeAffected, projects, affected.Options{},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
@@ -254,7 +259,7 @@ func TestLandTrunkRootInvalidationForcesRevalidation(t *testing.T) {
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
 		RevalidationAffectedIntersection, changeAffected, projects,
 		affected.Options{Strictness: affected.StrictnessAggressive, RootInvalidationPatterns: []string{"go.mod"}},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
@@ -288,7 +293,7 @@ func TestLandAggressiveModeWithoutRootPatternSkipsRevalidation(t *testing.T) {
 	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
 		RevalidationAffectedIntersection, changeAffected, projects,
 		affected.Options{Strictness: affected.StrictnessAggressive},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
@@ -340,7 +345,7 @@ func TestLandConcurrentRaceExactlyOneWins(t *testing.T) {
 			defer wg.Done()
 			outcome, err := Land(store, repo.Dir, "main", base, changeHeads[i],
 				RevalidationAffectedIntersection, affected.Result{}, nil, affected.Options{},
-				core.CommitMeta{Message: "land"})
+				core.CommitMeta{Message: "land"}, DefaultIdentity)
 			if err != nil {
 				t.Errorf("Land(%d): %v", i, err)
 				return
@@ -393,17 +398,22 @@ func TestLandOntoUnbornTrunkBootstraps(t *testing.T) {
 	store := gitstore.New(repo.Dir)
 	outcome, err := Land(store, repo.Dir, "main", "", changeHead,
 		RevalidationAffectedIntersection, affected.Result{}, nil, affected.Options{},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err != nil {
 		t.Fatalf("Land: %v", err)
 	}
-	if !outcome.Landed || outcome.LandedSHA != changeHead {
-		t.Fatalf("expected the first-ever land to bootstrap trunk, got %+v", outcome)
+	// The bootstrap land re-stamps identity too, minting a NEW root commit
+	// (different SHA, same tree) rather than adopting the pushed head.
+	if !outcome.Landed || outcome.LandedSHA == changeHead {
+		t.Fatalf("expected a re-stamped bootstrap land (new SHA), got %+v", outcome)
 	}
 
 	tip, err := store.ResolveRef("refs/heads/main")
-	if err != nil || string(tip) != changeHead {
-		t.Fatalf("expected refs/heads/main == changeHead, got %s (err %v)", tip, err)
+	if err != nil || string(tip) != outcome.LandedSHA {
+		t.Fatalf("expected refs/heads/main == landed SHA %s, got %s (err %v)", outcome.LandedSHA, tip, err)
+	}
+	if wantTree, gotTree := mustTree(t, repo.Dir, changeHead), mustTree(t, repo.Dir, outcome.LandedSHA); wantTree != gotTree {
+		t.Fatalf("bootstrap re-stamp must preserve the tree: %s != %s", gotTree, wantTree)
 	}
 }
 
@@ -421,8 +431,19 @@ func TestLandOntoUnbornTrunkMismatchedBaseIsError(t *testing.T) {
 	store := gitstore.New(repo.Dir)
 	_, err := Land(store, repo.Dir, "main", "deadbeef", changeHead,
 		RevalidationAffectedIntersection, affected.Result{}, nil, affected.Options{},
-		core.CommitMeta{Message: "land"})
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
 	if err == nil {
 		t.Fatalf("expected an error for an unborn trunk with a non-empty, non-matching base")
 	}
+}
+
+// mustTree resolves a commit-ish to its tree SHA - the re-stamp tests
+// assert content survives the identity re-mint by comparing trees.
+func mustTree(t *testing.T, repoDir, rev string) string {
+	t.Helper()
+	tree, err := treeOf(repoDir, rev)
+	if err != nil {
+		t.Fatalf("tree of %s: %v", rev, err)
+	}
+	return tree
 }

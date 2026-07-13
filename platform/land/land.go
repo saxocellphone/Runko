@@ -71,6 +71,7 @@ func Land(
 	projects []affected.ProjectInfo,
 	affectedOpts affected.Options,
 	meta core.CommitMeta,
+	identity Identity,
 ) (Outcome, error) {
 	trunkRefName := "refs/heads/" + trunkRef
 	trunkTip, resolveErr := store.ResolveRef(trunkRefName)
@@ -80,14 +81,31 @@ func Land(
 	}
 
 	if string(trunkTip) == oldBase {
+		// Re-stamp identity even on a fast-forward: trunk - and the
+		// outbound mirror that transports it byte-for-byte - must carry
+		// the canonical landing identity, never the client's git
+		// author/committer (which leaked synthetic fallbacks onto the
+		// mirror; §7.5, changelog 2026-07-13). This mints a NEW commit
+		// (identical tree, same parent), so a fast-forward land now also
+		// yields LandedSHA != changeHead, exactly like a rebase land - the
+		// caller already records the landed SHA, never assumes it equals
+		// the pushed head.
+		tree, err := treeOf(repoDir, changeHead)
+		if err != nil {
+			return Outcome{}, err
+		}
+		landed, err := CommitTree(repoDir, tree, string(trunkTip), meta.Message, identity, identity)
+		if err != nil {
+			return Outcome{}, err
+		}
 		expected := trunkTip
 		if trunkIsUnborn {
 			expected = zeroOID
 		}
-		if err := store.UpdateRef(trunkRefName, core.Revision(changeHead), &expected); err != nil {
+		if err := store.UpdateRef(trunkRefName, core.Revision(landed), &expected); err != nil {
 			return Outcome{RaceRetry: true}, nil
 		}
-		return Outcome{Landed: true, LandedSHA: changeHead}, nil
+		return Outcome{Landed: true, LandedSHA: landed}, nil
 	}
 
 	if trunkIsUnborn {
@@ -115,7 +133,7 @@ func Land(
 		return Outcome{Conflicts: rebased.ConflictPaths}, nil
 	}
 
-	newSHA, err := CommitTree(repoDir, rebased.NewTreeSHA, string(trunkTip), meta)
+	newSHA, err := CommitTree(repoDir, rebased.NewTreeSHA, string(trunkTip), meta.Message, identity, identity)
 	if err != nil {
 		return Outcome{}, err
 	}

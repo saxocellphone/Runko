@@ -51,10 +51,12 @@ func SyncToTrunk(dir, remote, trunk string) (string, error) {
 		return tip, nil
 	}
 	// Rebase re-commits, so it needs a committer even on an unconfigured
-	// machine (the WorkspaceSnapshot identity fallback).
+	// machine (the WorkspaceSnapshot identity fallback - one placeholder
+	// shared with `change create`; the daemon re-stamps the canonical
+	// landing identity at land time anyway, §7.5).
 	rebaseArgs := []string{"rebase", tip}
 	if email, _ := runGit(dir, "config", "user.email"); email == "" {
-		rebaseArgs = append([]string{"-c", "user.name=Runko Workspace", "-c", "user.email=runko-workspace@localhost"}, rebaseArgs...)
+		rebaseArgs = append([]string{"-c", "user.name=Runko", "-c", "user.email=runko@localhost"}, rebaseArgs...)
 	}
 	if _, rebaseErr := runGit(dir, rebaseArgs...); rebaseErr != nil {
 		conflicts, _ := runGit(dir, "diff", "--name-only", "--diff-filter=U")

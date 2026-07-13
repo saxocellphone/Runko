@@ -82,7 +82,7 @@ func WorkspaceWatchSnapshot(dir, message, skipTree string) (ref, sha, tree strin
 		// must work on a fresh VM/agent container with no git identity.
 		args := []string{}
 		if email, _ := runGit(dir, "config", "user.email"); email == "" {
-			args = append(args, "-c", "user.name=Runko Workspace", "-c", "user.email=runko-workspace@localhost")
+			args = append(args, "-c", "user.name=Runko", "-c", "user.email=runko@localhost")
 		}
 		args = append(args, "commit-tree", tree, "-p", head, "-m", fmt.Sprintf("%s: %s", snapshotSubjectPrefix, message))
 		sha, err = runGit(dir, args...)

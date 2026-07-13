@@ -121,7 +121,13 @@ func (s *Server) syncChangeCore(ctx context.Context, key string, change Change, 
 		} else {
 			log.Printf("runkod: sync %s: reading head identity (using fallback): %v", m.ChangeKey, err)
 		}
-		newHead, err := land.CommitTree(s.RepoDir, rebased.NewTreeSHA, newBase, meta)
+		// Stack sync moves commits, not ownership: the rebased Change head
+		// keeps its original AUTHOR (these heads are still pre-land; the
+		// land path re-mints under the landing identity when they merge),
+		// with the machine as committer - an unreadable author falls back
+		// to that same landing identity inside CommitTree.
+		author := land.Identity{Name: meta.AuthorName, Email: meta.AuthorEmail}
+		newHead, err := land.CommitTree(s.RepoDir, rebased.NewTreeSHA, newBase, meta.Message, author, s.landIdentity())
 		if err != nil {
 			return syncDecision{}, internalErr(fmt.Errorf("sync %s: %w", m.ChangeKey, err))
 		}
