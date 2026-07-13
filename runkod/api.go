@@ -63,6 +63,13 @@ type Server struct {
 	// string, not a secret credential).
 	AllowSignup bool
 	SignupCode  string
+	// AllowInviteRequests enables the public POST /api/invite-requests
+	// intake (§15.1 invite requests; invite.go) - the ASK half of the
+	// SignupCode gate. Default off, and wired to the default server only:
+	// requests are deployment-wide, like signup itself.
+	AllowInviteRequests bool
+	// inviteLimiter is the intake's per-IP window (invite.go).
+	inviteLimiter inviteLimiter
 	// credCache amortizes PBKDF2 verification for store-backed principals
 	// (credential.go) - Basic credentials arrive on EVERY request.
 	credCache credCache
@@ -306,6 +313,15 @@ func (s *Server) Handler() (http.Handler, error) {
 	// appeared cross-origin.
 	mux.HandleFunc("/api/signup", publicCORS(http.MethodPost, s.handleSignup))
 	mux.HandleFunc("/api/auth/config", publicCORS(http.MethodGet, s.handleAuthConfig))
+
+	// Invite requests (§15.1; invite.go): the public intake shares
+	// signup's CORS posture (the login gate posts it pre-credential); the
+	// drain feed + acks are the mailer service's surface, operator-only,
+	// server-to-server (no preflight, so method-qualified patterns).
+	mux.HandleFunc("/api/invite-requests", publicCORS(http.MethodPost, s.handleCreateInviteRequest))
+	mux.HandleFunc("GET /api/invite-requests/due", s.requireOperator(s.handleListDueInviteRequests))
+	mux.HandleFunc("POST /api/invite-requests/{id}/sent", s.requireOperator(s.handleMarkInviteSent))
+	mux.HandleFunc("POST /api/invite-requests/{id}/failed", s.requireOperator(s.handleMarkInviteFailed))
 
 	return mux, nil
 }

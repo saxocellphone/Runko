@@ -8,6 +8,7 @@ go_library(
         "changes.sql.go",
         "checks.sql.go",
         "db.go",
+        "invite_requests.sql.go",
         "mirror.sql.go",
         "models.go",
         "orgs.sql.go",

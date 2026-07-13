@@ -384,9 +384,10 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 // org-creation bit so the sign-up form knows whether to offer it.
 func (h *OrgHub) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"signup_enabled":     h.Default.AllowSignup,
-		"code_required":      h.Default.AllowSignup && h.Default.SignupCode != "",
-		"org_create_enabled": h.AllowOrgCreate,
+		"signup_enabled":          h.Default.AllowSignup,
+		"code_required":           h.Default.AllowSignup && h.Default.SignupCode != "",
+		"org_create_enabled":      h.AllowOrgCreate,
+		"invite_requests_enabled": h.Default.AllowInviteRequests,
 	})
 }
 
