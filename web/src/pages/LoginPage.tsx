@@ -19,16 +19,21 @@ import {
 // the request is mailed onward and the reply carries the invite.
 export function LoginPage() {
   // ?invite=1 (the landing page's "Request an invite" CTA) deep-links the
-  // request mode; if the deployment doesn't take requests, the gate just
-  // renders sign-in.
-  const [mode, setMode] = useState<"signin" | "signup" | "request">(() =>
-    new URLSearchParams(window.location.search).has("invite") ? "request" : "signin",
+  // request mode - and OPTIMISTICALLY: the auth-config fetch is in
+  // flight on first render, and gating the form on its result meant the
+  // deep link flashed (or, on a failed fetch, permanently showed) the
+  // sign-in page instead of the form. Assume enabled until the server
+  // says otherwise; a deployment with the intake off falls back to
+  // sign-in when the real config lands.
+  const deepLinkedInvite = new URLSearchParams(window.location.search).has("invite");
+  const [mode, setMode] = useState<"signin" | "signup" | "request">(
+    deepLinkedInvite ? "request" : "signin",
   );
   const [config, setConfig] = useState<AuthConfig>({
     signupEnabled: false,
     codeRequired: false,
     orgCreateEnabled: false,
-    inviteRequestsEnabled: false,
+    inviteRequestsEnabled: deepLinkedInvite,
   });
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");

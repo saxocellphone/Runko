@@ -24,6 +24,11 @@ import { WorkspacePage } from "./pages/WorkspacePage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
 
 export default function App() {
+  // ?invite=1 (the landing page's "Request an invite" CTA, §15.1) wins
+  // over EVERY auth state: a stored credential, public-read browse, and
+  // the sign-in gate all used to swallow the deep link - the request
+  // form needs no auth, so render it unconditionally.
+  if (new URLSearchParams(window.location.search).has("invite")) return <LoginPage />;
   // A live control plane with no credential in this browser: everything
   // would 401, so gate on sign-in instead of a wall of errors - unless
   // the org this browser points at is public_read (§15.2), in which case
