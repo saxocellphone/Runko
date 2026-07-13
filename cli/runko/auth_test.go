@@ -89,6 +89,55 @@ func TestAuthLoginStoresValidatedCredential(t *testing.T) {
 	}
 }
 
+// Sign-in failures are structured for every shape the control plane
+// answers (the multi-org difficulties: a valid account against the wrong
+// org, a typo'd org, an archived one) - never a bare "whoami: HTTP NNN".
+func TestAuthLoginFailuresAreStructured(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/o/mine/"):
+			// Valid credential, wrong org: rpcMiddleware's plain-text 403.
+			http.Error(w, "forbidden: not a member of org mine", http.StatusForbidden)
+		case strings.HasPrefix(r.URL.Path, "/o/ghost/"):
+			// The org router's structured 404.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(clierr.Error{
+				Code: "unknown_org", Field: "org",
+				Message:    `no org named "ghost" on this control plane`,
+				Suggestion: "GET /api/orgs lists yours",
+			})
+		case strings.HasPrefix(r.URL.Path, "/o/attic/"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusGone)
+			json.NewEncoder(w).Encode(clierr.Error{
+				Code: "org_archived", Field: "org",
+				Message: `org "attic" is archived`,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	for _, tc := range []struct{ org, wantCode string }{
+		{"mine", "not_org_member"},
+		{"ghost", "unknown_org"},
+		{"attic", "org_archived"},
+	} {
+		_, err := AuthLogin(context.Background(), srv.Client(), srv.URL+"/o/"+tc.org, "val", "pw123456789",
+			bufio.NewReader(strings.NewReader("")), os.Stdout)
+		var ce *clierr.Error
+		if !errors.As(err, &ce) || ce.Code != tc.wantCode {
+			t.Fatalf("org %s: want %s, got %v", tc.org, tc.wantCode, err)
+		}
+		if _, found, _ := loadCredential(); found {
+			t.Fatalf("org %s: a refused login must not store a credential", tc.org)
+		}
+	}
+}
+
 func TestResolveCredentialWithoutLoginIsStructured(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	_, err := resolveCredential("", "")

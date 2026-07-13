@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -153,6 +154,16 @@ func resolveCredential(urlFlag, tokenFlag string) (Credential, error) {
 	return cred, nil
 }
 
+// decodeStructuredErr decodes a §6.5-shaped control-plane error body into
+// a *clierr.Error; nil when the body is not one (plain-text surfaces).
+func decodeStructuredErr(r io.Reader) *clierr.Error {
+	var ce clierr.Error
+	if err := json.NewDecoder(io.LimitReader(r, 1<<20)).Decode(&ce); err != nil || ce.Code == "" {
+		return nil
+	}
+	return &ce
+}
+
 // whoami validates a credential against the control plane and reports the
 // resolved identity ("" = the anonymous deploy token).
 func whoami(ctx context.Context, client *http.Client, cred Credential) (name string, anonymous bool, err error) {
@@ -167,14 +178,30 @@ func whoami(ctx context.Context, client *http.Client, cred Credential) (name str
 		return "", false, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized {
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized:
 		return "", false, &clierr.Error{
 			Code: "bad_credential", Field: "auth",
 			Message:    "the control plane rejected this credential",
 			Suggestion: "check the name/password (or token) and try again",
 		}
-	}
-	if resp.StatusCode != http.StatusOK {
+	case http.StatusForbidden:
+		// Valid credential, wrong org: sessions are org-scoped, so the
+		// /o/<org> in the URL is part of what is being signed into. The
+		// server's 403 here is plain text (rpcMiddleware), so the CLI
+		// supplies the structure.
+		return "", false, &clierr.Error{
+			Code: "not_org_member", Field: "auth",
+			Message:    "this credential is valid, but the account is not a member of the org at " + cred.URL,
+			Suggestion: "check the /o/<org> segment of the URL (GET /api/orgs lists your orgs), or ask an org admin to add you",
+		}
+	default:
+		// The org router answers structured errors (unknown_org 404,
+		// org_archived 410) - relay them instead of a bare HTTP status.
+		if ce := decodeStructuredErr(resp.Body); ce != nil {
+			return "", false, ce
+		}
 		return "", false, fmt.Errorf("whoami: HTTP %d", resp.StatusCode)
 	}
 	var body struct {
