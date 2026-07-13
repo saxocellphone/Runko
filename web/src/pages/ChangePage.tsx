@@ -8,6 +8,7 @@ import { groupThreads, partitionThreads } from "../lib/comments";
 import { absoluteTime, changeNumberLabel, shortSha, timeAgo } from "../lib/format";
 import { useRpc } from "../lib/useRpc";
 import { DiffView } from "../components/DiffView";
+import { Markdown } from "../components/Markdown";
 import { MergeGates } from "../components/MergeGates";
 import { CommentComposer, ThreadCard, type ReviewActions } from "../components/ReviewThreads";
 import { StackRail } from "../components/StackRail";
@@ -136,7 +137,7 @@ export function ChangePage() {
           )}
         </div>
         {change.description ? (
-          <p className="change-description">{change.description}</p>
+          <Markdown className="change-description" text={change.description} />
         ) : (
           change.state === ChangeState.OPEN && (
             // §8.6: the UI prompts when the summary is empty.
