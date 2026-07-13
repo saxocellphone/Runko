@@ -56,6 +56,20 @@ an afternoon of structured rejections.
   `runko workspace branch <name>`. The server refuses a second
   unrelated stack on one branch ("one branch, one stack") - the fix it
   suggests is real: restack, abandon, or branch.
+- **New project? Scaffold with the verb, never by hand.** `runko
+  project create --name <n> --type <t> --lang <l> --repo .` is the §10
+  intent->files pipeline: it generates PROJECT.yaml (build capability +
+  target patterns), README, a minimal BUILD.bazel, and a stub entrypoint.
+  Do NOT hand-write a manifest by copying a sibling project - that's the
+  anti-pattern the pipeline exists to delete, and it's how two services
+  in a row (watchdog, mailer) got hand-carved. Then evolve the scaffold
+  in ordinary changes: add the §14.9.1 `ci.checks` block (the template
+  deliberately omits it; the merge gate reads ci.checks, not the build
+  capability) and let real code + gazelle supersede the stubs. Agent
+  caveat: PROJECT.yaml is an owners surface - an agent push carrying it
+  (and anything under .github/workflows/) is REFUSED, so the manifest
+  lands as a separate operator-lane change, AFTER the code change its
+  checks point at.
 - **Never claim a workspace you don't own or didn't create.** Origin
   claims are validated and owner-bound, and they drive the review UI's
   workspace cards. Two agents must NEVER share a workspace - even when
