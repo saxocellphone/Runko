@@ -15,15 +15,17 @@ import (
 // ChangeInfo mirrors runkod.Change's wire shape (Go field names, like
 // WorkspaceInfo does for workspaces).
 type ChangeInfo struct {
-	ChangeKey  string
-	State      string
-	BaseSHA    string
-	HeadSHA    string
-	GitRef     string
-	Title      string
-	LandedSHA  string
-	AuthoredBy string
-	LandedBy   string
+	ChangeKey   string
+	State       string
+	BaseSHA     string
+	HeadSHA     string
+	GitRef      string
+	Title       string
+	Description string
+	TestPlan    string
+	LandedSHA   string
+	AuthoredBy  string
+	LandedBy    string
 }
 
 // ListChanges fetches GET /api/changes?state= ("" = all states).
@@ -44,6 +46,25 @@ func AbandonChange(ctx context.Context, client *http.Client, runkodURL, token, c
 	endpoint := strings.TrimSuffix(runkodURL, "/") + "/api/changes/" + url.PathEscape(changeID) + "/abandon"
 	var change ChangeInfo
 	if err := apiJSON(ctx, client, http.MethodPost, endpoint, token, nil, &change); err != nil {
+		return ChangeInfo{}, err
+	}
+	return change, nil
+}
+
+// DescribeChange posts POST /api/changes/{id}/describe (§8.6 summaries).
+// A nil field means "leave as is" - the daemon preserves whatever is
+// stored - while an explicit empty string clears it.
+func DescribeChange(ctx context.Context, client *http.Client, runkodURL, token, changeID string, description, testPlan *string) (ChangeInfo, error) {
+	endpoint := strings.TrimSuffix(runkodURL, "/") + "/api/changes/" + url.PathEscape(changeID) + "/describe"
+	body := map[string]string{}
+	if description != nil {
+		body["description"] = *description
+	}
+	if testPlan != nil {
+		body["test_plan"] = *testPlan
+	}
+	var change ChangeInfo
+	if err := apiJSON(ctx, client, http.MethodPost, endpoint, token, body, &change); err != nil {
 		return ChangeInfo{}, err
 	}
 	return change, nil

@@ -54,6 +54,7 @@ go_test(
         "approve_test.go",
         "auth_test.go",
         "change_test.go",
+        "describe_test.go",
         "doctor_test.go",
         "jj_test.go",
         "land_test.go",

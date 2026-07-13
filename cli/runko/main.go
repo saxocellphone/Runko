@@ -278,9 +278,9 @@ func cmdProjectList(args []string) error {
 }
 
 func cmdChange(args []string) error {
-	valid := map[string]bool{"create": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "automerge": true, "rerun-check": true, "comment": true, "comments": true, "resolve": true, "request-review": true}
+	valid := map[string]bool{"create": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "describe": true, "automerge": true, "rerun-check": true, "comment": true, "comments": true, "resolve": true, "request-review": true}
 	if len(args) < 1 || !valid[args[0]] {
-		return usageError("usage: runko change create|push|requirements|land|approve|list|abandon|automerge|rerun-check|comment|comments|resolve|request-review ... (see docs/cli-contract.md)")
+		return usageError("usage: runko change create|push|requirements|land|approve|list|abandon|describe|automerge|rerun-check|comment|comments|resolve|request-review ... (see docs/cli-contract.md)")
 	}
 	switch args[0] {
 	case "create":
@@ -295,6 +295,8 @@ func cmdChange(args []string) error {
 		return cmdChangeList(args[1:])
 	case "abandon":
 		return cmdChangeAbandon(args[1:])
+	case "describe":
+		return cmdChangeDescribe(args[1:])
 	case "automerge":
 		return cmdChangeAutomerge(args[1:])
 	case "rerun-check":
@@ -597,6 +599,55 @@ func cmdChangeAbandon(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(change)
 	}
 	fmt.Printf("abandoned %s (%s)\n", change.ChangeKey, change.Title)
+	return nil
+}
+
+func cmdChangeDescribe(args []string) error {
+	fs := flag.NewFlagSet("change describe", flag.ExitOnError)
+	runkodURL := fs.String("runkod-url", "", "runkod base URL")
+	token := fs.String("token", "", "deploy token")
+	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
+	description := fs.String("description", "", "what the change does and why (§8.6)")
+	testPlan := fs.String("test-plan", "", "how the change was verified (§8.6)")
+	jsonOut := fs.Bool("json", false, "emit the updated change as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	// A flag the caller never passed means "leave that field alone"; an
+	// explicit --description "" clears it. flag can't tell those apart
+	// from values, so distinguish by visitation.
+	var descPtr, planPtr *string
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "description":
+			descPtr = description
+		case "test-plan":
+			planPtr = testPlan
+		}
+	})
+	if descPtr == nil && planPtr == nil {
+		return fmt.Errorf("change describe: provide --description and/or --test-plan")
+	}
+	id := *changeID
+	if id == "" {
+		var err error
+		if id, err = headChangeID(*dir); err != nil {
+			return err
+		}
+	}
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
+	}
+	change, err := DescribeChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, descPtr, planPtr)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(change)
+	}
+	fmt.Printf("described %s (%s)\n", change.ChangeKey, change.Title)
 	return nil
 }
 

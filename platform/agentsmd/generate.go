@@ -26,6 +26,7 @@ var Commands = []Command{
 	{"runko", "change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t> [--json]", "record a required owner's approval (§13.5) - needs a live runkod", "MergeRequirements"},
 	{"runko", "change list [--state open] --runkod-url <url> --token <t> [--json]", "list changes, newest first (§7.4) - needs a live runkod", "[]ChangeInfo"},
 	{"runko", "change abandon --change <id> --runkod-url <url> --token <t> [--json]", "abandon an open change (§7.4) - needs a live runkod", "ChangeInfo"},
+	{"runko", "change describe [--change <Id>] [--description <text>] [--test-plan <text>] [--json]", "set the §8.6 summary on an open change (default: HEAD's Change-Id): what it does and how it was verified - agents SHOULD set this after push; shows on the change page, feeds release changelogs; an omitted flag preserves the stored value, an explicit \"\" clears - needs a live runkod", "ChangeInfo"},
 	{"runko", "change rerun-check --change <id> --name <check> --runkod-url <url> --token <t> [--json]", "reset a required check to queued + emit the rerun webhook (§14.4.2) - needs a live runkod", "MergeRequirements"},
 	{"runko", "auth login --runkod-url <url> [--name <you>] [--token <t>]", "store a validated credential (0600); commands then need no --runkod-url/--token flags", "text"},
 	{"runko", "auth status", "who the stored credential resolves to - needs a live runkod", "text"},
