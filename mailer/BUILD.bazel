@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "mailer_lib",
+    srcs = [
+        "mailer.go",
+        "main.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/mailer",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "mailer",
+    embed = [":mailer_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "mailer_test",
+    srcs = ["mailer_test.go"],
+    embed = [":mailer_lib"],
+)
