@@ -1805,7 +1805,8 @@ a.history-subject:hover {
   font-size: 11.5px;
   color: var(--text-2);
 }
-.login-label input {
+.login-label input,
+.login-label textarea {
   font: inherit;
   font-size: 13px;
   color: var(--text);
@@ -1814,9 +1815,23 @@ a.history-subject:hover {
   border-radius: 7px;
   padding: 7px 10px;
 }
-.login-label input:focus {
+.login-label textarea {
+  resize: vertical;
+  min-height: 64px;
+}
+.login-label input:focus,
+.login-label textarea:focus {
   outline: 2px solid var(--accent-soft);
   border-color: var(--accent);
+}
+/* The invite-request honeypot (§15.1): rendered but unreachable - humans
+   never see or tab into it, so a filled value marks a bot. */
+.login-honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
 }
 .login-error {
   color: var(--red);

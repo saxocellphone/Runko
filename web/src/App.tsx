@@ -37,10 +37,11 @@ export default function App() {
 // AnonGate: decide between the sign-in page and anonymous read-only
 // browsing. ?org=<name> deep links adopt that org (stored + reload, the
 // switchOrg pattern); ?signin=1 forces the sign-in page (the read-only
-// footer's Sign in button).
+// footer's Sign in button); ?invite=1 does too, landing in its
+// "Request an invite" mode (the landing page's CTA, §15.1).
 function AnonGate() {
   const params = new URLSearchParams(window.location.search);
-  const wantSignin = params.has("signin");
+  const wantSignin = params.has("signin") || params.has("invite");
   const urlOrg = params.get("org");
   const [mode, setMode] = useState<"probing" | "browse" | "login">(
     wantSignin ? "login" : "probing",
