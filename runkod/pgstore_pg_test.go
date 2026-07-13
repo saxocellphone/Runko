@@ -2,6 +2,7 @@ package runkod
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -1086,5 +1087,75 @@ func TestPostgresStoreWorkspaceActivityRoundTrip(t *testing.T) {
 	}
 	if evs, _ := other.ListWorkspaceActivity(ctx, "ws-a", 0, 0); len(evs) != 1 || evs[0].Detail != "other-org" {
 		t.Fatalf("other org's feed must survive, got %+v", evs)
+	}
+}
+
+// The invite-request outbox against real Postgres (§15.1 invite
+// requests): create -> due -> failed backoff -> sent, the live-email
+// partial unique index answering duplicates, and dead-letter at the
+// attempt cap.
+func TestPostgresInviteRequests(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+
+	req, created, err := store.CreateInviteRequest(ctx, "Ada", "ada@example.com", "hello")
+	if err != nil || !created {
+		t.Fatalf("CreateInviteRequest: %v created=%v", err, created)
+	}
+	if req.Status != "pending" || req.Email != "ada@example.com" {
+		t.Fatalf("created row: %+v", req)
+	}
+	// Case-insensitive duplicate while the first row is live: no new row,
+	// created=false, no error (ON CONFLICT DO NOTHING on the partial
+	// unique index).
+	if _, created, err := store.CreateInviteRequest(ctx, "Also Ada", "ADA@example.com", ""); err != nil || created {
+		t.Fatalf("duplicate live email: %v created=%v", err, created)
+	}
+	if n, err := store.CountLiveInviteRequests(ctx); err != nil || n != 1 {
+		t.Fatalf("CountLiveInviteRequests: %v n=%d", err, n)
+	}
+
+	due, err := store.ListDueInviteRequests(ctx, time.Now())
+	if err != nil || len(due) != 1 || due[0].ID != req.ID {
+		t.Fatalf("ListDueInviteRequests: %v %+v", err, due)
+	}
+
+	failed, err := store.RecordInviteSendResult(ctx, req.ID, "smtp: 535 auth failed", time.Minute, time.Hour, time.Now())
+	if err != nil || failed.Status != "failed" || failed.Attempt != 1 || failed.LastError != "smtp: 535 auth failed" {
+		t.Fatalf("failed ack: %v %+v", err, failed)
+	}
+	if !failed.NextAttemptAt.After(time.Now()) {
+		t.Fatalf("failed row did not back off: %+v", failed)
+	}
+	if due, _ := store.ListDueInviteRequests(ctx, time.Now()); len(due) != 0 {
+		t.Fatalf("backed-off row still due: %+v", due)
+	}
+
+	sent, err := store.RecordInviteSendResult(ctx, req.ID, "", time.Minute, time.Hour, time.Now())
+	if err != nil || sent.Status != "sent" {
+		t.Fatalf("sent ack: %v %+v", err, sent)
+	}
+	// The address is free again once nothing live holds it.
+	if _, created, err := store.CreateInviteRequest(ctx, "Ada again", "ada@example.com", ""); err != nil || !created {
+		t.Fatalf("re-request after sent: %v created=%v", err, created)
+	}
+
+	// Dead-letter at the shared attempt cap.
+	dl, _, err := store.CreateInviteRequest(ctx, "Grace", "grace@example.com", "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var last InviteRequest
+	for i := 0; i < checks.MaxDeliveryAttempts; i++ {
+		if last, err = store.RecordInviteSendResult(ctx, dl.ID, "boom", time.Minute, time.Hour, time.Now()); err != nil {
+			t.Fatalf("attempt %d: %v", i+1, err)
+		}
+	}
+	if last.Status != "dead_letter" || last.Attempt != checks.MaxDeliveryAttempts {
+		t.Fatalf("dead-letter: %+v", last)
+	}
+
+	if _, err := store.RecordInviteSendResult(ctx, "not-a-uuid", "x", time.Minute, time.Hour, time.Now()); !errors.Is(err, errNoInviteRequest) {
+		t.Fatalf("unknown id: %v", err)
 	}
 }

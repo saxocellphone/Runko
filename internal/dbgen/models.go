@@ -188,6 +188,50 @@ func (ns NullCheckStatus) Value() (driver.Value, error) {
 	return string(ns.CheckStatus), nil
 }
 
+type InviteRequestStatus string
+
+const (
+	InviteRequestStatusPending    InviteRequestStatus = "pending"
+	InviteRequestStatusSent       InviteRequestStatus = "sent"
+	InviteRequestStatusFailed     InviteRequestStatus = "failed"
+	InviteRequestStatusDeadLetter InviteRequestStatus = "dead_letter"
+)
+
+func (e *InviteRequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InviteRequestStatus(s)
+	case string:
+		*e = InviteRequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InviteRequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullInviteRequestStatus struct {
+	InviteRequestStatus InviteRequestStatus `json:"invite_request_status"`
+	Valid               bool                `json:"valid"` // Valid is true if InviteRequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInviteRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.InviteRequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InviteRequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInviteRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InviteRequestStatus), nil
+}
+
 type WebhookDeliveryStatus string
 
 const (
@@ -471,6 +515,19 @@ type InferredDependency struct {
 	DependsOnProjectID uuid.UUID          `json:"depends_on_project_id"`
 	Confidence         float32            `json:"confidence"`
 	LastSeenAt         pgtype.Timestamptz `json:"last_seen_at"`
+}
+
+type InviteRequest struct {
+	ID            uuid.UUID           `json:"id"`
+	Name          string              `json:"name"`
+	Email         string              `json:"email"`
+	Message       string              `json:"message"`
+	Status        InviteRequestStatus `json:"status"`
+	Attempt       int32               `json:"attempt"`
+	NextAttemptAt pgtype.Timestamptz  `json:"next_attempt_at"`
+	LastError     *string             `json:"last_error"`
+	CreatedAt     pgtype.Timestamptz  `json:"created_at"`
+	SentAt        pgtype.Timestamptz  `json:"sent_at"`
 }
 
 type MirrorCursor struct {

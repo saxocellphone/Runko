@@ -174,7 +174,8 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"signup_enabled": s.AllowSignup,
-		"code_required":  s.AllowSignup && s.SignupCode != "",
+		"signup_enabled":          s.AllowSignup,
+		"code_required":           s.AllowSignup && s.SignupCode != "",
+		"invite_requests_enabled": s.AllowInviteRequests,
 	})
 }

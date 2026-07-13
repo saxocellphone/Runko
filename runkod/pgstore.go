@@ -1212,6 +1212,94 @@ func (s *PostgresStore) RecordDeliveryResult(ctx context.Context, id string, res
 	return checks.RecordDeliveryResult(ctx, s.Pool, s.Queries, deliveryID, int(current.Attempt)+1, result, backoffBase, backoffMax, now)
 }
 
+// inviteRequestFromRow maps a dbgen row to the daemon view. Deliberately
+// no OrgID anywhere in these methods: invite requests are deployment-wide
+// (a request precedes any account), unlike the per-org webhook rows.
+func inviteRequestFromRow(r *dbgen.InviteRequest) InviteRequest {
+	out := InviteRequest{
+		ID: r.ID.String(), Name: r.Name, Email: r.Email, Message: r.Message,
+		Status: string(r.Status), Attempt: int(r.Attempt),
+		NextAttemptAt: r.NextAttemptAt.Time, CreatedAt: r.CreatedAt.Time,
+	}
+	if r.LastError != nil {
+		out.LastError = *r.LastError
+	}
+	return out
+}
+
+func (s *PostgresStore) CreateInviteRequest(ctx context.Context, name, email, message string) (InviteRequest, bool, error) {
+	row, err := s.Queries.CreateInviteRequest(ctx, s.Pool, dbgen.CreateInviteRequestParams{
+		Name: name, Email: email, Message: message,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// ON CONFLICT DO NOTHING against the live-email partial unique
+		// index: a live request already holds this address.
+		return InviteRequest{}, false, nil
+	}
+	if err != nil {
+		return InviteRequest{}, false, err
+	}
+	return inviteRequestFromRow(row), true, nil
+}
+
+func (s *PostgresStore) ListDueInviteRequests(ctx context.Context, now time.Time) ([]InviteRequest, error) {
+	rows, err := s.Queries.ListDueInviteRequests(ctx, s.Pool, 100)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]InviteRequest, len(rows))
+	for i, r := range rows {
+		out[i] = inviteRequestFromRow(r)
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) RecordInviteSendResult(ctx context.Context, id, sendErr string, backoffBase, backoffMax time.Duration, now time.Time) (InviteRequest, error) {
+	reqID, err := uuid.Parse(id)
+	if err != nil {
+		return InviteRequest{}, errNoInviteRequest
+	}
+	if sendErr == "" {
+		row, err := s.Queries.MarkInviteRequestSent(ctx, s.Pool, reqID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return InviteRequest{}, errNoInviteRequest
+		}
+		if err != nil {
+			return InviteRequest{}, err
+		}
+		return inviteRequestFromRow(row), nil
+	}
+	current, err := s.Queries.GetInviteRequest(ctx, s.Pool, reqID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return InviteRequest{}, errNoInviteRequest
+	}
+	if err != nil {
+		return InviteRequest{}, err
+	}
+	attempt := int(current.Attempt) + 1
+	status := dbgen.InviteRequestStatusFailed
+	if attempt >= checks.MaxDeliveryAttempts {
+		status = dbgen.InviteRequestStatusDeadLetter
+	}
+	row, err := s.Queries.MarkInviteRequestFailed(ctx, s.Pool, dbgen.MarkInviteRequestFailedParams{
+		ID: reqID, Status: status,
+		NextAttemptAt: pgtype.Timestamptz{Time: now.Add(checks.NextBackoff(attempt, backoffBase, backoffMax)), Valid: true},
+		LastError:     &sendErr,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return InviteRequest{}, errNoInviteRequest
+	}
+	if err != nil {
+		return InviteRequest{}, err
+	}
+	return inviteRequestFromRow(row), nil
+}
+
+func (s *PostgresStore) CountLiveInviteRequests(ctx context.Context) (int, error) {
+	n, err := s.Queries.CountLiveInviteRequests(ctx, s.Pool)
+	return int(n), err
+}
+
 var _ Store = (*PostgresStore)(nil)
 
 func (s *PostgresStore) CreatePrincipal(ctx context.Context, org, name, credentialHash string) error {

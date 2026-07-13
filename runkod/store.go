@@ -236,6 +236,25 @@ type WebhookDelivery struct {
 	LastError     string
 }
 
+// InviteRequest is one "how do I get the invite code?" submission from
+// the login gate (§15.1 invite requests, decided 2026-07-13) - a
+// deployment-wide outbox row the mailer service drains and acks.
+type InviteRequest struct {
+	ID            string
+	Name          string
+	Email         string
+	Message       string
+	Status        string // "pending" | "sent" | "failed" | "dead_letter"
+	Attempt       int
+	NextAttemptAt time.Time
+	LastError     string
+	CreatedAt     time.Time
+}
+
+// errNoInviteRequest lets the ack handlers answer a structured 404
+// without string-matching store errors.
+var errNoInviteRequest = fmt.Errorf("runkod: no such invite request")
+
 // Store is everything the daemon needs across the receive funnel, the
 // Checks API, and the webhook outbox. Kept specific to this package's
 // needs (not a generic repository interface) so a Postgres-backed
@@ -437,6 +456,25 @@ type Store interface {
 	EnqueueWebhook(ctx context.Context, eventType string, payload []byte) (id string, err error)
 	ListDueWebhookDeliveries(ctx context.Context, now time.Time) ([]WebhookDelivery, error)
 	RecordDeliveryResult(ctx context.Context, id string, result checks.DeliveryAttempt, backoffBase, backoffMax time.Duration, now time.Time) error
+
+	// Invite requests (§15.1, decided 2026-07-13): deployment-wide rows
+	// with the webhook-outbox lifecycle; only the default (root) server
+	// registers the routes, so per-org stores never see these calls.
+	// CreateInviteRequest reports created=false (and writes nothing) when
+	// a live - pending or failed - request already holds the same email,
+	// case-insensitively: the intake answers an idempotent 202.
+	CreateInviteRequest(ctx context.Context, name, email, message string) (req InviteRequest, created bool, err error)
+	// ListDueInviteRequests returns pending/failed rows whose
+	// next_attempt_at has passed, oldest-due first.
+	ListDueInviteRequests(ctx context.Context, now time.Time) ([]InviteRequest, error)
+	// RecordInviteSendResult acks one mailer attempt: sendErr == "" marks
+	// the row sent; anything else bumps attempt, stamps last_error, and
+	// either reschedules (checks.NextBackoff) or dead-letters at
+	// checks.MaxDeliveryAttempts. Unknown ids return errNoInviteRequest.
+	RecordInviteSendResult(ctx context.Context, id, sendErr string, backoffBase, backoffMax time.Duration, now time.Time) (InviteRequest, error)
+	// CountLiveInviteRequests counts pending+failed rows - the intake's
+	// backlog cap.
+	CountLiveInviteRequests(ctx context.Context) (int, error)
 }
 
 // MemStore is an in-memory Store - the "Eval / dev" deployment profile
@@ -468,6 +506,7 @@ type MemStore struct {
 	agents        map[string]AgentPrincipal
 	principals    map[string]StoredPrincipal // key: org + "\x00" + name
 	deliveries    map[string]*memDelivery
+	inviteReqs    map[string]*InviteRequest
 	mirrors       map[string]MirrorCursor
 	// Directory state (orghub.go): org registry + memberships + settings.
 	// Only the hub's designated directory store (the default org's)
@@ -508,6 +547,7 @@ func NewMemStore() *MemStore {
 		wsActivity: make(map[string][]WorkspaceActivity),
 		agents:     make(map[string]AgentPrincipal),
 		deliveries: make(map[string]*memDelivery),
+		inviteReqs: make(map[string]*InviteRequest),
 		mirrors:    make(map[string]MirrorCursor),
 	}
 }
@@ -1218,6 +1258,79 @@ func (s *MemStore) RecordDeliveryResult(ctx context.Context, id string, result c
 	}
 	d.Attempt = d.attempt
 	return nil
+}
+
+func (s *MemStore) CreateInviteRequest(ctx context.Context, name, email, message string) (InviteRequest, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.inviteReqs {
+		if (r.Status == "pending" || r.Status == "failed") && strings.EqualFold(r.Email, email) {
+			return InviteRequest{}, false, nil
+		}
+	}
+	s.nextID++
+	req := &InviteRequest{
+		ID: fmt.Sprintf("inv_%d", s.nextID), Name: name, Email: email, Message: message,
+		Status: "pending", CreatedAt: s.now(), NextAttemptAt: s.now(),
+	}
+	s.inviteReqs[req.ID] = req
+	return *req, true, nil
+}
+
+func (s *MemStore) ListDueInviteRequests(ctx context.Context, now time.Time) ([]InviteRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []InviteRequest
+	for _, r := range s.inviteReqs {
+		if r.Status != "pending" && r.Status != "failed" {
+			continue
+		}
+		if r.NextAttemptAt.After(now) {
+			continue
+		}
+		out = append(out, *r)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].NextAttemptAt.Equal(out[j].NextAttemptAt) {
+			return out[i].NextAttemptAt.Before(out[j].NextAttemptAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+func (s *MemStore) RecordInviteSendResult(ctx context.Context, id, sendErr string, backoffBase, backoffMax time.Duration, now time.Time) (InviteRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.inviteReqs[id]
+	if !ok {
+		return InviteRequest{}, errNoInviteRequest
+	}
+	if sendErr == "" {
+		r.Status = "sent"
+		return *r, nil
+	}
+	r.Attempt++
+	if r.Attempt >= checks.MaxDeliveryAttempts {
+		r.Status = "dead_letter"
+	} else {
+		r.Status = "failed"
+	}
+	r.NextAttemptAt = now.Add(checks.NextBackoff(r.Attempt, backoffBase, backoffMax))
+	r.LastError = sendErr
+	return *r, nil
+}
+
+func (s *MemStore) CountLiveInviteRequests(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, r := range s.inviteReqs {
+		if r.Status == "pending" || r.Status == "failed" {
+			n++
+		}
+	}
+	return n, nil
 }
 
 var _ Store = (*MemStore)(nil)
