@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  backendUrl,
   browsePublicOrg,
   fetchAuthConfig,
   fetchOrgs,
@@ -74,6 +75,11 @@ export function LoginPage() {
         <p className="login-sub">
           {signingUp ? "Create an account on this control plane" : "Sign in to this control plane"}
         </p>
+        {backendUrl && (
+          <p className="login-endpoint" title="The runkod control plane this browser is talking to">
+            <code>{backendUrl}</code>
+          </p>
+        )}
         {!signingUp && publicOrgs.length > 0 && (
           <p className="login-sub">
             Or browse without an account:{" "}

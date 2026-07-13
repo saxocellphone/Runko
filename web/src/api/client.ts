@@ -30,6 +30,12 @@ const baseUrl =
     ? new URL(rawBaseUrl, window.location.origin).toString()
     : rawBaseUrl;
 
+/** The control-plane origin this browser talks to (absolute), surfaced on
+ * the sign-in screen so it's never ambiguous which deployment you're
+ * authenticating against. Empty in demo mode (no live backend). */
+export const backendUrl: string =
+  typeof baseUrl === "string" && baseUrl !== "" ? new URL(baseUrl).origin : "";
+
 // Sign-in state is per BROWSER at runtime (localStorage), never baked at
 // build time - Vite inlines build vars into the public bundle, which
 // would hand the credential to every visitor. Basic auth (name + the
