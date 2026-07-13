@@ -46,7 +46,12 @@ import (
 // Server at ONE directory so "who exists" and "who belongs where" can
 // never differ between orgs.
 type Directory interface {
-	GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error)
+	// Accounts are PER-ORG (migration 0017): (org, name) is the identity;
+	// the same name in two orgs is two independent accounts.
+	GetStoredPrincipal(ctx context.Context, org, name string) (StoredPrincipal, bool, error)
+	// ListPrincipalOrgs returns every org-scoped account carrying a name -
+	// cross-org resolution (auth.go) and the hub org selector ride on it.
+	ListPrincipalOrgs(ctx context.Context, name string) ([]StoredPrincipal, error)
 	// EnsureOrg registers the org row (idempotent). Repo/server assembly
 	// is the hub's job, not the directory's.
 	EnsureOrg(ctx context.Context, name string) error
@@ -325,11 +330,20 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// EnsureOrg before the account half: per-org account rows (migration
+	// 0017) reference their org row, and the DEFAULT org has a serving
+	// surface but (in mem mode) no directory row until someone joins it.
+	// For create-mode the row is also what makes an interrupted assembly
+	// self-heal: boot's LoadExisting mounts every directory row.
+	if err := h.Directory.EnsureOrg(r.Context(), req.Org); err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
 	// Idempotent recovery (finding #44): an interrupted create-mode signup
 	// used to strand its account - real, valid, member of nothing, and
 	// 409ed on every retry. Re-presenting the SAME name+password now
 	// recovers instead: the account half no-ops and the org half runs.
-	recovered, apiErr := h.Default.signupOrRecoverCore(r.Context(), signupRequest{Name: req.Name, Password: req.Password, Code: req.Code})
+	recovered, apiErr := h.Default.signupOrRecoverCore(r.Context(), signupRequest{Name: req.Name, Password: req.Password, Code: req.Code, org: req.Org})
 	if apiErr != nil {
 		writeAPIError(w, apiErr)
 		return
@@ -351,12 +365,6 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 		}
 		role = "admin"
 	case "join":
-		// EnsureOrg first: the DEFAULT org has a serving surface but (in
-		// mem mode) no directory row until someone joins it.
-		if err := h.Directory.EnsureOrg(r.Context(), req.Org); err != nil {
-			writeAPIError(w, internalErr(err))
-			return
-		}
 		// A recovered re-join must never demote: an existing membership
 		// (an admin re-presenting their credential) keeps its role.
 		if existing, member, err := h.Directory.OrgMemberRole(r.Context(), req.Org, req.Name); err == nil && member {
@@ -619,6 +627,26 @@ func (h *OrgHub) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, apiErr)
 		return
 	}
+	// Per-org identity: the stored creator needs an account row IN the new
+	// org to ever sign into it. Clone the credential they authenticated
+	// WITH (verified against its source org's hash - never a same-named
+	// stranger's row) into the new org's account space.
+	if c.principal != nil && c.principal.Stored {
+		if _, pass, ok := r.BasicAuth(); ok {
+			if rows, err := h.Directory.ListPrincipalOrgs(r.Context(), creator); err == nil {
+				for _, sp := range rows {
+					if !verifyCredential(pass, sp.CredentialHash) {
+						continue
+					}
+					if err := h.Default.Store.CreatePrincipal(r.Context(), body.Name, creator, sp.CredentialHash); err != nil {
+						writeAPIError(w, internalErr(fmt.Errorf("org created, but copying your account into it failed: %w", err)))
+						return
+					}
+					break
+				}
+			}
+		}
+	}
 	role := "admin"
 	if creator == "" {
 		role = "operator"
@@ -700,7 +728,20 @@ func (h *OrgHub) handleListOrgs(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, internalErr(err))
 			return
 		}
+		_, pass, _ := r.BasicAuth()
 		for _, m := range memberships {
+			// Per-org accounts: a membership row counts only when THIS
+			// credential verifies against that org's own account - the
+			// same name in another org is someone else's account, and
+			// their orgs must not leak into this caller's selector.
+			sp, found, err := h.Directory.GetStoredPrincipal(r.Context(), m.Org, c.principal.Name)
+			if err != nil || !found {
+				continue
+			}
+			if !(h.Default.credCache.hit(credKey(m.Org, sp.Name), pass) || verifyCredential(pass, sp.CredentialHash)) {
+				continue
+			}
+			h.Default.credCache.remember(credKey(m.Org, sp.Name), pass)
 			out = append(out, h.orgInfoFor(m.Org, m.Role))
 		}
 	}
@@ -924,16 +965,17 @@ func (h *OrgHub) handleAddOrgMember(w http.ResponseWriter, r *http.Request) {
 		}))
 		return
 	}
-	// The account must exist: membership for a name nobody registered is
-	// a typo, not an invitation system.
-	if _, found, err := h.Directory.GetStoredPrincipal(r.Context(), body.Name); err != nil {
+	// The account must exist IN THIS ORG (per-org identity, migration
+	// 0017): membership is a role on one of the org's own accounts, and
+	// the same name in another org is someone else's account.
+	if _, found, err := h.Directory.GetStoredPrincipal(r.Context(), orgName, body.Name); err != nil {
 		writeAPIError(w, internalErr(err))
 		return
 	} else if !found {
 		writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
 			Code: "unknown_principal", Field: "name",
-			Message:    fmt.Sprintf("no account named %q", body.Name),
-			Suggestion: "they need to sign up first",
+			Message:    fmt.Sprintf("no account named %q in org %q", body.Name, orgName),
+			Suggestion: fmt.Sprintf("they need to sign up into %q first (org_mode: join)", orgName),
 		}))
 		return
 	}

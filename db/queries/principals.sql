@@ -1,12 +1,24 @@
 -- Self-service principals (§15.1 sign-up; db/migrations/0004).
--- Server-global since 0007: one account, many orgs - org access lives in
--- org_members (orgs.sql).
+-- PER-ORG since 0017 (superseding 0007's global rows): an account is
+-- (org, name, credential) - the same name in two orgs is two independent
+-- accounts. org_members (orgs.sql) stays the access/role gate.
 
 -- name: CreatePrincipal :one
-INSERT INTO principals (name, credential_hash)
-VALUES ($1, $2)
+INSERT INTO principals (org_id, name, credential_hash)
+SELECT o.id, sqlc.arg(name)::text, sqlc.arg(credential_hash)::text
+FROM orgs o WHERE o.name = sqlc.arg(org_name)::text
 RETURNING *;
 
--- name: GetPrincipalByName :one
-SELECT * FROM principals
-WHERE name = $1;
+-- name: GetPrincipalByOrgAndName :one
+SELECT p.* FROM principals p
+JOIN orgs o ON o.id = p.org_id
+WHERE o.name = sqlc.arg(org_name)::text AND p.name = sqlc.arg(name)::text;
+
+-- Every org holding an account with this name - the hub's cross-org
+-- resolution (which orgs can this credential possibly sign into) and the
+-- 403-vs-401 distinction ride on this.
+-- name: ListPrincipalOrgsByName :many
+SELECT o.name AS org_name, p.credential_hash FROM principals p
+JOIN orgs o ON o.id = p.org_id
+WHERE p.name = sqlc.arg(name)::text
+ORDER BY o.name;

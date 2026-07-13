@@ -545,20 +545,37 @@ func TestPostgresStoreLifecycleAndRerunAttempts(t *testing.T) {
 
 func TestPostgresStorePrincipalRoundTrip(t *testing.T) {
 	store := newTestPostgresStore(t)
+	ctx := context.Background()
+	org := t.Name() // the bootstrap org
 
-	if _, found, err := store.GetStoredPrincipal(context.Background(), "val"); err != nil || found {
+	if _, found, err := store.GetStoredPrincipal(ctx, org, "val"); err != nil || found {
 		t.Fatalf("empty table: found=%v err=%v", found, err)
 	}
-	if err := store.CreatePrincipal(context.Background(), "val", "pbkdf2-sha256$1$c2FsdA$aGFzaA"); err != nil {
+	if err := store.CreatePrincipal(ctx, org, "val", "pbkdf2-sha256$1$c2FsdA$aGFzaA"); err != nil {
 		t.Fatalf("CreatePrincipal: %v", err)
 	}
-	sp, found, err := store.GetStoredPrincipal(context.Background(), "val")
+	sp, found, err := store.GetStoredPrincipal(ctx, org, "val")
 	if err != nil || !found || sp.Name != "val" || sp.CredentialHash != "pbkdf2-sha256$1$c2FsdA$aGFzaA" {
 		t.Fatalf("round trip: %+v found=%v err=%v", sp, found, err)
 	}
-	// The unique constraint backs the handler's race path.
-	if err := store.CreatePrincipal(context.Background(), "val", "other"); err == nil {
+	// The unique constraint backs the handler's race path - per org
+	// (migration 0017), so the same name in ANOTHER org is fine.
+	if err := store.CreatePrincipal(ctx, org, "val", "other"); err == nil {
 		t.Fatalf("duplicate CreatePrincipal should error")
+	}
+	if _, err := NewOrgPostgresStore(ctx, store.Pool, "valtown", "main"); err != nil {
+		t.Fatalf("NewOrgPostgresStore: %v", err)
+	}
+	if err := store.CreatePrincipal(ctx, "valtown", "val", "other-hash"); err != nil {
+		t.Fatalf("same name in another org must be allowed: %v", err)
+	}
+	rows, err := store.ListPrincipalOrgs(ctx, "val")
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("ListPrincipalOrgs: %+v %v", rows, err)
+	}
+	// A missing org row fails loudly instead of inserting nothing.
+	if err := store.CreatePrincipal(ctx, "no-such-org", "val", "h"); err == nil {
+		t.Fatalf("CreatePrincipal into an unknown org must error")
 	}
 }
 
@@ -591,23 +608,27 @@ func TestPostgresStoreMirrorCursors(t *testing.T) {
 	}
 }
 
-// TestPostgresDirectoryMultiOrg covers migration 0007's surface: global
-// accounts, org membership CRUD, per-org store isolation on one shared
-// pool - the durable half of what orghub_test.go proves in mem mode.
+// TestPostgresDirectoryMultiOrg covers migrations 0007+0017's surface:
+// per-org accounts, org membership CRUD, per-org store isolation on one
+// shared pool - the durable half of what orghub_test.go proves in mem mode.
 func TestPostgresDirectoryMultiOrg(t *testing.T) {
 	ctx := context.Background()
 	def := newTestPostgresStore(t)
 
-	// Accounts are global: created via one org's store, visible via another's.
-	if err := def.CreatePrincipal(ctx, "alice", "hash-a"); err != nil {
-		t.Fatalf("CreatePrincipal: %v", err)
-	}
+	// Accounts are per-org rows on the shared pool: any org's store
+	// answers for any org's rows given the org name.
 	acme, err := NewOrgPostgresStore(ctx, def.Pool, "acme", "main")
 	if err != nil {
 		t.Fatalf("NewOrgPostgresStore(acme): %v", err)
 	}
-	if sp, found, err := acme.GetStoredPrincipal(ctx, "alice"); err != nil || !found || sp.CredentialHash != "hash-a" {
+	if err := def.CreatePrincipal(ctx, "acme", "alice", "hash-a"); err != nil {
+		t.Fatalf("CreatePrincipal: %v", err)
+	}
+	if sp, found, err := acme.GetStoredPrincipal(ctx, "acme", "alice"); err != nil || !found || sp.CredentialHash != "hash-a" {
 		t.Fatalf("alice not visible from acme's store: %+v %v %v", sp, found, err)
+	}
+	if _, found, _ := def.GetStoredPrincipal(ctx, t.Name(), "alice"); found {
+		t.Fatalf("alice must not exist in the bootstrap org (per-org identity)")
 	}
 
 	// Membership round-trip against the org rows NewOrgPostgresStore created.

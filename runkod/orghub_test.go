@@ -162,11 +162,20 @@ func TestOrgLifecycleMemMode(t *testing.T) {
 	if status != http.StatusForbidden || body["Code"] != "not_org_member" {
 		t.Fatalf("non-member add member: got %d %v", status, body)
 	}
-	if status, body = hubDo(t, srv, "POST", "/api/orgs/acme/members", "alice", "alicepw123", "", map[string]string{"name": "bob"}); status != http.StatusOK {
-		t.Fatalf("admin add member: got %d %v", status, body)
+	// Per-org identity (migration 0017): membership is a role on one of
+	// the org's OWN accounts - bob's default-org account is not one, so
+	// adding him is unknown_principal; he joins by signing up INTO acme.
+	status, body = hubDo(t, srv, "POST", "/api/orgs/acme/members", "alice", "alicepw123", "", map[string]string{"name": "bob"})
+	if status != http.StatusNotFound || body["Code"] != "unknown_principal" {
+		t.Fatalf("cross-org member add must refuse: got %d %v", status, body)
+	}
+	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "", map[string]string{
+		"name": "bob", "password": "bobpw1234", "org": "acme", "org_mode": "join"})
+	if status != http.StatusCreated {
+		t.Fatalf("bob joining acme: got %d %v", status, body)
 	}
 	if status, _ = hubDo(t, srv, "GET", "/o/acme/api/changes", "bob", "bobpw1234", "", nil); status != http.StatusOK {
-		t.Fatalf("bob should have access after being added: status %d", status)
+		t.Fatalf("bob should have access after joining: status %d", status)
 	}
 	status, body = hubDo(t, srv, "POST", "/api/orgs/acme/members", "bob", "bobpw1234", "", map[string]string{"name": "ghost2"})
 	if status != http.StatusForbidden || body["Code"] != "not_org_admin" {
@@ -284,8 +293,10 @@ func TestOrgSettingsAndMembers(t *testing.T) {
 	if status, _ := hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}); status != http.StatusCreated {
 		t.Fatalf("create acme failed")
 	}
-	if status, _ := hubDo(t, srv, "POST", "/api/orgs/acme/members", "alice", "alicepw123", "", map[string]string{"name": "bob"}); status != http.StatusOK {
-		t.Fatalf("add bob failed")
+	// Per-org identity: bob arrives in acme by signing up into it.
+	if status, _ := hubDo(t, srv, "POST", "/api/signup", "", "", "", map[string]string{
+		"name": "bob", "password": "bobpw1234", "org": "acme", "org_mode": "join"}); status != http.StatusCreated {
+		t.Fatalf("bob joining acme failed")
 	}
 
 	// Members may read settings; only admins may write.

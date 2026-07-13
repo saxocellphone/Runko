@@ -213,7 +213,7 @@ func TestStoredOrgAdminMayForceLand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("hash: %v", err)
 		}
-		if err := store.CreatePrincipal(ctx, name, hash); err != nil {
+		if err := store.CreatePrincipal(ctx, "acme", name, hash); err != nil {
 			t.Fatalf("create %s: %v", name, err)
 		}
 	}

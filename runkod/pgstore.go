@@ -1187,28 +1187,47 @@ func (s *PostgresStore) RecordDeliveryResult(ctx context.Context, id string, res
 
 var _ Store = (*PostgresStore)(nil)
 
-func (s *PostgresStore) CreatePrincipal(ctx context.Context, name, credentialHash string) error {
-	// Server-global since migration 0007 (one account, many orgs) - every
-	// org's PostgresStore shares the pool, so any of them answers for the
-	// same account rows.
+func (s *PostgresStore) CreatePrincipal(ctx context.Context, org, name, credentialHash string) error {
+	// Per-org since migration 0017: the row binds to its org; every org's
+	// PostgresStore shares the pool, so any of them answers for any org's
+	// rows given the org name.
 	_, err := s.Queries.CreatePrincipal(ctx, s.Pool, dbgen.CreatePrincipalParams{
-		Name: name, CredentialHash: credentialHash,
+		OrgName: org, Name: name, CredentialHash: credentialHash,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The INSERT..SELECT matched no org row - a missing org must fail
+		// loudly, not insert nothing.
+		return fmt.Errorf("runkod: create principal %q: org %q has no directory row", name, org)
+	}
 	if err != nil {
-		return fmt.Errorf("runkod: create principal %q: %w", name, err)
+		return fmt.Errorf("runkod: create principal %q in org %q: %w", name, org, err)
 	}
 	return nil
 }
 
-func (s *PostgresStore) GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error) {
-	row, err := s.Queries.GetPrincipalByName(ctx, s.Pool, name)
+func (s *PostgresStore) GetStoredPrincipal(ctx context.Context, org, name string) (StoredPrincipal, bool, error) {
+	row, err := s.Queries.GetPrincipalByOrgAndName(ctx, s.Pool, dbgen.GetPrincipalByOrgAndNameParams{
+		OrgName: org, Name: name,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StoredPrincipal{}, false, nil
 	}
 	if err != nil {
-		return StoredPrincipal{}, false, fmt.Errorf("runkod: get principal %q: %w", name, err)
+		return StoredPrincipal{}, false, fmt.Errorf("runkod: get principal %q in org %q: %w", name, org, err)
 	}
-	return StoredPrincipal{Name: row.Name, CredentialHash: row.CredentialHash}, true, nil
+	return StoredPrincipal{Org: org, Name: row.Name, CredentialHash: row.CredentialHash}, true, nil
+}
+
+func (s *PostgresStore) ListPrincipalOrgs(ctx context.Context, name string) ([]StoredPrincipal, error) {
+	rows, err := s.Queries.ListPrincipalOrgsByName(ctx, s.Pool, name)
+	if err != nil {
+		return nil, fmt.Errorf("runkod: list principal orgs for %q: %w", name, err)
+	}
+	out := make([]StoredPrincipal, len(rows))
+	for i, r := range rows {
+		out[i] = StoredPrincipal{Org: r.OrgName, Name: name, CredentialHash: r.CredentialHash}
+	}
+	return out, nil
 }
 
 // Directory (orghub.go): global account + membership view. Backed by the

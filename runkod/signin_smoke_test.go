@@ -126,15 +126,16 @@ func TestSigninMatrixEveryCredentialEverySurface(t *testing.T) {
 	srv := fx.srv
 
 	// alice creates acme (stored org-admin); bob joins the default org
-	// and alice adds him to acme - the two-org account.
+	// AND acme - per-org identity (migration 0017) makes that two account
+	// rows under one name+password, the one-human-many-orgs shape.
 	if status, body := signupOrg(t, srv, "alice", "alicepw123", "acme", "create"); status != http.StatusCreated {
 		t.Fatalf("alice signup: %d %v", status, body)
 	}
 	if status, body := signupOrg(t, srv, "bob", "bobpw12345", "defaultorg", "join"); status != http.StatusCreated {
 		t.Fatalf("bob signup: %d %v", status, body)
 	}
-	if status, body := hubDo(t, srv, "POST", "/api/orgs/acme/members", "alice", "alicepw123", "", map[string]string{"name": "bob"}); status != http.StatusOK {
-		t.Fatalf("alice adds bob to acme: %d %v", status, body)
+	if status, body := signupOrg(t, srv, "bob", "bobpw12345", "acme", "join"); status != http.StatusCreated {
+		t.Fatalf("bob joining acme: %d %v", status, body)
 	}
 	// One minted agent (rows live in the default org's store).
 	status, minted := hubDo(t, srv, "POST", "/api/agents", "", "", "sekret", map[string]any{"task": "smoke"})
@@ -439,10 +440,16 @@ func TestSignupInterruptedOrgCreate(t *testing.T) {
 		t.Fatalf("orgless account org list: %d %v", status, body)
 	}
 
-	// Administrative recovery still works: an operator (or org admin)
-	// adds the membership, and the account works normally from then on.
-	if status, _ := hubDo(t, srv, "POST", "/api/orgs/defaultorg/members", "", "", "sekret", map[string]string{"name": "zed"}); status != http.StatusOK {
-		t.Fatalf("operator recovery failed: %d", status)
+	// Per-org identity: an operator can NOT paste the account into another
+	// org (no acme... no defaultorg account rows exist for zed) - recovery
+	// is self-service: zed signs up into a working org under the same
+	// name, a fresh per-org account.
+	status, body = hubDo(t, srv, "POST", "/api/orgs/defaultorg/members", "", "", "sekret", map[string]string{"name": "zed"})
+	if status != http.StatusNotFound || body["Code"] != "unknown_principal" {
+		t.Fatalf("cross-org member add must refuse: %d %v", status, body)
+	}
+	if status, _ := signupOrg(t, srv, "zed", "zedpw12345", "defaultorg", "join"); status != http.StatusCreated {
+		t.Fatalf("self-service join after interruption: %d", status)
 	}
 	if status, who := hubDo(t, srv, "GET", "/o/defaultorg/api/whoami", "zed", "zedpw12345", "", nil); status != http.StatusOK || who["name"] != "zed" {
 		t.Fatalf("recovered account sign-in: %d %v", status, who)
@@ -494,5 +501,78 @@ func TestSignupRejoinPreservesRole(t *testing.T) {
 	}
 	if status, body := signupOrg(t, srv, "alice", "wrong-password", "acme", "join"); status != http.StatusConflict || body["Code"] != "name_taken" {
 		t.Fatalf("re-join under a wrong password: %d %v", status, body)
+	}
+}
+
+// TestSameNameDifferentOrgs is the per-org identity headline (migration
+// 0017, user direction 2026-07-13): two orgs each have their own "casey"
+// - different humans, different passwords, no interaction. Each signs
+// into their own org; each is deniedOrg (403, valid-elsewhere) on the
+// other's; a password wrong for BOTH stays 401; selectors never leak the
+// other's orgs; an existing account creating a second org via POST
+// /api/orgs gets a cloned account there and can sign straight in.
+func TestSameNameDifferentOrgs(t *testing.T) {
+	fx := newSigninHub(t)
+	srv := fx.srv
+
+	if status, _ := signupOrg(t, srv, "casey", "first-casey-pw", "org-a", "create"); status != http.StatusCreated {
+		t.Fatalf("casey@org-a signup failed")
+	}
+	if status, body := signupOrg(t, srv, "casey", "other-casey-pw", "org-b", "create"); status != http.StatusCreated {
+		t.Fatalf("the same name in a DIFFERENT org must sign up cleanly: %d %v", status, body)
+	}
+	// And within one org the name stays taken.
+	if status, body := signupOrg(t, srv, "casey", "third-casey-pw", "org-a", "join"); status != http.StatusConflict || body["Code"] != "name_taken" {
+		t.Fatalf("same name within one org: %d %v", status, body)
+	}
+
+	whoami := func(org, pass string) (int, map[string]any) {
+		return hubDo(t, srv, "GET", "/o/"+org+"/api/whoami", "casey", pass, "", nil)
+	}
+	if status, who := whoami("org-a", "first-casey-pw"); status != http.StatusOK || who["admin"] != true {
+		t.Fatalf("casey@org-a sign-in: %d %v", status, who)
+	}
+	if status, who := whoami("org-b", "other-casey-pw"); status != http.StatusOK || who["admin"] != true {
+		t.Fatalf("casey@org-b sign-in: %d %v", status, who)
+	}
+	// Each casey on the OTHER org: 403 (the credential is real, the org
+	// is not theirs) - never a 401, never a sign-in.
+	if status, _ := whoami("org-b", "first-casey-pw"); status != http.StatusForbidden {
+		t.Fatalf("casey@org-a on org-b: want 403, got %d", status)
+	}
+	if status, _ := whoami("org-a", "other-casey-pw"); status != http.StatusForbidden {
+		t.Fatalf("casey@org-b on org-a: want 403, got %d", status)
+	}
+	// Wrong for both rows: 401.
+	if status, _ := whoami("org-a", "not-anyones-pw"); status != http.StatusUnauthorized {
+		t.Fatalf("wrong-for-everyone password: want 401, got %d", status)
+	}
+
+	// Selectors are per-credential: each casey sees only their own org.
+	for _, tc := range []struct{ pass, want string }{
+		{"first-casey-pw", "org-a"},
+		{"other-casey-pw", "org-b"},
+	} {
+		status, body := hubDo(t, srv, "GET", "/api/orgs", "casey", tc.pass, "", nil)
+		if status != http.StatusOK {
+			t.Fatalf("selector (%s): %d", tc.want, status)
+		}
+		orgs := body["orgs"].([]any)
+		if len(orgs) != 1 || orgs[0].(map[string]any)["name"] != tc.want {
+			t.Fatalf("selector (%s) must list exactly that org, got %v", tc.want, orgs)
+		}
+	}
+
+	// A stored account creating a second org via POST /api/orgs gets its
+	// account cloned into the new org - sign-in works immediately.
+	if status, body := hubDo(t, srv, "POST", "/api/orgs", "casey", "first-casey-pw", "", map[string]string{"name": "org-c"}); status != http.StatusCreated {
+		t.Fatalf("casey@org-a creates org-c: %d %v", status, body)
+	}
+	if status, who := whoami("org-c", "first-casey-pw"); status != http.StatusOK || who["admin"] != true {
+		t.Fatalf("creator sign-in on the new org: %d %v", status, who)
+	}
+	// ... and org-b's casey still can't reach it.
+	if status, _ := whoami("org-c", "other-casey-pw"); status != http.StatusForbidden {
+		t.Fatalf("the other casey on org-c: want 403, got %d", status)
 	}
 }

@@ -11,44 +11,90 @@ import (
 
 const createPrincipal = `-- name: CreatePrincipal :one
 
-INSERT INTO principals (name, credential_hash)
-VALUES ($1, $2)
-RETURNING id, name, credential_hash, created_at
+INSERT INTO principals (org_id, name, credential_hash)
+SELECT o.id, $1::text, $2::text
+FROM orgs o WHERE o.name = $3::text
+RETURNING id, name, credential_hash, created_at, org_id
 `
 
 type CreatePrincipalParams struct {
 	Name           string `json:"name"`
 	CredentialHash string `json:"credential_hash"`
+	OrgName        string `json:"org_name"`
 }
 
 // Self-service principals (§15.1 sign-up; db/migrations/0004).
-// Server-global since 0007: one account, many orgs - org access lives in
-// org_members (orgs.sql).
+// PER-ORG since 0017 (superseding 0007's global rows): an account is
+// (org, name, credential) - the same name in two orgs is two independent
+// accounts. org_members (orgs.sql) stays the access/role gate.
 func (q *Queries) CreatePrincipal(ctx context.Context, db DBTX, arg CreatePrincipalParams) (*Principal, error) {
-	row := db.QueryRow(ctx, createPrincipal, arg.Name, arg.CredentialHash)
+	row := db.QueryRow(ctx, createPrincipal, arg.Name, arg.CredentialHash, arg.OrgName)
 	var i Principal
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.CredentialHash,
 		&i.CreatedAt,
+		&i.OrgID,
 	)
 	return &i, err
 }
 
-const getPrincipalByName = `-- name: GetPrincipalByName :one
-SELECT id, name, credential_hash, created_at FROM principals
-WHERE name = $1
+const getPrincipalByOrgAndName = `-- name: GetPrincipalByOrgAndName :one
+SELECT p.id, p.name, p.credential_hash, p.created_at, p.org_id FROM principals p
+JOIN orgs o ON o.id = p.org_id
+WHERE o.name = $1::text AND p.name = $2::text
 `
 
-func (q *Queries) GetPrincipalByName(ctx context.Context, db DBTX, name string) (*Principal, error) {
-	row := db.QueryRow(ctx, getPrincipalByName, name)
+type GetPrincipalByOrgAndNameParams struct {
+	OrgName string `json:"org_name"`
+	Name    string `json:"name"`
+}
+
+func (q *Queries) GetPrincipalByOrgAndName(ctx context.Context, db DBTX, arg GetPrincipalByOrgAndNameParams) (*Principal, error) {
+	row := db.QueryRow(ctx, getPrincipalByOrgAndName, arg.OrgName, arg.Name)
 	var i Principal
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.CredentialHash,
 		&i.CreatedAt,
+		&i.OrgID,
 	)
 	return &i, err
+}
+
+const listPrincipalOrgsByName = `-- name: ListPrincipalOrgsByName :many
+SELECT o.name AS org_name, p.credential_hash FROM principals p
+JOIN orgs o ON o.id = p.org_id
+WHERE p.name = $1::text
+ORDER BY o.name
+`
+
+type ListPrincipalOrgsByNameRow struct {
+	OrgName        string `json:"org_name"`
+	CredentialHash string `json:"credential_hash"`
+}
+
+// Every org holding an account with this name - the hub's cross-org
+// resolution (which orgs can this credential possibly sign into) and the
+// 403-vs-401 distinction ride on this.
+func (q *Queries) ListPrincipalOrgsByName(ctx context.Context, db DBTX, name string) ([]*ListPrincipalOrgsByNameRow, error) {
+	rows, err := db.Query(ctx, listPrincipalOrgsByName, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*ListPrincipalOrgsByNameRow
+	for rows.Next() {
+		var i ListPrincipalOrgsByNameRow
+		if err := rows.Scan(&i.OrgName, &i.CredentialHash); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

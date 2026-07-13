@@ -22,7 +22,7 @@ func newTagTestProcessor(t *testing.T) (*Processor, *MemStore) {
 		t.Fatalf("EnsureOrg: %v", err)
 	}
 	for name, role := range map[string]string{"alice": "admin", "rel": "releaser", "bob": "member"} {
-		if err := mem.CreatePrincipal(ctx, name, "hash"); err != nil {
+		if err := mem.CreatePrincipal(ctx, "test-org", name, "hash"); err != nil {
 			t.Fatalf("CreatePrincipal(%s): %v", name, err)
 		}
 		if err := mem.UpsertOrgMember(ctx, "test-org", name, role); err != nil {

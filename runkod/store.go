@@ -350,12 +350,15 @@ type Store interface {
 
 	// CreatePrincipal registers a self-service human principal (§15.1
 	// sign-up flow; db/migrations/0004): name + PBKDF2 credential hash
-	// (credential.go), never a plaintext token. Errors if the name is
-	// taken. Operator principals (--principal) stay daemon config and are
-	// checked FIRST everywhere - a signup can never shadow one (the
-	// handler rejects colliding names before calling this).
-	CreatePrincipal(ctx context.Context, name, credentialHash string) error
-	GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error)
+	// (credential.go), never a plaintext token. PER-ORG since migration
+	// 0017 (user direction 2026-07-13): an account is (org, name) - the
+	// same name in two orgs is two independent accounts. Errors if the
+	// name is taken IN THAT ORG. Operator principals (--principal) stay
+	// daemon config, server-wide, and are checked FIRST everywhere - a
+	// signup can never shadow one (the handler rejects colliding names
+	// before calling this).
+	CreatePrincipal(ctx context.Context, org, name, credentialHash string) error
+	GetStoredPrincipal(ctx context.Context, org, name string) (StoredPrincipal, bool, error)
 
 	// Agent principals: ephemeral per-task identities (agentprincipal.go).
 	// Mint errors on a name collision (the caller retries with a fresh
@@ -428,6 +431,9 @@ type Store interface {
 // - always human; agent principals carry policy and remain operator
 // config.
 type StoredPrincipal struct {
+	// Org scopes the account (migration 0017): the same name in two orgs
+	// is two independent accounts.
+	Org            string
 	Name           string
 	CredentialHash string
 }
@@ -446,7 +452,7 @@ type MemStore struct {
 	wsActivity    map[string][]WorkspaceActivity // workspaceID -> activity, id order
 	wsActivitySeq int64
 	agents        map[string]AgentPrincipal
-	principals    map[string]StoredPrincipal
+	principals    map[string]StoredPrincipal // key: org + "\x00" + name
 	deliveries    map[string]*memDelivery
 	mirrors       map[string]MirrorCursor
 	// Directory state (orghub.go): org registry + memberships + settings.
@@ -896,24 +902,41 @@ func (s *MemStore) GetWorkspace(ctx context.Context, id string) (Workspace, bool
 	return ws, ok, nil
 }
 
-func (s *MemStore) CreatePrincipal(ctx context.Context, name, credentialHash string) error {
+func principalKey(org, name string) string { return org + "\x00" + name }
+
+func (s *MemStore) CreatePrincipal(ctx context.Context, org, name, credentialHash string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.principals == nil {
 		s.principals = make(map[string]StoredPrincipal)
 	}
-	if _, taken := s.principals[name]; taken {
-		return fmt.Errorf("runkod: principal %q already exists", name)
+	if _, taken := s.principals[principalKey(org, name)]; taken {
+		return fmt.Errorf("runkod: principal %q already exists in org %q", name, org)
 	}
-	s.principals[name] = StoredPrincipal{Name: name, CredentialHash: credentialHash}
+	s.principals[principalKey(org, name)] = StoredPrincipal{Org: org, Name: name, CredentialHash: credentialHash}
 	return nil
 }
 
-func (s *MemStore) GetStoredPrincipal(ctx context.Context, name string) (StoredPrincipal, bool, error) {
+func (s *MemStore) GetStoredPrincipal(ctx context.Context, org, name string) (StoredPrincipal, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sp, ok := s.principals[name]
+	sp, ok := s.principals[principalKey(org, name)]
 	return sp, ok, nil
+}
+
+// ListPrincipalOrgs returns every org-scoped account carrying this name -
+// the hub's cross-org resolution and the 403-vs-401 distinction.
+func (s *MemStore) ListPrincipalOrgs(ctx context.Context, name string) ([]StoredPrincipal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []StoredPrincipal
+	for _, sp := range s.principals {
+		if sp.Name == name {
+			out = append(out, sp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Org < out[j].Org })
+	return out, nil
 }
 
 func (s *MemStore) MintAgentPrincipal(ctx context.Context, ap AgentPrincipal) (AgentPrincipal, error) {

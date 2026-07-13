@@ -147,14 +147,17 @@ func (s *Server) callerForBasicOpts(user, pass string, gated bool) caller {
 	}
 	// Store-backed principals (§15.1 sign-up, signup.go): checked LAST so
 	// operator config always wins a name. The PBKDF2 verification is
-	// cached per (name, password) pair - Basic rides on every request.
-	// Accounts are server-global (migration 0007): on an org-scoped
-	// server (orghub.go) the credential can be perfectly valid and still
-	// denied here - membership in THIS org is part of authentication.
-	if dir := s.accountLookup(); dir != nil {
-		if sp, found, err := dir(context.Background(), user); err == nil && found {
-			if s.credCache.hit(user, pass) || verifyCredential(pass, sp.CredentialHash) {
-				s.credCache.remember(user, pass)
+	// cached per (org, name, password) - Basic rides on every request.
+	// Accounts are PER-ORG (migration 0017, user direction 2026-07-13,
+	// superseding 0007's global rows): the account that signs in here is
+	// (this org, name); the same name elsewhere is someone else's
+	// account. A credential that verifies only against ANOTHER org's
+	// same-named account answers deniedOrg - 403, never 401 - keeping
+	// "wrong password" and "wrong org" distinguishable.
+	if lookup := s.accountLookup(); lookup != nil {
+		if sp, found, err := lookup(context.Background(), s.OrgName, user); err == nil && found {
+			if s.credCache.hit(credKey(s.OrgName, user), pass) || verifyCredential(pass, sp.CredentialHash) {
+				s.credCache.remember(credKey(s.OrgName, user), pass)
 				if gated && s.OrgName != "" && s.Directory != nil {
 					role, member, err := s.Directory.OrgMemberRole(context.Background(), s.OrgName, sp.Name)
 					if err != nil || !member {
@@ -171,14 +174,52 @@ func (s *Server) callerForBasicOpts(user, pass string, gated bool) caller {
 				return caller{ok: true, principal: &Principal{Name: sp.Name, Stored: true}}
 			}
 		}
+		// No in-org account (or its password didn't match): when the same
+		// credential verifies against another org's account, the answer
+		// is "wrong org", not "wrong password". Hub-global surfaces
+		// (gated=false) go further and RESOLVE the cross-org identity -
+		// "who are you" is server-global even though reach is per-org.
+		if s.Directory != nil {
+			if sp, ok := s.crossOrgAccount(user, pass); ok {
+				if gated {
+					return caller{deniedOrg: true}
+				}
+				return caller{ok: true, principal: &Principal{Name: sp.Name, Stored: true}}
+			}
+		}
 	}
 	return caller{}
 }
 
+// crossOrgAccount finds an account with this name IN ANOTHER ORG whose
+// hash the password verifies - the "valid credential, wrong org" case.
+func (s *Server) crossOrgAccount(user, pass string) (StoredPrincipal, bool) {
+	rows, err := s.Directory.ListPrincipalOrgs(context.Background(), user)
+	if err != nil {
+		return StoredPrincipal{}, false
+	}
+	for _, sp := range rows {
+		if sp.Org == s.OrgName {
+			continue // the in-org row already had its chance above
+		}
+		if s.credCache.hit(credKey(sp.Org, user), pass) || verifyCredential(pass, sp.CredentialHash) {
+			s.credCache.remember(credKey(sp.Org, user), pass)
+			return sp, true
+		}
+	}
+	return StoredPrincipal{}, false
+}
+
+// credKey scopes credential-cache entries by org: with per-org accounts
+// the same (name, password) may be valid for one org's account and not
+// another's. "\x00" can appear in neither an org name nor an account name.
+func credKey(org, name string) string { return org + "\x00" + name }
+
 // accountLookup returns the store-backed account resolver: the global
-// Directory when the hub wired one (org-scoped servers MUST see all
-// accounts, not their own store's empty map), else this server's Store.
-func (s *Server) accountLookup() func(context.Context, string) (StoredPrincipal, bool, error) {
+// Directory when the hub wired one (org-scoped servers MUST see every
+// org's account rows, not their own store's empty map), else this
+// server's Store.
+func (s *Server) accountLookup() func(ctx context.Context, org, name string) (StoredPrincipal, bool, error) {
 	if s.Directory != nil {
 		return s.Directory.GetStoredPrincipal
 	}

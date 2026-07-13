@@ -28,6 +28,11 @@ type signupRequest struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
 	Code     string `json:"code"`
+	// org scopes the account (migration 0017: per-org identity). Set by
+	// the caller - the hub passes the signup's target org, the plain
+	// default-server handler passes its own OrgName - never decoded from
+	// the request body (the org half has its own validated field there).
+	org string
 }
 
 // signupCore validates and registers one principal; both the REST handler
@@ -86,7 +91,7 @@ func (s *Server) signupCore(ctx context.Context, req signupRequest) *apiError {
 	if taken() {
 		return nameTaken
 	}
-	if _, exists, err := s.Store.GetStoredPrincipal(ctx, req.Name); err != nil {
+	if _, exists, err := s.Store.GetStoredPrincipal(ctx, req.org, req.Name); err != nil {
 		return internalErr(err)
 	} else if exists {
 		return nameTaken
@@ -96,7 +101,7 @@ func (s *Server) signupCore(ctx context.Context, req signupRequest) *apiError {
 	if err != nil {
 		return internalErr(err)
 	}
-	if err := s.Store.CreatePrincipal(ctx, req.Name, hash); err != nil {
+	if err := s.Store.CreatePrincipal(ctx, req.org, req.Name, hash); err != nil {
 		// A racing duplicate insert lands here via the unique constraint.
 		return nameTaken
 	}
@@ -115,9 +120,9 @@ func (s *Server) signupCore(ctx context.Context, req signupRequest) *apiError {
 func (s *Server) signupOrRecoverCore(ctx context.Context, req signupRequest) (recovered bool, apiErr *apiError) {
 	if lookup := s.accountLookup(); lookup != nil && s.AllowSignup &&
 		(s.SignupCode == "" || constantTimeEquals(req.Code, s.SignupCode)) {
-		if sp, found, err := lookup(ctx, req.Name); err == nil && found {
-			if s.credCache.hit(req.Name, req.Password) || verifyCredential(req.Password, sp.CredentialHash) {
-				s.credCache.remember(req.Name, req.Password)
+		if sp, found, err := lookup(ctx, req.org, req.Name); err == nil && found {
+			if s.credCache.hit(credKey(req.org, req.Name), req.Password) || verifyCredential(req.Password, sp.CredentialHash) {
+				s.credCache.remember(credKey(req.org, req.Name), req.Password)
 				return true, nil
 			}
 		}
@@ -159,6 +164,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 		}))
 		return
 	}
+	req.org = s.OrgName
 	if _, apiErr := s.signupOrRecoverCore(r.Context(), req); apiErr != nil {
 		writeAPIError(w, apiErr)
 		return

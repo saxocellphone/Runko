@@ -84,10 +84,11 @@ func (p *Processor) principalByName(name string) *Principal {
 	// Store-backed principals (§15.1 sign-up) are always human - no agent
 	// policy to enforce - but they must resolve here so workspace
 	// owner-only pushes and authored_by attribution treat them as the
-	// named identities they are. Accounts are server-global: an org's
-	// Processor consults the hub's Directory (orghub.go), not its own
-	// store's (empty, in mem mode) principal map.
-	var lookup func(context.Context, string) (StoredPrincipal, bool, error)
+	// named identities they are. Accounts are per-org (migration 0017):
+	// the row that authenticated this push is (this org, name), resolved
+	// through the hub's Directory (orghub.go) when wired, else this
+	// store's own rows.
+	var lookup func(ctx context.Context, org, name string) (StoredPrincipal, bool, error)
 	switch {
 	case p.Directory != nil:
 		lookup = p.Directory.GetStoredPrincipal
@@ -95,7 +96,7 @@ func (p *Processor) principalByName(name string) *Principal {
 		lookup = p.Store.GetStoredPrincipal
 	}
 	if lookup != nil {
-		if sp, found, err := lookup(context.Background(), name); err == nil && found {
+		if sp, found, err := lookup(context.Background(), p.OrgName, name); err == nil && found {
 			return &Principal{Name: sp.Name, Stored: true}
 		}
 	}
