@@ -33,6 +33,7 @@ import (
 	"github.com/saxocellphone/runko/platform/land"
 	"text/tabwriter"
 
+	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/platform/agentsmd"
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/mcp"
@@ -123,8 +124,8 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace sync --runkod-url <url> --token <t> [--dir .]    sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)
 
-  auth login --runkod-url <url> [--name <you>] [--token <t>]   store a credential; every command below then needs no flags
-  auth status | auth logout                                   who am I / forget the credential
+  auth login --runkod-url <url>/o/<org> [--name <you>]        sign in once (password prompted, hidden); every command below then needs no flags
+  auth status | auth logout                                   who am I (against which control plane) / forget the credential
   org create --name <org>                                     new org owning its own repo at /o/<org>/ (§7.1) [--json]
   org list                                                    orgs you can reach (role + git URL) [--json]
   org add-member --org <org> --name <account> [--role member|admin|releaser]   grant an account access [--json]
@@ -394,14 +395,18 @@ func cmdAuth(args []string) error {
 	switch args[0] {
 	case "login":
 		fs := flag.NewFlagSet("auth login", flag.ExitOnError)
-		runkodURL := fs.String("runkod-url", "", "runkod base URL (required)")
-		name := fs.String("name", "", "principal name (empty = anonymous bearer token)")
-		token := fs.String("token", "", "token/password (prompted on stdin when omitted)")
+		runkodURL := fs.String("runkod-url", "", "runkod API base: the /o/<org> mount, NOT the web path - e.g. https://runko.victornazzaro.com/o/acme (required)")
+		name := fs.String("name", "", "your principal name, e.g. alice; omit to store a bare deploy token (anonymous bearer)")
+		token := fs.String("token", "", "token or password; omit to be prompted securely (input hidden)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if *runkodURL == "" {
-			return fmt.Errorf("auth login: --runkod-url is required")
+			return &clierr.Error{
+				Code: "missing_url", Field: "runkod-url",
+				Message:    "auth login needs --runkod-url (the /o/<org> API mount, not the web path)",
+				Suggestion: "runko auth login --runkod-url https://<host>/o/<org> --name <you>",
+			}
 		}
 		_, err := AuthLogin(ctx, http.DefaultClient, *runkodURL, *name, *token, bufio.NewReader(os.Stdin), os.Stdout)
 		return err
