@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -187,20 +188,21 @@ func whoami(ctx context.Context, client *http.Client, cred Credential) (name str
 }
 
 // AuthLogin validates and stores a credential. secret == "" prompts on
-// stdin (plainly - no terminal-mode dependency; fine for a homelab CLI,
-// and scripts pass --token/--password anyway).
+// stdin, hiding the keystrokes when stdin is a terminal (readSecret); a
+// piped/redirected stdin - tests, scripts - still reads plainly, and
+// scripts can always pass --token/--password to skip the prompt entirely.
 func AuthLogin(ctx context.Context, client *http.Client, url, name, secret string, prompt *bufio.Reader, out *os.File) (Credential, error) {
 	if secret == "" {
 		label := "token"
 		if name != "" {
 			label = "password for " + name
 		}
-		fmt.Fprintf(out, "%s (input is echoed): ", label)
-		line, err := prompt.ReadString('\n')
+		fmt.Fprintf(out, "%s: ", label)
+		s, err := readSecret(prompt, out)
 		if err != nil {
 			return Credential{}, fmt.Errorf("read secret: %w", err)
 		}
-		secret = strings.TrimSpace(line)
+		secret = s
 	}
 	cred := Credential{URL: strings.TrimSuffix(url, "/"), Name: name, Secret: secret}
 	who, anonymous, err := whoami(ctx, client, cred)
@@ -218,4 +220,51 @@ func AuthLogin(ctx context.Context, client *http.Client, url, name, secret strin
 		fmt.Fprintf(out, "logged in to %s as %s; stored in %s\n", cred.URL, who, path)
 	}
 	return cred, nil
+}
+
+// readSecret reads one secret line from prompt. When stdin is an
+// interactive terminal it turns echo off first, so a typed password
+// never lands on screen or in scrollback; a piped or redirected stdin
+// (tests, scripts) reads plainly. The newline the user's Enter would
+// have echoed is emitted by hand once echo is restored.
+func readSecret(prompt *bufio.Reader, out *os.File) (string, error) {
+	restore := silenceEcho()
+	line, err := prompt.ReadString('\n')
+	if restore != nil {
+		restore()
+		fmt.Fprintln(out)
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
+}
+
+// silenceEcho disables terminal echo when stdin is a TTY and returns a
+// restore func; it returns nil when stdin is not a terminal or stty is
+// unavailable (piped input, Windows), signalling callers to fall back to
+// a plain, echoed read.
+func silenceEcho() func() {
+	fi, err := os.Stdin.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return nil
+	}
+	if err := sttyEcho(false); err != nil {
+		return nil
+	}
+	return func() { _ = sttyEcho(true) }
+}
+
+// sttyEcho toggles the controlling terminal's echo flag by shelling out
+// to stty (present on every Unix runko targets) rather than vendoring a
+// terminal library - the same shell-out-to-system-tools stance the git
+// plumbing takes (§22.2 lean dependencies).
+func sttyEcho(on bool) error {
+	arg := "-echo"
+	if on {
+		arg = "echo"
+	}
+	cmd := exec.Command("stty", arg)
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
 }
