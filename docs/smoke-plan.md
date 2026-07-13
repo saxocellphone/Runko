@@ -94,13 +94,14 @@ The two-sided contract:
 | S8 | The web client's full signup sequence (config → signup → whoami on the returned org → org list) | every step 2xx, `api_base`/`git_url` usable verbatim |
 | S9 | Passwords are opaque: colons allowed (Basic splits on the FIRST colon), 8-char minimum boundary accepted | signup + whoami round-trip |
 | S10 | CORS preflights on `/api/signup`, `/api/auth/config`, `/api/orgs`, `/o/<org>/api/whoami` | 204 with `Allow-Origin: *`, unauthenticated |
+| S11 | **Per-org identity** (migration 0017): the same username in two orgs is two independent accounts - each signs into its own org, selectors never leak the other's orgs, and an account creating a second org gets its credential cloned there | `TestSameNameDifferentOrgs` |
 
 ### Refusal rows (exact status + `clierr` code, never a bare 500)
 
 | # | Scenario | Expected |
 |---|----------|----------|
 | R1 | Wrong password; right password under the wrong name; garbage base64; empty credential | 401 (plain text on `rpcMiddleware` surfaces — the login page maps by status) |
-| R2 | Valid account, org it doesn't belong to (root and `/o/` forms) | **403, never 401** — "wrong password" and "wrong org" must stay distinguishable |
+| R2 | Valid account, org it doesn't belong to (root and `/o/` forms) — including a credential that verifies only against ANOTHER org's same-named account | **403, never 401** — "wrong password" and "wrong org" must stay distinguishable |
 | R3 | Unknown org in the URL | 404 `unknown_org` |
 | R4 | Archived org — for members and operators alike; unarchive restores routing without restart | 410 `org_archived`, then 200 |
 | R5 | Signup gates, in gate order: disabled → `signup_disabled` 403; bad invite code → `bad_signup_code` 403; bad name → `invalid_name` 400; weak password → `weak_password` 400 | as listed |
@@ -108,7 +109,7 @@ The two-sided contract:
 | R7 | Signup org half: missing org 400 `missing_org`; bad mode 400 `invalid_org_mode`; create disabled 403 `org_create_disabled`; invalid/reserved name 400 `invalid_org_name`; taken 409 `org_exists`; join of unknown 404 `unknown_org` |
 | R8 | Agent principal on hub org APIs (list AND create); bot lane likewise | 403 `agent_denied` / `lane_denied` |
 | R9 | Agent credential presented to a foreign org | 401 (agent rows are org-scoped) |
-| R10 | Member management: non-admin 403 `not_org_admin`; unknown account 404 `unknown_principal`; bad role 400 `invalid_role` |
+| R10 | Member management: non-admin 403 `not_org_admin`; account not signed up IN THAT ORG 404 `unknown_principal` (per-org identity - cross-org member-add does not exist); bad role 400 `invalid_role` |
 | R11 | Stored org-admin on the deployment admin surface | 403 `operator_only` |
 | R12 | Account names are case-sensitive end to end (sign-in with the wrong case is a 401, not a match) | 401 |
 | R13 | Interrupted create-mode signup (org assembly fails after the account row) | honest 500 naming the half-done state; retrying the SAME name+password recovers (idempotent signup, finding #44) — wrong password keeps 409 `name_taken`; re-joins never demote an existing role |
