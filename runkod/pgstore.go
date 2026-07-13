@@ -156,12 +156,18 @@ func (s *PostgresStore) GetChange(ctx context.Context, changeKey string) (Change
 // which is exactly what /readyz wants to know about (§9.4).
 func (s *PostgresStore) Ping(ctx context.Context) error { return s.Pool.Ping(ctx) }
 
+// ListChanges orders landed listings by landed_at (landing order - the one
+// clock that matches trunk, finding #43/#45); every other listing stays on
+// number (creation order).
 func (s *PostgresStore) ListChanges(ctx context.Context, state string) ([]Change, error) {
 	var rows []*dbgen.Change
 	var err error
-	if state == "" {
+	switch state {
+	case "":
 		rows, err = s.Queries.ListAllChanges(ctx, s.Pool, s.MonorepoID)
-	} else {
+	case "landed":
+		rows, err = s.Queries.ListLandedChanges(ctx, s.Pool, s.MonorepoID)
+	default:
 		rows, err = s.Queries.ListChangesByState(ctx, s.Pool, dbgen.ListChangesByStateParams{
 			MonorepoID: s.MonorepoID, State: dbgen.ChangeState(state),
 		})
@@ -173,8 +179,9 @@ func (s *PostgresStore) ListChanges(ctx context.Context, state string) ([]Change
 }
 
 // ListChangesPage pages at the SQL layer - LIMIT/OFFSET riding migration
-// 0010's (monorepo_id, state, number DESC) index - so serving one page of
-// an unbounded landed history never materializes (or hydrates) the rest.
+// 0010's (monorepo_id, state, number DESC) index (0018's landed_at index
+// for the landed listing) - so serving one page of an unbounded landed
+// history never materializes (or hydrates) the rest.
 func (s *PostgresStore) ListChangesPage(ctx context.Context, state string, limit, offset int) ([]Change, error) {
 	if limit < 0 {
 		limit = 0 // dbgen's LIMIT NULLIF(x, 0): 0 means unbounded
@@ -184,11 +191,16 @@ func (s *PostgresStore) ListChangesPage(ctx context.Context, state string, limit
 	}
 	var rows []*dbgen.Change
 	var err error
-	if state == "" {
+	switch state {
+	case "":
 		rows, err = s.Queries.ListAllChangesPage(ctx, s.Pool, dbgen.ListAllChangesPageParams{
 			MonorepoID: s.MonorepoID, PageLimit: int32(limit), PageOffset: int32(offset),
 		})
-	} else {
+	case "landed":
+		rows, err = s.Queries.ListLandedChangesPage(ctx, s.Pool, dbgen.ListLandedChangesPageParams{
+			MonorepoID: s.MonorepoID, PageLimit: int32(limit), PageOffset: int32(offset),
+		})
+	default:
 		rows, err = s.Queries.ListChangesByStatePage(ctx, s.Pool, dbgen.ListChangesByStatePageParams{
 			MonorepoID: s.MonorepoID, State: dbgen.ChangeState(state), PageLimit: int32(limit), PageOffset: int32(offset),
 		})

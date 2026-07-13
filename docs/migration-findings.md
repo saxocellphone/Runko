@@ -502,6 +502,24 @@ planning; entries marked `[observed]` happened during execution.
     the signup join path. Pinned by TestSignupInterruptedOrgCreate,
     TestSignupRecoveryAfterInterruptedCreate, TestSignupRejoinPreservesRole.
 
+45. **[observed, web UI] The landed tab sorted by change number, so a
+    later-created change that landed FIRST sat on top of the change
+    that landed after it - with the older "landed" byline right there
+    on the row.** Finding #43's sibling, one layer up: #43 fixed WHICH
+    TIME history displays; this one is which ORDER the changes list
+    reads in. Observed with I395611c1 (created later in a second
+    workspace, fast-forward-landed 20:19) above Ib9c54264 (created
+    earlier, rebase-landed on top of it 20:20) - the control-plane data
+    was fully consistent, graph order and landed_at agreed; only the
+    list's sort key (number DESC = creation order, fine for the open
+    inbox) misread a landed history. Fixed store-side so web, CLI, and
+    REST all inherit it: the landed listing orders by landed_at DESC
+    (number DESC tiebreak) in both stores - ListLandedChanges[Page]
+    riding a partial index (migration 0018), MemStore sorting landed by
+    LandedAt - while open/abandoned/all stay on creation order. Pinned
+    by TestPostgresStoreLandedListingOrder and
+    TestMemStoreLandedListingOrder.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,

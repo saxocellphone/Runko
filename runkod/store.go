@@ -611,9 +611,17 @@ func (s *MemStore) ListChanges(ctx context.Context, state string) ([]Change, err
 			out = append(out, c)
 		}
 	}
-	// MemStore has no monotonic change number (Postgres orders by it,
-	// newest first); sort by ChangeKey for a deterministic listing.
-	sort.Slice(out, func(i, j int) bool { return out[i].ChangeKey < out[j].ChangeKey })
+	// Landed listings read in landing order - landed_at DESC, matching
+	// Postgres (finding #45). Everything else: MemStore has no monotonic
+	// change number (Postgres orders by it, newest first); sort by
+	// ChangeKey for a deterministic listing. ChangeKey also breaks
+	// landed_at ties, which same-instant fake clocks make common.
+	sort.Slice(out, func(i, j int) bool {
+		if state == "landed" && !out[i].LandedAt.Equal(out[j].LandedAt) {
+			return out[i].LandedAt.After(out[j].LandedAt)
+		}
+		return out[i].ChangeKey < out[j].ChangeKey
+	})
 	return out, nil
 }
 

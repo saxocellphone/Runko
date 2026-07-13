@@ -48,6 +48,17 @@ SELECT * FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number 
 -- name: ListChangesByState :many
 SELECT * FROM changes WHERE monorepo_id = $1 AND state = $2 ORDER BY number DESC;
 
+-- name: ListLandedChanges :many
+-- Landed listings read in LANDING order, not creation order (finding #45):
+-- number is assigned at creation, so a later-created change that landed
+-- first would sort above the change that landed after it. landed_at is the
+-- one clock that matches trunk order (finding #43); number breaks the
+-- (sub-microsecond) ties deterministically. Rides idx_changes_landed_order
+-- (migration 0018) - the state literal is what lets the planner use the
+-- partial index.
+SELECT * FROM changes WHERE monorepo_id = $1 AND state = 'landed'
+ORDER BY landed_at DESC, number DESC;
+
 -- name: ListAllChanges :many
 SELECT * FROM changes WHERE monorepo_id = $1 ORDER BY number DESC;
 
@@ -58,6 +69,13 @@ SELECT * FROM changes WHERE monorepo_id = $1 ORDER BY number DESC;
 -- contract.
 SELECT * FROM changes WHERE monorepo_id = $1 AND state = $2
 ORDER BY number DESC
+LIMIT NULLIF(sqlc.arg(page_limit)::int, 0) OFFSET sqlc.arg(page_offset)::int;
+
+-- name: ListLandedChangesPage :many
+-- One page of ListLandedChanges - same LIMIT NULLIF(x, 0) contract as
+-- ListChangesByStatePage.
+SELECT * FROM changes WHERE monorepo_id = $1 AND state = 'landed'
+ORDER BY landed_at DESC, number DESC
 LIMIT NULLIF(sqlc.arg(page_limit)::int, 0) OFFSET sqlc.arg(page_offset)::int;
 
 -- name: ListAllChangesPage :many

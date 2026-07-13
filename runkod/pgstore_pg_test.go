@@ -543,6 +543,45 @@ func TestPostgresStoreLifecycleAndRerunAttempts(t *testing.T) {
 	}
 }
 
+// TestPostgresStoreLandedListingOrder pins finding #45: the landed listing
+// reads in LANDING order (landed_at DESC), not creation order. I2 has the
+// higher number (created later) but lands FIRST - number ordering would
+// put it on top with an older landing time right there on the row; landing
+// order puts I1 (the most recent land) first. The paged read must window
+// the same order.
+func TestPostgresStoreLandedListingOrder(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+
+	if _, err := store.CreateOrUpdateChange(ctx, "I1", "b", "h1", "r1", "t1", "", "", ""); err != nil {
+		t.Fatalf("create I1: %v", err)
+	}
+	if _, err := store.CreateOrUpdateChange(ctx, "I2", "b", "h2", "r2", "t2", "", "", ""); err != nil {
+		t.Fatalf("create I2: %v", err)
+	}
+	if _, err := store.MarkChangeLanded(ctx, "I2", "sha2", "", false); err != nil {
+		t.Fatalf("land I2: %v", err)
+	}
+	if _, err := store.MarkChangeLanded(ctx, "I1", "sha1", "", false); err != nil {
+		t.Fatalf("land I1: %v", err)
+	}
+
+	landed, err := store.ListChanges(ctx, "landed")
+	if err != nil || len(landed) != 2 {
+		t.Fatalf("ListChanges(landed): got %v (%v)", landed, err)
+	}
+	if landed[0].ChangeKey != "I1" || landed[1].ChangeKey != "I2" {
+		t.Fatalf("want landing order [I1 I2] (I1 landed last), got [%s %s]",
+			landed[0].ChangeKey, landed[1].ChangeKey)
+	}
+	if page, err := store.ListChangesPage(ctx, "landed", 1, 0); err != nil || len(page) != 1 || page[0].ChangeKey != "I1" {
+		t.Fatalf("page(1,0): want [I1], got %+v (%v)", page, err)
+	}
+	if page, err := store.ListChangesPage(ctx, "landed", 1, 1); err != nil || len(page) != 1 || page[0].ChangeKey != "I2" {
+		t.Fatalf("page(1,1): want [I2], got %+v (%v)", page, err)
+	}
+}
+
 func TestPostgresStorePrincipalRoundTrip(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()

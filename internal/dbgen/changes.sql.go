@@ -777,6 +777,122 @@ func (q *Queries) ListChangesByStatePage(ctx context.Context, db DBTX, arg ListC
 	return items, nil
 }
 
+const listLandedChanges = `-- name: ListLandedChanges :many
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE monorepo_id = $1 AND state = 'landed'
+ORDER BY landed_at DESC, number DESC
+`
+
+// Landed listings read in LANDING order, not creation order (finding #45):
+// number is assigned at creation, so a later-created change that landed
+// first would sort above the change that landed after it. landed_at is the
+// one clock that matches trunk order (finding #43); number breaks the
+// (sub-microsecond) ties deterministically. Rides idx_changes_landed_order
+// (migration 0018) - the state literal is what lets the planner use the
+// partial index.
+func (q *Queries) ListLandedChanges(ctx context.Context, db DBTX, monorepoID uuid.UUID) ([]*Change, error) {
+	rows, err := db.Query(ctx, listLandedChanges, monorepoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Change
+	for rows.Next() {
+		var i Change
+		if err := rows.Scan(
+			&i.ID,
+			&i.MonorepoID,
+			&i.ChangeKey,
+			&i.Number,
+			&i.State,
+			&i.BaseSha,
+			&i.HeadSha,
+			&i.GitRef,
+			&i.Title,
+			&i.Description,
+			&i.TestPlan,
+			&i.AuthoredByActorID,
+			&i.DependsOnChangeID,
+			&i.Mechanical,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LandedAt,
+			&i.LandedSha,
+			&i.LandedByActorID,
+			&i.OriginWorkspace,
+			&i.OriginBranch,
+			&i.LandedForced,
+			&i.Automerge,
+			&i.AutomergeBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLandedChangesPage = `-- name: ListLandedChangesPage :many
+SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE monorepo_id = $1 AND state = 'landed'
+ORDER BY landed_at DESC, number DESC
+LIMIT NULLIF($3::int, 0) OFFSET $2::int
+`
+
+type ListLandedChangesPageParams struct {
+	MonorepoID uuid.UUID `json:"monorepo_id"`
+	PageOffset int32     `json:"page_offset"`
+	PageLimit  int32     `json:"page_limit"`
+}
+
+// One page of ListLandedChanges - same LIMIT NULLIF(x, 0) contract as
+// ListChangesByStatePage.
+func (q *Queries) ListLandedChangesPage(ctx context.Context, db DBTX, arg ListLandedChangesPageParams) ([]*Change, error) {
+	rows, err := db.Query(ctx, listLandedChangesPage, arg.MonorepoID, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*Change
+	for rows.Next() {
+		var i Change
+		if err := rows.Scan(
+			&i.ID,
+			&i.MonorepoID,
+			&i.ChangeKey,
+			&i.Number,
+			&i.State,
+			&i.BaseSha,
+			&i.HeadSha,
+			&i.GitRef,
+			&i.Title,
+			&i.Description,
+			&i.TestPlan,
+			&i.AuthoredByActorID,
+			&i.DependsOnChangeID,
+			&i.Mechanical,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LandedAt,
+			&i.LandedSha,
+			&i.LandedByActorID,
+			&i.OriginWorkspace,
+			&i.OriginBranch,
+			&i.LandedForced,
+			&i.Automerge,
+			&i.AutomergeBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenChanges = `-- name: ListOpenChanges :many
 SELECT id, monorepo_id, change_key, number, state, base_sha, head_sha, git_ref, title, description, test_plan, authored_by_actor_id, depends_on_change_id, mechanical, created_at, updated_at, landed_at, landed_sha, landed_by_actor_id, origin_workspace, origin_branch, landed_forced, automerge, automerge_by FROM changes WHERE monorepo_id = $1 AND state = 'open' ORDER BY number DESC LIMIT $2 OFFSET $3
 `
