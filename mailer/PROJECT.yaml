@@ -1,0 +1,33 @@
+# runko-mailer - the invite-request notifier (§15.1 invite requests):
+# drains runkod's operator-only due feed (GET /api/invite-requests/due)
+# and emails each request to the deployment operator over plain SMTP
+# (STARTTLS when the server advertises it), with Reply-To set to the
+# requester - replying with the invite code IS the fulfillment. Acks
+# /sent and /failed back; retry, backoff, and dead-letter state live on
+# the server row (the §14.4.1 outbox model), so this service is
+# stateless and egress-only.
+#
+# Scaffolded with `runko project create --name mailer --type service
+# --lang go` (§10 intent->files; the build capability below is its
+# output), then evolved with the repo's encapsulated checks (§14.9.1):
+# checks are OWNED here, scoped to //mailer/... . No -race check on
+# purpose: one sequential poll loop, no concurrent surface. No
+# dependencies: stdlib only - the feed contract is pinned by this
+# project's own httptest stub (the watchdog precedent).
+schema: project/v1
+name: mailer
+type: service
+language: go
+capabilities:
+    - build
+capability_config:
+    build:
+        engine: bazel
+        target_patterns:
+            - //mailer/...
+ci:
+  checks:
+    - name: mailer-test
+      command: bazel test --test_output=errors //mailer/...
+    - name: bazel-check
+      command: make check-bazel
