@@ -1034,7 +1034,7 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	// Saying "mergeable" while land 409s was a lie the UI faithfully
 	// repeated (found live: abandon a stack's bottom and the pending
 	// child kept its green chip). Name the parent when we know it.
-	if !s.baseOnTrunk(change.BaseSHA) && !s.parentReStampedInPlace(ctx, change.BaseSHA) {
+	if !s.baseOnTrunk(change.BaseSHA) && !s.parentLandedOnTrunk(ctx, change.BaseSHA) {
 		req.Mergeable = false
 		if parent, ok := s.changeWithHead(ctx, change.BaseSHA); ok {
 			verb := "land it first"
@@ -1042,10 +1042,11 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 			case "abandoned":
 				verb = "reopen it (re-push its stack) or rebase this change onto trunk and re-push"
 			case "landed":
-				// The parent landed REBASED - its pre-land commit never
-				// reached trunk, so this child still hangs off history
-				// that isn't there.
-				verb = "it landed as a different commit - rebase this change onto trunk and re-push"
+				// Landed but its landed commit is NOT on trunk anymore
+				// (history rewound) - genuinely stranded. A landed parent
+				// whose commit IS on trunk no longer reaches here: the
+				// child is mergeable and rebases at land time (§13.5).
+				verb = "its landed commit is no longer on trunk - rebase this change onto trunk and re-push"
 			}
 			req.Blockers = append(req.Blockers, fmt.Sprintf("stacked on %s (%q, %s) - %s", parent.ChangeKey, firstLine(parent.Title), parent.State, verb))
 		} else {
