@@ -1268,9 +1268,9 @@ func (r *rpcServer) BlameFile(ctx context.Context, req *connect.Request[runkov1.
 // ---- proto transforms ----
 
 // protoChange maps a Store Change onto common.proto's ChangeSummary.
-// number/description/url stay unset - the proto marks them "not yet served"
-// until the daemon exposes them (common.proto's field comments are the
-// contract for that).
+// number/url stay unset - the proto marks them "not yet served" until the
+// daemon exposes them (common.proto's field comments are the contract for
+// that).
 func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
 	baseOnTrunk, baseBehind := s.baseTrunkRelation(c.BaseSHA)
 	// Landed changes are history: their base is by definition behind
@@ -1286,6 +1286,7 @@ func (s *Server) protoChange(c Change) *runkov1.ChangeSummary {
 		HeadSha:         c.HeadSHA,
 		GitRef:          c.GitRef,
 		Title:           c.Title,
+		Description:     c.Description,
 		LandedSha:       c.LandedSHA,
 		LandedForced:    c.LandedForced,
 		LandedAt:        landedAtUnix(c),

@@ -242,6 +242,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/changes", s.requireReadAuth(s.handleListChanges))
 	mux.HandleFunc("GET /api/changes/{key}", s.requireReadAuth(s.handleGetChange))
 	mux.HandleFunc("POST /api/changes/{key}/abandon", s.requireAuth(s.handleAbandonChange))
+	mux.HandleFunc("POST /api/changes/{key}/describe", s.requireAuth(s.handleDescribeChange))
 	mux.HandleFunc("POST /api/changes/{key}/sync", s.requireAuth(s.handleSyncChange))
 	mux.HandleFunc("POST /api/changes/{key}/checks/{name}/rerun", s.requireAuth(s.handleRerunCheck))
 	mux.HandleFunc("GET /api/changes/{key}/affected", s.requireReadAuth(s.handleGetAffected))

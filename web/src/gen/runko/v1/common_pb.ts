@@ -364,7 +364,7 @@ export type ChangeSummary = Message<"runko.v1.ChangeSummary"> & {
   landedSha: string;
 
   /**
-   * not yet served (exists in Postgres, not in the REST/MemStore view)
+   * §8.6 summary prose, set via POST .../describe; "" until someone sets it
    *
    * @generated from field: string description = 8;
    */

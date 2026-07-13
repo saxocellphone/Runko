@@ -991,7 +991,7 @@ type ChangeSummary struct {
 	GitRef      string                 `protobuf:"bytes,5,opt,name=git_ref,json=gitRef,proto3" json:"git_ref,omitempty"` // stable fetchable ref: refs/changes/<id>/head (§14.4.4)
 	Title       string                 `protobuf:"bytes,6,opt,name=title,proto3" json:"title,omitempty"`
 	LandedSha   string                 `protobuf:"bytes,7,opt,name=landed_sha,json=landedSha,proto3" json:"landed_sha,omitempty"` // set once state == LANDED; may differ from head_sha (rebase-land, §13.5)
-	Description string                 `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`              // not yet served (exists in Postgres, not in the REST/MemStore view)
+	Description string                 `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`              // §8.6 summary prose, set via POST .../describe; "" until someone sets it
 	// Interim attribution (§15.1 named-token principals, §28.3 stage 12c
 	// slice 2, in progress): Actor.id is the principal name; unset when
 	// pushed anonymously with the deploy token (eval profile).

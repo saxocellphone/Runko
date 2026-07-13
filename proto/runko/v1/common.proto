@@ -144,7 +144,7 @@ message ChangeSummary {
   string git_ref = 5;  // stable fetchable ref: refs/changes/<id>/head (§14.4.4)
   string title = 6;
   string landed_sha = 7;  // set once state == LANDED; may differ from head_sha (rebase-land, §13.5)
-  string description = 8;  // not yet served (exists in Postgres, not in the REST/MemStore view)
+  string description = 8;  // §8.6 summary prose, set via POST .../describe; "" until someone sets it
   // Interim attribution (§15.1 named-token principals, §28.3 stage 12c
   // slice 2, in progress): Actor.id is the principal name; unset when
   // pushed anonymously with the deploy token (eval profile).

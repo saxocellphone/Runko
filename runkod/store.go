@@ -21,6 +21,15 @@ type Change struct {
 	HeadSHA   string
 	GitRef    string
 	Title     string
+	// Description / TestPlan are §8.6's change summaries: prose about what
+	// the change does and how it was verified, set explicitly via
+	// POST /api/changes/{key}/describe - never derived from the commit
+	// message. Unlike Title they do NOT move with the head: an amend
+	// re-gates checks and approvals but keeps the blurb (automerge's
+	// arming survives amends for the same reason). Display metadata and
+	// §14.10.3 release-changelog input, never a merge gate.
+	Description string
+	TestPlan    string
 	// LandedSHA is the trunk-side commit the Change actually landed as -
 	// HeadSHA on a fast-forward, but a NEW commit SHA when land.Land had to
 	// rebase (§13.5). Empty until MarkChangeLanded is called.
@@ -255,6 +264,11 @@ type Store interface {
 	// SetChangeAutomerge arms (with the arming principal recorded) or
 	// disarms the when-ready land on an open Change.
 	SetChangeAutomerge(ctx context.Context, changeKey string, enabled bool, by string) (Change, error)
+
+	// UpdateChangeDescription sets §8.6's summary fields (see
+	// Change.Description). Both values are written as given - the describe
+	// endpoint resolves omitted-field-preserves semantics before calling.
+	UpdateChangeDescription(ctx context.Context, changeKey, description, testPlan string) (Change, error)
 
 	// MarkChangeAbandoned moves an open Change to "abandoned" (§7.4's third
 	// state, settable for the first time in stage 12c-③). Abandoning an
@@ -633,6 +647,19 @@ func (s *MemStore) SetChangeAutomerge(ctx context.Context, changeKey string, ena
 	if enabled {
 		c.AutomergeBy = by
 	}
+	s.changes[changeKey] = c
+	return c, nil
+}
+
+func (s *MemStore) UpdateChangeDescription(ctx context.Context, changeKey, description, testPlan string) (Change, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.changes[changeKey]
+	if !ok {
+		return Change{}, fmt.Errorf("runkod: no such change %q", changeKey)
+	}
+	c.Description = description
+	c.TestPlan = testPlan
 	s.changes[changeKey] = c
 	return c, nil
 }
