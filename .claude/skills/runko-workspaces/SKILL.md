@@ -87,21 +87,27 @@ URL-embedded basic auth), rebase with `jj rebase -d 'main@origin'`.
 
 1. Edit. **Snapshot often**: `runko workspace snapshot -m "wip"` -
    durable, secret-scanned; a killed session loses nothing.
-2. Submit: `runko change create -m "<title>..."`, then
+2. **Added, moved, or deleted a Go file? Run `bazel run //:gazelle`
+   BEFORE committing** - BUILD.bazel files are generated, a stale srcs
+   list fails the required `bazel-check` gate, and this is the single
+   most common avoidable check failure in this repo. `make check-bazel`
+   reproduces the whole gate locally (build + drift + adapter test)
+   when you want certainty before pushing.
+3. Submit: `runko change create -m "<title>..."`, then
    `runko change push`. One push updates the WHOLE stack (series
    receive) - after surgically editing a stack's root with jj, jj
    auto-rebases descendants and one push restacks the server.
-3. Gate: `runko change requirements --change <Id>` until mergeable.
+4. Gate: `runko change requirements --change <Id>` until mergeable.
    A stacked child is NOT mergeable until its parent lands - land
    bottom-up.
-4. Land: `runko change land --change <Id> --repo <checkout>`. On
+5. Land: `runko change land --change <Id> --repo <checkout>`. On
    "trunk has moved" (optimistic revalidation) it recovers BY ITSELF:
    sync onto trunk, re-push, wait for checks, retry (bounded; see
    --sync-timeout). `runko workspace sync` is the manual form, and
    `change push` already auto-syncs a stale base before pushing.
    Keep the change's touched-path footprint small: fewer required
    checks = a smaller race window.
-5. Deploy (this repo): landing mirrors trunk to GitHub, Release images
+6. Deploy (this repo): landing mirrors trunk to GitHub, Release images
    builds, then `kubectl rollout restart deploy/{runkod,runko-web}
    -n maas-dev` - wait for the release run OF YOUR LANDED SHA before
    restarting, and verify /readyz after.
