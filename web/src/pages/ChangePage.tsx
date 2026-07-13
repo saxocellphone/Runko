@@ -135,7 +135,17 @@ export function ChangePage() {
             </span>
           )}
         </div>
-        {change.description && <p className="change-description">{change.description}</p>}
+        {change.description ? (
+          <p className="change-description">{change.description}</p>
+        ) : (
+          change.state === ChangeState.OPEN && (
+            // §8.6: the UI prompts when the summary is empty.
+            <p className="change-description change-description-empty">
+              No description yet — <code>runko change describe --description "…"</code> adds the
+              what-and-why blurb (it also feeds release changelogs).
+            </p>
+          )
+        )}
       </header>
 
       {landResult?.landed && (

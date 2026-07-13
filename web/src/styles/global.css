@@ -610,6 +610,10 @@ a:hover {
   margin: 10px 0 0;
   max-width: 760px;
 }
+.change-description-empty {
+  font-style: italic;
+  opacity: 0.75;
+}
 
 .badge-state {
   font-size: 11px;
