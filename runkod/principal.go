@@ -68,6 +68,33 @@ func (s *Server) principalForBasicAuth(pass string) *Principal {
 	return nil
 }
 
+// agentPolicyForAuthor reports whether a change's AuthoredBy principal is an
+// agent and, if so, the AgentPolicy that governs it - the resolver the §8.7
+// merge-time description gate (api.go mergeRequirements) consults. Resolution
+// is LIVENESS-INDEPENDENT: an ephemeral agent's row persists for attribution
+// after its credential expires (§7.5, agentprincipal.go), and a change it
+// authored must stay gated after that - keying on liveness would let an
+// agent's undescribed change become mergeable the moment its TTL lapsed. ""
+// (the anonymous deploy token) and human/stored principals return false.
+func (s *Server) agentPolicyForAuthor(ctx context.Context, name string) (receive.AgentPolicy, bool) {
+	if name == "" {
+		return receive.AgentPolicy{}, false
+	}
+	for i := range s.Principals {
+		if s.Principals[i].Name == name {
+			return s.Principals[i].Policy, s.Principals[i].IsAgent
+		}
+	}
+	if s.Store != nil {
+		if _, found, err := s.Store.GetAgentPrincipalByName(ctx, name); err == nil && found {
+			// Ephemeral agents always carry the default policy (§8.7,
+			// agentprincipal.go's principal()).
+			return receive.DefaultAgentPolicy(), true
+		}
+	}
+	return receive.AgentPolicy{}, false
+}
+
 // principalByName is the Processor-side lookup: by the time a push reaches
 // the pre-receive funnel, identity is a REMOTE_USER name (set by
 // requireGitAuth, inherited through http-backend -> receive-pack -> hook,

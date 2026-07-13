@@ -1043,6 +1043,22 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 			"no merge policy resolves for this change: its touched paths require no checks (no ci.checks, no org global checks) and no owner approvals - landing unpoliced changes is refused outside the eval profile (start runkod with --insecure-allow-unpoliced-land to override, or declare owners/ci.checks in PROJECT.yaml)")
 	}
 
+	// Agent changes must carry a description before they land (§8.7 gate on
+	// §8.6 state): the §8.6 blurb is control-plane prose an agent sets with
+	// `runko change describe` - never derived from the commit message - and
+	// RequireDescription (default on) turns its ABSENCE into a merge blocker
+	// for agent-authored changes, so an agent cannot land work no reviewer
+	// can read without the diff. Humans and the anonymous deploy token are
+	// exempt (an AgentPolicy gate); a bot lane lands under its own policy, not
+	// this one. Same runkod-side post-aggregation seam as the overrides above.
+	if lane == nil {
+		if policy, isAgent := s.agentPolicyForAuthor(ctx, change.AuthoredBy); isAgent && policy.RequireDescription && strings.TrimSpace(change.Description) == "" {
+			req.Mergeable = false
+			req.Blockers = append(req.Blockers,
+				"this change has no description - agent changes must summarize WHAT changed and WHY before landing (§8.7); add one with `runko change describe --description \"...\"`")
+		}
+	}
+
 	// Review conversation (§13.4.1-13.4.2): the unresolved-threads blocker
 	// (org opt-in, default off) and the derived attention set - same
 	// runkod-side post-aggregation seam as the stacked-base and default-deny
