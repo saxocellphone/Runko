@@ -352,10 +352,16 @@ export interface AuthConfig {
   signupEnabled: boolean;
   codeRequired: boolean;
   orgCreateEnabled: boolean;
+  inviteRequestsEnabled: boolean;
 }
 
 export async function fetchAuthConfig(): Promise<AuthConfig> {
-  const none = { signupEnabled: false, codeRequired: false, orgCreateEnabled: false };
+  const none = {
+    signupEnabled: false,
+    codeRequired: false,
+    orgCreateEnabled: false,
+    inviteRequestsEnabled: false,
+  };
   try {
     const res = await fetch(new URL("api/auth/config", baseUrl));
     if (!res.ok) return none;
@@ -363,11 +369,13 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
       signup_enabled?: boolean;
       code_required?: boolean;
       org_create_enabled?: boolean;
+      invite_requests_enabled?: boolean;
     };
     return {
       signupEnabled: !!d.signup_enabled,
       codeRequired: !!d.code_required,
       orgCreateEnabled: !!d.org_create_enabled,
+      inviteRequestsEnabled: !!d.invite_requests_enabled,
     };
   } catch {
     return none;
@@ -396,6 +404,25 @@ export async function signUp(
   const d = (await res.json()) as { org?: { name?: string } };
   // Land inside the chosen org - sign-in is org-scoped.
   await signIn(name, password, d.org?.name ?? org);
+}
+
+/** Ask the operator for the invite code (§15.1 invite requests): the
+ * public intake stores the request and the runko-mailer service emails
+ * it onward; the reply arrives at the given address. `website` is the
+ * honeypot field - the form renders it off-screen and humans leave it
+ * empty. Throws the server's structured message on rejection. */
+export async function requestInvite(
+  name: string,
+  email: string,
+  message: string,
+  website: string,
+): Promise<void> {
+  const res = await fetch(new URL("api/invite-requests", baseUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, email, message, website }),
+  });
+  if (!res.ok) await throwStructured(res, "sending the invite request failed");
 }
 
 /** Clear this browser's credential and reload. */
