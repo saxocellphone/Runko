@@ -114,6 +114,25 @@ func Validate(intent Intent, templates TemplateSet) []ValidationError {
 		})
 	}
 
+	switch intent.API {
+	case "", "grpc", "rest", "none":
+	default:
+		errs = append(errs, ValidationError{
+			Code: "unsupported_api", Field: "api",
+			Message:    fmt.Sprintf("unknown api %q; supported: grpc, rest, none (§13.3.1)", intent.API),
+			Suggestion: "grpc scaffolds an in-boundary proto contract, rest a mandatory OpenAPI document, none records no surface",
+		})
+	}
+	// A service decides its contract surface at creation (§13.3.1) - one
+	// enum answer, not YAML; "none" is a valid answer, silence is not.
+	if intent.Type == "service" && intent.API == "" {
+		errs = append(errs, ValidationError{
+			Code: "api_required", Field: "api",
+			Message:    "a service decides its contract surface at creation (§13.3.1)",
+			Suggestion: "pass --api grpc|rest|none",
+		})
+	}
+
 	if intent.TemplateID != "" {
 		if t, ok := templates.Get(intent.TemplateID); !ok {
 			errs = append(errs, ValidationError{

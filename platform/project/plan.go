@@ -91,6 +91,28 @@ func PlanCreate(intent Intent, templates TemplateSet) (Plan, []ValidationError) 
 		capabilityConfig = map[string]interface{}{"build": buildCapabilityConfig(path)}
 	}
 
+	// §13.3.1: the creation-step API answer maps onto the rpc/http
+	// capabilities with their documented capability_config shapes; the
+	// contract stubs are scaffolded in-boundary below.
+	switch intent.API {
+	case "grpc":
+		if !hasCapability(capabilities, "rpc") {
+			capabilities = append(append([]string{}, capabilities...), "rpc")
+		}
+		if capabilityConfig == nil {
+			capabilityConfig = map[string]interface{}{}
+		}
+		capabilityConfig["rpc"] = map[string]interface{}{"path": "proto"}
+	case "rest":
+		if !hasCapability(capabilities, "http") {
+			capabilities = append(append([]string{}, capabilities...), "http")
+		}
+		if capabilityConfig == nil {
+			capabilityConfig = map[string]interface{}{}
+		}
+		capabilityConfig["http"] = map[string]interface{}{"openapi": "openapi.yaml"}
+	}
+
 	manifest := Manifest{
 		Schema: "project/v1",
 		Name:   intent.Name,
@@ -118,6 +140,7 @@ func PlanCreate(intent Intent, templates TemplateSet) (Plan, []ValidationError) 
 	if engine == BuildEngineVite {
 		files = append(files, viteScaffoldFiles(intent.Name)...)
 	}
+	files = append(files, apiScaffoldFiles(intent, path)...)
 
 	return Plan{Path: path, EffectiveManifest: manifest, Files: files}, nil
 }

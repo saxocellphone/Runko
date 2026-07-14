@@ -34,6 +34,7 @@ func TestCreateProjectArrivesAsAChangeAndLands(t *testing.T) {
 	intent := &runkov1.CreateProjectIntent{
 		Name:   "payments-api",
 		Type:   "service",
+		Api:    "none",
 		Owners: []string{"group:commerce"},
 	}
 
@@ -121,7 +122,7 @@ func TestCreateProjectRejectsDuplicatesAndInvalidIntent(t *testing.T) {
 
 	// newTestServer seeds checkout-api at commerce/checkout on trunk.
 	_, err := projects.CreateProject(ctx, connect.NewRequest(&runkov1.CreateProjectRequest{
-		Intent: &runkov1.CreateProjectIntent{Name: "checkout-api", Type: "service"},
+		Intent: &runkov1.CreateProjectIntent{Name: "checkout-api", Type: "service", Api: "none"},
 	}))
 	if connect.CodeOf(err) != connect.CodeAlreadyExists {
 		t.Fatalf("duplicate name: want CodeAlreadyExists, got %v", err)
@@ -131,7 +132,7 @@ func TestCreateProjectRejectsDuplicatesAndInvalidIntent(t *testing.T) {
 	}
 
 	_, err = projects.PreviewCreateProject(ctx, connect.NewRequest(&runkov1.PreviewCreateProjectRequest{
-		Intent: &runkov1.CreateProjectIntent{Name: "", Type: "service"},
+		Intent: &runkov1.CreateProjectIntent{Name: "", Type: "service", Api: "none"},
 	}))
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("empty name: want CodeInvalidArgument, got %v", err)
@@ -220,7 +221,7 @@ func TestCreateProjectLanguageAndEscapeHatch(t *testing.T) {
 	}
 
 	_, err = projects.PreviewCreateProject(ctx, connect.NewRequest(&runkov1.PreviewCreateProjectRequest{
-		Intent: &runkov1.CreateProjectIntent{Name: "exotic-svc", Type: "service", Language: "haskell"},
+		Intent: &runkov1.CreateProjectIntent{Name: "exotic-svc", Type: "service", Api: "none", Language: "haskell"},
 	}))
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("unsupported language: want CodeInvalidArgument, got %v", err)
@@ -230,7 +231,7 @@ func TestCreateProjectLanguageAndEscapeHatch(t *testing.T) {
 	}
 
 	preview, err = projects.PreviewCreateProject(ctx, connect.NewRequest(&runkov1.PreviewCreateProjectRequest{
-		Intent: &runkov1.CreateProjectIntent{Name: "exotic-svc", Type: "service", Language: "haskell", NoTemplate: true},
+		Intent: &runkov1.CreateProjectIntent{Name: "exotic-svc", Type: "service", Api: "none", Language: "haskell", NoTemplate: true},
 	}))
 	if err != nil {
 		t.Fatalf("PreviewCreateProject(no_template): %v", err)
