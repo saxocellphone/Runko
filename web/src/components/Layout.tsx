@@ -26,6 +26,9 @@ const nav = [
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
+// GitHub-style shell: a top header - brand/status row, then a horizontal
+// tab row with the active-tab underline - and the page below. .main stays
+// the app's scroll container.
 export function Layout() {
   const [theme, setTheme] = useState<string>(
     () => document.documentElement.dataset.theme ?? "light",
@@ -42,83 +45,96 @@ export function Layout() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <BrandMark />
-          Runko
-        </div>
-        {!usingDemoData && signedIn && !pathOrg && <OrgSwitcher />}
-        {nav
-          // Anonymous read-only browsing (§15.2): workspaces and settings
-          // are not on the public allowlist - hide what would only 401.
-          // Search hides when the org has no search backend wired.
-          .filter(({ to }) => {
-            if (publicBrowse && (to === "/workspaces" || to === "/settings")) return false;
-            if (to === "/search" && !searchOk) return false;
-            return true;
-          })
-          .map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} className="nav-link">
-            <Icon />
-            {label}
-          </NavLink>
-        ))}
-        {isOperator && (
-          <NavLink to="/admin" className="nav-link">
-            <AdminIcon />
-            Admin
-          </NavLink>
-        )}
-        <div className="sidebar-foot">
-          {onDemoRoute ? (
-            <div className="demo-badge">
-              Playground — sample data, in-browser · <a href="/changes">exit</a>
-            </div>
-          ) : usingDemoData ? (
-            <div className="demo-badge">
-              Playground data — set VITE_RUNKO_URL to connect to a runkod
-            </div>
-          ) : publicBrowse ? (
-            <div className="demo-badge">Browsing read-only</div>
-          ) : (
-            <div className="demo-badge">
-              {authUser ? (
-                <>
-                  Signed in as <strong>{authUser}</strong>
-                </>
-              ) : (
-                <>Live{signedIn ? ", anonymous" : ""}</>
-              )}
-            </div>
-          )}
-          {publicBrowse && (
+      <header className="topbar">
+        <div className="topbar-row">
+          <div className="topbar-brand">
+            <BrandMark />
+            Runko
+          </div>
+          {!usingDemoData && signedIn && !pathOrg && <OrgSwitcher />}
+          <div className="topbar-actions">
+            {onDemoRoute ? (
+              <div className="demo-badge" title="Playground — sample data, in-browser">
+                Playground — sample data, in-browser · <a href="/changes">exit</a>
+              </div>
+            ) : usingDemoData ? (
+              <div
+                className="demo-badge"
+                title="Playground data — set VITE_RUNKO_URL to connect to a runkod"
+              >
+                Playground data — set VITE_RUNKO_URL to connect to a runkod
+              </div>
+            ) : publicBrowse ? (
+              <div className="demo-badge">Browsing read-only</div>
+            ) : (
+              <div className="user-badge" title={authUser ? `Signed in as ${authUser}` : undefined}>
+                {authUser ? (
+                  <>
+                    Signed in as <strong>{authUser}</strong>
+                  </>
+                ) : (
+                  <>Live{signedIn ? ", anonymous" : ""}</>
+                )}
+              </div>
+            )}
+            {publicBrowse && (
+              <button
+                className="btn btn-sm"
+                onClick={() => {
+                  // Stay on the CURRENT path: nginx gives the bare "/" to the
+                  // product landing page (location = /, path-matched - the
+                  // query string doesn't save it), so "/?signin=1" would serve
+                  // the pitch instead of the gate. Any SPA route + ?signin=1
+                  // reaches AnonGate, which forces the sign-in page.
+                  window.location.href = `${window.location.pathname}?signin=1`;
+                }}
+              >
+                Sign in
+              </button>
+            )}
+            {!onDemoRoute && !usingDemoData && signedIn && (
+              <button className="btn btn-sm" onClick={() => signOut()}>
+                Sign out
+              </button>
+            )}
             <button
-              className="btn btn-sm theme-toggle"
-              onClick={() => {
-                // Stay on the CURRENT path: nginx gives the bare "/" to the
-                // product landing page (location = /, path-matched - the
-                // query string doesn't save it), so "/?signin=1" would serve
-                // the pitch instead of the gate. Any SPA route + ?signin=1
-                // reaches AnonGate, which forces the sign-in page.
-                window.location.href = `${window.location.pathname}?signin=1`;
-              }}
+              className="btn btn-sm btn-icon"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
             >
-              Sign in
+              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
             </button>
-          )}
-          {!onDemoRoute && !usingDemoData && signedIn && (
-            <button className="btn btn-sm theme-toggle" onClick={() => signOut()}>
-              Sign out
-            </button>
-          )}
-          <button
-            className="btn btn-sm theme-toggle"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            {theme === "dark" ? "Light" : "Dark"} theme
-          </button>
+          </div>
         </div>
-      </aside>
+        <nav className="topnav" aria-label="Primary">
+          {nav
+            // Anonymous read-only browsing (§15.2): workspaces and settings
+            // are not on the public allowlist - hide what would only 401.
+            // Search hides when the org has no search backend wired.
+            .filter(({ to }) => {
+              if (publicBrowse && (to === "/workspaces" || to === "/settings")) return false;
+              if (to === "/search" && !searchOk) return false;
+              return true;
+            })
+            .map(({ to, label, icon: Icon }) => (
+              <NavLink key={to} to={to} className="topnav-tab">
+                <span className="tab-pill">
+                  <Icon />
+                  {label}
+                </span>
+              </NavLink>
+            ))}
+          {isOperator && (
+            <NavLink to="/admin" className="topnav-tab">
+              <span className="tab-pill">
+                <AdminIcon />
+                Admin
+              </span>
+            </NavLink>
+          )}
+        </nav>
+      </header>
       <main className="main">
         <Outlet />
       </main>
@@ -262,6 +278,23 @@ function SettingsIcon() {
     <svg {...iconProps} aria-hidden>
       <circle cx="8" cy="8" r="2.2" />
       <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg {...iconProps} aria-hidden>
+      <circle cx="8" cy="8" r="3" />
+      <path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg {...iconProps} aria-hidden>
+      <path d="M13.3 9.9A5.7 5.7 0 0 1 6.1 2.7a5.7 5.7 0 1 0 7.2 7.2z" />
     </svg>
   );
 }
