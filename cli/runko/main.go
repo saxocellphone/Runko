@@ -119,7 +119,7 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   agent list --runkod-url <url> --token <t>                  live and expired agent identities [--json]
   agent revoke <name> --runkod-url <url> --token <t>         kill an agent credential immediately [--json]
   agent event --kind <k> --detail <text> [--from-hook] [--session <id>]   report what the agent is doing to the workspace's live feed (§12.6.1) [--json]
-  agent hooks                                                 print the harness hooks snippet that wires agent event up
+  agent hooks [--install [--dir .]] [--json]                  print the harness hooks snippet; --install merges it into the worktree's .claude/settings.local.json
   workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir .]                           fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
   workspace sync --runkod-url <url> --token <t> [--dir .]    sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)
@@ -776,6 +776,7 @@ func cmdWorkspace(args []string) error {
 			return json.NewEncoder(os.Stdout).Encode(info)
 		}
 		fmt.Printf("workspace %s ready at %s (base %s, cone: %s)\n", info.ID, *dir, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
+		printWorkspaceStreamingGuidance(os.Stdout, *dir)
 		return nil
 
 	case "delete":
@@ -887,6 +888,7 @@ func cmdWorkspace(args []string) error {
 			return json.NewEncoder(os.Stdout).Encode(info)
 		}
 		fmt.Printf("workspace %s restored at %s\n", info.ID, *dir)
+		printWorkspaceStreamingGuidance(os.Stdout, *dir)
 		return nil
 
 	case "snapshot":
