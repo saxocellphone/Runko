@@ -6,6 +6,7 @@ with `runko agents-md` after a CLI change, don't hand-edit it.
 ## Orientation
 
 - Use the `runko`/`runko-ci` CLI (`--json` output); do not full-clone.
+- Raw git is transport only (clone/fetch): commit with `runko change create`, submit with `runko change push` - never `git commit`/`git push`. jj is for surgical history work (`jj edit`/`jj split`), not the basic loop.
 - Prefer `runko project create` over hand-authoring PROJECT.yaml.
 - Stay within workspace affinity; use `runko-ci checkout` for deps/prefetch.
 - Open a Change (`runko change push`) before large refactors; respect who_owns.
@@ -19,10 +20,11 @@ that declares no registered workspace origin. The model:
 - One branch = one stack = one reviewable line. `head` is the default; parallel work gets `runko workspace branch <name>` - the server refuses a second unrelated stack on one branch.
 - Work INSIDE the workspace worktree: the sparse cone stops out-of-scope edits before the server has to, and `runko change push` stamps your origin claim automatically.
 - Snapshot early and often: `runko workspace snapshot` - durable, secret-scanned WIP; a killed session loses nothing, `workspace attach` restores it. Better: keep `runko workspace watch` running in the background - it auto-snapshots out-of-band (never touches HEAD or the index) and your work stays live on the workspace page (§12.6).
+- Report what you are doing: `runko agent hooks --install` wires your harness's post-tool-use hook to `runko agent event --from-hook` in one command (plain `agent hooks` prints the snippet for other harnesses) and the workspace page shows your reads/edits/commands LIVE (§12.6.1). Observability only - it never gates anything; export RUNKO_RUNKOD_URL/RUNKO_TOKEN in the harness env and it just works. The server nudges a workspace's first change push that never streamed.
 - Work under a TASK identity, never a shared credential: if you hold a human/admin credential, demote yourself first - `runko agent create --task <slug>` - and use the returned name:token for everything (git remote and --token alike). Attribution, policy, and workspace ownership then follow the task; the credential dies by TTL on its own.
 - One task = one fresh workspace: start every new task with `runko workspace create`; never attach or bind a workspace you didn't create. Agent workspaces CLOSE when their last change lands or is abandoned - a push into a closed workspace is refused, so reuse is not a shortcut, it is a dead end.
-- Stack small changes, never one big one: one reviewable step per change (`jj new` between steps, `jj split` after the fact); a single `runko change push` pushes the whole stack. Size caps are PER CHANGE - a big change is refused where the same work as a stack passes - and smaller changes scope required checks narrower, so they land faster.
-- Stack only what DEPENDS: orthogonal changes go on PARALLEL workspace branches (`runko workspace branch <name>`; jj: a separate `jj new 'main@origin'` line each), where they review and land independently - stacked, the upper one needlessly waits out the lower. The push output nudges you when a stacked step touches nothing its parent touches.
+- Stack small changes, never one big one: one reviewable step per change - a fresh `runko change create` per step stacks naturally (`jj split` is the surgical fix for one that grew too big); a single `runko change push` pushes the whole stack. Size caps are PER CHANGE - a big change is refused where the same work as a stack passes - and smaller changes scope required checks narrower, so they land faster.
+- Stack only what DEPENDS: orthogonal changes go on PARALLEL workspace branches (`runko workspace branch <name>`), where they review and land independently - stacked, the upper one needlessly waits out the lower. The push output nudges you when a stacked step touches nothing its parent touches.
 - Submit: `runko change create -m <msg>` then `runko change push`. Stacks land BOTTOM-UP; a child is not mergeable until its parent lands.
 - Trunk moved (land says revalidate): `runko change land` already runs the recovery loop itself (sync, re-push, wait, retry); `runko workspace sync` is the manual form. Never force.
 - Do not poll for green: after pushing, arm `runko change automerge --change <id>` and MOVE ON - the server lands it the moment checks and approvals pass, under your name. Poll-and-land loops are the anti-pattern automerge exists to delete.
@@ -41,6 +43,7 @@ that declares no registered workspace origin. The model:
 | `runko change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t> [--json]` | record a required owner's approval (§13.5) - needs a live runkod | `MergeRequirements` |
 | `runko change list [--state open] --runkod-url <url> --token <t> [--json]` | list changes, newest first (§7.4) - needs a live runkod | `[]ChangeInfo` |
 | `runko change abandon --change <id> --runkod-url <url> --token <t> [--json]` | abandon an open change (§7.4) - needs a live runkod | `ChangeInfo` |
+| `runko change describe [--change <Id>] [--description <text>] [--test-plan <text>] [--json]` | set the §8.6 summary on an open change (default: HEAD's Change-Id): what it does and how it was verified - agents SHOULD set this after push; shows on the change page, feeds release changelogs; an omitted flag preserves the stored value, an explicit "" clears - needs a live runkod | `ChangeInfo` |
 | `runko change rerun-check --change <id> --name <check> --runkod-url <url> --token <t> [--json]` | reset a required check to queued + emit the rerun webhook (§14.4.2) - needs a live runkod | `MergeRequirements` |
 | `runko auth login --runkod-url <url> [--name <you>] [--token <t>]` | store a validated credential (0600); commands then need no --runkod-url/--token flags | `text` |
 | `runko auth status` | who the stored credential resolves to - needs a live runkod | `text` |
@@ -59,6 +62,8 @@ that declares no registered workspace origin. The model:
 | `runko agent create --task <slug> --runkod-url <url> --token <t> [--ttl 8h] [--json]` | mint an ephemeral task identity (agent-<task>-<suffix>, token shown ONCE; agents cannot mint - §15.1) - needs a live runkod | `AgentIdentity` |
 | `runko agent list --runkod-url <url> --token <t> [--json]` | live/expired/revoked task identities - needs a live runkod | `[]AgentIdentity` |
 | `runko agent revoke <name> --runkod-url <url> --token <t> [--json]` | immediate credential kill; the row survives for attribution - needs a live runkod | `{"revoked"}` |
+| `runko agent event --kind <k> --detail <text> [--from-hook] [--session <id>] [--json]` | report one activity event (read|edit|command|search|note) to the workspace's live feed (§12.6.1); --from-hook derives it from a post-tool-use hook JSON on stdin; RUNKO_RUNKOD_URL/RUNKO_TOKEN env fallback - needs a live runkod | `{"recorded"}` |
+| `runko agent hooks [--install [--dir .]] [--json]` | print the harness hooks snippet wiring post-tool-use calls to `agent event --from-hook`; --install merges it into the worktree's .claude/settings.local.json (opt-in, snapshot-excluded) - local only | `hooks JSON snippet; --install: {"path","installed"}` |
 | `runko workspace snapshot [--dir .] [-m <msg>] [--json]` | make WIP durable: commit -> refs/workspaces/<id>/<branch> (§12.2) | `{"ref"}` |
 | `runko workspace watch [--dir .] [--interval 15s] [--once] [--json]` | auto-snapshot loop feeding the live workspace view (§12.6): out-of-band commits, never touches HEAD/index - run it in the background while you work | `NDJSON {"ref","sha"} per push` |
 | `runko workspace branch <name> [--dir .] [--json]` | fork a parallel line of work: snapshots now target refs/workspaces/<id>/<name> (§12.2) | `{"ref"}` |
