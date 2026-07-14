@@ -99,8 +99,15 @@ URL-embedded basic auth), rebase with `jj rebase -d 'main@origin'`.
 
 ## The loop
 
-1. Edit. **Snapshot often**: `runko workspace snapshot -m "wip"` -
-   durable, secret-scanned; a killed session loses nothing.
+1. Edit. **Stream as you work**: start `runko workspace watch &` once
+   at task start - out-of-band auto-snapshots (durable, secret-scanned;
+   a killed session loses nothing) and the workspace page follows WIP
+   live. Wire the activity feed once per worktree with
+   `runko agent hooks --install` (needs RUNKO_RUNKOD_URL/RUNKO_TOKEN in
+   the harness env, or a stored login). `runko workspace snapshot -m
+   "wip"` remains the manual form. The server nudges the first change
+   push from a workspace that never streamed - following this bullet
+   keeps pushes quiet.
 2. **Added, moved, or deleted a Go file? Run `bazel run //:gazelle`
    BEFORE committing** - BUILD.bazel files are generated, a stale srcs
    list fails the required `bazel-check` gate, and this is the single
