@@ -267,6 +267,10 @@ a:hover {
   margin: 0 auto;
   padding: 28px 32px 64px;
 }
+/* Pages that earn extra width (the code browser: tree + code + rail). */
+.page-wide {
+  max-width: 1600px;
+}
 
 .page-header {
   margin-bottom: 20px;
@@ -1254,9 +1258,14 @@ tr.hunk-head td {
   }
 }
 
+/* The tree and the file-view history rail stick within .main (the app's
+   scroll container) so navigation and history stay at hand however far
+   down a long blob you've read. */
 .tree-panel {
   padding: 8px 6px;
-  max-height: calc(100vh - 180px);
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
   overflow-y: auto;
 }
 
@@ -1302,6 +1311,11 @@ tr.hunk-head td {
   color: var(--accent);
   opacity: 0.75;
 }
+/* A filled folder marks a project boundary (row title names the project). */
+.tree-icon.folder.project-root {
+  fill: currentColor;
+  fill-opacity: 0.3;
+}
 .tree-row.selected .tree-icon {
   color: var(--accent);
 }
@@ -1315,23 +1329,17 @@ tr.hunk-head td {
   font-size: 12px;
   padding: 3px 8px;
 }
-
-.file-panel {
-  overflow: hidden;
-}
-.file-panel-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-}
-.file-panel-head .file-path {
+/* Project-boundary badge: a dir entry owned by a different project than
+   its parent level starts a project (TreeEntry.project, repo.proto). */
+.tree-project {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px;
   font-weight: 600;
-}
-.file-panel-head .spacer {
-  flex: 1;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 5px;
+  padding: 1px 5px;
 }
 
 .blob-table {
@@ -1361,8 +1369,7 @@ tr.hunk-head td {
   word-break: break-word;
 }
 
-/* Collapsible panes: the tree collapses to a slim rail, the content
-   pane to its header bar (history then gets the room). */
+/* The tree collapses to a slim rail (code then gets the room). */
 .browse-layout.tree-collapsed {
   grid-template-columns: 40px minmax(0, 1fr);
 }
@@ -1396,6 +1403,8 @@ tr.hunk-head td {
   margin-bottom: 4px;
 }
 .tree-rail {
+  position: sticky;
+  top: 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1434,13 +1443,9 @@ tr.hunk-head td {
 .content-head .spacer {
   flex: 1;
 }
-.content-panel:has(.content-head:last-child) .content-head {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
 
-/* Browse right column: breadcrumbs on top, content, then history. */
+/* Browse right column: breadcrumbs, then a directory's full-width
+   history or a file's code-beside-history split. */
 .browse-main {
   display: flex;
   flex-direction: column;
@@ -1479,46 +1484,37 @@ tr.hunk-head td {
   padding: 10px 14px 12px;
 }
 
-/* Directory listing: Gitiles' file table, modernized. */
-.dir-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+/* File view: code beside a sticky history rail - the changes that made
+   the file stay in view however long the blob is. */
+.file-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 12px;
+  align-items: start;
 }
-.dir-table td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
+.history-rail {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
 }
-.dir-table tr:last-child td {
-  border-bottom: none;
+/* Rail rows are narrow: badges wrap onto their own line under the byline. */
+.history-rail .history-row {
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 8px 2px;
 }
-.dir-row {
-  cursor: pointer;
+.history-rail .history-main {
+  flex: 1 1 100%;
 }
-.dir-row:hover td {
-  background: var(--surface-2);
-}
-.dir-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--mono);
-  font-size: 12.5px;
-}
-.dir-label {
-  color: var(--accent);
-  font-weight: 550;
-}
-.dir-project {
-  width: 1%;
-  white-space: nowrap;
-}
-.dir-size {
-  width: 1%;
-  white-space: nowrap;
-  text-align: right;
-  color: var(--text-3);
-  font-size: 12px;
+@media (max-width: 1280px) {
+  .file-cols {
+    grid-template-columns: 1fr;
+  }
+  .history-rail {
+    position: static;
+    max-height: none;
+  }
 }
 
 /* Segmented Code/Blame toggle on the file header. */
