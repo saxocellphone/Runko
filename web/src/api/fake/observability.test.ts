@@ -103,6 +103,15 @@ describe("fake workspace observability", () => {
     await expect(ws.listWorkspaceActivity({ id: "no-such" })).rejects.toThrow(/workspace/);
   });
 
+  it("serves the full kind vocabulary so the filter chips all populate", async () => {
+    const ws = createClient(WorkspaceService, createFakeTransport());
+    const full = await ws.listWorkspaceActivity({ id: "refactor-bot-cfg" });
+    const kinds = new Set(full.events.map((ev) => ev.kind));
+    for (const k of ["read", "edit", "command", "search", "note"]) {
+      expect(kinds, `demo feed should carry a ${k} row`).toContain(k);
+    }
+  });
+
   it("surfaces the newest activity as latest_activity on the workspace list", async () => {
     const ws = createClient(WorkspaceService, createFakeTransport());
     const list = await ws.listWorkspaces({});

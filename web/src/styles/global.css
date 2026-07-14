@@ -2537,6 +2537,26 @@ tr.thread-row > td {
 /* Agent session activity (§12.6.1): the harness-reported feed's detail
    line (a path, a command line - can be long) and the at-a-glance
    presence line. */
+/* Kind filter chips (2026-07-14): button-reset over the shared .chip
+   look; an off chip stays visible (with its count) so hidden kinds are
+   never silently under-reported. */
+.activity-filter {
+  margin-bottom: 10px;
+}
+.activity-filter .chip {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
+  border: 0;
+  cursor: pointer;
+}
+.activity-filter .chip-off {
+  opacity: 0.45;
+}
+.chip-count {
+  color: var(--text-3);
+  font-weight: 450;
+}
 .ws-activity-detail {
   display: block;
   min-width: 0;

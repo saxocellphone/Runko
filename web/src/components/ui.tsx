@@ -6,6 +6,7 @@ import {
   type MergeRequirements,
   type WorkspaceActivityEvent,
 } from "../gen/runko/v1/common_pb";
+import { kindMeta, normalizeKind } from "../lib/activity";
 import { absoluteTime, actorLabel, changeStateLabel, isAgent, timeAgo } from "../lib/format";
 import { checksRollup, dotStatus, reviewRollup } from "../lib/status";
 
@@ -92,9 +93,13 @@ export function ActivityPresence({ ev }: { ev: WorkspaceActivityEvent | undefine
   if (!ev) return null;
   const age = Math.floor(Date.now() / 1000) - Number(ev.occurredAt);
   if (age < 0 || age > ACTIVITY_FRESH_SECONDS) return null;
+  // The spec's own rendering: "now: ✎ runkod/api.go · 12s" (§12.6.1) -
+  // the glyph carries the kind, the name rides the tooltip.
+  const kind = normalizeKind(ev.kind);
   return (
     <span className="activity-now" title={absoluteTime(ev.occurredAt)}>
-      now: {ev.kind} <span className="mono">{ev.detail}</span> · {timeAgo(ev.occurredAt)}
+      now: <span title={kindMeta[kind].label}>{kindMeta[kind].glyph}</span>{" "}
+      <span className="mono">{ev.detail}</span> · {timeAgo(ev.occurredAt)}
     </span>
   );
 }

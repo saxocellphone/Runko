@@ -976,7 +976,10 @@ export const workspaceActivity = new Map<string, WorkspaceActivityEvent[]>([
       wsActivityEvent({ id: 1, ws: "refactor-bot-cfg", kind: "read", detail: "commerce/checkout-api/config.go", actor: "refactor-bot", agent: true, session: "sess-refactor-1" }),
       wsActivityEvent({ id: 2, ws: "refactor-bot-cfg", kind: "search", detail: "envconfig.Process", actor: "refactor-bot", agent: true, session: "sess-refactor-1" }),
       wsActivityEvent({ id: 3, ws: "refactor-bot-cfg", kind: "command", detail: "go test ./commerce/checkout-api/...", actor: "refactor-bot", agent: true, session: "sess-refactor-1" }),
-      wsActivityEvent({ id: 4, ws: "refactor-bot-cfg", kind: "edit", detail: "commerce/checkout-api/config.go", actor: "refactor-bot", agent: true, session: "sess-refactor-1", occurredAt: activityNow - 15 }),
+      // A note row so /demo exercises the full kind vocabulary (the
+      // filter chips render all five; unknown kinds coerce here too).
+      wsActivityEvent({ id: 4, ws: "refactor-bot-cfg", kind: "note", detail: "TodoWrite", actor: "refactor-bot", agent: true, session: "sess-refactor-1" }),
+      wsActivityEvent({ id: 5, ws: "refactor-bot-cfg", kind: "edit", detail: "commerce/checkout-api/config.go", actor: "refactor-bot", agent: true, session: "sess-refactor-1", occurredAt: activityNow - 15 }),
     ],
   ],
   [
