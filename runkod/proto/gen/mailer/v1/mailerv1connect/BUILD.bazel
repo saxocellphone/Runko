@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "mailerv1connect",
+    srcs = ["mailer.connect.go"],
+    importpath = "github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1/mailerv1connect",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//runkod/proto/gen/mailer/v1:mailer",
+        "@com_connectrpc_connect//:connect",
+    ],
+)

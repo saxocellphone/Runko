@@ -9,6 +9,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"connectrpc.com/connect"
+
+	mailerv1 "github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1"
+	"github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1/mailerv1connect"
 )
 
 func newInviteServer(t *testing.T, allow bool) (*httptest.Server, *MemStore) {
@@ -70,17 +75,37 @@ func errCode(body map[string]any) string {
 	return code
 }
 
-func dueRequests(t *testing.T, srv *httptest.Server) []any {
+// The drain surface is Connect now (InviteFeedService, §13.3.1): these
+// helpers drive the real generated client against the real handler, token
+// in the Authorization header exactly like the mailer.
+func inviteFeed(t *testing.T, srv *httptest.Server, token string, call func(client mailerv1connect.InviteFeedServiceClient, opt connect.ClientOption) error) error {
 	t.Helper()
-	code, body := inviteAPI(t, srv, http.MethodGet, "/api/invite-requests/due", "sekret", "")
-	if code != http.StatusOK {
-		t.Fatalf("due feed: %d %v", code, body)
+	opt := connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			if token != "" {
+				req.Header().Set("Authorization", "Bearer "+token)
+			}
+			return next(ctx, req)
+		}
+	}))
+	return call(mailerv1connect.NewInviteFeedServiceClient(srv.Client(), srv.URL, opt), opt)
+}
+
+func dueRequests(t *testing.T, srv *httptest.Server) []*mailerv1.InviteRequest {
+	t.Helper()
+	var out []*mailerv1.InviteRequest
+	err := inviteFeed(t, srv, "sekret", func(c mailerv1connect.InviteFeedServiceClient, _ connect.ClientOption) error {
+		resp, err := c.ListDue(context.Background(), connect.NewRequest(&mailerv1.ListDueRequest{}))
+		if err != nil {
+			return err
+		}
+		out = resp.Msg.Requests
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ListDue: %v", err)
 	}
-	reqs, ok := body["requests"].([]any)
-	if !ok {
-		t.Fatalf("due feed shape: %v", body)
-	}
-	return reqs
+	return out
 }
 
 // The intake end to end: disabled by default (and discoverable as such),
@@ -111,23 +136,34 @@ func TestInviteRequestFlow(t *testing.T) {
 	if len(reqs) != 1 {
 		t.Fatalf("due feed: want 1 row, got %v", reqs)
 	}
-	row := reqs[0].(map[string]any)
-	if row["name"] != "Ada Lovelace" || row["email"] != "ada@example.com" ||
-		row["message"] != "analytical engines need CI too" {
+	row := reqs[0]
+	if row.Name != "Ada Lovelace" || row.Email != "ada@example.com" ||
+		row.Message != "analytical engines need CI too" {
 		t.Fatalf("due row: %v", row)
 	}
 
-	id := row["id"].(string)
-	code, body = inviteAPI(t, srv, http.MethodPost, "/api/invite-requests/"+id+"/sent", "sekret", "")
-	if code != http.StatusOK || body["status"] != "sent" {
-		t.Fatalf("sent ack: %d %v", code, body)
+	err := inviteFeed(t, srv, "sekret", func(c mailerv1connect.InviteFeedServiceClient, _ connect.ClientOption) error {
+		ack, err := c.MarkSent(context.Background(), connect.NewRequest(&mailerv1.MarkSentRequest{Id: row.Id}))
+		if err != nil {
+			return err
+		}
+		if ack.Msg.Status != "sent" {
+			t.Fatalf("sent ack: %v", ack.Msg)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("MarkSent: %v", err)
 	}
 	if reqs := dueRequests(t, srv); len(reqs) != 0 {
 		t.Fatalf("sent row still due: %v", reqs)
 	}
-	code, body = inviteAPI(t, srv, http.MethodPost, "/api/invite-requests/nope/sent", "sekret", "")
-	if code != http.StatusNotFound || errCode(body) != "unknown_invite_request" {
-		t.Fatalf("unknown id ack: %d %v", code, body)
+	err = inviteFeed(t, srv, "sekret", func(c mailerv1connect.InviteFeedServiceClient, _ connect.ClientOption) error {
+		_, err := c.MarkSent(context.Background(), connect.NewRequest(&mailerv1.MarkSentRequest{Id: "nope"}))
+		return err
+	})
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("unknown id ack: want NotFound, got %v", err)
 	}
 }
 
@@ -135,17 +171,27 @@ func TestInviteRequestFlow(t *testing.T) {
 // full API clients elsewhere, but invite rows carry strangers' emails.
 func TestInviteFeedOperatorOnly(t *testing.T) {
 	srv, _ := newInviteServer(t, true)
-	if code, _ := inviteAPI(t, srv, http.MethodGet, "/api/invite-requests/due", "", ""); code != http.StatusUnauthorized {
-		t.Fatalf("anonymous feed: want 401, got %d", code)
+	err := inviteFeed(t, srv, "", func(c mailerv1connect.InviteFeedServiceClient, _ connect.ClientOption) error {
+		_, err := c.ListDue(context.Background(), connect.NewRequest(&mailerv1.ListDueRequest{}))
+		return err
+	})
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("anonymous feed: want Unauthenticated, got %v", err)
 	}
 	for _, token := range []string{"relbot-token", "robo-token"} {
-		code, body := inviteAPI(t, srv, http.MethodGet, "/api/invite-requests/due", token, "")
-		if code != http.StatusForbidden || errCode(body) != "operator_only" {
-			t.Fatalf("feed with %s: want 403 operator_only, got %d %v", token, code, body)
+		err := inviteFeed(t, srv, token, func(c mailerv1connect.InviteFeedServiceClient, _ connect.ClientOption) error {
+			_, err := c.ListDue(context.Background(), connect.NewRequest(&mailerv1.ListDueRequest{}))
+			return err
+		})
+		if connect.CodeOf(err) != connect.CodePermissionDenied {
+			t.Fatalf("feed with %s: want PermissionDenied, got %v", token, err)
 		}
-		code, body = inviteAPI(t, srv, http.MethodPost, "/api/invite-requests/x/sent", token, "")
-		if code != http.StatusForbidden || errCode(body) != "operator_only" {
-			t.Fatalf("ack with %s: want 403 operator_only, got %d %v", token, code, body)
+		err = inviteFeed(t, srv, token, func(c mailerv1connect.InviteFeedServiceClient, _ connect.ClientOption) error {
+			_, err := c.MarkSent(context.Background(), connect.NewRequest(&mailerv1.MarkSentRequest{Id: "x"}))
+			return err
+		})
+		if connect.CodeOf(err) != connect.CodePermissionDenied {
+			t.Fatalf("ack with %s: want PermissionDenied, got %v", token, err)
 		}
 	}
 }

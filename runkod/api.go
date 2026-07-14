@@ -319,9 +319,10 @@ func (s *Server) Handler() (http.Handler, error) {
 	// drain feed + acks are the mailer service's surface, operator-only,
 	// server-to-server (no preflight, so method-qualified patterns).
 	mux.HandleFunc("/api/invite-requests", publicCORS(http.MethodPost, s.handleCreateInviteRequest))
-	mux.HandleFunc("GET /api/invite-requests/due", s.requireOperator(s.handleListDueInviteRequests))
-	mux.HandleFunc("POST /api/invite-requests/{id}/sent", s.requireOperator(s.handleMarkInviteSent))
-	mux.HandleFunc("POST /api/invite-requests/{id}/failed", s.requireOperator(s.handleMarkInviteFailed))
+	// The mailer drain surface moved to Connect (InviteFeedService,
+	// runkod/proto/mailer/v1 - §13.3.1's first in-boundary contract; the
+	// operator gate lives in invitefeed.go's requireOperatorRPC). Only the
+	// public intake above stays REST.
 
 	return mux, nil
 }

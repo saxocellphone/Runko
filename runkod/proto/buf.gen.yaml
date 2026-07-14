@@ -1,0 +1,16 @@
+# runkod's in-boundary contract codegen (§13.3.1): generated Go is
+# committed at gen/ beside the sources (the internal/dbgen convention).
+# Regenerate after a .proto edit, with the plugins on PATH (~/go/bin):
+#   go install google.golang.org/protobuf/cmd/protoc-gen-go
+#   go install connectrpc.com/connect/cmd/protoc-gen-connect-go
+#   (cd runkod/proto && go run github.com/bufbuild/buf/cmd/buf@latest generate)
+version: v2
+inputs:
+  - directory: .
+plugins:
+  - local: protoc-gen-go
+    out: gen
+    opt: paths=source_relative
+  - local: protoc-gen-connect-go
+    out: gen
+    opt: paths=source_relative
