@@ -58,12 +58,15 @@ function HighlightedLine({ tokens }: { tokens: Token[] }) {
 // feedback: the TREE is the only directory surface - the old main-pane
 // entry listing mirrored it row for row, so it is gone, and project
 // boundaries badge in the tree instead (TreeEntry.project exists for
-// exactly this - repo.proto). The main column shows what only this page
-// can: a directory spends it on the path's HISTORY, full width; a file
-// splits it - code (or blame) beside a sticky history rail, so the
-// changes that made a file stay in view however long the file is (the
-// old below-the-blob history took a full file's worth of scrolling to
-// reach, and the collapse toggle that worked around it is gone too).
+// exactly this - repo.proto). The main column is a FIXED two-pane
+// split: content beside a sticky history rail that never resizes with
+// the selection (same-day follow-up: the rail jumping between rail- and
+// full-width read as confusing). A file fills the content pane with
+// code or blame; a directory just prompts for a file - the path's
+// history is already in the rail. History stays in view however long a
+// file is (the old below-the-blob history took a full file's worth of
+// scrolling to reach, and the collapse toggle that worked around it is
+// gone too).
 // Runko's twist stays: history rows and blame regions link to the
 // CHANGE that landed the code (§7.4), not a raw commit.
 //
@@ -125,29 +128,32 @@ export function BrowsePage() {
         )}
         <div className="browse-main">
           <Breadcrumbs path={selected} isDir={isDir} />
-          {isDir ? (
-            <section className="card history-panel">
-              <HistoryHead scope={selected === "" ? "whole repo" : `${selected}/`} />
-              <HistoryList path={selected} />
+          <div className="browse-cols">
+            <section className="card content-panel">
+              {isDir ? (
+                <EmptyState>
+                  Select a file from the tree to view it — this path's changes are on the right.
+                </EmptyState>
+              ) : (
+                <>
+                  <header className="content-head">
+                    <span className="file-path" title={selected}>
+                      {selected.split("/").pop() ?? selected}
+                    </span>
+                    <span className="spacer" />
+                    <FileModeToggle path={selected} blame={view === "blame"} />
+                  </header>
+                  {view === "blame" ? <BlameView path={selected} /> : <CodeView path={selected} />}
+                </>
+              )}
             </section>
-          ) : (
-            <div className="file-cols">
-              <section className="card content-panel">
-                <header className="content-head">
-                  <span className="file-path" title={selected}>
-                    {selected.split("/").pop() ?? selected}
-                  </span>
-                  <span className="spacer" />
-                  <FileModeToggle path={selected} blame={view === "blame"} />
-                </header>
-                {view === "blame" ? <BlameView path={selected} /> : <CodeView path={selected} />}
-              </section>
-              <aside className="card history-panel history-rail">
-                <HistoryHead scope={null} />
-                <HistoryList path={selected} />
-              </aside>
-            </div>
-          )}
+            <aside className="card history-panel history-rail">
+              <HistoryHead
+                scope={isDir ? (selected === "" ? "whole repo" : `${selected}/`) : null}
+              />
+              <HistoryList path={selected} />
+            </aside>
+          </div>
         </div>
       </div>
     </div>

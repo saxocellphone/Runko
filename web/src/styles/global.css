@@ -1484,9 +1484,11 @@ tr.hunk-head td {
   padding: 10px 14px 12px;
 }
 
-/* File view: code beside a sticky history rail - the changes that made
-   the file stay in view however long the blob is. */
-.file-cols {
+/* The main column's permanent split: content beside a sticky history
+   rail. The rail never resizes with the selection - a directory shows a
+   select-a-file prompt in the content pane instead of reflowing history
+   to full width. */
+.browse-cols {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 12px;
@@ -1508,7 +1510,7 @@ tr.hunk-head td {
   flex: 1 1 100%;
 }
 @media (max-width: 1280px) {
-  .file-cols {
+  .browse-cols {
     grid-template-columns: 1fr;
   }
   .history-rail {
