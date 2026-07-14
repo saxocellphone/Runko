@@ -183,15 +183,45 @@ const agentHooksSnippet = `{
 
 func cmdAgentHooks(rest []string) error {
 	fs := flag.NewFlagSet("agent hooks", flag.ExitOnError)
+	install := fs.Bool("install", false, "merge the snippet into this worktree's .claude/settings.local.json (Claude Code; other harnesses paste the printed snippet)")
+	dir := fs.String("dir", ".", "workspace worktree to install into")
+	jsonOut := fs.Bool("json", false, "with --install: emit {path,installed} as JSON")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-	// Prerequisites go to stderr so `runko agent hooks > hooks.json`
-	// captures pure JSON.
-	fmt.Fprintln(os.Stderr, "merge this into your harness settings (Claude Code: .claude/settings.json).")
-	fmt.Fprintln(os.Stderr, "prerequisites: runko on PATH; RUNKO_RUNKOD_URL + RUNKO_TOKEN exported in the")
-	fmt.Fprintln(os.Stderr, "harness environment (or a stored `runko auth login`); run inside a workspace")
-	fmt.Fprintln(os.Stderr, "worktree. events feed the workspace page's live Agent activity card (§12.6.1).")
-	fmt.Println(agentHooksSnippet)
+	if !*install {
+		// Prerequisites go to stderr so `runko agent hooks > hooks.json`
+		// captures pure JSON.
+		fmt.Fprintln(os.Stderr, "merge this into your harness settings (Claude Code: `runko agent hooks --install`")
+		fmt.Fprintln(os.Stderr, "does it for you, into .claude/settings.local.json).")
+		fmt.Fprintln(os.Stderr, "prerequisites: runko on PATH; RUNKO_RUNKOD_URL + RUNKO_TOKEN exported in the")
+		fmt.Fprintln(os.Stderr, "harness environment (or a stored `runko auth login`); run inside a workspace")
+		fmt.Fprintln(os.Stderr, "worktree. events feed the workspace page's live Agent activity card (§12.6.1).")
+		fmt.Println(agentHooksSnippet)
+		return nil
+	}
+
+	path, installed, excludedVia, err := InstallAgentHooks(*dir)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"path": path, "installed": installed})
+	}
+	if installed {
+		fmt.Printf("installed PostToolUse hook -> %s   (merged; other settings untouched)\n", path)
+	} else {
+		fmt.Printf("hook already wired -> %s\n", path)
+	}
+	fmt.Printf("excluded from snapshots via %s\n", excludedVia)
+	// The installer cannot fix the harness environment - hooks inherit
+	// env, not flags (§12.6.1) - but it can say exactly what's missing.
+	if _, err := resolveAgentEventCredential("", ""); err != nil {
+		fmt.Println("credentials: none resolve - export these in the harness environment:")
+		fmt.Println("  export RUNKO_RUNKOD_URL=<your runkod url>")
+		fmt.Println("  export RUNKO_TOKEN=<name>:<token>")
+	} else {
+		fmt.Println("credentials: ok (env or stored login) - hooks will authenticate")
+	}
 	return nil
 }

@@ -73,6 +73,13 @@ func cmdAgent(args []string) error {
 		fmt.Printf("use it:\n")
 		fmt.Printf("  API/CLI:  --token %s:%s   (Basic name:token)\n", out.Name, out.Token)
 		fmt.Printf("  git:      https://%s:%s@<host>/o/<org>/repo.git\n", out.Name, out.Token)
+		// The §12.6 golden-path teach (decided 2026-07-14): the streaming
+		// commands, with the exact exports hooks need - hooks inherit an
+		// environment, not flags (§12.6.1).
+		fmt.Printf("stream the work (once inside the workspace worktree):\n")
+		fmt.Printf("  export RUNKO_RUNKOD_URL=%s RUNKO_TOKEN=%s:%s\n", cred.URL, out.Name, out.Token)
+		fmt.Printf("  runko workspace watch &          # live WIP on the workspace page (§12.6)\n")
+		fmt.Printf("  runko agent hooks --install      # live activity feed (§12.6.1)\n")
 		return nil
 
 	case "list":

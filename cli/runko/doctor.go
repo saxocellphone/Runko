@@ -100,6 +100,13 @@ type DoctorReport struct {
 	// the commit-msg hook.
 	IsJJWorkspace    bool
 	JJChangeIDsWired bool
+	// WorkspaceID: the runko.workspace binding, when this checkout is a
+	// workspace worktree. HasAgentHooks: whether the §12.6.1 activity
+	// hooks are wired in the worktree's harness settings (`runko agent
+	// hooks --install`) - only meaningful (and only reported) when
+	// WorkspaceID is set.
+	WorkspaceID   string
+	HasAgentHooks bool
 }
 
 // RunDoctor inspects repoDir and returns a DoctorReport. It never fails hard
@@ -140,6 +147,14 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 	if isJJWorkspace(repoDir) {
 		report.IsJJWorkspace = true
 		report.JJChangeIDsWired = jjTrailerConfigured(repoDir)
+	}
+
+	if id, _ := runGit(repoDir, "config", "runko.workspace"); id != "" {
+		report.WorkspaceID = id
+		if top, err := runGit(repoDir, "rev-parse", "--show-toplevel"); err == nil {
+			report.HasAgentHooks = hookContains(filepath.Join(top, ".claude", "settings.local.json"), agentHooksMarker) ||
+				hookContains(filepath.Join(top, ".claude", "settings.json"), agentHooksMarker)
+		}
 	}
 
 	if remotes, err := runGit(repoDir, "remote"); err == nil {
@@ -272,6 +287,15 @@ func PrintCheatSheet(w io.Writer, report DoctorReport) {
 			fmt.Fprintln(w, "  jj workspace:    detected; Change-Id trailers derive from jj change ids")
 		} else {
 			fmt.Fprintln(w, "  jj workspace:    detected, but Change-Ids are NOT wired - run `runko doctor --install-hook`")
+		}
+	}
+	// Streaming status is workspace-scoped by nature - outside a
+	// workspace worktree there is nothing to stream into, so no nag.
+	if report.WorkspaceID != "" {
+		if report.HasAgentHooks {
+			fmt.Fprintln(w, "  agent hooks:     installed (activity streams to the workspace page, §12.6.1)")
+		} else {
+			fmt.Fprintln(w, "  agent hooks:     NOT installed - run `runko agent hooks --install` (and keep `runko workspace watch` running)")
 		}
 	}
 	fmt.Fprintln(w)

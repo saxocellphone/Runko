@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -449,4 +450,15 @@ func asClierr(err error, target **clierr.Error) bool {
 		*target = ce
 	}
 	return ok
+}
+
+// printWorkspaceStreamingGuidance is the §12.6 golden-path teach (decided
+// 2026-07-14): the exact next commands that make this worktree's work
+// visible live - §6.9's script pattern, printed at the moment the worktree
+// is born. Human output only; --json callers never see it.
+func printWorkspaceStreamingGuidance(w io.Writer, dir string) {
+	fmt.Fprintln(w, "stream the work (§12.6) - run inside the worktree:")
+	fmt.Fprintf(w, "  cd %s\n", dir)
+	fmt.Fprintln(w, "  runko workspace watch &          # auto-snapshot loop: the workspace page follows WIP live")
+	fmt.Fprintln(w, "  runko agent hooks --install      # agents: reads/edits/commands on the live activity feed (§12.6.1)")
 }
