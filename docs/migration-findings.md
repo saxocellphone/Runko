@@ -520,6 +520,18 @@ planning; entries marked `[observed]` happened during execution.
     by TestPostgresStoreLandedListingOrder and
     TestMemStoreLandedListingOrder.
 
+46. **[observed, live workspace pages] Agents don't stream.** Stage 18's
+    `workspace watch` and stage 19's activity hooks both work - and both
+    are opt-in, so nothing in the golden path (create → work → push)
+    ever turns them on. Workspace pages sat empty while agents worked;
+    the "live view" existed only for whoever had read the spec, and the
+    first visible sign of a task was the change push at its END. Fixed
+    per the 2026-07-14 "streaming becomes the golden path" row:
+    create/attach/agent-create print the two commands, `agent hooks
+    --install` makes the activity wiring one verb, and the funnel
+    answers the first never-streamed change push with a one-time
+    advisory `remote:` block naming both.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
