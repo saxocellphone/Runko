@@ -1,6 +1,10 @@
 package receive
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/saxocellphone/runko/platform/contract"
+)
 
 // Principal identifies who is pushing. Human pushes are not governed by
 // AgentPolicy (§8.1); Policy is only consulted when IsAgent is true.
@@ -30,24 +34,34 @@ type PushRequest struct {
 	// ChangeIDSeed is seed material (e.g. tree SHA + author + timestamp) for
 	// a fresh Change-Id if CommitMessage doesn't already carry one.
 	ChangeIDSeed string
+
+	// ModulePath and Projects feed §13.3.1's contract checks
+	// (platform/contract): the Go module path at the pushed head and the
+	// head tree's indexed projects. Nil Projects skips the checks - the
+	// caller opts each push shape in (change pushes yes; workspace
+	// snapshots are WIP durability and are never contract-policed).
+	ModulePath string
+	Projects   []contract.Project
 }
 
 // Decision is the funnel's verdict. Exactly one of the rejection reasons is
 // populated when Accepted is false: RejectionMessage (ref-level rejection,
-// §6.9-style), PolicyViolations, or SecretFindings.
+// §6.9-style), PolicyViolations, SecretFindings, or ContractViolations.
 type Decision struct {
 	Accepted bool
 
-	RejectionMessage string
-	PolicyViolations []PolicyViolation
-	SecretFindings   []SecretFinding
+	RejectionMessage   string
+	PolicyViolations   []PolicyViolation
+	SecretFindings     []SecretFinding
+	ContractViolations []contract.Violation
 
 	ChangeID      string
 	CommitMessage string // possibly amended with a new Change-Id trailer
 }
 
 // Decide runs the receive funnel (§7.4, §11.5): ref check -> policy -> secret
-// scan -> Change-Id assignment. It does not update Git refs or Postgres rows
+// scan -> contract check (§13.3.1) -> Change-Id assignment. It does not
+// update Git refs or Postgres rows
 // itself - see CreateOrUpdateChange for the persistence half, kept separate
 // so this decision logic stays pure and testable without a database (§28.2
 // rule 3: no mocking git, no mocking Postgres either - keep the parts that
@@ -88,6 +102,16 @@ func Decide(req PushRequest, scanner SecretScanner) Decision {
 	}
 	if len(findings) > 0 {
 		return Decision{Accepted: false, SecretFindings: findings}
+	}
+
+	if len(req.Projects) > 0 {
+		files := make([]contract.File, len(req.Files))
+		for i, f := range req.Files {
+			files[i] = contract.File{Path: f.Path, Content: f.Content}
+		}
+		if violations := contract.Check(req.ModulePath, req.Projects, files, req.ChangedPaths); len(violations) > 0 {
+			return Decision{Accepted: false, ContractViolations: violations}
+		}
 	}
 
 	changeID, newMessage := EnsureChangeID(req.CommitMessage, req.ChangeIDSeed)

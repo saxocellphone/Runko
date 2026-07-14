@@ -16,6 +16,7 @@ import (
 	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/platform/affected"
 	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/platform/contract"
 	"github.com/saxocellphone/runko/platform/core"
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/receive"
@@ -328,6 +329,22 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		Ref: u.Ref, TrunkRef: p.TrunkRef, CommitMessage: msg,
 		Files: files, ChangedPaths: changedPaths,
 		ChangeIDSeed: u.NewSHA,
+	}
+	if isMagicRef {
+		// §13.3.1 contract checks (platform/contract) need the head tree's
+		// project index and module path. Fail closed on a scan error: a
+		// tree whose manifests cannot be indexed cannot be policed - and
+		// would break the affected computation the same way one step later.
+		store := &gitstore.Store{Dir: p.RepoDir, Ref: "HEAD", ExtraEnv: extraEnv}
+		indexed, err := index.Scan(store, core.Revision(u.NewSHA), nil)
+		if err != nil {
+			return verdict{update: u, author: author, decision: receive.Decision{
+				Accepted:         false,
+				RejectionMessage: fmt.Sprintf("remote: could not index projects at pushed head (§13.3.1 contract checks): %v\n", err),
+			}}
+		}
+		req.Projects = contractProjects(indexed)
+		req.ModulePath = goModulePath(store, u.NewSHA)
 	}
 	if pr := p.principalByName(author); pr != nil && pr.IsAgent {
 		// Stage 12c: the first wire-level feed for the AgentPolicy
@@ -1229,7 +1246,47 @@ func renderRejection(d receive.Decision) string {
 	for _, f := range d.SecretFindings {
 		fmt.Fprintf(&b, "remote: possible secret in %s (line %d): %s\n", f.Path, f.Line, f.Description)
 	}
+	for _, v := range d.ContractViolations {
+		fmt.Fprintf(&b, "remote: contract violation [%s] in %s: %s\n", v.Code, v.Path, v.Message)
+		if v.Suggestion != "" {
+			fmt.Fprintf(&b, "remote:   -> %s\n", v.Suggestion)
+		}
+	}
 	return b.String()
+}
+
+// contractProjects maps the indexed head tree to the §13.3.1 checker's
+// input shape (platform/contract stays dependency-free of platform/index).
+func contractProjects(indexed []index.IndexedProject) []contract.Project {
+	out := make([]contract.Project, len(indexed))
+	for i, ip := range indexed {
+		out[i] = contract.Project{
+			Name:           ip.Name,
+			Path:           ip.Path,
+			Dependencies:   ip.DeclaredDependencies,
+			ContractGenDir: ip.ContractGenDir,
+			DeclaresHTTP:   ip.OpenAPIPath != "",
+			OpenAPIPath:    ip.OpenAPIPath,
+			OpenAPIPresent: ip.OpenAPIPresent,
+		}
+	}
+	return out
+}
+
+// goModulePath reads go.mod's module line at rev; "" (no go.mod, no module
+// line) makes the §13.3.1 import check a no-op - a non-Go monorepo has no
+// gen-dir imports to police.
+func goModulePath(store *gitstore.Store, rev string) string {
+	blob, err := store.GetBlob(core.Revision(rev), "go.mod")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(blob.Content), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
 }
 
 func firstLine(s string) string {

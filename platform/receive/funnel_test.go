@@ -3,6 +3,8 @@ package receive
 import (
 	"errors"
 	"testing"
+
+	"github.com/saxocellphone/runko/platform/contract"
 )
 
 type fakeScanner struct {
@@ -117,5 +119,46 @@ func TestDecidePreservesExistingChangeID(t *testing.T) {
 	}
 	if d.ChangeID != "I0123456789abcdef0123456789abcdef01234567" {
 		t.Fatalf("expected the existing Change-Id to be preserved, got %s", d.ChangeID)
+	}
+}
+
+// TestDecideContractCheck pins the funnel's fourth step (§13.3.1): with a
+// project snapshot attached, an undeclared contract-gen import is refused
+// with structured ContractViolations; the declared edge passes; and a
+// request with NO Projects (workspace snapshots, unborn trunk) skips the
+// check entirely.
+func TestDecideContractCheck(t *testing.T) {
+	projects := []contract.Project{
+		{Name: "provider", Path: "provider", ContractGenDir: "provider/proto/gen"},
+		{Name: "consumer", Path: "consumer"},
+	}
+	violating := FileContent{
+		Path:    "consumer/client.go",
+		Content: []byte("package consumer\n\nimport _ \"example.com/mono/provider/proto/gen/v1\"\n"),
+	}
+
+	req := baseRequest()
+	req.ModulePath = "example.com/mono"
+	req.Projects = projects
+	req.Files = []FileContent{violating}
+	req.ChangedPaths = []string{violating.Path}
+
+	d := Decide(req, NoOpScanner{})
+	if d.Accepted || len(d.ContractViolations) != 1 {
+		t.Fatalf("want one contract violation, got accepted=%v %+v", d.Accepted, d.ContractViolations)
+	}
+	if d.ContractViolations[0].Code != "undeclared_contract_dependency" {
+		t.Fatalf("unexpected code %q", d.ContractViolations[0].Code)
+	}
+
+	req.Projects[1].Dependencies = []string{"provider"}
+	if d := Decide(req, NoOpScanner{}); !d.Accepted {
+		t.Fatalf("declared edge must pass: %+v", d)
+	}
+
+	req.Projects = nil
+	req.Files[0].Content = violating.Content
+	if d := Decide(req, NoOpScanner{}); !d.Accepted {
+		t.Fatalf("nil Projects must skip the contract check: %+v", d)
 	}
 }
