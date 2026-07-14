@@ -791,6 +791,46 @@ func rejectionMessage(v verdict) string {
 // implicitly; git needs one `rebase`), push the tip once - every member's
 // head and base move together, bottom-up, so each member's base resolves
 // to its freshly-updated parent.
+// neverStreamedAdvice is the §12.6 golden-path nudge: a workspace's FIRST
+// accepted change push that streamed nothing while the work happened earns
+// one advisory remote: block naming the two streaming verbs. Server-side
+// for §6.9 parity (raw-git and jj pushers see it too), fail-open (telemetry
+// advice must never block a push), and called BEFORE this push's own
+// change_pushed row is recorded so the rule reads pre-push state.
+func (p *Processor) neverStreamedAdvice(ctx context.Context, wsID string) string {
+	// Limit 25 is exact, not probabilistic: a qualifying workspace has no
+	// change_pushed row, hence no change_landed/change_abandoned (each
+	// requires one) and no workspace_closed (closed refuses pushes) - so
+	// it can hold only a snapshot_pushed or two. 25 is unreachable headroom.
+	events, err := p.Store.ListWorkspaceEvents(ctx, wsID, 25, 0)
+	if err != nil {
+		return ""
+	}
+	snapshots := 0
+	for _, e := range events {
+		switch e.Type {
+		case WorkspaceEventChangePushed:
+			return "" // only the first change push ever nudges
+		case WorkspaceEventSnapshotPushed:
+			snapshots++
+		}
+	}
+	// Exactly one snapshot is (usually) this push's own client-side
+	// auto-snapshot, pushed moments earlier; zero covers --no-snapshot and
+	// a failed/rejected auto-snapshot. Two or more means a watch loop or a
+	// manual snapshot cadence existed - that workspace streamed.
+	if snapshots >= 2 {
+		return ""
+	}
+	acts, err := p.Store.ListWorkspaceActivity(ctx, wsID, 1, 0)
+	if err != nil || len(acts) > 0 {
+		return "" // hooks already wired (or store error: fail open)
+	}
+	return "remote: note: this workspace never streamed while the work happened - the workspace page saw nothing until this push (§12.6)\n" +
+		"remote:   -> runko workspace watch          # background auto-snapshot loop; WIP shows on the workspace page live\n" +
+		"remote:   -> runko agent hooks --install    # agents: report reads/edits/commands to the live activity feed (§12.6.1)\n"
+}
+
 func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 	if v.evalErr != "" {
 		return RefResult{Ref: v.update.Ref, Accepted: false, Message: v.evalErr}
@@ -840,6 +880,7 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 	// names the stack; per-member rows would be noise on series pushes).
 	// Line totals stay 0 here - the Change page carries the real diff.
 	if v.originWorkspace != "" && tip.ChangeKey != "" {
+		msg.WriteString(p.neverStreamedAdvice(ctx, v.originWorkspace))
 		recordWorkspaceEvent(ctx, p.Store, p.Events, WorkspaceEvent{
 			Type: WorkspaceEventChangePushed, WorkspaceID: v.originWorkspace, Branch: v.originBranch,
 			Actor: v.author, SHA: v.update.NewSHA, ChangeKey: tip.ChangeKey,
