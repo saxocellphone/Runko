@@ -1,18 +1,12 @@
 import { Link } from "react-router-dom";
 import { ConnectError } from "@connectrpc/connect";
 import { changesClient, publicBrowse, repoClient, workspacesClient } from "../api/client";
-import { ChangeState, WorkspaceStatus } from "../gen/runko/v1/common_pb";
+import { ChangeState } from "../gen/runko/v1/common_pb";
 import { WorkspaceEventType, type WorkspaceEvent } from "../gen/runko/v1/workspaces_pb";
 import { absoluteTime, shortSha, timeAgo } from "../lib/format";
 import { branchesForWorkspace, changesByOrigin } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
 import { ActivityPresence, EmptyState, ErrorNote, InfoTip, Spinner } from "../components/ui";
-
-const statusLabel: Record<number, string> = {
-  [WorkspaceStatus.ACTIVE]: "active",
-  [WorkspaceStatus.DETACHED]: "detached",
-  [WorkspaceStatus.CLOSED]: "closed",
-};
 
 const eventLabel: Record<number, string> = {
   [WorkspaceEventType.SNAPSHOT_PUSHED]: "snapshot",
@@ -23,12 +17,18 @@ const eventLabel: Record<number, string> = {
 };
 
 // The list sorts on this, most recent first: the newest §12.6 timeline
-// event, or the newest harness-reported activity when that's fresher
-// (agents report between snapshots).
-function activityKey(row: { lastEvent?: WorkspaceEvent; latestActivity?: { occurredAt: bigint } }) {
+// event, harness-reported activity when that's fresher (agents report
+// between snapshots), or creation itself - a brand-new workspace is
+// recent activity, not a bottom-of-the-list blank.
+function activityKey(row: {
+  lastEvent?: WorkspaceEvent;
+  latestActivity?: { occurredAt: bigint };
+  createdAt: bigint;
+}) {
   return Math.max(
     Number(row.lastEvent?.occurredAt ?? 0),
     Number(row.latestActivity?.occurredAt ?? 0),
+    Number(row.createdAt),
   );
 }
 
@@ -60,6 +60,7 @@ export function WorkspacesPage() {
           w,
           lastEvent,
           latestActivity: w.latestActivity,
+          createdAt: w.createdAt,
           baseChangeId: baseCommit?.changeId ?? "",
         };
       }),
@@ -105,7 +106,7 @@ export function WorkspacesPage() {
                 <th>Owner</th>
                 <th>
                   Last change
-                  <InfoTip text="The newest event on this workspace's timeline (§12.6): a snapshot or a change push/land/abandon. The list sorts on this, most recently active first; the label links to the change when the event names one." />
+                  <InfoTip text="The newest event on this workspace's timeline (§12.6): a snapshot, a change push/land/abandon, close - or its creation, until anything else happens. The list sorts on this, most recently active first; the label links to the change when the event names one." />
                 </th>
                 <th>
                   Base
@@ -115,7 +116,6 @@ export function WorkspacesPage() {
                   Branches → stacks
                   <InfoTip text="Parallel lines of work inside this one workspace: each branch is a Git ref (refs/workspaces/<id>/<branch>) WIP is durably pushed to; 'head' is the default. One branch carries one stack - the open changes listed under each branch were pushed from it (recorded at push time, validated against this registry)." />
                 </th>
-                <th>Status</th>
                 <th />
               </tr>
             </thead>
@@ -136,7 +136,7 @@ export function WorkspacesPage() {
                   </td>
                   <td>{w.owner}</td>
                   <td>
-                    <LastChange ev={lastEvent} />
+                    <LastChange ev={lastEvent} createdAt={w.createdAt} />
                   </td>
                   <td className="mono">
                     {baseChangeId ? (
@@ -159,13 +159,6 @@ export function WorkspacesPage() {
                         chains={data.stacks.get(`${w.id}/${b}`) ?? []}
                       />
                     ))}
-                  </td>
-                  <td>
-                    <span
-                      className={`chip ${w.status === WorkspaceStatus.ACTIVE ? "chip-green" : ""}`}
-                    >
-                      {statusLabel[w.status] ?? "unknown"}
-                    </span>
                   </td>
                   <td>
                     {!publicBrowse && (
@@ -191,8 +184,15 @@ export function WorkspacesPage() {
 
 // LastChange is the newest §12.6 timeline event as one quiet cell:
 // what happened and when, linking to the change for change_* events.
-function LastChange({ ev }: { ev: WorkspaceEvent | undefined }) {
-  if (!ev) return <span className="muted">none yet</span>;
+// A workspace with no events yet shows its creation - being born IS
+// its last change (servers predating created_at send 0: "none yet").
+function LastChange({ ev, createdAt }: { ev: WorkspaceEvent | undefined; createdAt: bigint }) {
+  if (!ev) {
+    if (Number(createdAt) > 0) {
+      return <span title={absoluteTime(createdAt)}>created · {timeAgo(createdAt)}</span>;
+    }
+    return <span className="muted">none yet</span>;
+  }
   const label = eventLabel[ev.type] ?? "event";
   const when = timeAgo(ev.occurredAt);
   if (ev.changeId) {

@@ -1156,14 +1156,18 @@ func (s *PostgresStore) dbWorkspaceToWorkspace(ctx context.Context, row *dbgen.W
 	if err != nil {
 		return Workspace{}, fmt.Errorf("runkod: resolve workspace owner: %w", err)
 	}
-	return Workspace{
+	ws := Workspace{
 		ID: id, Owner: actor.ExternalRef,
 		BaseRevision:    row.BaseRevision,
 		ProjectAffinity: row.ProjectAffinity,
 		WriteAllowlist:  row.WriteAllowlist,
 		SnapshotRef:     row.SnapshotRef,
 		Status:          string(row.Status),
-	}, nil
+	}
+	if row.CreatedAt.Valid {
+		ws.CreatedAt = row.CreatedAt.Time.Unix()
+	}
+	return ws, nil
 }
 
 func nonNilStrings(s []string) []string {

@@ -272,6 +272,11 @@ message WorkspaceSummary {
   // at-a-glance line), served straight from storage - no presence store.
   // Unset when nothing was ever reported; clients decide freshness.
   WorkspaceActivityEvent latest_activity = 9;
+  // When the registry row was created (unix seconds, the landed_at
+  // convention). Creation is a workspace's first observable act: list
+  // UIs sort on it until the first §12.6 timeline event exists. 0 only
+  // from servers predating the field.
+  int64 created_at = 10;
 }
 
 // WorkspaceActivityEvent is one harness-reported agent-activity row

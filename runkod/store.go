@@ -966,6 +966,7 @@ func (s *MemStore) CreateWorkspace(ctx context.Context, ws Workspace) (Workspace
 	if _, taken := s.workspaces[ws.ID]; taken {
 		return Workspace{}, fmt.Errorf("runkod: workspace %q already exists", ws.ID)
 	}
+	ws.CreatedAt = s.now().Unix()
 	s.workspaces[ws.ID] = ws
 	return ws, nil
 }

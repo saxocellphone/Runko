@@ -1579,5 +1579,6 @@ func (s *Server) protoWorkspace(ws Workspace) *runkov1.WorkspaceSummary {
 		SnapshotRef:     ws.SnapshotRef,
 		Status:          status,
 		Branches:        s.workspaceBranches(ws.ID),
+		CreatedAt:       ws.CreatedAt,
 	}
 }
