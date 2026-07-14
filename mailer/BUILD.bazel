@@ -8,6 +8,11 @@ go_library(
     ],
     importpath = "github.com/saxocellphone/runko/mailer",
     visibility = ["//visibility:private"],
+    deps = [
+        "//runkod/proto/gen/mailer/v1:mailer",
+        "//runkod/proto/gen/mailer/v1/mailerv1connect",
+        "@com_connectrpc_connect//:connect",
+    ],
 )
 
 go_binary(
@@ -20,4 +25,10 @@ go_test(
     name = "mailer_test",
     srcs = ["mailer_test.go"],
     embed = [":mailer_lib"],
+    deps = [
+        "//runkod/proto/gen/mailer/v1:mailer",
+        "//runkod/proto/gen/mailer/v1/mailerv1connect",
+        "@com_connectrpc_connect//:connect",
+        "@org_golang_google_protobuf//types/known/timestamppb",
+    ],
 )
