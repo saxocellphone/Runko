@@ -1247,8 +1247,9 @@ tr.hunk-head td {
 /* -------------------------------------------------------------- browser */
 
 .browse-layout {
+  position: relative;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: var(--tree-w, 300px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -1256,6 +1257,49 @@ tr.hunk-head td {
   .browse-layout {
     grid-template-columns: 1fr;
   }
+  .tree-resize {
+    display: none;
+  }
+}
+
+/* Draggable pane dividers ride the column gaps; the widths they drive
+   (--tree-w / --rail-w) come from usePaneWidth and persist per browser. */
+.pane-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  z-index: 2;
+}
+.pane-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+}
+.pane-resize:hover::after,
+.pane-resize:focus-visible::after {
+  background: var(--border-strong);
+}
+.pane-resize:active::after {
+  background: var(--accent);
+}
+.pane-resize:focus-visible {
+  outline: none;
+}
+.tree-resize {
+  left: var(--tree-w, 300px);
+  width: 16px;
+}
+.rail-resize {
+  right: var(--rail-w, 300px);
+  width: 12px;
 }
 
 /* The tree and the file-view history rail stick within .main (the app's
@@ -1489,8 +1533,9 @@ tr.hunk-head td {
    select-a-file prompt in the content pane instead of reflowing history
    to full width. */
 .browse-cols {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) var(--rail-w, 300px);
   gap: 12px;
   align-items: start;
 }
@@ -1516,6 +1561,9 @@ tr.hunk-head td {
   .history-rail {
     position: static;
     max-height: none;
+  }
+  .rail-resize {
+    display: none;
   }
 }
 
