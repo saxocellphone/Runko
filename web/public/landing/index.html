@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Runko — the monorepo platform for humans and agents</title>
 <meta name="description" content="Runko is a self-hosted monorepo platform on plain Git: one-command project generation, isolated agent workspaces with server-side guardrails, stacked review, and merge gates that can't be skipped.">
+<meta property="og:title" content="Runko — the monorepo platform for humans and agents">
+<meta property="og:description" content="Self-hosted, on plain Git: one-command project generation, isolated agent workspaces, stacked review, and merge gates that can't be skipped.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131316" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root {
@@ -13,85 +18,122 @@
     --accent-soft: #ece9fb; --ok: #2f9e63; --warn: #d97917;
     --font: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
     --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --shadow: 0 12px 40px -18px rgba(0, 0, 0, .25);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #131316; --surface: #1b1b20; --surface-2: #232329; --border: #2e2e36;
       --text: #ededf2; --text-2: #9a9aa7; --accent: #9b8afb; --accent-strong: #b2a5fc;
       --accent-soft: #26214a; --ok: #4cc38a; --warn: #f0a04b;
+      --shadow: 0 12px 40px -18px rgba(0, 0, 0, .6);
     }
+    /* In dark, the accent is light - dark text keeps the button legible. */
+    .btn.primary, .btn.primary:hover, .skip:focus { color: #131316; }
   }
   * { box-sizing: border-box; margin: 0; }
-  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
   body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.6; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { color: var(--accent-strong); }
-  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 clamp(18px, 4vw, 28px); }
+  section[id] { scroll-margin-top: 76px; }
 
-  header { position: sticky; top: 0; backdrop-filter: blur(10px); background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--border); z-index: 10; }
-  nav { display: flex; align-items: center; gap: 20px; padding: 14px 0; }
-  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); }
-  .logo svg { border-radius: 7px; }
-  nav .links { margin-left: auto; display: flex; gap: 18px; align-items: center; font-size: 14px; }
-  .btn { display: inline-block; padding: 9px 18px; border-radius: 8px; font-weight: 600; font-size: 14px; border: 1px solid var(--border); color: var(--text); background: var(--surface); }
+  .skip { position: absolute; left: -9999px; top: 0; z-index: 30; background: var(--accent); color: #fff; padding: 10px 16px; border-radius: 0 0 8px 0; font-size: 14px; }
+  .skip:focus { left: 0; color: #fff; }
+
+  header { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 82%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  nav { display: flex; align-items: center; gap: 10px; padding: 12px 0; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); flex: none; }
+  .logo:hover { color: var(--text); }
+  .logo svg { border-radius: 7px; display: block; }
+  nav .links { display: flex; gap: 18px; align-items: center; font-size: 14px; margin: 0 auto; }
+  nav .actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+  nav .links + .actions { margin-left: 0; }
+  .btn { display: inline-block; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; border: 1px solid var(--border); color: var(--text); background: var(--surface); white-space: nowrap; }
   .btn:hover { border-color: var(--accent); color: var(--text); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.primary:hover { background: var(--accent-strong); color: #fff; }
+  .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
 
-  .hero { padding: 88px 0 56px; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 48px; align-items: center; }
-  .hero h1 { font-size: clamp(34px, 5vw, 52px); line-height: 1.12; letter-spacing: -0.02em; font-weight: 800; }
+  /* Mobile menu: a plain disclosure, no framework. */
+  .menu { display: none; position: relative; flex: none; }
+  .menu summary { list-style: none; cursor: pointer; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+  .menu summary::-webkit-details-marker { display: none; }
+  .menu[open] summary { border-color: var(--accent); color: var(--accent); }
+  .menu .sheet { position: absolute; right: 0; top: calc(100% + 10px); min-width: 200px; display: grid; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  .menu .sheet a { padding: 9px 14px; border-radius: 8px; color: var(--text); font-size: 14.5px; }
+  .menu .sheet a:hover { background: var(--surface-2); }
+  .menu .sheet hr { border: none; border-top: 1px solid var(--border); margin: 8px 6px; }
+
+  .hero { padding: clamp(44px, 8vw, 88px) clamp(18px, 4vw, 28px) clamp(40px, 7vw, 56px); display: grid; grid-template-columns: 1.2fr 0.8fr; gap: clamp(32px, 5vw, 52px); align-items: center; }
+  .hero h1 { font-size: clamp(31px, 5.2vw, 50px); line-height: 1.1; letter-spacing: -0.025em; font-weight: 800; text-wrap: balance; }
   .hero h1 em { color: var(--accent); font-style: normal; }
-  .hero p.lede { margin-top: 18px; font-size: 18px; color: var(--text-2); max-width: 34em; }
-  .hero .ctas { margin-top: 28px; display: flex; gap: 12px; flex-wrap: wrap; }
-  .quick { margin-top: 22px; font-family: var(--mono); font-size: 13.5px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text-2); overflow-x: auto; white-space: nowrap; }
-  .quick b { color: var(--text); font-weight: 600; }
-  .quick .p { color: var(--accent); }
+  .hero p.lede { margin-top: 18px; font-size: clamp(16px, 2.2vw, 18px); color: var(--text-2); max-width: 34em; }
+  .hero .ctas { margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .hero .more-row { margin-top: 10px; display: flex; gap: 4px 22px; flex-wrap: wrap; }
+  .hero .more-row a { font-size: 14px; font-weight: 600; padding: 5px 0; }
 
-  /* Stack rail illustration */
-  .rail { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; box-shadow: 0 12px 40px -18px rgba(0,0,0,.25); }
+  .terminal { background: #16161c; color: #d6d6df; border: 1px solid #2e2e36; border-radius: 12px; font-family: var(--mono); font-size: 13px; line-height: 1.75; padding: 16px 20px; overflow-x: auto; }
+  pre.terminal { white-space: pre; }
+  .terminal .c { color: #6f6f7e; } .terminal .g { color: #4cc38a; } .terminal .v { color: #9b8afb; }
+  .quick { margin-top: 22px; font-size: 12.5px; }
+
+  /* The stack rail: three changes over a closed trunk - the product's
+     core object, drawn instead of described. */
+  .rail { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; box-shadow: var(--shadow); min-width: 0; }
   .rail .row { display: flex; align-items: center; gap: 14px; padding: 9px 0; position: relative; }
   .rail .row + .row::before { content: ""; position: absolute; left: 7px; top: -14px; height: 18px; width: 2px; background: var(--border); }
   .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; border: 2px solid var(--surface); box-shadow: 0 0 0 2px var(--border); }
   .dot.landed { background: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
   .dot.green { background: var(--ok); box-shadow: 0 0 0 2px var(--ok); }
   .dot.pending { background: var(--warn); box-shadow: 0 0 0 2px var(--warn); }
-  .rail .meta { min-width: 0; }
-  .rail .title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .rail .sub { font-size: 12px; color: var(--text-2); font-family: var(--mono); }
-  .chip { margin-left: auto; flex: none; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+  @media (prefers-reduced-motion: no-preference) {
+    .dot.pending { animation: checks-running 2.4s ease-in-out infinite; }
+    @keyframes checks-running {
+      0%, 100% { box-shadow: 0 0 0 2px var(--warn); }
+      50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--warn) 30%, transparent); }
+    }
+  }
+  .rail .meta { flex: 1; min-width: 0; }
+  .rail .title { display: block; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rail .sub { display: block; font-size: 12px; color: var(--text-2); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip { flex: none; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
   .chip.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
   .chip.warn { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
   .rail .trunk { font-size: 12px; color: var(--text-2); border-top: 1px dashed var(--border); margin-top: 10px; padding-top: 12px; display: flex; gap: 8px; align-items: center; }
 
-  section { padding: 56px 0; }
-  section h2 { font-size: 28px; letter-spacing: -0.01em; margin-bottom: 8px; }
-  section > .wrap > p.sub, section .sectionsub { color: var(--text-2); max-width: 46em; margin-bottom: 32px; }
+  section { padding: clamp(44px, 7vw, 64px) 0; }
+  .eyebrow { font-family: var(--mono); font-size: 13px; color: var(--accent); margin-bottom: 10px; }
+  .eyebrow.comment { color: var(--text-2); }
+  section h2 { font-size: clamp(23px, 4vw, 29px); letter-spacing: -0.015em; margin-bottom: 8px; text-wrap: balance; }
+  section .sectionsub { color: var(--text-2); max-width: 46em; margin-bottom: 30px; }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
-  .card h3 { font-size: 16px; margin-bottom: 8px; display: flex; align-items: center; gap: 9px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: clamp(18px, 3vw, 22px); }
+  .card h3 { font-size: 16px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
   .card p { font-size: 14px; color: var(--text-2); }
   .card code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border-radius: 5px; padding: 1px 6px; color: var(--text); }
-  .glyph { width: 26px; height: 26px; flex: none; border-radius: 7px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 14px; }
+  .glyph { width: 28px; height: 28px; flex: none; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; }
+  .glyph svg { display: block; }
 
-  .pain .card { border-top: 3px solid var(--warn); }
+  .pain .card { border-top: 2px solid var(--warn); }
   .pain .card h3 { font-size: 15.5px; }
 
-  .honest { background: var(--surface-2); border-radius: 14px; padding: 32px; }
+  .honest { background: var(--surface-2); border-radius: 14px; padding: clamp(22px, 4vw, 32px); }
   .honest h2 { font-size: 22px; }
   .honest ul { margin: 14px 0 0 1.2em; color: var(--text-2); font-size: 14.5px; }
   .honest li { margin: 6px 0; }
   .honest b { color: var(--text); }
 
-  .terminal { background: #16161c; color: #d6d6df; border: 1px solid #2e2e36; border-radius: 12px; font-family: var(--mono); font-size: 13px; line-height: 1.75; padding: 20px 22px; overflow-x: auto; white-space: nowrap; }
-  .terminal .c { color: #6f6f7e; } .terminal .g { color: #4cc38a; } .terminal .v { color: #9b8afb; }
-
-  .split { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 36px; align-items: start; }
+  .split { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: clamp(24px, 4vw, 36px); align-items: start; }
+  .split > * { min-width: 0; }
   .split .copy p { color: var(--text-2); font-size: 15px; }
   .split .copy p + p { margin-top: 12px; }
   .split .copy b { color: var(--text); }
 
   .compare-scroll { overflow-x: auto; }
-  table.compare { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; font-size: 14px; min-width: 640px; }
+  table.compare { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; font-size: 14px; min-width: 560px; }
   .compare th, .compare td { padding: 13px 18px; text-align: left; vertical-align: top; border-top: 1px solid var(--border); }
   .compare thead th { border-top: none; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); background: var(--surface-2); }
   .compare thead th.us { color: var(--accent); }
@@ -99,27 +141,57 @@
   .compare td.them { color: var(--text-2); }
   .compare td.us { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
 
-  footer { border-top: 1px solid var(--border); padding: 28px 0 48px; color: var(--text-2); font-size: 14px; display: block; }
-  footer .wrap { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+  footer { border-top: 1px solid var(--border); padding: 28px 0 48px; color: var(--text-2); font-size: 14px; }
+  footer .wrap { display: flex; gap: 16px 20px; flex-wrap: wrap; align-items: center; }
   footer .spacer { margin-left: auto; }
 
-  @media (max-width: 840px) {
-    .hero { grid-template-columns: 1fr; padding-top: 56px; }
-    .grid { grid-template-columns: 1fr; }
+  @media (max-width: 999px) {
+    nav .links { display: none; }
+    .menu { display: block; }
+  }
+  @media (max-width: 979px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 899px) {
+    .hero { grid-template-columns: 1fr; }
     .split { grid-template-columns: 1fr; }
-    nav .links a.gh { display: none; }
+  }
+  @media (max-width: 639px) {
+    /* The comparison keeps its content but drops the table shape:
+       one card per aspect, them/us stacked and labeled. */
+    table.compare, .compare tbody, .compare tr, .compare td { display: block; }
+    .compare thead { display: none; }
+    table.compare { min-width: 0; background: none; border: none; border-radius: 0; }
+    .compare tr { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .compare tr + tr { margin-top: 12px; }
+    .compare td { border-top: none; padding: 12px 16px; }
+    .compare td.aspect { white-space: normal; width: auto; background: var(--surface-2); padding: 9px 16px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    .compare td.them::before, .compare td.us::before { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; color: var(--text-2); }
+    .compare td.them::before { content: "git worktrees today"; }
+    .compare td.us::before { content: "runko workspaces"; color: var(--accent); }
+    .compare td.us { border-top: 1px solid var(--border); }
+  }
+  @media (max-width: 619px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 459px) {
+    nav .actions .playground { display: none; }
+    .btn { padding: 8px 13px; }
+    .terminal { font-size: 11.5px; padding: 14px 16px; }
   }
 </style>
 </head>
 <body>
 
+<a class="skip" href="#main">Skip to content</a>
+
 <header>
   <div class="wrap">
     <nav>
-      <span class="logo">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="7" fill="#6e56cf"/><line x1="16" y1="7" x2="16" y2="25" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".55"/><circle cx="16" cy="7.5" r="3.4" fill="#fff"/><circle cx="16" cy="16" r="3.4" fill="#fff"/><circle cx="16" cy="24.5" r="3.4" fill="#fff"/></svg>
+      <a class="logo" href="/landing/" aria-label="Runko home">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#6e56cf"/><line x1="16" y1="7" x2="16" y2="25" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".55"/><circle cx="16" cy="7.5" r="3.4" fill="#fff"/><circle cx="16" cy="16" r="3.4" fill="#fff"/><circle cx="16" cy="24.5" r="3.4" fill="#fff"/></svg>
         Runko
-      </span>
+      </a>
       <span class="links">
         <a href="#projects">Projects</a>
         <a href="#cli">CLI</a>
@@ -127,16 +199,34 @@
         <a href="#landing">Landing</a>
         <a href="#selfhost">Self-host</a>
         <a href="/runko" title="Runko's own source, hosted on this instance — browse without an account">Source</a>
-        <a class="gh" href="https://github.com/saxocellphone/Runko">GitHub</a>
-        <a class="btn" href="/demo/" title="Runs entirely in your browser on sample data">Playground</a>
-        <a class="btn" href="/changes?invite=1" title="This instance is invite-only — ask for the code and it arrives by email">Request an invite</a>
+        <a href="https://github.com/saxocellphone/Runko">GitHub</a>
+      </span>
+      <span class="actions">
+        <a class="btn playground" href="/demo/" title="Runs entirely in your browser on sample data">Playground</a>
         <a class="btn primary" href="/changes">Sign in</a>
       </span>
+      <details class="menu">
+        <summary aria-label="Menu">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14"/></svg>
+        </summary>
+        <span class="sheet">
+          <a href="#projects">Projects</a>
+          <a href="#cli">CLI</a>
+          <a href="#agents">Agents</a>
+          <a href="#landing">Landing</a>
+          <a href="#selfhost">Self-host</a>
+          <hr>
+          <a href="/runko">Source</a>
+          <a href="https://github.com/saxocellphone/Runko">GitHub</a>
+          <a href="/demo/">Playground</a>
+          <a href="/changes?invite=1">Request an invite</a>
+        </span>
+      </details>
     </nav>
   </div>
 </header>
 
-<main>
+<main id="main">
   <div class="wrap hero">
     <div>
       <h1>One repo. Every team.<br><em>Any number of agents.</em></h1>
@@ -144,26 +234,29 @@
       <div class="ctas">
         <a class="btn primary" href="/changes?invite=1" title="This instance is invite-only — ask for the code and it arrives by email">Request an invite</a>
         <a class="btn" href="/demo/" title="Runs entirely in your browser on sample data">Try the playground</a>
-        <a class="btn" href="/runko" title="Runko develops on Runko — read-only, no account needed">Browse the source</a>
-        <a class="btn" href="/landing/design.html">How it's designed</a>
       </div>
-      <div class="quick"><span class="p">$</span> git clone … &amp;&amp; <b>docker compose up</b> <span class="c"># a working control plane in ~2 minutes</span></div>
+      <div class="more-row">
+        <a href="/runko" title="Runko develops on Runko — read-only, no account needed">Browse the source →</a>
+        <a href="/landing/design.html">How it's designed →</a>
+      </div>
+<pre class="terminal quick"><span class="g">$</span> git clone … &amp;&amp; docker compose up
+  <span class="c"># a working control plane in ~2 minutes</span></pre>
     </div>
 
     <div class="rail" aria-label="A stack of changes">
       <div class="row">
         <span class="dot pending"></span>
-        <span class="meta"><span class="title">checkout: retry failed SKU lookups</span><br><span class="sub">I4f2a…e1 · ws › pricing</span></span>
+        <span class="meta"><span class="title">checkout: retry failed SKU lookups</span><span class="sub">I4f2a…e1 · ws › pricing</span></span>
         <span class="chip warn">checks running</span>
       </div>
       <div class="row">
         <span class="dot green"></span>
-        <span class="meta"><span class="title">checkout: extract sku validator</span><br><span class="sub">I9c07…b4 · ws › pricing</span></span>
+        <span class="meta"><span class="title">checkout: extract sku validator</span><span class="sub">I9c07…b4 · ws › pricing</span></span>
         <span class="chip ok">ready to land</span>
       </div>
       <div class="row">
         <span class="dot landed"></span>
-        <span class="meta"><span class="title">billing: shared money type</span><br><span class="sub">I77d1…9a · landed</span></span>
+        <span class="meta"><span class="title">billing: shared money type</span><span class="sub">I77d1…9a · landed</span></span>
         <span class="chip">landed</span>
       </div>
       <div class="trunk">⌂ trunk — closed to direct push; everything above landed through review, checks, and owners</div>
@@ -172,6 +265,7 @@
 
   <section class="pain" id="why">
     <div class="wrap">
+      <p class="eyebrow comment"># the status quo</p>
       <h2>You've already built the workarounds</h2>
       <p class="sectionsub">Monorepos are winning and coding agents are multiplying. The tooling hasn't caught up, so teams improvise:</p>
       <div class="grid">
@@ -184,6 +278,7 @@
 
   <section id="projects">
     <div class="wrap">
+      <p class="eyebrow">$ runko project create</p>
       <h2>Projects come from a generator, not a copy-paste</h2>
       <p class="sectionsub">Name, type, owners in — everything else is generated or defaulted. That's the whole form.</p>
       <div class="split">
@@ -191,33 +286,33 @@
           <p><b>Uniformity isn't a style guide anyone has to follow — it's the generator everyone uses.</b> Every project in the org has the same shape: a manifest next to the code, a skeleton from your org's template, a build binding with zero hand-written lines.</p>
           <p>Ownership and required checks live in <code>PROJECT.yaml</code>, in the tree — so changing the rules is itself a reviewed change that owners approve, and the whole platform re-reads policy from the code it protects.</p>
         </div>
-        <div class="terminal">
-<span class="g">$</span> runko project create payments-api \<br>
-&nbsp;&nbsp;&nbsp;&nbsp;<span class="v">--type</span> service <span class="v">--owners</span> team-payments<br>
-&nbsp;&nbsp;create&nbsp; payments-api/PROJECT.yaml&nbsp;<span class="c"># type + owners</span><br>
-&nbsp;&nbsp;create&nbsp; payments-api/main.go&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c"># org template skeleton</span><br>
-&nbsp;&nbsp;create&nbsp; payments-api/BUILD.bazel&nbsp;&nbsp;<span class="c"># zero hand-authored lines</span><br>
-<span class="g">$</span> runko change push&nbsp;<span class="c"># the new project lands like any other change</span>
-        </div>
+<pre class="terminal"><span class="g">$</span> runko project create payments-api \
+    <span class="v">--type</span> service <span class="v">--owners</span> team-payments
+  create payments-api/PROJECT.yaml  <span class="c"># type + owners</span>
+  create payments-api/main.go       <span class="c"># org skeleton</span>
+  create payments-api/BUILD.bazel   <span class="c"># generated</span>
+<span class="g">$</span> runko change push
+  <span class="c"># the new project lands like any other change</span></pre>
       </div>
     </div>
   </section>
 
   <section id="cli">
     <div class="wrap">
+      <p class="eyebrow">$ runko --json</p>
       <h2>The whole platform is a CLI</h2>
       <p class="sectionsub">Web UI optional. Every flow — projects, workspaces, review, landing — is a command that speaks JSON and tells you what to do next when it refuses.</p>
       <div class="split">
-        <div class="terminal">
-<span class="g">$</span> runko workspace create <span class="v">--name</span> fix-sku <span class="v">--project</span> payments-api<br>
-&nbsp;&nbsp;materialized payments-api/&nbsp;<span class="c"># one shared clone; ms, not minutes</span><br>
-<span class="g">$</span> $EDITOR payments-api/sku.go<br>
-<span class="g">$</span> runko change push<br>
-&nbsp;&nbsp;I4f2a…e1 → review&nbsp;<span class="c"># checks scoped to the change</span><br>
-<span class="g">$</span> runko change requirements <span class="v">--json</span><br>
-&nbsp;&nbsp;{ "checks": {"pending": []}, "mergeable": true }<br>
-<span class="g">$</span> runko change land&nbsp;<span class="c"># rebase-lands behind the gates</span>
-        </div>
+<pre class="terminal"><span class="g">$</span> runko workspace create <span class="v">--name</span> fix-sku \
+    <span class="v">--project</span> payments-api
+  materialized payments-api/  <span class="c"># ms, not minutes</span>
+<span class="g">$</span> $EDITOR payments-api/sku.go
+<span class="g">$</span> runko change push
+  I4f2a…e1 → review  <span class="c"># checks scoped to the change</span>
+<span class="g">$</span> runko change requirements <span class="v">--json</span>
+  { "checks": {"pending": []}, "mergeable": true }
+<span class="g">$</span> runko change land
+  <span class="c"># rebase-lands behind the gates</span></pre>
         <div class="copy">
           <p><b>Refusals are answers.</b> Every failure is structured — <code>{code, message, suggestion}</code> — and the suggestion is a command you can type. Exit codes mean something. <code>--json</code> is everywhere, so piping to <code>jq</code> replaces screen-scraping.</p>
           <p><b>One interface, three audiences.</b> Engineers, coding agents, and CI use the same two binaries: <code>runko</code> for people and agents (a generated <code>AGENTS.md</code> teaches it), <code>runko-ci</code> for pipelines — <code>affected</code> computes what a change touches offline, <code>checkout</code> does partial-clone sparse checkouts, <code>report-check</code> posts results back with retries.</p>
@@ -229,12 +324,13 @@
 
   <section id="agents">
     <div class="wrap">
+      <p class="eyebrow">$ runko agent create</p>
       <h2>Run five agents like it's one</h2>
       <p class="sectionsub">Everyone found the same trick: a git worktree per agent. Runko workspaces are what that trick wants to be — each agent gets its own slice of the repo, its own identity, and its own guardrails.</p>
       <div class="compare-scroll">
       <table class="compare">
         <thead>
-          <tr><th></th><th>Git worktrees today</th><th class="us">Runko workspaces</th></tr>
+          <tr><th scope="col"></th><th scope="col">Git worktrees today</th><th scope="col" class="us">Runko workspaces</th></tr>
         </thead>
         <tbody>
           <tr><td class="aspect">Checkout</td><td class="them">A full tree per worktree</td><td class="us">One shared clone; each workspace materializes only its slice</td></tr>
@@ -246,36 +342,40 @@
         </tbody>
       </table>
       </div>
-      <p class="sectionsub" style="margin-top:28px; margin-bottom:14px;">The agent's whole interface is the same CLI your engineers use — taught by a generated <code>AGENTS.md</code>, with policy enforced where it can't be prompt-engineered away:</p>
-      <div class="terminal">
-<span class="g">$</span> runko agent create <span class="v">--task</span> fix-sku  <span class="c"># ephemeral identity: agent-fix-sku-3f2a, dies by TTL</span><br>
-<span class="g">$</span> runko change push          <span class="c"># stack's tip → review; every change in the stack updates</span><br>
-<span class="g">$</span> runko change requirements  <span class="c"># owners + checks outstanding, as structured JSON with --json</span><br>
-<span class="g">$</span> runko change automerge     <span class="c"># arm once and move on — the server lands it when the gates go green</span>
-      </div>
+      <p class="sectionsub" style="margin: 28px 0 14px;">The agent's whole interface is the same CLI your engineers use — taught by a generated <code>AGENTS.md</code>, with policy enforced where it can't be prompt-engineered away:</p>
+<pre class="terminal"><span class="g">$</span> runko agent create <span class="v">--task</span> fix-sku
+  <span class="c"># ephemeral identity: agent-fix-sku-3f2a, dies by TTL</span>
+<span class="g">$</span> runko change push
+  <span class="c"># stack's tip → review; the whole stack updates</span>
+<span class="g">$</span> runko change requirements <span class="v">--json</span>
+  <span class="c"># owners + checks outstanding, as structured JSON</span>
+<span class="g">$</span> runko change automerge
+  <span class="c"># arm once — the server lands it when gates go green</span></pre>
     </div>
   </section>
 
   <section id="landing">
     <div class="wrap">
+      <p class="eyebrow">$ runko change land</p>
       <h2>And landing works like it should</h2>
       <p class="sectionsub">Everything below is shipped and tested against a real daemon, real Git, and a real Postgres — not a roadmap.</p>
       <div class="grid">
-        <div class="card"><h3><span class="glyph">⌥</span>Stacked changes, jj-native</h3><p>Jujutsu is the primary client: rework the <em>root</em> of a stack, descendants rebase themselves, and one push updates every change on the server. Plain <code>git push</code> stays fully supported.</p></div>
-        <div class="card"><h3><span class="glyph">✓</span>Gates that can't be skipped</h3><p>Owners and required checks are declared next to the code they protect. Approvals bind to the exact commit reviewed — amend it, and approval is re-earned, not carried over.</p></div>
-        <div class="card"><h3><span class="glyph">⚡</span>Land without re-running the world</h3><p>Rebase-based landing re-runs checks only when trunk actually touched something your change depends on. A lost race is a retry, never a silent overwrite.</p></div>
-        <div class="card"><h3><span class="glyph">◎</span>CI runs only what can break</h3><p>Changed paths map to projects and their dependents, fail-closed, with optional build-graph refinement (Bazel first). Your runners, your pipelines — we never run your CI.</p></div>
-        <div class="card"><h3><span class="glyph">🛡</span>One door into trunk</h3><p>Direct push is closed. Every write — human, agent, or bot — passes the same policy, secret scanning (gitleaks), and change tracking on the server.</p></div>
-        <div class="card"><h3><span class="glyph">⏻</span>Arm it and walk away</h3><p>Automerge is a bit, not a babysitter: arm a change once and the server lands it the moment owners and checks go green — through the same gates, attributed to whoever armed it, never forced.</p></div>
-        <div class="card"><h3><span class="glyph">⦿</span>Releases are immutable</h3><p><code>runko release create</code> versions a project, derives the changelog from the changes that actually landed, and writes the tag server-side under tag policy. No edit, no delete — a wrong release is followed by a corrected one.</p></div>
-        <div class="card"><h3><span class="glyph">❋</span>Checks declare their class</h3><p><code>run_when: direct</code> lanes run only when a project's own code changes; integration lanes still ride the dependency closure. A dependent's unit tests stop re-running for changes that can't break them.</p></div>
-        <div class="card"><h3><span class="glyph">⇄</span>Mirror to any git host</h3><p>Adopt gradually: keep a leased, divergence-guarded mirror on GitHub, GitLab, Gitea — anything that speaks git. Trust lives where you want it; truth stays yours.</p></div>
+        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 3.5 6.8 10 10.6l6.5-3.8L10 3z"/><path d="m3.5 10.4 6.5 3.8 6.5-3.8"/><path d="m3.5 13.8 6.5 3.8 6.5-3.8"/></svg></span>Stacked changes, jj-native</h3><p>Jujutsu is the primary client: rework the <em>root</em> of a stack, descendants rebase themselves, and one push updates every change on the server. Plain <code>git push</code> stays fully supported.</p></div>
+        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5 4 4.8v4.3c0 3.9 2.6 6.7 6 7.9 3.4-1.2 6-4 6-7.9V4.8L10 2.5z"/><path d="m7.2 9.7 2 2 3.6-3.7"/></svg></span>Gates that can't be skipped</h3><p>Owners and required checks are declared next to the code they protect. Approvals bind to the exact commit reviewed — amend it, and approval is re-earned, not carried over.</p></div>
+        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5 4.5 11h4.4L9 17.5 15.5 9h-4.4L11 2.5z"/></svg></span>Land without re-running the world</h3><p>Rebase-based landing re-runs checks only when trunk actually touched something your change depends on. A lost race is a retry, never a silent overwrite.</p></div>
+        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="2.2"/></svg></span>CI runs only what can break</h3><p>Changed paths map to projects and their dependents, fail-closed, with optional build-graph refinement (Bazel first). Your runners, your pipelines — we never run your CI.</p></div>
+        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h14l-5.2 5.8v4.7l-3.6 2.3V9.8L3 4z"/></svg></span>One door into trunk</h3><p>Direct push is closed. Every write — human, agent, or bot — passes the same policy, secret scanning (gitleaks), and change tracking on the server.</p></div>
+        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M10 2.8v6.4"/><path d="M5.6 5.6a6.3 6.3 0 1 0 8.8 0"/></svg></span>Arm it and walk away</h3><p>Automerge is a bit, not a babysitter: arm a change once and the server lands it the moment owners and checks go green — through the same gates, attributed to whoever armed it, never forced.</p></div>
+        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h6.6L17 10.4a1.4 1.4 0 0 1 0 2L12.4 17a1.4 1.4 0 0 1-2 0L3 9.6V3z"/><circle cx="7" cy="7" r="1.3"/></svg></span>Releases are immutable</h3><p><code>runko release create</code> versions a project, derives the changelog from the changes that actually landed, and writes the tag server-side under tag policy. No edit, no delete — a wrong release is followed by a corrected one.</p></div>
+        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h12"/><circle cx="12.5" cy="5.5" r="1.7" fill="var(--accent-soft)"/><circle cx="7" cy="10" r="1.7" fill="var(--accent-soft)"/><circle cx="14" cy="14.5" r="1.7" fill="var(--accent-soft)"/></svg></span>Checks declare their class</h3><p><code>run_when: direct</code> lanes run only when a project's own code changes; integration lanes still ride the dependency closure. A dependent's unit tests stop re-running for changes that can't break them.</p></div>
+        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 6.8H5.5L8 4.3M4 13.2h10.5L12 15.7"/></svg></span>Mirror to any git host</h3><p>Adopt gradually: keep a leased, divergence-guarded mirror on GitHub, GitLab, Gitea — anything that speaks git. Trust lives where you want it; truth stays yours.</p></div>
       </div>
     </div>
   </section>
 
   <section id="selfhost">
     <div class="wrap">
+      <p class="eyebrow">$ docker compose up</p>
       <div class="honest">
         <h2>Self-hosted, honest about scope</h2>
         <ul>
@@ -301,6 +401,22 @@
     <a href="/changes">Sign in</a>
   </div>
 </footer>
+
+<script>
+  // Close the mobile menu after navigating or when tapping elsewhere.
+  const menu = document.querySelector(".menu");
+  if (menu) {
+    for (const a of menu.querySelectorAll("a")) {
+      a.addEventListener("click", () => menu.removeAttribute("open"));
+    }
+    document.addEventListener("click", (e) => {
+      if (menu.open && !menu.contains(e.target)) menu.removeAttribute("open");
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") menu.removeAttribute("open");
+    });
+  }
+</script>
 
 </body>
 </html>
