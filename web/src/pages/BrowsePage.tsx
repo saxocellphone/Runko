@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { repoClient } from "../api/client";
 import { ChangeState } from "../gen/runko/v1/common_pb";
@@ -70,6 +75,10 @@ function HighlightedLine({ tokens }: { tokens: Token[] }) {
 // Runko's twist stays: history rows and blame regions link to the
 // CHANGE that landed the code (§7.4), not a raw commit.
 //
+// The tree and rail widths are user-adjustable: dividers ride the column
+// gaps (drag; arrow keys nudge; double-click resets) and persist per
+// browser alongside the tree's open state.
+//
 // URL state: /browse/<path>, ?view=dir marks directory paths (tree and
 // breadcrumbs stamp it), ?view=blame selects the file's blame mode.
 // usePaneOpen persists a pane's open/collapsed state per browser.
@@ -83,6 +92,99 @@ function usePaneOpen(key: string): [boolean, () => void] {
   return [open, toggle];
 }
 
+// usePaneWidth persists a user-dragged pane width, clamped to [min, max].
+// fromRight panes (the history rail) grow as the divider moves left.
+// The width lands on the layout as a CSS custom property; PaneResizer is
+// the divider that drives it (drag, arrow-key nudge, double-click reset).
+type ResizeHandle = {
+  onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  onKeyDown: (e: ReactKeyboardEvent<HTMLDivElement>) => void;
+  onDoubleClick: () => void;
+  "aria-valuenow": number;
+  "aria-valuemin": number;
+  "aria-valuemax": number;
+};
+
+function usePaneWidth(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+  fromRight = false,
+): [number, ResizeHandle] {
+  const [w, setW] = useState(() => {
+    const stored = Number(window.localStorage.getItem(key));
+    return stored >= min && stored <= max ? stored : fallback;
+  });
+  const clamp = (v: number) => Math.min(max, Math.max(min, v));
+  const save = (v: number) => window.localStorage.setItem(key, String(v));
+  const handle: ResizeHandle = {
+    onPointerDown: (e) => {
+      e.preventDefault();
+      const el = e.currentTarget;
+      const startX = e.clientX;
+      const startW = w;
+      el.setPointerCapture(e.pointerId);
+      const move = (ev: PointerEvent) => {
+        const dx = ev.clientX - startX;
+        setW(clamp(startW + (fromRight ? -dx : dx)));
+      };
+      const done = () => {
+        el.removeEventListener("pointermove", move);
+        el.removeEventListener("pointerup", done);
+        el.removeEventListener("pointercancel", done);
+        setW((v) => {
+          save(v);
+          return v;
+        });
+      };
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", done);
+      el.addEventListener("pointercancel", done);
+    },
+    onKeyDown: (e) => {
+      const dir = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+      if (dir === 0) return;
+      e.preventDefault();
+      setW((v) => {
+        const next = clamp(v + dir * (fromRight ? -16 : 16));
+        save(next);
+        return next;
+      });
+    },
+    onDoubleClick: () => {
+      window.localStorage.removeItem(key);
+      setW(fallback);
+    },
+    "aria-valuenow": Math.round(w),
+    "aria-valuemin": min,
+    "aria-valuemax": max,
+  };
+  return [w, handle];
+}
+
+function PaneResizer({
+  className,
+  label,
+  handle,
+}: {
+  className: string;
+  label: string;
+  handle: ResizeHandle;
+}) {
+  return (
+    <div
+      className={`pane-resize ${className}`}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      title="Drag to resize — double-click to reset"
+      tabIndex={0}
+      {...handle}
+    />
+  );
+}
+
 export function BrowsePage() {
   const params = useParams();
   const [search] = useSearchParams();
@@ -90,6 +192,8 @@ export function BrowsePage() {
   const view = search.get("view") ?? "";
   const isDir = selected === "" || view === "dir";
   const [treeOpen, toggleTree] = usePaneOpen("runko-browse-tree");
+  const [treeW, treeHandle] = usePaneWidth("runko-browse-tree-w", 300, 200, 480);
+  const [railW, railHandle] = usePaneWidth("runko-browse-rail-w", 300, 240, 520, true);
 
   return (
     <div className="page page-wide">
@@ -99,7 +203,10 @@ export function BrowsePage() {
           The monorepo at trunk tip. Every path carries the changes that made it.
         </p>
       </header>
-      <div className={`browse-layout${treeOpen ? "" : " tree-collapsed"}`}>
+      <div
+        className={`browse-layout${treeOpen ? "" : " tree-collapsed"}`}
+        style={{ "--tree-w": `${treeW}px`, "--rail-w": `${railW}px` } as CSSProperties}
+      >
         {treeOpen ? (
           <section className="card tree-panel">
             <div className="tree-head">
@@ -126,6 +233,7 @@ export function BrowsePage() {
             <span className="tree-rail-label">Files</span>
           </button>
         )}
+        {treeOpen && <PaneResizer className="tree-resize" label="Resize file tree" handle={treeHandle} />}
         <div className="browse-main">
           <Breadcrumbs path={selected} isDir={isDir} />
           <div className="browse-cols">
@@ -147,6 +255,7 @@ export function BrowsePage() {
                 </>
               )}
             </section>
+            <PaneResizer className="rail-resize" label="Resize history" handle={railHandle} />
             <aside className="card history-panel history-rail">
               <HistoryHead
                 scope={isDir ? (selected === "" ? "whole repo" : `${selected}/`) : null}
