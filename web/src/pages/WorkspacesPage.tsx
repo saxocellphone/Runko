@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
 import { ConnectError } from "@connectrpc/connect";
-import { changesClient, publicBrowse, workspacesClient } from "../api/client";
+import { changesClient, publicBrowse, repoClient, workspacesClient } from "../api/client";
 import { ChangeState, WorkspaceStatus } from "../gen/runko/v1/common_pb";
-import { shortSha } from "../lib/format";
+import { WorkspaceEventType, type WorkspaceEvent } from "../gen/runko/v1/workspaces_pb";
+import { absoluteTime, shortSha, timeAgo } from "../lib/format";
 import { branchesForWorkspace, changesByOrigin } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
 import { ActivityPresence, EmptyState, ErrorNote, InfoTip, Spinner } from "../components/ui";
@@ -13,6 +14,24 @@ const statusLabel: Record<number, string> = {
   [WorkspaceStatus.CLOSED]: "closed",
 };
 
+const eventLabel: Record<number, string> = {
+  [WorkspaceEventType.SNAPSHOT_PUSHED]: "snapshot",
+  [WorkspaceEventType.CHANGE_PUSHED]: "change pushed",
+  [WorkspaceEventType.CHANGE_LANDED]: "change landed",
+  [WorkspaceEventType.CHANGE_ABANDONED]: "change abandoned",
+  [WorkspaceEventType.WORKSPACE_CLOSED]: "closed",
+};
+
+// The list sorts on this, most recent first: the newest §12.6 timeline
+// event, or the newest harness-reported activity when that's fresher
+// (agents report between snapshots).
+function activityKey(row: { lastEvent?: WorkspaceEvent; latestActivity?: { occurredAt: bigint } }) {
+  return Math.max(
+    Number(row.lastEvent?.occurredAt ?? 0),
+    Number(row.latestActivity?.occurredAt ?? 0),
+  );
+}
+
 export function WorkspacesPage() {
   const { data, error, loading, reload } = useRpc(async () => {
     // Open changes join to workspaces via their recorded push provenance
@@ -22,7 +41,31 @@ export function WorkspacesPage() {
       workspacesClient.listWorkspaces({}),
       changesClient.listChanges({ state: ChangeState.OPEN }),
     ]);
-    return { workspaces: ws.workspaces, stacks: changesByOrigin(open.changes) };
+    // Per-workspace enrichment, all in parallel: the newest timeline
+    // event (the "last change" cell + the activity sort key) and the
+    // Change that landed base_revision (CommitInfo.change_id), so Base
+    // can link. Both are best-effort - a failure renders as "none yet"
+    // / a plain sha, never as a broken page.
+    const rows = await Promise.all(
+      ws.workspaces.map(async (w) => {
+        const [lastEvent, baseCommit] = await Promise.all([
+          workspacesClient
+            .listWorkspaceEvents({ id: w.id, pageSize: 1 })
+            .then((r) => r.events[0], () => undefined),
+          repoClient
+            .listCommits({ rev: w.baseRevision, pageSize: 1 })
+            .then((r) => r.commits[0], () => undefined),
+        ]);
+        return {
+          w,
+          lastEvent,
+          latestActivity: w.latestActivity,
+          baseChangeId: baseCommit?.changeId ?? "",
+        };
+      }),
+    );
+    rows.sort((a, b) => activityKey(b) - activityKey(a));
+    return { rows, stacks: changesByOrigin(open.changes) };
   }, "workspaces");
 
   // Deletion refuses server-side while the workspace has open changes
@@ -52,8 +95,8 @@ export function WorkspacesPage() {
 
       {loading && <Spinner />}
       {error && <ErrorNote error={error} />}
-      {data && data.workspaces.length === 0 && <EmptyState>No workspaces yet.</EmptyState>}
-      {data && data.workspaces.length > 0 && (
+      {data && data.rows.length === 0 && <EmptyState>No workspaces yet.</EmptyState>}
+      {data && data.rows.length > 0 && (
         <section className="card">
           <table className="table">
             <thead>
@@ -61,12 +104,12 @@ export function WorkspacesPage() {
                 <th>Workspace</th>
                 <th>Owner</th>
                 <th>
-                  Base
-                  <InfoTip text="The trunk revision this workspace was last rebased onto." />
+                  Last change
+                  <InfoTip text="The newest event on this workspace's timeline (§12.6): a snapshot or a change push/land/abandon. The list sorts on this, most recently active first; the label links to the change when the event names one." />
                 </th>
                 <th>
-                  Project affinity
-                  <InfoTip text="Which projects this workspace may write to. Writes from an agent are required to stay inside this set - it's enforced server-side at push time, not just a client-side hint." />
+                  Base
+                  <InfoTip text="The trunk revision this workspace was last rebased onto - links to the change that landed it when the control plane knows the commit." />
                 </th>
                 <th>
                   Branches → stacks
@@ -77,7 +120,7 @@ export function WorkspacesPage() {
               </tr>
             </thead>
             <tbody>
-              {data.workspaces.map((w) => {
+              {data.rows.map(({ w, lastEvent, baseChangeId }) => {
                 const branches = branchesForWorkspace(w.branches, data.stacks, w.id);
                 return (
                 <tr key={w.id}>
@@ -92,15 +135,20 @@ export function WorkspacesPage() {
                     </div>
                   </td>
                   <td>{w.owner}</td>
-                  <td className="mono">{shortSha(w.baseRevision)}</td>
                   <td>
-                    <span className="chip-row">
-                      {w.projectAffinity.map((p) => (
-                        <Link className="chip" key={p} to={`/projects/${p}`}>
-                          {p}
-                        </Link>
-                      ))}
-                    </span>
+                    <LastChange ev={lastEvent} />
+                  </td>
+                  <td className="mono">
+                    {baseChangeId ? (
+                      <Link
+                        to={`/changes/${baseChangeId}`}
+                        title="The change that landed this trunk revision"
+                      >
+                        {shortSha(w.baseRevision)}
+                      </Link>
+                    ) : (
+                      shortSha(w.baseRevision)
+                    )}
                   </td>
                   <td>
                     {branches.length === 0 && <span className="chip">none yet</span>}
@@ -139,6 +187,22 @@ export function WorkspacesPage() {
       )}
     </div>
   );
+}
+
+// LastChange is the newest §12.6 timeline event as one quiet cell:
+// what happened and when, linking to the change for change_* events.
+function LastChange({ ev }: { ev: WorkspaceEvent | undefined }) {
+  if (!ev) return <span className="muted">none yet</span>;
+  const label = eventLabel[ev.type] ?? "event";
+  const when = timeAgo(ev.occurredAt);
+  if (ev.changeId) {
+    return (
+      <Link to={`/changes/${ev.changeId}`} title={absoluteTime(ev.occurredAt)}>
+        {label} · {when}
+      </Link>
+    );
+  }
+  return <span title={absoluteTime(ev.occurredAt)}>{label} · {when}</span>;
 }
 
 // BranchStack renders one workspace branch with the stack(s) of open
