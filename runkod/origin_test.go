@@ -319,3 +319,111 @@ func TestOneStackPerWorkspaceBranch(t *testing.T) {
 		t.Fatalf("fresh stack after the old one closed should pass: %+v", r)
 	}
 }
+
+// The §12.6 golden-path nudge: a workspace's FIRST change push that
+// streamed nothing earns one advisory remote: block; anything that
+// streamed - or any repeat push - stays quiet.
+func TestFirstUnstreamedChangePushGetsStreamingNudge(t *testing.T) {
+	p, _, repo, bare := originFixture(t)
+	ctx := context.Background()
+
+	repo.WriteFile("feature.txt", "v1\n")
+	repo.Commit("add a feature\n\nChange-Id: I5123456789012345678901234567890123456789")
+	oldSHA, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+
+	opts := []string{"GIT_PUSH_OPTION_COUNT=1", "GIT_PUSH_OPTION_0=workspace=checkout-fixes"}
+	result := p.Process(ctx, RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/for/main"}, opts)
+	if !result.Accepted {
+		t.Fatalf("push should be accepted: %+v", result)
+	}
+	if !strings.Contains(result.Message, "runko workspace watch") ||
+		!strings.Contains(result.Message, "runko agent hooks --install") {
+		t.Fatalf("first unstreamed push should carry the streaming nudge, got:\n%s", result.Message)
+	}
+
+	// The second push (an amend) is not a first push - no nag loop.
+	repo.WriteFile("feature.txt", "v2\n")
+	repo.Run("add -A", "commit --amend --no-edit")
+	prevSHA := headSHA
+	_, amendSHA := pushCommit(t, repo, bare, "refs/for/main")
+	result = p.Process(ctx, RefUpdate{OldSHA: prevSHA, NewSHA: amendSHA, Ref: "refs/for/main"}, opts)
+	if !result.Accepted {
+		t.Fatalf("amend push should be accepted: %+v", result)
+	}
+	if strings.Contains(result.Message, "runko workspace watch") {
+		t.Fatalf("a repeat push must not nudge, got:\n%s", result.Message)
+	}
+}
+
+// One snapshot_pushed row is (usually) the push's own auto-snapshot from
+// moments earlier - it must not count as "streamed".
+func TestAutoSnapshotAloneDoesNotSuppressTheNudge(t *testing.T) {
+	p, store, repo, bare := originFixture(t)
+	ctx := context.Background()
+
+	if _, err := store.RecordWorkspaceEvent(ctx, WorkspaceEvent{
+		Type: WorkspaceEventSnapshotPushed, WorkspaceID: "checkout-fixes", Branch: "head", Actor: "alice",
+	}); err != nil {
+		t.Fatalf("seed snapshot event: %v", err)
+	}
+
+	repo.WriteFile("feature.txt", "v1\n")
+	repo.Commit("add a feature\n\nChange-Id: I6123456789012345678901234567890123456789")
+	oldSHA, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+	result := p.Process(ctx, RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/for/main"},
+		[]string{"GIT_PUSH_OPTION_COUNT=1", "GIT_PUSH_OPTION_0=workspace=checkout-fixes"})
+	if !result.Accepted {
+		t.Fatalf("push should be accepted: %+v", result)
+	}
+	if !strings.Contains(result.Message, "runko workspace watch") {
+		t.Fatalf("one auto-snapshot must not suppress the nudge, got:\n%s", result.Message)
+	}
+}
+
+// A snapshot cadence (two+ events) or any activity row means the
+// workspace streamed - the nudge stays quiet.
+func TestStreamedWorkspaceGetsNoNudge(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("snapshot cadence", func(t *testing.T) {
+		p, store, repo, bare := originFixture(t)
+		for range 2 {
+			if _, err := store.RecordWorkspaceEvent(ctx, WorkspaceEvent{
+				Type: WorkspaceEventSnapshotPushed, WorkspaceID: "checkout-fixes", Branch: "head", Actor: "alice",
+			}); err != nil {
+				t.Fatalf("seed snapshot event: %v", err)
+			}
+		}
+		repo.WriteFile("feature.txt", "v1\n")
+		repo.Commit("add a feature\n\nChange-Id: I7123456789012345678901234567890123456789")
+		oldSHA, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+		result := p.Process(ctx, RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/for/main"},
+			[]string{"GIT_PUSH_OPTION_COUNT=1", "GIT_PUSH_OPTION_0=workspace=checkout-fixes"})
+		if !result.Accepted {
+			t.Fatalf("push should be accepted: %+v", result)
+		}
+		if strings.Contains(result.Message, "runko workspace watch") {
+			t.Fatalf("a snapshotting workspace must not nudge, got:\n%s", result.Message)
+		}
+	})
+
+	t.Run("activity rows", func(t *testing.T) {
+		p, store, repo, bare := originFixture(t)
+		if _, err := store.RecordWorkspaceActivity(ctx, []WorkspaceActivity{
+			{WorkspaceID: "checkout-fixes", Actor: "alice", Kind: "edit", Detail: "feature.txt"},
+		}); err != nil {
+			t.Fatalf("seed activity: %v", err)
+		}
+		repo.WriteFile("feature.txt", "v1\n")
+		repo.Commit("add a feature\n\nChange-Id: I8123456789012345678901234567890123456789")
+		oldSHA, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+		result := p.Process(ctx, RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/for/main"},
+			[]string{"GIT_PUSH_OPTION_COUNT=1", "GIT_PUSH_OPTION_0=workspace=checkout-fixes"})
+		if !result.Accepted {
+			t.Fatalf("push should be accepted: %+v", result)
+		}
+		if strings.Contains(result.Message, "runko workspace watch") {
+			t.Fatalf("a hooks-wired workspace must not nudge, got:\n%s", result.Message)
+		}
+	})
+}
