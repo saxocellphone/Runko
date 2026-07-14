@@ -54,17 +54,21 @@ function HighlightedLine({ tokens }: { tokens: Token[] }) {
   );
 }
 
-// Repo browser (§17.2), Gitiles-inspired layout modernized: a breadcrumb
-// path bar anchors where you are; the CONTENT region always shows what
-// the path IS (directory -> entry listing, file -> code with a Code/Blame
-// toggle); HISTORY lives in its own permanent section below - always
-// history, never replacing content (the pane-morphing tabs confused).
-// Runko's twist stays: history rows and blame regions link to the CHANGE
-// that landed the code (§7.4), not a raw commit.
+// Repo browser (§17.2). Layout re-decided 2026-07-14 from dogfood
+// feedback: the TREE is the only directory surface - the old main-pane
+// entry listing mirrored it row for row, so it is gone, and project
+// boundaries badge in the tree instead (TreeEntry.project exists for
+// exactly this - repo.proto). The main column shows what only this page
+// can: a directory spends it on the path's HISTORY, full width; a file
+// splits it - code (or blame) beside a sticky history rail, so the
+// changes that made a file stay in view however long the file is (the
+// old below-the-blob history took a full file's worth of scrolling to
+// reach, and the collapse toggle that worked around it is gone too).
+// Runko's twist stays: history rows and blame regions link to the
+// CHANGE that landed the code (§7.4), not a raw commit.
 //
-// URL state: /browse/<path>, ?view=dir marks directory paths (tree,
-// breadcrumbs, and listing rows all stamp it), ?view=blame selects the
-// file's blame mode.
+// URL state: /browse/<path>, ?view=dir marks directory paths (tree and
+// breadcrumbs stamp it), ?view=blame selects the file's blame mode.
 // usePaneOpen persists a pane's open/collapsed state per browser.
 function usePaneOpen(key: string): [boolean, () => void] {
   const [open, setOpen] = useState(() => window.localStorage.getItem(key) !== "0");
@@ -83,16 +87,9 @@ export function BrowsePage() {
   const view = search.get("view") ?? "";
   const isDir = selected === "" || view === "dir";
   const [treeOpen, toggleTree] = usePaneOpen("runko-browse-tree");
-  const [contentOpen, toggleContent] = usePaneOpen("runko-browse-content");
-
-  const contentTitle = isDir
-    ? selected === ""
-      ? "Contents — repo root"
-      : `Contents — ${selected}/`
-    : (selected.split("/").pop() ?? selected);
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <header className="page-header">
         <h1 className="page-title">Browse</h1>
         <p className="page-sub">
@@ -128,52 +125,48 @@ export function BrowsePage() {
         )}
         <div className="browse-main">
           <Breadcrumbs path={selected} isDir={isDir} />
-          <section className="card content-panel">
-            <header className="content-head">
-              <span className="file-path" title={selected}>
-                {contentTitle}
-              </span>
-              <span className="spacer" />
-              {!isDir && contentOpen && <FileModeToggle path={selected} blame={view === "blame"} />}
-              <button
-                className="pane-toggle"
-                aria-label={contentOpen ? "Collapse this pane" : "Expand this pane"}
-                title={contentOpen ? "Collapse" : "Expand"}
-                aria-expanded={contentOpen}
-                onClick={toggleContent}
-              >
-                <ChevronIcon dir={contentOpen ? "up" : "down"} />
-              </button>
-            </header>
-            {contentOpen &&
-              (isDir ? (
-                <DirListing path={selected} />
-              ) : view === "blame" ? (
-                <BlameView path={selected} />
-              ) : (
-                <CodeView path={selected} />
-              ))}
-          </section>
-          <section className="card history-panel">
-            <header className="history-head">
-              <HistoryIcon />
-              <span>
-                History
-                <span className="history-scope">
-                  {selected === "" ? " — whole repo" : ` — ${selected}${isDir ? "/" : ""}`}
-                </span>
-              </span>
-            </header>
-            <HistoryList path={selected} />
-          </section>
+          {isDir ? (
+            <section className="card history-panel">
+              <HistoryHead scope={selected === "" ? "whole repo" : `${selected}/`} />
+              <HistoryList path={selected} />
+            </section>
+          ) : (
+            <div className="file-cols">
+              <section className="card content-panel">
+                <header className="content-head">
+                  <span className="file-path" title={selected}>
+                    {selected.split("/").pop() ?? selected}
+                  </span>
+                  <span className="spacer" />
+                  <FileModeToggle path={selected} blame={view === "blame"} />
+                </header>
+                {view === "blame" ? <BlameView path={selected} /> : <CodeView path={selected} />}
+              </section>
+              <aside className="card history-panel history-rail">
+                <HistoryHead scope={null} />
+                <HistoryList path={selected} />
+              </aside>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// FileModeToggle is the Code/Blame segmented control, hoisted into the
-// content pane's header so the header survives collapsing the body.
+function HistoryHead({ scope }: { scope: string | null }) {
+  return (
+    <header className="history-head">
+      <HistoryIcon />
+      <span>
+        History
+        {scope && <span className="history-scope"> — {scope}</span>}
+      </span>
+    </header>
+  );
+}
+
+// FileModeToggle is the Code/Blame segmented control on the file header.
 function FileModeToggle({ path, blame }: { path: string; blame: boolean }) {
   const navigate = useNavigate();
   const setMode = (m: "code" | "blame") =>
@@ -195,8 +188,7 @@ function FileModeToggle({ path, blame }: { path: string; blame: boolean }) {
   );
 }
 
-function ChevronIcon({ dir }: { dir: "left" | "right" | "up" | "down" }) {
-  const rotate = { left: 90, right: -90, up: 180, down: 0 }[dir];
+function ChevronIcon({ dir }: { dir: "left" | "right" }) {
   return (
     <svg
       width="13"
@@ -207,7 +199,7 @@ function ChevronIcon({ dir }: { dir: "left" | "right" | "up" | "down" }) {
       strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
-      style={{ transform: `rotate(${rotate}deg)` }}
+      style={{ transform: `rotate(${dir === "left" ? 90 : -90}deg)` }}
       aria-hidden
     >
       <path d="M4 6l4 4 4-4" />
@@ -253,19 +245,30 @@ function TreeLevel({
   path,
   depth,
   selected,
+  parentProject,
 }: {
   path: string;
   depth: number;
   selected: string;
+  parentProject?: string;
 }) {
   const { data, error, loading } = useRpc(() => repoClient.getTree({ path }), `tree-${path}`);
   if (loading) return <div className="tree-loading" style={indent(depth)}>…</div>;
   if (error) return <ErrorNote error={error} />;
+  // The level's own project: inherited from the DirRow that opened it;
+  // the root level infers it from a direct file entry (a file always
+  // carries its directory's owner - only a directory can start a
+  // project). Dir entries owned by a DIFFERENT project are boundaries
+  // and get badged.
+  const own =
+    parentProject ??
+    data?.entries.find((e) => e.type === TreeEntryType.FILE && e.project)?.project ??
+    "";
   return (
     <div role={depth === 0 ? "tree" : "group"}>
       {data?.entries.map((e) =>
         e.type === TreeEntryType.DIR ? (
-          <DirRow key={e.path} entry={e} depth={depth} selected={selected} />
+          <DirRow key={e.path} entry={e} depth={depth} selected={selected} levelProject={own} />
         ) : (
           <FileRow key={e.path} entry={e} depth={depth} selected={selected} />
         ),
@@ -278,15 +281,22 @@ function DirRow({
   entry,
   depth,
   selected,
+  levelProject,
 }: {
   entry: TreeEntry;
   depth: number;
   selected: string;
+  levelProject: string;
 }) {
   const navigate = useNavigate();
   // Auto-open ancestors of a deep-linked selection.
   const [open, setOpen] = useState(() => selected.startsWith(entry.path + "/"));
   const current = selected === entry.path;
+  // A project boundary always fills the folder icon; the text badge only
+  // appears when the project's name doesn't already read off the dir name
+  // (a root full of `platform [platform]` rows is the duplication this
+  // layout exists to kill).
+  const boundary = entry.project !== "" && entry.project !== levelProject;
   return (
     <>
       <button
@@ -298,12 +308,23 @@ function DirRow({
         }}
         aria-expanded={open}
         aria-current={current || undefined}
+        title={boundary ? `project ${entry.project}` : undefined}
       >
         <span className={`tree-caret${open ? " open" : ""}`}>▸</span>
-        <FolderIcon />
+        <FolderIcon filled={boundary} />
         <span className="tree-name">{entry.name}</span>
+        {boundary && entry.project !== entry.name && (
+          <span className="tree-project">{entry.project}</span>
+        )}
       </button>
-      {open && <TreeLevel path={entry.path} depth={depth + 1} selected={selected} />}
+      {open && (
+        <TreeLevel
+          path={entry.path}
+          depth={depth + 1}
+          selected={selected}
+          parentProject={entry.project}
+        />
+      )}
     </>
   );
 }
@@ -334,44 +355,6 @@ function FileRow({
 }
 
 const indent = (depth: number) => ({ paddingLeft: `${10 + depth * 14}px` });
-
-// ---- directory listing (Gitiles' file table, modernized) --------------
-
-function DirListing({ path }: { path: string }) {
-  const navigate = useNavigate();
-  const { data, error, loading } = useRpc(() => repoClient.getTree({ path }), `list-${path}`);
-  if (loading) return <Spinner />;
-  if (error) return <ErrorNote error={error} />;
-  if (!data || data.entries.length === 0) return <EmptyState>Empty directory.</EmptyState>;
-  return (
-    <table className="dir-table">
-      <tbody>
-        {data.entries.map((e) => {
-          const dir = e.type === TreeEntryType.DIR;
-          return (
-            <tr
-              key={e.path}
-              className="dir-row"
-              onClick={() => navigate(`/browse/${e.path}${dir ? "?view=dir" : ""}`)}
-            >
-              <td className="dir-name">
-                {dir ? <FolderIcon /> : <FileIcon />}
-                <span className={dir ? "dir-label" : ""}>
-                  {e.name}
-                  {dir ? "/" : ""}
-                </span>
-              </td>
-              <td className="dir-project">
-                {e.project && <span className="chip">{e.project}</span>}
-              </td>
-              <td className="dir-size">{dir ? "" : formatSize(e.size)}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
 
 // ---- file content ------------------------------------------------------
 
@@ -589,9 +572,9 @@ const treeIconProps = {
   strokeLinejoin: "round",
 } as const;
 
-function FolderIcon() {
+function FolderIcon({ filled = false }: { filled?: boolean }) {
   return (
-    <svg {...treeIconProps} className="tree-icon folder" aria-hidden>
+    <svg {...treeIconProps} className={`tree-icon folder${filled ? " project-root" : ""}`} aria-hidden>
       <path d="M2 4.5c0-.8.7-1.5 1.5-1.5h3l1.5 2h4.5c.8 0 1.5.7 1.5 1.5v6c0 .8-.7 1.5-1.5 1.5h-9C2.7 14 2 13.3 2 12.5v-8z" />
     </svg>
   );
