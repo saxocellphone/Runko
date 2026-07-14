@@ -1572,8 +1572,13 @@ type WorkspaceSummary struct {
 	// at-a-glance line), served straight from storage - no presence store.
 	// Unset when nothing was ever reported; clients decide freshness.
 	LatestActivity *WorkspaceActivityEvent `protobuf:"bytes,9,opt,name=latest_activity,json=latestActivity,proto3" json:"latest_activity,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// When the registry row was created (unix seconds, the landed_at
+	// convention). Creation is a workspace's first observable act: list
+	// UIs sort on it until the first §12.6 timeline event exists. 0 only
+	// from servers predating the field.
+	CreatedAt     int64 `protobuf:"varint,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WorkspaceSummary) Reset() {
@@ -1667,6 +1672,13 @@ func (x *WorkspaceSummary) GetLatestActivity() *WorkspaceActivityEvent {
 		return x.LatestActivity
 	}
 	return nil
+}
+
+func (x *WorkspaceSummary) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
 }
 
 // WorkspaceActivityEvent is one harness-reported agent-activity row
@@ -1873,7 +1885,7 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\fdetails_urls\x18\x05 \x03(\v2$.runko.v1.CheckGate.DetailsUrlsEntryR\vdetailsUrls\x1a>\n" +
 	"\x10DetailsUrlsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xee\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8d\x03\n" +
 	"\x10WorkspaceSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05owner\x18\x02 \x01(\tR\x05owner\x12#\n" +
@@ -1883,7 +1895,10 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\fsnapshot_ref\x18\x06 \x01(\tR\vsnapshotRef\x121\n" +
 	"\x06status\x18\a \x01(\x0e2\x19.runko.v1.WorkspaceStatusR\x06status\x12\x1a\n" +
 	"\bbranches\x18\b \x03(\tR\bbranches\x12I\n" +
-	"\x0flatest_activity\x18\t \x01(\v2 .runko.v1.WorkspaceActivityEventR\x0elatestActivity\"\xde\x01\n" +
+	"\x0flatest_activity\x18\t \x01(\v2 .runko.v1.WorkspaceActivityEventR\x0elatestActivity\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\n" +
+	" \x01(\x03R\tcreatedAt\"\xde\x01\n" +
 	"\x16WorkspaceActivityEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12!\n" +
 	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\x12\x12\n" +

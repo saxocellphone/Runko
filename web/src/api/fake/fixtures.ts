@@ -840,6 +840,7 @@ const workspace = (init: {
   writeAllowlist?: string[];
   status?: WorkspaceStatus;
   branches?: string[];
+  createdAt?: number;
 }): WorkspaceSummary =>
   create(WorkspaceSummarySchema, {
     id: init.id,
@@ -852,6 +853,7 @@ const workspace = (init: {
     // Parallel lines of work (§12.2 workspace branches) - derived from
     // refs/workspaces/<id>/* on the real daemon.
     branches: init.branches ?? ["head"],
+    createdAt: BigInt(init.createdAt ?? 1_780_000_000),
   });
 
 export const workspaces: WorkspaceSummary[] = [
@@ -873,11 +875,14 @@ export const workspaces: WorkspaceSummary[] = [
     affinity: ["commerce/checkout-api"],
     writeAllowlist: ["commerce/checkout-api/"],
   }),
+  // Born minutes ago, nothing pushed yet: creation is its "last change"
+  // and it sorts to the top of the workspaces list.
   workspace({
     id: "pricing-spike",
     owner: "val",
     affinity: ["commerce/checkout-api"],
     status: WorkspaceStatus.DETACHED,
+    createdAt: Math.floor(Date.now() / 1000) - 8 * 60,
   }),
 ];
 

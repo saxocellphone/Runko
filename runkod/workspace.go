@@ -35,6 +35,7 @@ type Workspace struct {
 	WriteAllowlist  []string // path roots computed from affinity (§12.2)
 	SnapshotRef     string   // refs/workspaces/<ID>/head
 	Status          string   // "active" | "detached" | "closed"
+	CreatedAt       int64    // unix seconds (the landed_at convention); store-assigned at create
 }
 
 // workspaceIDPattern keeps IDs safe as a git ref segment (and as a URL path
