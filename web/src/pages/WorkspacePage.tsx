@@ -4,6 +4,14 @@ import { changesClient, publicBrowse, workspacesClient } from "../api/client";
 import { ChangeState, WorkspaceStatus } from "../gen/runko/v1/common_pb";
 import { WorkspaceEventType, type WorkspaceEvent } from "../gen/runko/v1/workspaces_pb";
 import type { WorkspaceActivityEvent } from "../gen/runko/v1/common_pb";
+import {
+  ACTIVITY_KINDS,
+  countByKind,
+  kindMeta,
+  normalizeKind,
+  parseStoredKinds,
+  type ActivityKind,
+} from "../lib/activity";
 import { absoluteTime, shortSha, timeAgo } from "../lib/format";
 import { branchesForWorkspace, changesByOrigin } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
@@ -33,6 +41,25 @@ const statusLabel: Record<number, string> = {
 export function WorkspacePage() {
   const { workspaceId = "" } = useParams();
   const [branchChoice, setBranchChoice] = useState("");
+  // Kind filter for the Agent activity card (§12.6.1, decided 2026-07-14):
+  // all-visible by default, the choice sticks per browser (the theme's
+  // localStorage pattern) - an agent's command firehose stays hideable
+  // without silently under-reporting on first visit.
+  const [activityKinds, setActivityKinds] = useState<Set<ActivityKind>>(
+    () => new Set(parseStoredKinds(window.localStorage.getItem("runko-activity-kinds"))),
+  );
+  const toggleActivityKind = (k: ActivityKind) => {
+    setActivityKinds((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      window.localStorage.setItem(
+        "runko-activity-kinds",
+        JSON.stringify(ACTIVITY_KINDS.filter((x) => next.has(x))),
+      );
+      return next;
+    });
+  };
 
   const meta = useRpc(async () => {
     const [w, open] = await Promise.all([
@@ -76,6 +103,12 @@ export function WorkspacePage() {
   if (meta.error) return <div className="page">{back}<ErrorNote error={meta.error} /></div>;
   if (!meta.data) return null;
   const ws = meta.data.workspace;
+
+  // Filtering is render-time over the already-fetched page: counts and
+  // rows recompute for free on every poke-driven refetch.
+  const activityEvents = activity.data?.events ?? [];
+  const activityCounts = countByKind(activityEvents);
+  const visibleActivity = activityEvents.filter((ev) => activityKinds.has(normalizeKind(ev.kind)));
 
   return (
     <div className="page">
@@ -165,11 +198,30 @@ export function WorkspacePage() {
               </EmptyState>
             )}
             {activity.data && activity.data.events.length > 0 && (
-              <ul className="ws-timeline">
-                {activity.data.events.map((ev) => (
-                  <ActivityRow key={String(ev.id)} ev={ev} />
-                ))}
-              </ul>
+              <>
+                <div className="chip-row activity-filter">
+                  {ACTIVITY_KINDS.map((k) => (
+                    <button
+                      key={k}
+                      className={`chip ${activityKinds.has(k) ? "" : "chip-off"}`}
+                      onClick={() => toggleActivityKind(k)}
+                      title={`${activityKinds.has(k) ? "hide" : "show"} ${kindMeta[k].label} events`}
+                    >
+                      {kindMeta[k].glyph} {kindMeta[k].label}
+                      <span className="chip-count">{activityCounts[k]}</span>
+                    </button>
+                  ))}
+                </div>
+                {visibleActivity.length === 0 ? (
+                  <EmptyState>Everything is filtered out — toggle a kind back on.</EmptyState>
+                ) : (
+                  <ul className="ws-timeline">
+                    {visibleActivity.map((ev) => (
+                      <ActivityRow key={String(ev.id)} ev={ev} />
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </section>
 
@@ -222,10 +274,13 @@ const eventLabel: Record<number, string> = {
 // ActivityRow is one §12.6.1 harness-reported event: kind + who + when,
 // with the detail (a path, a command line) on its own mono line.
 function ActivityRow({ ev }: { ev: WorkspaceActivityEvent }) {
+  const kind = normalizeKind(ev.kind);
   return (
     <li className="ws-timeline-row">
       <div className="ws-timeline-head">
-        <span className="chip">{ev.kind}</span>
+        <span className="chip">
+          {kindMeta[kind].glyph} {kindMeta[kind].label}
+        </span>
         {ev.actor && <AuthorChip author={ev.actor} />}
         <span className="spacer" />
         <span title={absoluteTime(ev.occurredAt)}>{timeAgo(ev.occurredAt)}</span>
