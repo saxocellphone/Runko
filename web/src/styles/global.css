@@ -92,22 +92,63 @@ a:hover {
 }
 
 /* ------------------------------------------------------------- layout */
+/* GitHub-style shell: a top header (brand/status row + horizontal tab
+   row), page content below. .main stays the app's scroll container. */
 
 .app {
-  display: grid;
-  grid-template-columns: 216px 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100%;
 }
 
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--border);
+.topbar {
+  flex: none;
   background: var(--surface);
-  padding: 14px 10px;
-  gap: 4px;
+  border-bottom: 1px solid var(--border);
 }
 
+.topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px 6px;
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  flex: none;
+}
+.topbar-brand svg {
+  border-radius: 7px;
+  display: block;
+}
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* The status badge yields space before the buttons do. */
+.topbar-actions .demo-badge,
+.topbar-actions .user-badge {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.topbar-actions .btn {
+  flex: none;
+}
+
+/* Brand row leftover, still used by the sign-in gate (LoginPage). */
 .sidebar-brand {
   display: flex;
   align-items: center;
@@ -115,7 +156,6 @@ a:hover {
   font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.01em;
-  padding: 4px 8px 14px;
   color: var(--text);
 }
 .sidebar-brand svg {
@@ -125,15 +165,14 @@ a:hover {
 
 /* Org switcher (multi-org): which org this browser works in. */
 .org-select {
-  margin: 0 2px 10px;
-  padding: 5px 8px;
+  padding: 4px 8px;
   font: inherit;
   font-size: 12.5px;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 7px;
-  width: calc(100% - 4px);
+  max-width: 180px;
 }
 .org-select:focus {
   outline: 2px solid var(--accent);
@@ -217,35 +256,62 @@ a:hover {
   margin-bottom: 0;
 }
 
-.nav-link {
+/* Primary tabs: GitHub's pattern - hover puts a soft pill behind the
+   label, the active tab earns the accent underline on the header's own
+   border. Scrolls sideways on narrow screens instead of wrapping. */
+.topnav {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.topnav::-webkit-scrollbar {
+  display: none;
+}
+
+.topnav-tab {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 6px 10px;
-  border-radius: 7px;
+  padding: 2px 4px 6px;
   color: var(--text-2);
   font-weight: 500;
+  white-space: nowrap;
+  flex: none;
 }
-.nav-link:hover {
-  background: var(--surface-2);
+.topnav-tab .tab-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border-radius: 7px;
+}
+.topnav-tab:hover {
   color: var(--text);
   text-decoration: none;
 }
-.nav-link.active {
-  background: var(--accent-soft);
-  color: var(--accent);
+.topnav-tab:hover .tab-pill {
+  background: var(--surface-2);
 }
-.nav-link svg {
+.topnav-tab.active {
+  color: var(--text);
+  font-weight: 600;
+}
+.topnav-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+}
+.topnav-tab svg {
   flex: none;
   opacity: 0.85;
-}
-
-.sidebar-foot {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
 }
 
 .demo-badge {
@@ -258,7 +324,26 @@ a:hover {
   line-height: 1.35;
 }
 
+/* Quiet twin of .demo-badge for the signed-in identity. */
+.user-badge {
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  line-height: 1.35;
+}
+.user-badge strong {
+  color: var(--text);
+}
+
+.btn-icon {
+  padding: 4px 7px;
+}
+
 .main {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -270,6 +355,16 @@ a:hover {
 /* Pages that earn extra width (the code browser: tree + code + rail). */
 .page-wide {
   max-width: 1600px;
+}
+
+@media (max-width: 700px) {
+  .topbar-row {
+    padding: 8px 12px 5px;
+    gap: 8px;
+  }
+  .page {
+    padding: 18px 14px 48px;
+  }
 }
 
 .page-header {
@@ -528,6 +623,27 @@ a:hover {
 .rail-down::after {
   top: 50%;
   height: 50%;
+}
+
+/* Phones: the chips row moves under the title instead of squeezing it
+   out (the rail spans both rows so the lane stays continuous). */
+@media (max-width: 700px) {
+  .stack-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .stack-row .rail,
+  .stack-row .rail-graph {
+    grid-row: 1 / span 2;
+  }
+  .stack-row .change-chips {
+    grid-column: 2;
+    flex-wrap: wrap;
+    padding-bottom: 8px;
+  }
+  .stack-row-trunk .rail,
+  .stack-row-trunk .rail-graph {
+    grid-row: auto;
+  }
 }
 
 .stack-row-trunk {
@@ -1215,10 +1331,6 @@ tr.hunk-head td {
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
-}
-
-.theme-toggle {
-  align-self: flex-start;
 }
 
 .back-link {
