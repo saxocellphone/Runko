@@ -116,6 +116,8 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
   workspace attach <id> --runkod-url <url> --token <t> [--branch <b>]   restore a workspace branch from its snapshot ref [--json]
   workspace delete <id> --runkod-url <url> --token <t>       delete the registry row + snapshot refs (refused while it has open changes) [--json]
+  workspace path [<name>]                                     print a workspace's local directory: cd $(runko workspace path <name>) (§12.7) [--json]
+  workspace gc [--apply] [--idle <dur>] [--scan <store>]...   reclaim closed+synced materializations; plan-only by default (§12.7) [--json]
   agent create --task <slug> --runkod-url <url> --token <t> [--ttl 8h]   mint an ephemeral task identity (agent-<task>-<x>); token printed ONCE [--json]
   agent list --runkod-url <url> --token <t>                  live and expired agent identities [--json]
   agent revoke <name> --runkod-url <url> --token <t>         kill an agent credential immediately [--json]
@@ -789,7 +791,7 @@ func (s *stringSliceFlag) Set(v string) error {
 // mechanics; this is flag parsing and output shaping only.
 func cmdWorkspace(args []string) error {
 	if len(args) < 1 {
-		return usageError("usage: runko workspace create|list|attach|path|snapshot|watch|branch|sync|delete ...")
+		return usageError("usage: runko workspace create|list|attach|path|gc|snapshot|watch|branch|sync|delete ...")
 	}
 	sub, rest := args[0], args[1:]
 	ctx := context.Background()
@@ -944,6 +946,59 @@ func cmdWorkspace(args []string) error {
 		printWorkspaceStreamingGuidance(os.Stdout, wsDir)
 		return nil
 
+	case "gc":
+		fs := flag.NewFlagSet("workspace gc", flag.ExitOnError)
+		runkodURL := fs.String("runkod-url", "", "runkod base URL")
+		token := fs.String("token", "", "deploy token")
+		apply := fs.Bool("apply", false, "execute the plan (default: print it)")
+		idle := fs.Duration("idle", 0, "also sweep OPEN workspaces idle this long (their durable state is server-side; re-attach recreates them)")
+		var scans stringSliceFlag
+		fs.Var(&scans, "scan", "store directory whose worktrees are adopted into the registry first (repeatable; the pre-§12.7 migration path)")
+		jsonOut := fs.Bool("json", false, "emit the plan as JSON")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		cred, err := resolveCredential(*runkodURL, *token)
+		if err != nil {
+			return err
+		}
+		plan, err := WorkspaceGC(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(),
+			GCOptions{Apply: *apply, Idle: *idle, Scan: scans})
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(plan)
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		var nReclaim int
+		var bytesReclaim int64
+		for _, c := range plan {
+			verdict := "keep"
+			size := "-"
+			if c.Reclaim {
+				verdict = "reclaim"
+				nReclaim++
+				bytesReclaim += c.SizeBytes
+				size = humanBytes(c.SizeBytes)
+			}
+			fmt.Fprintf(tw, "%s\t%s/%s\t%s\t%s\t%s\n", verdict, c.Workspace, c.Branch, c.Path, size, c.Reason)
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		switch {
+		case len(plan) == 0:
+			fmt.Println("no materializations tracked on this machine (adopt legacy stores with --scan <store>)")
+		case *apply:
+			fmt.Printf("reclaimed %d materialization(s), %s\n", nReclaim, humanBytes(bytesReclaim))
+		case nReclaim > 0:
+			fmt.Printf("plan only - rerun with --apply to reclaim %d materialization(s), %s\n", nReclaim, humanBytes(bytesReclaim))
+		default:
+			fmt.Println("nothing reclaimable - every materialization is open, dirty, or not provably synced")
+		}
+		return nil
+
 	case "path":
 		fs := flag.NewFlagSet("workspace path", flag.ExitOnError)
 		jsonOut := fs.Bool("json", false, "emit {workspace, branch, path} as JSON")
@@ -1047,7 +1102,7 @@ func cmdWorkspace(args []string) error {
 		return nil
 
 	default:
-		return usageError("usage: runko workspace create|list|attach|path|snapshot|branch|sync|delete ...")
+		return usageError("usage: runko workspace create|list|attach|path|gc|snapshot|branch|sync|delete ...")
 	}
 }
 

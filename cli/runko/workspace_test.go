@@ -24,6 +24,15 @@ import (
 // cover the CLI's local git mechanics and API round-trips.
 func startWorkspaceServer(t *testing.T) (srv *httptest.Server, bare string) {
 	t.Helper()
+	srv, bare, _ = startWorkspaceServerStore(t)
+	return srv, bare
+}
+
+// startWorkspaceServerStore additionally exposes the daemon's Store so
+// lifecycle tests can drive server-side workspace state (close) the way
+// the land path does - `workspace gc`'s predicate keys on it (§12.7).
+func startWorkspaceServerStore(t *testing.T) (srv *httptest.Server, bare string, memStore *runkod.MemStore) {
+	t.Helper()
 	bare = filepath.Join(t.TempDir(), "monorepo.git")
 	if err := runkod.EnsureBareRepo(bare, "main"); err != nil {
 		t.Fatalf("EnsureBareRepo: %v", err)
@@ -33,6 +42,7 @@ func startWorkspaceServer(t *testing.T) (srv *httptest.Server, bare string) {
 	mustGit(t, seed, "init", "-q", "-b", "main")
 	mustGit(t, seed, "config", "user.email", "t@example.com")
 	mustGit(t, seed, "config", "user.name", "t")
+	writeFile(t, seed, ".gitignore", "*.cache\n")
 	writeFile(t, seed, "commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\n")
 	writeFile(t, seed, "commerce/checkout/main.go", "package main\n")
 	writeFile(t, seed, "libs/money/PROJECT.yaml", "schema: project/v1\nname: money-lib\ntype: library\n")
@@ -68,7 +78,7 @@ func startWorkspaceServer(t *testing.T) (srv *httptest.Server, bare string) {
 	// workspace home) is isolated the same way the credential file is.
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("RUNKO_WORKSPACE_HOME", filepath.Join(t.TempDir(), "runko-ws"))
-	return srv, bare
+	return srv, bare, store
 }
 
 // writeFakeCredentialHelper scripts a git credential helper that answers

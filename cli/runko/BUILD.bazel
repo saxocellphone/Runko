@@ -26,6 +26,7 @@ go_library(
         "sync.go",
         "watch.go",
         "workspace.go",
+        "workspacegc.go",
     ],
     importpath = "github.com/saxocellphone/runko/cli/runko",
     visibility = ["//visibility:private"],
@@ -69,6 +70,7 @@ go_test(
         "sync_test.go",
         "watch_test.go",
         "workspace_test.go",
+        "workspacegc_test.go",
     ],
     embed = [":runko_lib"],
     deps = [

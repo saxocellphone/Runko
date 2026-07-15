@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -340,8 +341,26 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 	if err := ensureSharedClone(cloneDir, remoteURL, authEnv); err != nil {
 		return WorkspaceInfo{}, "", err
 	}
-	if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision, "head", authEnv); err != nil {
-		return WorkspaceInfo{}, "", err
+	// §12.7 auto-gc + recycle: sweep unambiguously reclaimable
+	// materializations on this store (bounded), preferring to REBIND one
+	// over deleting it - its ignored caches (node_modules, build output)
+	// are the expensive bytes a fresh worktree would pay to rebuild.
+	materialized := false
+	if cand := autoGCAndRecycle(ctx, client, runkodURL, token, cloneDir, true); cand != nil {
+		switch err := rebindWorktree(cloneDir, *cand, dir, info, info.BaseRevision, "head", authEnv); {
+		case err == nil:
+			fmt.Fprintf(os.Stderr, "recycled %s (ignored caches preserved)\n", cand.Path)
+			materialized = true
+		case errors.Is(err, errRecycleUnavailable):
+			// Fall through to a fresh worktree; the candidate stays put.
+		default:
+			return WorkspaceInfo{}, "", err
+		}
+	}
+	if !materialized {
+		if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision, "head", authEnv); err != nil {
+			return WorkspaceInfo{}, "", err
+		}
 	}
 	// Cache, never truth (§12.7): a registry write failure must not fail
 	// the create that already did the real work.
@@ -382,6 +401,9 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 	if err := ensureSharedClone(cloneDir, remoteURL, authEnv); err != nil {
 		return WorkspaceInfo{}, "", err
 	}
+	// Attach sweeps too (§12.7 auto-gc), but always materializes fresh:
+	// restore-from-snapshot is already the cheap path.
+	autoGCAndRecycle(ctx, client, runkodURL, token, cloneDir, false)
 
 	// Prefer the branch's snapshot tip; a branch that never snapshotted
 	// restores at the workspace's base revision.
