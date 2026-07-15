@@ -624,6 +624,25 @@ planning; entries marked `[observed]` happened during execution.
     home + credential-neutral stores + rebuildable local registry +
     `workspace gc` + worktree recycling.
 
+50. **[observed, implementing #49's fix, 2026-07-15] runkod's e2e
+    consumes the compiled cli with no declared edge - a cli change
+    that breaks the daemon e2e sails through its own gates.**
+    `runkod/cmd/runkod/main_test.go` builds the `runko` binary from
+    source (`buildRunko`) and drives it end-to-end, but
+    runkod/PROJECT.yaml declares `dependencies: [platform, internal,
+    db]` - no edge to cli - so `runkod-test` is NOT in a cli-only
+    change's affected closure. The §12.7 credential-neutral change
+    broke `TestEndToEndDaemonWorkspaces` (blobless checkout 401ed);
+    every scoped cli gate stayed green, and only a full-tree run
+    (`make check` locally, or post-land ci.yml - AFTER trunk is red)
+    surfaces it. Same shape as the docs/platform contracts-test
+    finding (2026-07-14): a test that consumes another project's
+    files needs the edge declared so the closure runs it. → fix:
+    runkod declares a `consumes: [cli]` (or dependencies) edge -
+    manifest change, admin lane (agents cannot touch PROJECT.yaml).
+    Until then: any change to cli's push/auth/workspace surfaces must
+    run `go test ./runkod/cmd/runkod/` by hand before pushing.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
