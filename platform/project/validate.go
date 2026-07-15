@@ -132,6 +132,17 @@ func Validate(intent Intent, templates TemplateSet) []ValidationError {
 			Suggestion: "pass --api grpc|rest|none",
 		})
 	}
+	// Only serving types get an API surface (§13.3.1, refined 2026-07-15):
+	// a library is consumed through build dependencies and a job has no
+	// callers - a job that grows a serving surface is a type change first.
+	if (intent.API == "grpc" || intent.API == "rest") &&
+		intent.Type != "service" && intent.Type != "app" {
+		errs = append(errs, ValidationError{
+			Code: "invalid_combination", Field: "api",
+			Message:    fmt.Sprintf("a %s cannot declare an API surface - grpc/rest are for services and apps (§13.3.1)", intent.Type),
+			Suggestion: "drop --api (or pass none), or create the project as a service/app",
+		})
+	}
 
 	if intent.TemplateID != "" {
 		if t, ok := templates.Get(intent.TemplateID); !ok {
