@@ -28,7 +28,7 @@ suites (which already run with `-race` and live Postgres in CI).
 | E4 | A pushed secret is rejected by **real gitleaks** before durability | First real gitleaks execution anywhere in this project (fake-binary-tested until now) |
 | E5 | An agent principal's direct `refs/for` push is refused by the default §8.7 policy | REMOTE_USER → policy chain through every real process hop |
 | E6 | Amend resets BOTH gates (§13.5 approval binding + head-keyed checks), re-gate → land | Stage 12c-①'s review-integrity story over real transport |
-| E7 | **Optimistic-land revalidation** (§13.5): intersecting trunk delta → 409 `requires_revalidation` → rebase + re-push → gates reset → land | The platform's signature semantic; never previously exercised over the wire |
+| E7 | **Optimistic-land revalidation** (§13.5, under an explicitly-configured `revalidation: affected-intersection` daemon — the org opt-in tier; the default `conflict-only` tier lands this scenario with zero re-runs, pinned by the runkod e2e test `TestHandleLandChangeDefaultLandsAcrossIntersectingTrunkAdvance`): intersecting trunk delta → 409 `requires_revalidation` → rebase + re-push → gates reset → land | The opt-in tier's signature semantic; never previously exercised over the wire |
 | E8 | Workspace snapshots: owner's snapshot accepted; another principal's push to the same ref rejected (§12.2); unregistered workspace ref rejected | Owner-only enforcement needs identity through the full chain |
 | E9 | Daemon restart: landed Changes survive (Postgres + volumes), migrator is a no-op on reboot, a fresh change→land works after | §9.3 durable profile; migrator idempotence against a *populated* DB |
 | E10 | `/metrics` gauges are truthful at a known end state | Cheap; catches wiring rot |

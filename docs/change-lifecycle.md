@@ -60,7 +60,7 @@ context (only a landed **tip** rejects the push).
 
 | event \ state       | *(none)*        | open | abandoned | landed |
 |---------------------|-----------------|------|-----------|--------|
-| **push** (accepted funnel, same Change-Id) | create → **open**; base = merge-base(head, trunk) or nearest pending ancestor Change's commit (stacked, §7.4) | amend → **open**: head/base/title/authored_by move with the push; approvals reset by head binding (§13.5); origin workspace/branch preserved when the push carries none | reopen → **open** (`change.reopened`) | **rejected at receive**: "landed is terminal", start a fresh Change |
+| **push** (accepted funnel, same Change-Id) | create → **open**; base = merge-base(head, trunk) or nearest pending ancestor Change's commit (stacked, §7.4) | amend → **open**: head/base/title/authored_by move with the push; approvals reset by head binding (§13.5) — unless the new head is a TRIVIAL REBASE of the old, which carries approvals (and, under conflict-only revalidation, passing checks) forward (§13.5 carry-forward, 2026-07-15); origin workspace/branch preserved when the push carries none | reopen → **open** (`change.reopened`) | **rejected at receive**: "landed is terminal", start a fresh Change |
 | **approve**         | 404 | recorded, bound to current head; refused for the head's own pusher (`self_approval_denied`, §8.7), agents (`agent_approval_denied`, §13.5), non-required owners (`not_a_required_owner`) | 409 `invalid_state` | 409 `invalid_state` |
 | **rerun check**     | 404 | allowed for required checks | 409 `invalid_state` | 409 `invalid_state` |
 | **abandon**         | 404 | → **abandoned** | idempotent (stays abandoned) | 409 `invalid_state` |
@@ -76,9 +76,12 @@ Evaluated in this order; every refusal leaves the Change **open**:
 2. `not_mergeable` (409) — the same per-principal `Mergeable` bool
    `GET .../merge-requirements` reports: outstanding owners, failing/pending
    required checks, stale checks, default-deny with no policy at all.
-3. `requires_revalidation` (409) — trunk moved since the checked head and the
-   trunk delta intersects the Change's affected set; recovery is rebase +
-   re-push (an amend, which re-binds base/head) + re-green + land.
+3. `requires_revalidation` (409) — **only under org-tightened
+   `revalidation: affected-intersection|always`** (the default
+   `conflict-only` tier never returns it, §13.5 2026-07-15): trunk moved
+   since the checked head and the trunk delta intersects the Change's
+   affected set; recovery is rebase + re-push (a trivial rebase, which
+   carries approvals forward) + re-green + land.
 4. `conflicts` (409) — the rebase itself conflicts.
 5. `race_retry_exhausted` (409) — lost the trunk compare-and-swap 5 times.
 6. **landed** — trunk advanced, `landed_by` attributed, `change.landed`

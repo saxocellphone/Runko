@@ -574,6 +574,33 @@ planning; entries marked `[observed]` happened during execution.
     gains its http capability + openapi.yaml (the follow-up that
     mandate exists for).
 
+48. **[observed, dogfood landing sessions, 2026-07-14] Five parallel
+    green changes cascade: every land forced a re-sync and a full
+    check matrix on every remaining change.** Five unrelated changes,
+    each green at its head. Landing the first moved trunk; each
+    remaining land then hit `requires_revalidation`, because
+    `NeedsRevalidation` (platform/land/revalidate.go) intersects the
+    full dependents CLOSURE of both sides - and on this repo nearly
+    everything shares closure members (platform feeds runkod/cli; root
+    glue invalidates wholesale), so "unrelated" changes intersect
+    anyway (phantom closure intersection). The prescribed recovery
+    (sync/rebase + re-push) mints a NEW head, and check runs and
+    approvals are keyed by head_sha, so every recovery reset every
+    green result and re-ran the full matrix - N green changes cost
+    O(N²) full matrices to land, every re-run re-testing a diff it had
+    already passed. Root cause is the PAIRING: an over-broad
+    intersection default, and head-keyed results no rebase can
+    survive. Fixed per the 2026-07-15 changelog row (Gerrit's model,
+    §13.5 rewritten, both halves): conflict-only landing is the
+    default - a clean rebase lands green work with zero re-runs,
+    post-land ci.yml is the net - and a TRIVIAL_REBASE head carries
+    passing checks and approvals forward instead of resetting, so even
+    orgs on the stricter tiers stop paying the approval-reset half.
+    Pinned by the conflict-only land tests, the carry-forward
+    sync/push tests, and compose edge case E7 (kept under an
+    explicitly-configured affected-intersection daemon, plus the new
+    default-policy sibling E7b).
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
