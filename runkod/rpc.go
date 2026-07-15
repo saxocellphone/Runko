@@ -368,10 +368,7 @@ func (r *rpcServer) GetAffected(ctx context.Context, req *connect.Request[runkov
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
-		projects := make([]affected.ProjectInfo, len(indexed))
-		for i, p := range indexed {
-			projects[i] = affected.ProjectInfo{Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies}
-		}
+		projects := index.AffectedProjectInfos(indexed)
 		rootInvalidation := index.RootInvalidation(indexed)
 		if r.s.Processor != nil {
 			rootInvalidation = append(rootInvalidation, r.s.Processor.RootInvalidationPatterns...)

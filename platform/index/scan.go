@@ -48,11 +48,21 @@ type IndexedProject struct {
 	Checks     []CheckDef
 	Visibility string
 	Owners     []OwnerEntry
-	// ContractGenDir is the repo-relative directory of this project's
-	// committed contract codegen (§13.3.1): <path>/<capability_config.
-	// rpc.path>/gen when the manifest declares the rpc capability, ""
-	// otherwise. A Go import under another project's ContractGenDir
-	// requires a direct declared dependency edge (platform/contract).
+	// Consumes are the manifest's §13.3.1 server/client edges: providers
+	// whose declared API contract this project is a client of. They join
+	// this project into the affected closure only when the provider's
+	// contract surface changes - see ContractDir below.
+	Consumes []string
+	// ContractDir is the repo-relative root of this project's declared
+	// contract surface (§13.3.1): <path>/<capability_config.rpc.path>
+	// when the manifest declares the rpc capability, "" otherwise. It is
+	// what a consumes closure keys on; ContractGenDir below is its
+	// committed-codegen subdir, what the receive-time import check keys on.
+	ContractDir string
+	// ContractGenDir is <ContractDir>/gen when the rpc capability is
+	// declared, "" otherwise. A Go import under another project's
+	// ContractGenDir must be sanctioned by a consumes (or dependencies)
+	// edge (platform/contract).
 	ContractGenDir string
 	// OpenAPIPath/OpenAPIPresent carry §13.3.1's http mandate: the
 	// manifest-implied OpenAPI document path (capability_config.http.
@@ -179,10 +189,11 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		}
 	}
 
-	var contractGenDir, openAPIPath string
+	var contractDir, contractGenDir, openAPIPath string
 	openAPIPresent := false
 	if hasCapability(manifest.Capabilities, "rpc") {
-		contractGenDir = path.Join(dir, capabilityConfigString(manifest.CapabilityConfig, "rpc", "path", "proto"), "gen")
+		contractDir = path.Join(dir, capabilityConfigString(manifest.CapabilityConfig, "rpc", "path", "proto"))
+		contractGenDir = path.Join(contractDir, "gen")
 	}
 	if hasCapability(manifest.Capabilities, "http") {
 		openAPIPath = path.Join(dir, capabilityConfigString(manifest.CapabilityConfig, "http", "openapi", "openapi.yaml"))
@@ -203,6 +214,8 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		Owners:                    owners,
 		RequiredChecks:            requiredChecks,
 		Checks:                    checks,
+		Consumes:                  manifest.Consumes,
+		ContractDir:               contractDir,
 		ContractGenDir:            contractGenDir,
 		OpenAPIPath:               openAPIPath,
 		OpenAPIPresent:            openAPIPresent,

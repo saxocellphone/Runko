@@ -285,3 +285,91 @@ func TestRootInvalidationBeatsOwnership(t *testing.T) {
 		t.Fatalf("README must stay a direct repo hit, got %+v", res)
 	}
 }
+
+// TestConsumesEdgesAreContractScoped pins §13.3.1's client-edge closure:
+// a consumes edge joins the client only when the provider's contract
+// surface changed - never for provider internals - the client joins
+// non-direct (§14.5.9 direct-only lanes skip it), its own dependents ride
+// the ordinary closure, and consumes never chains.
+func TestConsumesEdgesAreContractScoped(t *testing.T) {
+	projects := []ProjectInfo{
+		{Name: "runkod", Path: "runkod", ContractPaths: []string{"runkod/PROJECT.yaml", "runkod/proto"}},
+		{Name: "mailer", Path: "mailer", Consumes: []string{"runkod"}},
+		// mailtool depends on mailer (build-grade) - it must ride when
+		// mailer joins via consumes.
+		{Name: "mailtool", Path: "mailtool", DeclaredDependencies: []string{"mailer"}},
+		// watcher consumes mailer; mailer's own contract never changes
+		// here, so watcher must never join (no chaining).
+		{Name: "watcher", Path: "watcher", Consumes: []string{"mailer"}},
+	}
+
+	// Provider INTERNALS change: no consumers join.
+	res := Compute(projects, []string{"runkod/land.go"}, Options{})
+	if got := refNames(res.Projects); !slicesEqual(got, []string{"runkod"}) {
+		t.Fatalf("internals change: want [runkod], got %v", got)
+	}
+
+	// Contract-surface change: mailer joins non-direct, mailtool rides the
+	// dependent closure, watcher stays out (consumes does not chain).
+	res = Compute(projects, []string{"runkod/proto/mailer/v1/mailer.proto"}, Options{})
+	if got := refNames(res.Projects); !slicesEqual(got, []string{"mailer", "mailtool", "runkod"}) {
+		t.Fatalf("contract change: want [mailer mailtool runkod], got %v", got)
+	}
+	for _, ref := range res.Projects {
+		if ref.Name == "mailer" && ref.Direct {
+			t.Fatalf("consumer must join non-direct: %+v", res.Projects)
+		}
+		if ref.Name == "runkod" && !ref.Direct {
+			t.Fatalf("provider owns the touched path and must be direct: %+v", res.Projects)
+		}
+	}
+	if !containsString(res.ReasonCodes, ReasonConsumesContract) {
+		t.Fatalf("want consumes_contract reason, got %v", res.ReasonCodes)
+	}
+
+	// Provider MANIFEST change counts as contract surface (fail closed -
+	// the surface may have moved or been reshaped).
+	res = Compute(projects, []string{"runkod/PROJECT.yaml"}, Options{})
+	if got := refNames(res.Projects); !slicesEqual(got, []string{"mailer", "mailtool", "runkod"}) {
+		t.Fatalf("manifest change: want [mailer mailtool runkod], got %v", got)
+	}
+
+	// A provider with NO declared contract never pulls consumers.
+	bare := []ProjectInfo{
+		{Name: "svc", Path: "svc"},
+		{Name: "client", Path: "client", Consumes: []string{"svc"}},
+	}
+	res = Compute(bare, []string{"svc/main.go"}, Options{})
+	if got := refNames(res.Projects); !slicesEqual(got, []string{"svc"}) {
+		t.Fatalf("contract-less provider: want [svc], got %v", got)
+	}
+}
+
+func refNames(refs []ProjectRef) []string {
+	names := make([]string, len(refs))
+	for i, r := range refs {
+		names[i] = r.Name
+	}
+	return names
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}

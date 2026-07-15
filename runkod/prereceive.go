@@ -1114,10 +1114,7 @@ func (p *Processor) computeAffectedAndEnqueue(ctx context.Context, change Change
 		log.Printf("runkod: %s: scan projects at %s: %v", change.ChangeKey, change.HeadSHA, err)
 		return
 	}
-	projects := make([]affected.ProjectInfo, len(indexed))
-	for i, ip := range indexed {
-		projects[i] = affected.ProjectInfo{Name: ip.Name, Path: ip.Path, DeclaredDependencies: ip.DeclaredDependencies}
-	}
+	projects := index.AffectedProjectInfos(indexed)
 	result := affected.Compute(projects, changedPaths, affected.Options{
 		RootInvalidationPatterns: append(index.RootInvalidation(indexed), p.RootInvalidationPatterns...),
 		ProsePatterns:            index.Prose(indexed),
@@ -1264,6 +1261,7 @@ func contractProjects(indexed []index.IndexedProject) []contract.Project {
 			Name:           ip.Name,
 			Path:           ip.Path,
 			Dependencies:   ip.DeclaredDependencies,
+			Consumes:       ip.Consumes,
 			ContractGenDir: ip.ContractGenDir,
 			DeclaresHTTP:   ip.OpenAPIPath != "",
 			OpenAPIPath:    ip.OpenAPIPath,

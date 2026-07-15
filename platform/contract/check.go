@@ -25,7 +25,8 @@ import (
 type Project struct {
 	Name         string
 	Path         string   // repo-relative project root; "" or "." for the root project
-	Dependencies []string // declared, direct (§13.3 edges)
+	Dependencies []string // declared build-grade edges (§13.3)
+	Consumes     []string // declared server/client edges (§13.3.1) - the recommended sanction for contract consumption
 
 	// ContractGenDir is the repo-relative directory of the project's
 	// committed contract codegen (<path>/<rpc.path>/gen), "" when the
@@ -101,17 +102,21 @@ func checkImports(modulePath string, projects []Project, files []File) []Violati
 			consumerName := "(no project)"
 			if consumer != nil {
 				consumerName = consumer.Name
-				if declaresDirect(consumer.Dependencies, owner.Name) {
+				// Either edge sanctions the import: consumes is the
+				// client edge (contract-scoped closure, the normal case);
+				// dependencies is the stronger build-grade edge for
+				// projects that build against or run the provider's code.
+				if declaresDirect(consumer.Consumes, owner.Name) || declaresDirect(consumer.Dependencies, owner.Name) {
 					continue
 				}
 			}
 			out = append(out, Violation{
 				Code: "undeclared_contract_dependency",
 				Path: f.Path,
-				Message: fmt.Sprintf("%s imports %s's contract (%s) without a declared dependency edge (§13.3.1)",
+				Message: fmt.Sprintf("%s imports %s's contract (%s) without a declared client edge (§13.3.1)",
 					consumerName, owner.Name, ipath),
-				Suggestion: fmt.Sprintf("declare %q in %s's PROJECT.yaml dependencies (direct - consuming a contract is a sanctioned edge, §13.3.1)",
-					owner.Name, consumerName),
+				Suggestion: fmt.Sprintf("declare %q in %s's PROJECT.yaml consumes (the server/client edge; use dependencies only when you build against or run %s's code, §13.3.1)",
+					owner.Name, consumerName, owner.Name),
 			})
 		}
 	}
