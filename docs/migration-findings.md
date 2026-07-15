@@ -601,6 +601,29 @@ planning; entries marked `[observed]` happened during execution.
     explicitly-configured affected-intersection daemon, plus the new
     default-policy sibling E7b).
 
+49. **[observed, dogfood, 2026-07-15] Materialization sprawl: the
+    platform with the "better worktree" story had the worst worktrees
+    on the machine.** Eighteen task materializations sat inside the
+    developing checkout's own root (`agent-*`, `admin-*`), ~2.4 GB of
+    working trees whose blobless object stores total ~33 MB, in three
+    coexisting layouts: worktrees of a shared in-tree clone
+    (`Runko/mono` — the CLI's `--clone-dir` default is the
+    cwd-relative literal `mono`), worktrees of per-task clones
+    (`runko-clones/<task>` — fresh per task NOT by accident:
+    `composeRemoteURL` bakes the creating principal's token into the
+    store's remote URL, so a shared store misattributes every other
+    principal's push, and clone-per-task was the only correct agent
+    flow), and full-cone checkouts each carrying ~296 MB of
+    `web/node_modules`. 26 of 31 server-side workspaces were closed —
+    auto-closed correctly by the #42 lifecycle — while every local
+    materialization survived, because nothing ties local directories
+    to the server lifecycle: no placement default, no local registry,
+    no reclaim verb, no reuse. Collateral: `git status` noise in the
+    host checkout, and gazelle destructively "fixing" BUILD files it
+    reached through the nested trees. → decided as §12.7: managed
+    home + credential-neutral stores + rebuildable local registry +
+    `workspace gc` + worktree recycling.
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
