@@ -22,7 +22,7 @@ func AffectedProjectInfos(indexed []IndexedProject) []affected.ProjectInfo {
 			DeclaredDependencies: ip.DeclaredDependencies,
 			Consumes:             ip.Consumes,
 		}
-		if ip.ContractDir != "" || ip.OpenAPIPath != "" {
+		if ip.ContractDir != "" || ip.OpenAPIPath != "" || len(ip.SchemaPaths) > 0 {
 			info.ContractPaths = append(info.ContractPaths, path.Join(ip.Path, "PROJECT.yaml"))
 			if ip.ContractDir != "" {
 				info.ContractPaths = append(info.ContractPaths, ip.ContractDir)
@@ -30,6 +30,7 @@ func AffectedProjectInfos(indexed []IndexedProject) []affected.ProjectInfo {
 			if ip.OpenAPIPath != "" {
 				info.ContractPaths = append(info.ContractPaths, ip.OpenAPIPath)
 			}
+			info.ContractPaths = append(info.ContractPaths, ip.SchemaPaths...)
 		}
 		out[i] = info
 	}
