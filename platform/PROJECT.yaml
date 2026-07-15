@@ -16,6 +16,13 @@ type: library
 language: go
 dependencies:
   - internal
+# consumes (§13.3.1, test encapsulation 2026-07-14): three suites here
+# (checks, mcp, agentsmd) carry data = ["//docs:contracts"] - they consume
+# docs' declared schema surface (spec/ + cli-contract.md). This edge is
+# what runs platform-test on a spec change, replacing docs' deleted
+# contracts-test (which hardcoded OUR targets in THEIR check command).
+consumes:
+  - docs
 ci:
   checks:
     - name: platform-test

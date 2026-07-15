@@ -17,6 +17,14 @@ capabilities:
 dependencies:
   - platform
   - internal
+# consumes (§13.3.1, 2026-07-14 re-evaluation): both binaries are REST
+# clients of the daemon (docs/cli-contract.md pins the surface). Until
+# runkod carries an OpenAPI artifact for its REST API (recorded
+# follow-up), this edge triggers on runkod/proto/** and runkod's
+# manifest only - declared now for honest topology, real closure value
+# when the artifact lands.
+consumes:
+  - runkod
 ci:
   checks:
     - name: cli-test
