@@ -265,6 +265,8 @@ func cmdServe(args []string) error {
 		OrgName:                  defaultOrgName,
 		RequireChangeWorkspace:   !*allowWorkspaceless,
 		Events:                   events,
+		Revalidation:             revalidationScope,
+		GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
 	}
 	server := &runkod.Server{
 		RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher,
@@ -333,6 +335,8 @@ func cmdServe(args []string) error {
 				OrgName:                  orgName,
 				RequireChangeWorkspace:   !*allowWorkspaceless,
 				Events:                   orgEvents,
+				Revalidation:             revalidationScope,
+				GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
 			}
 			// Per-org mirror (§18.6 M1, was default-org-only in v1 -
 			// docs/migration-findings.md #12): an --org-mirror entry naming
