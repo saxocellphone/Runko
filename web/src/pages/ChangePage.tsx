@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { ConnectError } from "@connectrpc/connect";
 import { authUser, publicBrowse, changesClient } from "../api/client";
-import { ChangeState, CommentSide, type MergeRequirements } from "../gen/runko/v1/common_pb";
+import { ChangeState, CommentSide, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import type { LandChangeResponse, SyncChangeResponse } from "../gen/runko/v1/changes_pb";
 import { groupThreads, partitionThreads } from "../lib/comments";
 import { absoluteTime, changeNumberLabel, shortSha, timeAgo } from "../lib/format";
@@ -125,10 +125,11 @@ export function ChangePage() {
           <span className="mono" title={`base ${change.baseSha}`}>
             base {shortSha(change.baseSha)}
           </span>
-          <InfoTip text="The merge-base with trunk as of this version's push. Landing recomputes trunk's delta since this commit - if it doesn't intersect what this change affects, it lands without re-running checks; otherwise checks re-run (§13.5)." />
+          <InfoTip text="The merge-base with trunk as of this version's push. Landing rebases this change onto trunk's current tip: a clean rebase lands as-is under the default conflict-only policy, a conflict always blocks, and stricter org revalidation tiers may re-run checks first (§13.5)." />
           <span className="mono" title={`head ${change.headSha}`}>
             head {shortSha(change.headSha)}
           </span>
+          <LandCleanlinessChip change={change} stack={stack} />
           {change.state === ChangeState.LANDED && change.landedSha && (
             <span className="mono" title={change.landedAt > 0n ? absoluteTime(change.landedAt) : undefined}>
               landed as {shortSha(change.landedSha)}
@@ -342,5 +343,56 @@ export function ChangePage() {
         </aside>
       </div>
     </div>
+  );
+}
+
+// The land-cleanliness verdict, where the stack rail's old "main" trunk
+// row used to gesture at it (2026-07-15): what happens when this change
+// lands - applies as-is, rebases first, waits on a parent, or needs a
+// sync. Base state only; the merge-requirements card already answers
+// "may it land" (gates). Client-side inference: base == tip is the one
+// provably-clean case, everything behind the tip rebases server-side and
+// only a conflict blocks it (§13.5 conflict-only default).
+function LandCleanlinessChip({ change, stack }: { change: ChangeSummary; stack: ChangeSummary[] }) {
+  if (change.state !== ChangeState.OPEN) return null;
+  if (change.baseOnTrunk) {
+    const n = change.baseBehindTrunk;
+    if (n <= 0) {
+      return (
+        <span
+          className="chip chip-green"
+          title="Based on trunk's current tip: landing applies this change exactly as checked - no rebase, nothing to conflict with (§13.5)."
+        >
+          ✓ lands cleanly
+        </span>
+      );
+    }
+    return (
+      <span
+        className="chip chip-amber"
+        title={`Based on trunk, but ${n} landing${n === 1 ? " has" : "s have"} stacked on it since. Landing rebases onto the tip server-side: a clean rebase lands as-is, a conflict blocks, and stricter org revalidation tiers may re-run checks first (§13.5).`}
+      >
+        ⟳ rebases on land · {n} behind tip
+      </span>
+    );
+  }
+  const parent = stack.find((c) => c.id !== change.id && c.headSha === change.baseSha);
+  if (parent?.state === ChangeState.OPEN) {
+    return (
+      <span
+        className="chip"
+        title={`Stacked on ${changeNumberLabel(parent.number)}: stacks land bottom-up, so this change can land only once its parent below has landed.`}
+      >
+        stacked · lands after {changeNumberLabel(parent.number)}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="chip chip-amber"
+      title="This change's base commit is not on trunk: what it was stacked on was abandoned, landed as a different commit, or is gone. Sync the stack onto trunk (the Sync action, or runko workspace sync) and re-push."
+    >
+      ⚠ base not on trunk · sync needed
+    </span>
   );
 }
