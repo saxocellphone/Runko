@@ -73,10 +73,22 @@ export function NewProjectPage() {
   const owners = ownersText.split(/[\s,]+/).filter(Boolean);
   const usingOther = langChoice === "__other__";
   const language = usingOther ? otherLang.trim() : langChoice;
+  // Only serving types get an API surface (§13.3.1, refined 2026-07-15):
+  // the picker exists for services (required) and apps (optional); a
+  // library/job/other never sees the choice and always sends none.
+  const apiEligible = type === "service" || type === "app";
   // A service must answer the API question before anything is sent —
   // previewing without it would just relay api_required back (§13.3.1).
   const apiMissing = type === "service" && api === "";
-  const intent = { name: name.trim(), type, api, owners, language, noTemplate: usingOther, buildEngine };
+  const intent = {
+    name: name.trim(),
+    type,
+    api: apiEligible ? api : "",
+    owners,
+    language,
+    noTemplate: usingOther,
+    buildEngine,
+  };
   const debouncedKey = useDebounced(JSON.stringify({ ...intent, apiMissing }), 350);
 
   const [preview, setPreview] = useState<PreviewCreateProjectResponse | undefined>();
@@ -166,7 +178,12 @@ export function NewProjectPage() {
                       role="radio"
                       aria-checked={type === t}
                       className={"seg-item" + (type === t ? " active" : "")}
-                      onClick={() => setType(t)}
+                      onClick={() => {
+                        setType(t);
+                        // A picked surface must not silently ride a switch
+                        // to a type that never offered the choice.
+                        if (t !== "service" && t !== "app") setApi("");
+                      }}
                     >
                       {t}
                     </button>
@@ -174,6 +191,7 @@ export function NewProjectPage() {
                 </div>
               </div>
 
+              {apiEligible && (
               <div className="form-field">
                 <label id="np-api-label">
                   API surface{" "}
@@ -203,6 +221,7 @@ export function NewProjectPage() {
                   answer — a service just has to give it.
                 </span>
               </div>
+              )}
             </div>
 
             <div className="form-group">
