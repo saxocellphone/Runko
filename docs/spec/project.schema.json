@@ -49,7 +49,7 @@
     "capability_config": {
       "type": "object",
       "additionalProperties": true,
-      "description": "L2/L3, optional. Org-defined configuration keyed by capability name (e.g. { \"deploy\": {...}, \"rpc\": {...} }). Intentionally loosely typed here: deploy/data_store config shapes are org-specific templates (§7.2) and out of scope for this core schema. Keys should correspond to entries in `capabilities`. Four documented exceptions: the 'build' key (see docs/spec/build-adapter/README.md for its { engine: 'bazel'|'buck2', target_patterns: [string] } shape); the 'release' key (design.md §14.10.3, decided 2026-07-10: { tag_prefix: string (default '<project-path>/v'), versioning: 'semver'|'manual', changelog: 'from-changes'|'none' } - absent means no release surface); the 'rpc' key (design.md §13.3.1, decided 2026-07-14: { path: string (default 'proto') } - the contract-bearing RPC surface: proto sources live in-boundary at <project-path>/<path>/, committed codegen at <project-path>/<path>/gen/, and a Go import under another project's gen dir requires a direct declared dependency edge, enforced at receive as undeclared_contract_dependency); and the 'http' key (§13.3.1: { openapi: string (default 'openapi.yaml') } - the contract-bearing REST surface: the OpenAPI document is MANDATORY in-boundary for a project declaring http, and receive refuses a push that declares the capability without the document or deletes it)."
+      "description": "L2/L3, optional. Org-defined configuration keyed by capability name (e.g. { \"deploy\": {...}, \"rpc\": {...} }). Intentionally loosely typed here: deploy/data_store config shapes are org-specific templates (§7.2) and out of scope for this core schema. Keys should correspond to entries in `capabilities`. Four documented exceptions: the 'build' key (see docs/spec/build-adapter/README.md for its { engine: 'bazel'|'buck2', target_patterns: [string] } shape); the 'release' key (design.md §14.10.3, decided 2026-07-10: { tag_prefix: string (default '<project-path>/v'), versioning: 'semver'|'manual', changelog: 'from-changes'|'none' } - absent means no release surface); the 'rpc' key (design.md §13.3.1, decided 2026-07-14: { path: string (default 'proto') } - the contract-bearing RPC surface: proto sources live in-boundary at <project-path>/<path>/, committed codegen at <project-path>/<path>/gen/, and a Go import under another project's gen dir must be sanctioned by a consumes (or dependencies) edge on the importing project, enforced at receive as undeclared_contract_dependency); and the 'http' key (§13.3.1: { openapi: string (default 'openapi.yaml') } - the contract-bearing REST surface: the OpenAPI document is MANDATORY in-boundary for a project declaring http, and receive refuses a push that declares the capability without the document or deletes it)."
     },
     "dependencies": {
       "type": "array",
@@ -58,7 +58,16 @@
         "type": "string",
         "pattern": "^[a-z][a-z0-9-]{1,62}$"
       },
-      "description": "L2/L3, optional, rare. Explicitly DECLARED dependency edges (other project names) that participate in affected-computation gating (§13.3). Most dependency data should come from the async inferred-dependency indexer, which is advisory-only and never written here; promoting an inferred edge to declared is a deliberate action, not automatic sync."
+      "description": "L2/L3, optional, rare. Explicitly DECLARED dependency edges (other project names) that participate in affected-computation gating (§13.3). Build-grade coupling: a dependent rides the dependency's EVERY change - use it when this project builds against (or runs) the other project's code; a stub-level API client wants `consumes` instead (§13.3.1). Most dependency data should come from the async inferred-dependency indexer, which is advisory-only and never written here; promoting an inferred edge to declared is a deliberate action, not automatic sync."
+    },
+    "consumes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{1,62}$"
+      },
+      "description": "L2, optional. Server/client edges (design.md §13.3.1, decided 2026-07-14): provider project names whose declared API contract this project is a CLIENT of. Contract-scoped closure: this project joins the affected set only when the provider's contract surface changes (its capability_config.rpc path dir, its OpenAPI document, or its PROJECT.yaml - fail closed), never for provider-internals changes; consumes edges do not chain. Receive-time enforcement: a Go import under a provider's committed contract gen dir must be sanctioned by consumes (or dependencies) on the importing project (undeclared_contract_dependency otherwise); the import scan is a detector, not the model - REST/TS clients with nothing to scan declare the same edge. Use dependencies instead when this project builds against or runs the provider's actual code (integration harnesses)."
     },
     "root_invalidation": {
       "type": "array",
