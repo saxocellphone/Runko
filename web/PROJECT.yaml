@@ -4,8 +4,6 @@ type: app
 language: ts
 # The TS client types in src/gen are generated from proto/ - a proto
 # change must re-run web-check via the affected closure.
-dependencies:
-  - proto
 # The command runs from the repo root (the §14.9 executor contract gives
 # checks no working-directory of their own), so it scopes itself.
 ci:
