@@ -688,6 +688,7 @@ type Dependencies struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Declared      []string               `protobuf:"bytes,1,rep,name=declared,proto3" json:"declared,omitempty"` // gates affected computation (§13.3)
 	Inferred      []string               `protobuf:"bytes,2,rep,name=inferred,proto3" json:"inferred,omitempty"` // advisory-only, never gates merges (§13.3); always empty in v1
+	Consumes      []string               `protobuf:"bytes,3,rep,name=consumes,proto3" json:"consumes,omitempty"` // §13.3.1 server/client edges: providers this project is a contract CLIENT of; contract-scoped closure, distinct from build-grade declared
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -732,6 +733,13 @@ func (x *Dependencies) GetDeclared() []string {
 func (x *Dependencies) GetInferred() []string {
 	if x != nil {
 		return x.Inferred
+	}
+	return nil
+}
+
+func (x *Dependencies) GetConsumes() []string {
+	if x != nil {
+		return x.Consumes
 	}
 	return nil
 }
@@ -1804,10 +1812,11 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12)\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x15.runko.v1.ProjectTypeR\x04type\x12\x12\n" +
 	"\x04path\x18\x04 \x01(\tR\x04path\x12%\n" +
-	"\x0eowners_summary\x18\x05 \x03(\tR\rownersSummary\"F\n" +
+	"\x0eowners_summary\x18\x05 \x03(\tR\rownersSummary\"b\n" +
 	"\fDependencies\x12\x1a\n" +
 	"\bdeclared\x18\x01 \x03(\tR\bdeclared\x12\x1a\n" +
-	"\binferred\x18\x02 \x03(\tR\binferred\"\xd4\x02\n" +
+	"\binferred\x18\x02 \x03(\tR\binferred\x12\x1a\n" +
+	"\bconsumes\x18\x03 \x03(\tR\bconsumes\"\xd4\x02\n" +
 	"\rProjectDetail\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12)\n" +
