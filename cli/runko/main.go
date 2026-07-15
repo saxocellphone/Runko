@@ -789,7 +789,7 @@ func (s *stringSliceFlag) Set(v string) error {
 // mechanics; this is flag parsing and output shaping only.
 func cmdWorkspace(args []string) error {
 	if len(args) < 1 {
-		return usageError("usage: runko workspace create|list|attach|snapshot|watch|branch|sync|delete ...")
+		return usageError("usage: runko workspace create|list|attach|path|snapshot|watch|branch|sync|delete ...")
 	}
 	sub, rest := args[0], args[1:]
 	ctx := context.Background()
@@ -800,11 +800,12 @@ func cmdWorkspace(args []string) error {
 		token := fs.String("token", "", "deploy token")
 		name := fs.String("name", "", "workspace name (also the snapshot-ref segment)")
 		by := fs.String("by", "", "who owns this workspace")
-		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory (created on first use)")
-		dir := fs.String("dir", "", "worktree directory for this workspace")
+		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory (default: the managed home's .store, §12.7)")
+		dir := fs.String("dir", "", "worktree directory (default: under the managed home, ~/runko-ws)")
+		forceNested := fs.Bool("force-nested", false, "materialize inside another git checkout anyway")
 		var projects stringSliceFlag
 		fs.Var(&projects, "project", "project affinity (repeatable)")
-		jsonOut := fs.Bool("json", false, "emit the workspace as JSON")
+		jsonOut := fs.Bool("json", false, "emit the workspace (+ Dir) as JSON")
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
@@ -815,21 +816,19 @@ func cmdWorkspace(args []string) error {
 		if err != nil {
 			return err
 		}
-		if *cloneDir == "" {
-			*cloneDir = "mono"
-		}
-		if *dir == "" {
-			*dir = *name
-		}
-		info, err := WorkspaceCreate(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), *name, *by, projects, *cloneDir, *dir)
+		info, wsDir, err := WorkspaceCreate(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), *name, *by, projects,
+			MaterializeOptions{CloneDir: *cloneDir, Dir: *dir, ForceNested: *forceNested})
 		if err != nil {
 			return err
 		}
 		if *jsonOut {
-			return json.NewEncoder(os.Stdout).Encode(info)
+			return json.NewEncoder(os.Stdout).Encode(struct {
+				WorkspaceInfo
+				Dir string
+			}{info, wsDir})
 		}
-		fmt.Printf("workspace %s ready at %s (base %s, cone: %s)\n", info.ID, *dir, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
-		printWorkspaceStreamingGuidance(os.Stdout, *dir)
+		fmt.Printf("workspace %s ready at %s (base %s, cone: %s)\n", info.ID, wsDir, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
+		printWorkspaceStreamingGuidance(os.Stdout, wsDir)
 		return nil
 
 	case "delete":
@@ -882,13 +881,21 @@ func cmdWorkspace(args []string) error {
 		if *jsonOut {
 			return json.NewEncoder(os.Stdout).Encode(list)
 		}
+		local := localPathsByWorkspace()
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		for _, ws := range list {
 			branches := strings.Join(ws.Branches, ",")
 			if branches == "" {
 				branches = "-"
 			}
-			fmt.Fprintf(tw, "%s\t%s\tbase %s\t%s\tbranches: %s\n", ws.ID, ws.Status, short(ws.BaseRevision), strings.Join(ws.ProjectAffinity, ","), branches)
+			here := "-"
+			if paths := local[ws.ID]; len(paths) > 0 {
+				here = paths[0]
+				if len(paths) > 1 {
+					here += fmt.Sprintf(" (+%d)", len(paths)-1)
+				}
+			}
+			fmt.Fprintf(tw, "%s\t%s\tbase %s\t%s\tbranches: %s\tlocal: %s\n", ws.ID, ws.Status, short(ws.BaseRevision), strings.Join(ws.ProjectAffinity, ","), branches, here)
 		}
 		return tw.Flush()
 
@@ -896,10 +903,11 @@ func cmdWorkspace(args []string) error {
 		fs := flag.NewFlagSet("workspace attach", flag.ExitOnError)
 		runkodURL := fs.String("runkod-url", "", "runkod base URL")
 		token := fs.String("token", "", "deploy token")
-		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory")
-		dir := fs.String("dir", "", "worktree directory for this workspace")
+		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory (default: the managed home's .store, §12.7)")
+		dir := fs.String("dir", "", "worktree directory (default: under the managed home; branches land at <workspace>@<branch>)")
 		branch := fs.String("branch", "head", "workspace branch to restore (parallel lines of work, §12.2)")
-		jsonOut := fs.Bool("json", false, "emit the workspace as JSON")
+		forceNested := fs.Bool("force-nested", false, "materialize inside another git checkout anyway")
+		jsonOut := fs.Bool("json", false, "emit the workspace (+ Dir) as JSON")
 		// The documented form is id-first (`workspace attach <id> --runkod-url
 		// ...`), but stdlib flag stops parsing at the first positional - pop
 		// the id off the front before parsing so the printed help is actually
@@ -921,27 +929,41 @@ func cmdWorkspace(args []string) error {
 		if err != nil {
 			return err
 		}
-		if *cloneDir == "" {
-			*cloneDir = "mono"
-		}
-		if *dir == "" {
-			// Two branches of one workspace are two worktrees - they can't
-			// share the default directory.
-			if *branch == "head" {
-				*dir = id
-			} else {
-				*dir = id + "-" + *branch
-			}
-		}
-		info, err := WorkspaceAttach(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id, *branch, *cloneDir, *dir)
+		info, wsDir, err := WorkspaceAttach(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id, *branch,
+			MaterializeOptions{CloneDir: *cloneDir, Dir: *dir, ForceNested: *forceNested})
 		if err != nil {
 			return err
 		}
 		if *jsonOut {
-			return json.NewEncoder(os.Stdout).Encode(info)
+			return json.NewEncoder(os.Stdout).Encode(struct {
+				WorkspaceInfo
+				Dir string
+			}{info, wsDir})
 		}
-		fmt.Printf("workspace %s restored at %s\n", info.ID, *dir)
-		printWorkspaceStreamingGuidance(os.Stdout, *dir)
+		fmt.Printf("workspace %s restored at %s\n", info.ID, wsDir)
+		printWorkspaceStreamingGuidance(os.Stdout, wsDir)
+		return nil
+
+	case "path":
+		fs := flag.NewFlagSet("workspace path", flag.ExitOnError)
+		jsonOut := fs.Bool("json", false, "emit {workspace, branch, path} as JSON")
+		var name string
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			name, rest = rest[0], rest[1:]
+		}
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		m, err := workspacePathLookup(name)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{
+				"workspace": m.Workspace, "branch": m.Branch, "path": m.Path,
+			})
+		}
+		fmt.Println(m.Path)
 		return nil
 
 	case "snapshot":
@@ -1025,7 +1047,7 @@ func cmdWorkspace(args []string) error {
 		return nil
 
 	default:
-		return usageError("usage: runko workspace create|list|attach|snapshot|branch|sync|delete ...")
+		return usageError("usage: runko workspace create|list|attach|path|snapshot|branch|sync|delete ...")
 	}
 }
 

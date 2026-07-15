@@ -64,6 +64,10 @@ func startWorkspaceServer(t *testing.T) (srv *httptest.Server, bare string) {
 		t.Fatalf("saveCredential: %v", err)
 	}
 	t.Setenv("RUNKO_CREDENTIAL_HELPER", writeFakeCredentialHelper(t))
+	// The §12.7 machine-local state (materialization registry, managed
+	// workspace home) is isolated the same way the credential file is.
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("RUNKO_WORKSPACE_HOME", filepath.Join(t.TempDir(), "runko-ws"))
 	return srv, bare
 }
 
@@ -110,8 +114,8 @@ func TestWorkspaceCreateSnapshotAttachRoundTrip(t *testing.T) {
 	cloneDir := filepath.Join(root, "mono")
 	wsDir := filepath.Join(root, "payments-fix")
 
-	info, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "alice", []string{"checkout-api"}, cloneDir, wsDir)
+	info, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
@@ -156,8 +160,8 @@ func TestWorkspaceCreateSnapshotAttachRoundTrip(t *testing.T) {
 		t.Fatalf("remove worktree: %v", err)
 	}
 	restored := filepath.Join(root, "payments-fix-restored")
-	if _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "head", cloneDir, restored); err != nil {
+	if _, _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "head", MaterializeOptions{CloneDir: cloneDir, Dir: restored}); err != nil {
 		t.Fatalf("WorkspaceAttach: %v", err)
 	}
 	content, err := os.ReadFile(filepath.Join(restored, "commerce/checkout/wip.go"))
@@ -178,12 +182,12 @@ func TestWorkspaceTwoWorktreesOneObjectStore(t *testing.T) {
 	cloneDir := filepath.Join(root, "mono")
 	ctx := context.Background()
 
-	if _, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "alice", []string{"checkout-api"}, cloneDir, filepath.Join(root, "payments-fix")); err != nil {
+	if _, _, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "payments-fix")}); err != nil {
 		t.Fatalf("create ws1: %v", err)
 	}
-	if _, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"risk-refactor", "alice", []string{"money-lib"}, cloneDir, filepath.Join(root, "risk-refactor")); err != nil {
+	if _, _, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
+		"risk-refactor", "alice", []string{"money-lib"}, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "risk-refactor")}); err != nil {
 		t.Fatalf("create ws2: %v", err)
 	}
 
@@ -214,8 +218,8 @@ func TestWorkspaceUpdateBase(t *testing.T) {
 	wsDir := filepath.Join(root, "w1")
 	ctx := context.Background()
 
-	info, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"w1", "alice", []string{"checkout-api"}, cloneDir, wsDir)
+	info, _, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
+		"w1", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
@@ -274,8 +278,8 @@ func TestWorkspaceSnapshotOutsideWorkspaceIsStructuredError(t *testing.T) {
 
 func TestWorkspaceAttachUnknownIsStructuredError(t *testing.T) {
 	srv, _ := startWorkspaceServer(t)
-	_, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"ghost", "head", filepath.Join(t.TempDir(), "mono"), filepath.Join(t.TempDir(), "ghost"))
+	_, _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"ghost", "head", MaterializeOptions{CloneDir: filepath.Join(t.TempDir(), "mono"), Dir: filepath.Join(t.TempDir(), "ghost")})
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "not_found" {
 		t.Fatalf("expected not_found, got %T: %v", err, err)
@@ -298,8 +302,8 @@ func TestWorkspaceAttachDocumentedArgumentOrderWorks(t *testing.T) {
 	cloneDir := filepath.Join(root, "mono")
 	wsDir := filepath.Join(root, "payments-fix")
 
-	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "alice", []string{"checkout-api"}, cloneDir, wsDir); err != nil {
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 	if err := os.RemoveAll(wsDir); err != nil {
@@ -345,8 +349,8 @@ func TestWorkspaceAttachDocumentedArgumentOrderWorks(t *testing.T) {
 func TestWorkspaceListColumnsAreAligned(t *testing.T) {
 	srv, _ := startWorkspaceServer(t)
 	root := t.TempDir()
-	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"money-fix", "alice", []string{"money-lib"}, filepath.Join(root, "mono"), filepath.Join(root, "money-fix")); err != nil {
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"money-fix", "alice", []string{"money-lib"}, MaterializeOptions{CloneDir: filepath.Join(root, "mono"), Dir: filepath.Join(root, "money-fix")}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 
@@ -390,8 +394,8 @@ func TestWorkspaceBranchParallelWork(t *testing.T) {
 	cloneDir := filepath.Join(root, "mono")
 	wsDir := filepath.Join(root, "payments-fix")
 
-	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "alice", []string{"checkout-api"}, cloneDir, wsDir); err != nil {
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 
@@ -432,8 +436,8 @@ func TestWorkspaceBranchParallelWork(t *testing.T) {
 	// separate worktrees off the same clone - possible only because local
 	// branches are ws/<id>/<branch>, not one shared ws/<id>.
 	dirHead := filepath.Join(root, "payments-fix-line-a")
-	if _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "head", cloneDir, dirHead); err != nil {
+	if _, _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "head", MaterializeOptions{CloneDir: cloneDir, Dir: dirHead}); err != nil {
 		t.Fatalf("attach head: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dirHead, "commerce/checkout/approach-b.go")); !os.IsNotExist(err) {
@@ -447,8 +451,8 @@ func TestWorkspaceBranchParallelWork(t *testing.T) {
 	// Attaching a branch that's already materialized in a local worktree is
 	// the single-writer rule (§12.2) - refused with the structured shape,
 	// never a raw git exit 128.
-	if _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "approach-b", cloneDir, filepath.Join(root, "dup")); !errors.As(err, &ce) || ce.Code != "branch_in_use" {
+	if _, _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "approach-b", MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "dup")}); !errors.As(err, &ce) || ce.Code != "branch_in_use" {
 		t.Fatalf("expected branch_in_use, got %v", err)
 	}
 
@@ -472,8 +476,8 @@ func TestWorkspaceCreateRelativeDirLandsInCallerCwd(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 
-	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"rel-dir", "alice", []string{"checkout-api"}, "mono", "rel-dir"); err != nil {
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"rel-dir", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: "mono", Dir: "rel-dir"}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "rel-dir", "commerce/checkout/main.go")); err != nil {
@@ -498,8 +502,8 @@ func TestWorkspaceMaterializationInstallsVerbNudge(t *testing.T) {
 	cloneDir := filepath.Join(root, "mono")
 	wsDir := filepath.Join(root, "nudge-ws")
 
-	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"nudge-ws", "alice", []string{"checkout-api"}, cloneDir, wsDir); err != nil {
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"nudge-ws", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 	if !hookContains(filepath.Join(cloneDir, ".git", "hooks", "pre-commit"), verbNudgeMarker) {
