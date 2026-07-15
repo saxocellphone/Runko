@@ -411,3 +411,45 @@ func TestMagicRefPushDiffsAgainstTrunkNotRotatingRefValue(t *testing.T) {
 		t.Fatalf("push judged against the rotating ref's old value instead of trunk: %+v", result)
 	}
 }
+
+// TestProcessContractViolationRejectsPush pins the §13.3.1 wiring end to
+// end: a magic-ref push whose changed .go file imports another project's
+// contract gen dir without the declared edge is refused with the structured
+// remote-side message, and the same push passes once the manifest declares
+// the edge.
+func TestProcessContractViolationRejectsPush(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("go.mod", "module example.com/mono\n\ngo 1.24\n")
+	repo.WriteFile("provider/PROJECT.yaml",
+		"schema: project/v1\nname: provider\ntype: service\ncapabilities:\n  - rpc\n")
+	repo.WriteFile("provider/proto/gen/v1/v1.go", "package v1\n")
+	repo.WriteFile("consumer/PROJECT.yaml",
+		"schema: project/v1\nname: consumer\ntype: service\n")
+	repo.Commit("initial")
+	oldSHA, _ := pushCommit(t, repo, bare, "refs/heads/main")
+
+	repo.WriteFile("consumer/client.go",
+		"package consumer\n\nimport _ \"example.com/mono/provider/proto/gen/v1\"\n")
+	repo.Commit("consume the contract without the edge")
+	_, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+
+	p := newTestProcessor(bare, NewMemStore())
+	result := p.Process(context.Background(), RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/for/main"}, nil)
+	if result.Accepted {
+		t.Fatalf("expected the undeclared contract import to be refused")
+	}
+	if !strings.Contains(result.Message, "undeclared_contract_dependency") ||
+		!strings.Contains(result.Message, `"provider"`) {
+		t.Fatalf("rejection must carry the code and the missing edge, got: %s", result.Message)
+	}
+
+	repo.WriteFile("consumer/PROJECT.yaml",
+		"schema: project/v1\nname: consumer\ntype: service\ndependencies:\n  - provider\n")
+	repo.Commit("declare the edge")
+	_, headSHA = pushCommit(t, repo, bare, "refs/for/main")
+	result = p.Process(context.Background(), RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/for/main"}, nil)
+	if !result.Accepted {
+		t.Fatalf("declared edge must pass, got: %s", result.Message)
+	}
+}

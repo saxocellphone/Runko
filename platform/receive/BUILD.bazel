@@ -17,6 +17,7 @@ go_library(
     deps = [
         "//internal/dbgen",
         "//platform/affected",
+        "//platform/contract",
         "@com_github_google_uuid//:uuid",
         "@com_github_jackc_pgx_v5//:pgx",
     ],
@@ -35,5 +36,6 @@ go_test(
     deps = [
         "//internal/dbgen",
         "//internal/dbtest",
+        "//platform/contract",
     ],
 )
