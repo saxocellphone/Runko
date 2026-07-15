@@ -241,3 +241,47 @@ func TestScanRootInvalidation(t *testing.T) {
 		}
 	}
 }
+
+// TestScanContractSurfaces pins §13.3.1's manifest-derived fields: the rpc
+// capability yields ContractGenDir (config path or the proto default; "."
+// keeps the legacy standalone-proto layout), and the http capability yields
+// the OpenAPI document path plus its presence at rev.
+func TestScanContractSurfaces(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("runkod/PROJECT.yaml", manifest("runkod", "service",
+		"capabilities:\n  - rpc\ncapability_config:\n  rpc:\n    path: proto\n"))
+	repo.WriteFile("proto/PROJECT.yaml", manifest("proto", "library",
+		"capabilities:\n  - rpc\ncapability_config:\n  rpc:\n    path: .\n"))
+	repo.WriteFile("billing/PROJECT.yaml", manifest("billing", "service",
+		"capabilities:\n  - http\n"))
+	repo.WriteFile("shop/PROJECT.yaml", manifest("shop", "service",
+		"capabilities:\n  - http\ncapability_config:\n  http:\n    openapi: api/openapi.yaml\n"))
+	repo.WriteFile("shop/api/openapi.yaml", "openapi: 3.1.0\n")
+	repo.WriteFile("plain/PROJECT.yaml", manifest("plain", "library", ""))
+	head := repo.Commit("contract surfaces")
+
+	store := gitstore.New(repo.Dir)
+	projects, err := Scan(store, core.Revision(head), nil)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	byName := map[string]IndexedProject{}
+	for _, p := range projects {
+		byName[p.Name] = p
+	}
+	if got := byName["runkod"].ContractGenDir; got != "runkod/proto/gen" {
+		t.Fatalf("runkod ContractGenDir = %q, want runkod/proto/gen", got)
+	}
+	if got := byName["proto"].ContractGenDir; got != "proto/gen" {
+		t.Fatalf("proto ContractGenDir = %q, want proto/gen", got)
+	}
+	if p := byName["billing"]; p.OpenAPIPath != "billing/openapi.yaml" || p.OpenAPIPresent {
+		t.Fatalf("billing = %+v, want default path, absent", p)
+	}
+	if p := byName["shop"]; p.OpenAPIPath != "shop/api/openapi.yaml" || !p.OpenAPIPresent {
+		t.Fatalf("shop = %+v, want configured path, present", p)
+	}
+	if p := byName["plain"]; p.ContractGenDir != "" || p.OpenAPIPath != "" {
+		t.Fatalf("plain must have no contract surface: %+v", p)
+	}
+}
