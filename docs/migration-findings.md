@@ -544,13 +544,15 @@ planning; entries marked `[observed]` happened during execution.
     carry no tree-resident contract artifact at all. Decided (§13.3.1):
     contracts live in the owning project's boundary (`rpc` capability:
     proto + committed gen in-tree; `http` capability: mandatory OpenAPI
-    document), consuming another project's contract gen dir requires a
-    DIRECT declared dependency edge enforced at receive
-    (`undeclared_contract_dependency`, platform/contract), and the API
+    document), consumption is a server/client `consumes:` edge with a
+    CONTRACT-SCOPED closure (clients join affected only when the
+    provider's contract surface changes; a gen-dir import unsanctioned
+    by consumes/dependencies is refused at receive as
+    `undeclared_contract_dependency`, platform/contract), and the API
     surface is decided at `project create` (`--api grpc|rest|none`,
     required for services). First application: the invite feed moved to
     gRPC/Connect (`runkod/proto/mailer/v1` InviteFeedService) and
-    mailer declared `dependencies: [runkod]`.
+    mailer declared `consumes: [runkod]`.
 
 ## Distilled §18.3 requirements (running)
 
