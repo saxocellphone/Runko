@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -79,11 +78,8 @@ func run(args []string) error {
 	}
 
 	m := &Mailer{
-		Runkod: &RunkodClient{
-			BaseURL: strings.TrimRight(*runkodURL, "/"),
-			Token:   *runkodToken,
-			Client:  &http.Client{Timeout: 30 * time.Second},
-		},
+		Runkod: NewRunkodClient(*runkodURL, *runkodToken,
+			&http.Client{Timeout: 30 * time.Second}),
 		SMTPAddr: *smtpAddr,
 		SMTPUser: *smtpUser,
 		SMTPPass: *smtpPassword,

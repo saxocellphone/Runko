@@ -1,99 +1,61 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/smtp"
 	"strings"
 	"time"
+
+	"connectrpc.com/connect"
+
+	mailerv1 "github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1"
+	"github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1/mailerv1connect"
 )
 
-// inviteRequest mirrors runkod's due-feed row (runkod/invite.go
-// inviteRequestView) - pinned by the stub in mailer_test.go, the
-// watchdog convention for a dependency-free sibling service.
-type inviteRequest struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Message   string    `json:"message"`
-	Attempt   int       `json:"attempt"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// RunkodClient speaks the three invite-request endpoints with the deploy
-// token (the feed is operator-only).
+// RunkodClient speaks InviteFeedService - runkod's in-boundary contract
+// (runkod/proto/mailer/v1, §13.3.1) - with the deploy token (the feed is
+// operator-only). The generated-client import is exactly the declared
+// dependency edge mailer/PROJECT.yaml carries: a feed reshape now puts
+// this project in the affected closure instead of failing at runtime.
 type RunkodClient struct {
-	BaseURL string
-	Token   string
-	Client  *http.Client
+	feed mailerv1connect.InviteFeedServiceClient
 }
 
-func (c *RunkodClient) do(ctx context.Context, method, path string, body any) (*http.Response, error) {
-	var rdr io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
+// NewRunkodClient dials baseURL (the org mount, e.g. https://host/o/org)
+// over Connect, stamping the bearer token on every call.
+func NewRunkodClient(baseURL, token string, hc *http.Client) *RunkodClient {
+	auth := connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			req.Header().Set("Authorization", "Bearer "+token)
+			return next(ctx, req)
 		}
-		rdr = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode/100 != 2 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		resp.Body.Close()
-		return nil, fmt.Errorf("%s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(msg)))
-	}
-	return resp, nil
+	}))
+	return &RunkodClient{feed: mailerv1connect.NewInviteFeedServiceClient(hc, strings.TrimRight(baseURL, "/"), auth)}
 }
 
-func (c *RunkodClient) DueInviteRequests(ctx context.Context) ([]inviteRequest, error) {
-	resp, err := c.do(ctx, http.MethodGet, "/api/invite-requests/due", nil)
+func (c *RunkodClient) DueInviteRequests(ctx context.Context) ([]*mailerv1.InviteRequest, error) {
+	resp, err := c.feed.ListDue(ctx, connect.NewRequest(&mailerv1.ListDueRequest{}))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ListDue: %w", err)
 	}
-	defer resp.Body.Close()
-	var body struct {
-		Requests []inviteRequest `json:"requests"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("decode due feed: %w", err)
-	}
-	return body.Requests, nil
+	return resp.Msg.Requests, nil
 }
 
 func (c *RunkodClient) AckSent(ctx context.Context, id string) error {
-	resp, err := c.do(ctx, http.MethodPost, "/api/invite-requests/"+id+"/sent", nil)
-	if err != nil {
-		return err
+	if _, err := c.feed.MarkSent(ctx, connect.NewRequest(&mailerv1.MarkSentRequest{Id: id})); err != nil {
+		return fmt.Errorf("MarkSent %s: %w", id, err)
 	}
-	resp.Body.Close()
 	return nil
 }
 
 func (c *RunkodClient) AckFailed(ctx context.Context, id, sendErr string) error {
-	resp, err := c.do(ctx, http.MethodPost, "/api/invite-requests/"+id+"/failed",
-		map[string]string{"error": sendErr})
-	if err != nil {
-		return err
+	if _, err := c.feed.MarkFailed(ctx, connect.NewRequest(&mailerv1.MarkFailedRequest{Id: id, Error: sendErr})); err != nil {
+		return fmt.Errorf("MarkFailed %s: %w", id, err)
 	}
-	resp.Body.Close()
 	return nil
 }
 
@@ -125,19 +87,19 @@ func (m *Mailer) PollOnce(ctx context.Context) PollResult {
 	}
 	for _, req := range due {
 		if err := m.send(req); err != nil {
-			res.Failed = append(res.Failed, fmt.Sprintf("%s: %v", req.ID, err))
-			if ackErr := m.Runkod.AckFailed(ctx, req.ID, err.Error()); ackErr != nil {
-				res.Errors = append(res.Errors, fmt.Sprintf("ack failed for %s: %v", req.ID, ackErr))
+			res.Failed = append(res.Failed, fmt.Sprintf("%s: %v", req.Id, err))
+			if ackErr := m.Runkod.AckFailed(ctx, req.Id, err.Error()); ackErr != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf("ack failed for %s: %v", req.Id, ackErr))
 			}
 			continue
 		}
-		if err := m.Runkod.AckSent(ctx, req.ID); err != nil {
+		if err := m.Runkod.AckSent(ctx, req.Id); err != nil {
 			// The email went out but the ack didn't: the row stays due and
 			// a later poll re-sends - at-least-once, documented in main.go.
-			res.Errors = append(res.Errors, fmt.Sprintf("ack sent for %s: %v", req.ID, err))
+			res.Errors = append(res.Errors, fmt.Sprintf("ack sent for %s: %v", req.Id, err))
 			continue
 		}
-		res.Sent = append(res.Sent, req.ID)
+		res.Sent = append(res.Sent, req.Id)
 	}
 	return res
 }
@@ -156,7 +118,7 @@ func sanitizeHeader(s string) string {
 
 // buildMessage renders one RFC 5322 message. Reply-To is the requester:
 // the operator's reply carries the invite code straight back.
-func buildMessage(from, to string, req inviteRequest) []byte {
+func buildMessage(from, to string, req *mailerv1.InviteRequest) []byte {
 	var b strings.Builder
 	write := func(line string) { b.WriteString(line + "\r\n") }
 	write("From: " + sanitizeHeader(from))
@@ -173,8 +135,8 @@ func buildMessage(from, to string, req inviteRequest) []byte {
 	// could otherwise fake the Email: line the operator replies to.
 	write("Name:      " + sanitizeHeader(req.Name))
 	write("Email:     " + sanitizeHeader(req.Email))
-	write("Requested: " + req.CreatedAt.Format(time.RFC3339))
-	write("Request:   " + req.ID)
+	write("Requested: " + req.CreatedAt.AsTime().Format(time.RFC3339))
+	write("Request:   " + req.Id)
 	if msg := strings.TrimSpace(req.Message); msg != "" {
 		write("")
 		for _, line := range strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n") {
@@ -189,7 +151,7 @@ func buildMessage(from, to string, req inviteRequest) []byte {
 // send delivers one message over SMTP. This is smtp.SendMail's own
 // sequence with an overall connection deadline added, so one hung SMTP
 // conversation can never wedge the poll loop.
-func (m *Mailer) send(req inviteRequest) error {
+func (m *Mailer) send(req *mailerv1.InviteRequest) error {
 	host, _, err := net.SplitHostPort(m.SMTPAddr)
 	if err != nil {
 		return fmt.Errorf("smtp addr %q: %w", m.SMTPAddr, err)

@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,6 +11,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	mailerv1 "github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1"
+	"github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1/mailerv1connect"
 )
 
 // smtpSink is a minimal in-test SMTP server: real protocol over a real
@@ -120,55 +126,57 @@ func (s *smtpSink) snapshot() (bool, string, []string, string) {
 	return s.authed, s.mailFrom, s.rcptTo, s.data
 }
 
-// fakeRunkod stubs the three invite-request endpoints, pinning the wire
-// contract (runkod/invite.go) and recording acks.
+// fakeRunkod implements InviteFeedService over the REAL generated handler
+// (runkod/proto/mailer/v1, §13.3.1): the test drives the same wire the
+// deployed daemon serves - contract drift fails here at compile time
+// instead of at runtime, which is the whole point of the declared edge.
 type fakeRunkod struct {
 	mu     sync.Mutex
-	due    []inviteRequest
+	due    []*mailerv1.InviteRequest
 	sent   []string
 	failed map[string]string
+}
+
+var _ mailerv1connect.InviteFeedServiceHandler = (*fakeRunkod)(nil)
+
+func (f *fakeRunkod) ListDue(_ context.Context, _ *connect.Request[mailerv1.ListDueRequest]) (*connect.Response[mailerv1.ListDueResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return connect.NewResponse(&mailerv1.ListDueResponse{Requests: append([]*mailerv1.InviteRequest{}, f.due...)}), nil
+}
+
+func (f *fakeRunkod) MarkSent(_ context.Context, req *connect.Request[mailerv1.MarkSentRequest]) (*connect.Response[mailerv1.AckResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := req.Msg.Id
+	f.sent = append(f.sent, id)
+	for i, r := range f.due { // acked rows leave the feed
+		if r.Id == id {
+			f.due = append(f.due[:i], f.due[i+1:]...)
+			break
+		}
+	}
+	return connect.NewResponse(&mailerv1.AckResponse{Id: id, Status: "sent"}), nil
+}
+
+func (f *fakeRunkod) MarkFailed(_ context.Context, req *connect.Request[mailerv1.MarkFailedRequest]) (*connect.Response[mailerv1.AckResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failed[req.Msg.Id] = req.Msg.Error
+	return connect.NewResponse(&mailerv1.AckResponse{Id: req.Msg.Id, Status: "failed"}), nil
 }
 
 func (f *fakeRunkod) server(t *testing.T) *httptest.Server {
 	t.Helper()
 	f.failed = map[string]string{}
+	path, handler := mailerv1connect.NewInviteFeedServiceHandler(f)
 	mux := http.NewServeMux()
-	authed := func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Authorization") != "Bearer sekret" {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			next(w, r)
+	mux.Handle(path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer sekret" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
-	}
-	mux.HandleFunc("GET /api/invite-requests/due", authed(func(w http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{"requests": f.due})
-	}))
-	mux.HandleFunc("POST /api/invite-requests/{id}/sent", authed(func(w http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		id := r.PathValue("id")
-		f.sent = append(f.sent, id)
-		for i, req := range f.due { // acked rows leave the feed
-			if req.ID == id {
-				f.due = append(f.due[:i], f.due[i+1:]...)
-				break
-			}
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "status": "sent"})
-	}))
-	mux.HandleFunc("POST /api/invite-requests/{id}/failed", authed(func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Error string `json:"error"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		f.failed[r.PathValue("id")] = body.Error
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": r.PathValue("id"), "status": "failed"})
+		handler.ServeHTTP(w, r)
 	}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -177,10 +185,8 @@ func (f *fakeRunkod) server(t *testing.T) *httptest.Server {
 
 func newTestMailer(runkod *httptest.Server, sink *smtpSink) *Mailer {
 	return &Mailer{
-		Runkod: &RunkodClient{
-			BaseURL: runkod.URL, Token: "sekret",
-			Client: &http.Client{Timeout: 5 * time.Second},
-		},
+		Runkod: NewRunkodClient(runkod.URL, "sekret",
+			&http.Client{Timeout: 5 * time.Second}),
 		SMTPAddr: sink.addr(),
 		SMTPUser: "operator@example.com",
 		SMTPPass: "app-password",
@@ -193,10 +199,10 @@ func newTestMailer(runkod *httptest.Server, sink *smtpSink) *Mailer {
 // dialog (AUTH included), acked sent, and gone from the next poll.
 func TestPollOnceSendsAndAcks(t *testing.T) {
 	sink := newSMTPSink(t, false)
-	fake := &fakeRunkod{due: []inviteRequest{{
-		ID: "inv_1", Name: "Ada Lovelace", Email: "ada@example.com",
+	fake := &fakeRunkod{due: []*mailerv1.InviteRequest{{
+		Id: "inv_1", Name: "Ada Lovelace", Email: "ada@example.com",
 		Message:   "analytical engines need CI too",
-		CreatedAt: time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC),
+		CreatedAt: timestamppb.New(time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)),
 	}}}
 	m := newTestMailer(fake.server(t), sink)
 
@@ -238,7 +244,7 @@ func TestPollOnceSendsAndAcks(t *testing.T) {
 // the server's row state does the rescheduling, never the mailer.
 func TestPollOnceAcksFailure(t *testing.T) {
 	sink := newSMTPSink(t, true)
-	fake := &fakeRunkod{due: []inviteRequest{{ID: "inv_9", Name: "Bob", Email: "bob@example.com"}}}
+	fake := &fakeRunkod{due: []*mailerv1.InviteRequest{{Id: "inv_9", Name: "Bob", Email: "bob@example.com"}}}
 	m := newTestMailer(fake.server(t), sink)
 
 	res := m.PollOnce(t.Context())
@@ -257,8 +263,8 @@ func TestPollOnceAcksFailure(t *testing.T) {
 // fields cannot grow extra lines. (runkod refuses control characters at
 // intake; this pins the second layer.)
 func TestBuildMessageSanitizesHeaders(t *testing.T) {
-	msg := string(buildMessage("op@example.com", "owner@example.com", inviteRequest{
-		ID: "inv_2", Name: "Eve\r\nBcc: everyone@example.com", Email: "eve@example.com",
+	msg := string(buildMessage("op@example.com", "owner@example.com", &mailerv1.InviteRequest{
+		Id: "inv_2", Name: "Eve\r\nBcc: everyone@example.com", Email: "eve@example.com",
 	}))
 	if strings.Contains(msg, "\r\nBcc:") {
 		t.Fatalf("header injection survived:\n%s", msg)
