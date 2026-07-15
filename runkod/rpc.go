@@ -1454,6 +1454,7 @@ func protoProjectDetail(p index.IndexedProject) *runkov1.ProjectDetail {
 		Dependencies: &runkov1.Dependencies{
 			Declared: p.DeclaredDependencies,
 			Inferred: []string{}, // always empty in v1 (§13.3)
+			Consumes: p.Consumes, // §13.3.1 server/client edges
 		},
 	}
 }
