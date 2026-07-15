@@ -2020,7 +2020,155 @@ a.history-subject:hover {
 
 .new-project-form {
   padding: 18px;
-  max-width: 460px;
+  max-width: 560px;
+}
+.form-group {
+  border: 0;
+  padding: 0;
+  margin: 0 0 6px;
+  min-width: 0;
+}
+.form-group + .form-group {
+  margin-top: 18px;
+}
+.form-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 12px;
+}
+.form-eyebrow > span {
+  flex: none;
+}
+.form-eyebrow::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.form-eyebrow .form-optional {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+}
+.form-required {
+  font-weight: 500;
+  color: var(--amber);
+}
+
+/* Type: all five choices visible at once - a select would hide them. */
+.seg {
+  display: flex;
+  width: fit-content;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.seg-item {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 12px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.seg-item:last-child {
+  border-right: 0;
+}
+.seg-item.active {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+}
+.seg-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* API surface: the one decision the form makes you face (§13.3.1) -
+   radio cards with the consequence of each answer spelled out. */
+.api-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.api-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.api-card:hover {
+  border-color: var(--border-strong);
+}
+.api-card.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+.api-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.api-card:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.api-card-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.api-card-detail {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+@media (max-width: 760px) {
+  .api-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Preview: one slim block per generated file - the scaffolds are a few
+   lines each, so no gutters, no per-file card chrome; long lines scroll
+   inside the block instead of wrapping. */
+.preview-file {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.preview-file-path {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+}
+.preview-file-body {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  background: var(--surface);
+  color: var(--text);
 }
 .form-field {
   display: flex;
