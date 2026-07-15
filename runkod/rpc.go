@@ -34,9 +34,9 @@ import (
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/project"
 	"github.com/saxocellphone/runko/platform/search"
-	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
-	"github.com/saxocellphone/runko/proto/gen/runko/v1/runkov1connect"
 	"github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1/mailerv1connect"
+	runkov1 "github.com/saxocellphone/runko/runkod/proto/gen/runko/v1"
+	"github.com/saxocellphone/runko/runkod/proto/gen/runko/v1/runkov1connect"
 )
 
 // rpcServer implements all six runko.v1 service handler interfaces on one

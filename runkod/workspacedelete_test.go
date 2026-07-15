@@ -10,7 +10,7 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/saxocellphone/runko/internal/gitfixture"
-	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
+	runkov1 "github.com/saxocellphone/runko/runkod/proto/gen/runko/v1"
 )
 
 // newWorkspaceDeleteFixture: a bare repo with two snapshot refs for

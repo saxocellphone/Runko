@@ -9,7 +9,7 @@ import (
 
 	"github.com/saxocellphone/runko/internal/gitfixture"
 	"github.com/saxocellphone/runko/platform/checks"
-	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
+	runkov1 "github.com/saxocellphone/runko/runkod/proto/gen/runko/v1"
 )
 
 // historyFixture builds a bare repo with three commits and one known

@@ -14,8 +14,8 @@ import (
 	"github.com/saxocellphone/runko/internal/gitfixture"
 	"github.com/saxocellphone/runko/platform/receive"
 	"github.com/saxocellphone/runko/platform/search"
-	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
-	"github.com/saxocellphone/runko/proto/gen/runko/v1/runkov1connect"
+	runkov1 "github.com/saxocellphone/runko/runkod/proto/gen/runko/v1"
+	"github.com/saxocellphone/runko/runkod/proto/gen/runko/v1/runkov1connect"
 )
 
 // rpcAuth injects the bearer token on every Connect call, the same way the

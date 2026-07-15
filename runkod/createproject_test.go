@@ -8,8 +8,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
-	"github.com/saxocellphone/runko/proto/gen/runko/v1/runkov1connect"
+	runkov1 "github.com/saxocellphone/runko/runkod/proto/gen/runko/v1"
+	"github.com/saxocellphone/runko/runkod/proto/gen/runko/v1/runkov1connect"
 )
 
 func projectRPC(srv *httptest.Server) runkov1connect.ProjectServiceClient {
