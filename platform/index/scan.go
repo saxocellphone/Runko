@@ -64,6 +64,12 @@ type IndexedProject struct {
 	// ContractGenDir must be sanctioned by a consumes (or dependencies)
 	// edge (platform/contract).
 	ContractGenDir string
+	// SchemaPaths are the schemas capability's declared surface
+	// (§13.3.1's third contract shape): repo-relative files/dirs from
+	// capability_config.schemas.paths. They feed the consumes closure
+	// exactly like ContractDir/OpenAPIPath; there is no gen dir, so no
+	// import enforcement applies - closure only.
+	SchemaPaths []string
 	// OpenAPIPath/OpenAPIPresent carry §13.3.1's http mandate: the
 	// manifest-implied OpenAPI document path (capability_config.http.
 	// openapi, default openapi.yaml, repo-relative) and whether it exists
@@ -190,6 +196,12 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 	}
 
 	var contractDir, contractGenDir, openAPIPath string
+	var schemaPaths []string
+	if hasCapability(manifest.Capabilities, "schemas") {
+		for _, p := range capabilityConfigStringList(manifest.CapabilityConfig, "schemas", "paths") {
+			schemaPaths = append(schemaPaths, path.Join(dir, p))
+		}
+	}
 	openAPIPresent := false
 	if hasCapability(manifest.Capabilities, "rpc") {
 		contractDir = path.Join(dir, capabilityConfigString(manifest.CapabilityConfig, "rpc", "path", "proto"))
@@ -217,6 +229,7 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		Consumes:                  manifest.Consumes,
 		ContractDir:               contractDir,
 		ContractGenDir:            contractGenDir,
+		SchemaPaths:               schemaPaths,
 		OpenAPIPath:               openAPIPath,
 		OpenAPIPresent:            openAPIPresent,
 	}, nil
@@ -234,6 +247,21 @@ func hasCapability(caps []string, name string) bool {
 // capabilityConfigString reads capability_config.<cap>.<key> as a string,
 // falling back to def when the config, key, or type is absent - the
 // scanner's read-time normalization posture (the schema polices authoring).
+// capabilityConfigStringList reads capability_config.<cap>.<key> as a
+// string list, dropping non-string entries (read-time normalization, same
+// posture as capabilityConfigString below).
+func capabilityConfigStringList(cfg map[string]interface{}, cap, key string) []string {
+	sub, _ := cfg[cap].(map[string]interface{})
+	raw, _ := sub[key].([]interface{})
+	var out []string
+	for _, v := range raw {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func capabilityConfigString(cfg map[string]interface{}, cap, key, def string) string {
 	sub, _ := cfg[cap].(map[string]interface{})
 	if v, ok := sub[key].(string); ok && v != "" {

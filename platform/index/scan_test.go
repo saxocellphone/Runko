@@ -290,3 +290,39 @@ func TestScanContractSurfaces(t *testing.T) {
 		t.Fatalf("plain must have no contract surface: %+v", p)
 	}
 }
+
+// TestScanSchemasCapability pins §13.3.1's third contract shape: the
+// schemas capability's paths surface repo-relative, and
+// AffectedProjectInfos folds them (plus the manifest, fail closed) into
+// the consumes closure's ContractPaths.
+func TestScanSchemasCapability(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("docs/PROJECT.yaml", manifest("docs", "other",
+		"capabilities:\n  - schemas\ncapability_config:\n  schemas:\n    paths:\n      - spec\n      - cli-contract.md\n"))
+	repo.WriteFile("docs/spec/x.schema.json", "{}\n")
+	head := repo.Commit("schemas capability")
+
+	store := gitstore.New(repo.Dir)
+	projects, err := Scan(store, core.Revision(head), nil)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("want 1 project, got %v", projects)
+	}
+	p := projects[0]
+	if len(p.SchemaPaths) != 2 || p.SchemaPaths[0] != "docs/spec" || p.SchemaPaths[1] != "docs/cli-contract.md" {
+		t.Fatalf("SchemaPaths = %v", p.SchemaPaths)
+	}
+
+	infos := AffectedProjectInfos(projects)
+	want := []string{"docs/PROJECT.yaml", "docs/spec", "docs/cli-contract.md"}
+	if len(infos[0].ContractPaths) != len(want) {
+		t.Fatalf("ContractPaths = %v, want %v", infos[0].ContractPaths, want)
+	}
+	for i, w := range want {
+		if infos[0].ContractPaths[i] != w {
+			t.Fatalf("ContractPaths = %v, want %v", infos[0].ContractPaths, want)
+		}
+	}
+}
