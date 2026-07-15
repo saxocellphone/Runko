@@ -130,11 +130,17 @@ func (s *Server) attemptLand(ctx context.Context, change Change, scope land.Reva
 		// else: trunk has no commits yet - no projects exist to scan,
 		// matching land.Land's own unborn-trunk bootstrap path below.
 
-		changedPaths, err := gitDiffNamesOnly(s.RepoDir, diffBase, change.HeadSHA)
-		if err != nil {
-			return land.Outcome{}, fmt.Errorf("land: diff change: %w", err)
+		// The change's affected set only feeds the trunk-delta intersection;
+		// tiers that never consult the delta (conflict-only, never) skip the
+		// per-attempt diff + compute (§13.5, 2026-07-15).
+		var changeAffected affected.Result
+		if land.NeedsTrunkDelta(scope) {
+			changedPaths, err := gitDiffNamesOnly(s.RepoDir, diffBase, change.HeadSHA)
+			if err != nil {
+				return land.Outcome{}, fmt.Errorf("land: diff change: %w", err)
+			}
+			changeAffected = affected.Compute(projects, changedPaths, opts)
 		}
-		changeAffected := affected.Compute(projects, changedPaths, opts)
 
 		// Both land paths re-mint the commit under the canonical landing
 		// identity (§7.5, changelog 2026-07-13), so authorship is uniform

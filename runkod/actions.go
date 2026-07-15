@@ -616,7 +616,7 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 			key, forceActor(principal), strings.Join(mr.Blockers, "; "))
 	}
 
-	scope := land.RevalidationAffectedIntersection
+	scope := s.effectiveRevalidationScope(ctx)
 	if force {
 		// Force means "land NOW": the trunk-delta revalidation rule is a
 		// gate too, and requires_revalidation would send the admin into

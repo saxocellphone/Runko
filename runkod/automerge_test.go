@@ -155,3 +155,37 @@ func TestAutomergeKickOnCheckReport(t *testing.T) {
 	c, _, _ := store.GetChange(ctx, changeID)
 	t.Fatalf("armed change must land promptly after the greening report, still %q", c.State)
 }
+
+// Under the conflict-only default (§13.5, 2026-07-15), an armed green
+// change lands on the next sweep even when trunk advanced with an
+// INTERSECTING delta - the worker never parks on requires_revalidation.
+func TestAutomergeLandsAcrossIntersectingTrunkMoveUnderConflictOnly(t *testing.T) {
+	srv, worker, store, changeID := automergeFixture(t)
+	ctx := context.Background()
+
+	if _, apiErr := srv.setAutomergeCore(ctx, changeID, true, &Principal{Name: "val", Stored: true}); apiErr != nil {
+		t.Fatalf("arm: %+v", apiErr)
+	}
+	armed, _, _ := store.GetChange(ctx, changeID)
+	if err := store.UpsertCheckRun(ctx, changeID, armed.HeadSHA, checks.CheckRunView{
+		Name: "unit", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionSuccess,
+	}); err != nil {
+		t.Fatalf("report unit: %v", err)
+	}
+
+	// Move trunk with a SAME-PROJECT (intersecting), different-file commit.
+	repo := gitfixture.New(t)
+	repo.Run("fetch " + srv.RepoDir + " refs/heads/main")
+	repo.Run("checkout -q FETCH_HEAD")
+	repo.WriteFile("commerce/checkout/other.go", "package main\n// trunk moved\n")
+	trunkTip := repo.Commit("trunk touches checkout too")
+	if _, err := gitfixtureRunGit(repo.Dir, "push", "-f", srv.RepoDir, trunkTip+":refs/heads/main"); err != nil {
+		t.Fatalf("advance trunk: %v", err)
+	}
+
+	worker.SweepOnce(ctx)
+	landed, _, _ := store.GetChange(ctx, changeID)
+	if landed.State != "landed" {
+		t.Fatalf("armed+green must land across an intersecting trunk move under conflict-only, got %q", landed.State)
+	}
+}

@@ -37,11 +37,26 @@ func TestNeedsRevalidationAlwaysForcesTrue(t *testing.T) {
 	}
 }
 
-func TestNeedsRevalidationEmptyScopeDefaultsToIntersection(t *testing.T) {
-	change := affected.Result{Projects: projRefs("checkout-api")}
+func TestNeedsRevalidationEmptyScopeDefaultsToConflictOnly(t *testing.T) {
+	// The zero-value scope is the conflict-only default (§13.5,
+	// 2026-07-15): even an INTERSECTING trunk delta never demands a
+	// re-run - a clean rebase is the whole bar.
+	change := affected.Result{Projects: projRefs("checkout-api", "billing-lib")}
 	trunk := affected.Result{Projects: projRefs("billing-lib")}
 	if NeedsRevalidation("", change, trunk) {
-		t.Fatalf("expected the zero-value scope to behave like affected-intersection")
+		t.Fatalf("expected the zero-value scope to behave like conflict-only")
+	}
+}
+
+func TestNeedsRevalidationConflictOnlyIgnoresIntersectionAndRunEverything(t *testing.T) {
+	// Gerrit's Rebase If Necessary: neither an intersecting delta nor a
+	// RunEverything escalation on either side triggers a re-run - those
+	// signals belong to the affected-intersection tier. Conflicts block
+	// via Outcome.Conflicts, a separate gate this policy never touches.
+	change := affected.Result{RunEverything: true, Projects: projRefs("checkout-api")}
+	trunk := affected.Result{RunEverything: true, Projects: projRefs("checkout-api")}
+	if NeedsRevalidation(RevalidationConflictOnly, change, trunk) {
+		t.Fatalf("expected conflict-only to never demand a re-run")
 	}
 }
 

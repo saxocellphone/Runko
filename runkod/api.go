@@ -129,6 +129,14 @@ type Server struct {
 	// --land-identity here.
 	LandIdentity land.Identity
 
+	// Revalidation is the daemon-level §13.5 revalidation tier
+	// (conflict-only | affected-intersection | always; cmd/runkod wires
+	// --revalidation/RUNKO_REVALIDATION here). The zero value behaves as
+	// land.RevalidationConflictOnly (the 2026-07-15 default); an org's
+	// stored revalidation_policy setting overrides it - see
+	// effectiveRevalidationScope.
+	Revalidation land.RevalidationScope
+
 	// affectedMu/affectedCache memoize computeAffected by (base_sha,
 	// head_sha). Both key halves are commit SHAs, so an entry can never go
 	// stale - §13.3's "never cached past a head_sha change" is honored BY
@@ -224,6 +232,39 @@ func (s *Server) effectiveGlobalChecks(ctx context.Context) []string {
 		}
 	}
 	return names
+}
+
+// effectiveRevalidationScope resolves the §13.5 revalidation tier: org
+// setting revalidation_policy > daemon --revalidation > conflict-only (the
+// 2026-07-15 default). Live per request like effectiveGlobalChecks.
+func (s *Server) effectiveRevalidationScope(ctx context.Context) land.RevalidationScope {
+	var dir Directory
+	if s.SettingsOrg != "" {
+		dir = s.Directory
+	}
+	return resolveRevalidation(ctx, dir, s.SettingsOrg, s.Revalidation)
+}
+
+// resolveRevalidation is the shared tier resolution the Server and the
+// receive-funnel Processor both use, so the land gate and the §13.5
+// carry-forward can never disagree about the effective policy.
+func resolveRevalidation(ctx context.Context, dir Directory, orgName string, flagScope land.RevalidationScope) land.RevalidationScope {
+	if dir != nil && orgName != "" {
+		if settings, err := dir.GetOrgSettings(ctx, orgName); err == nil && settings.RevalidationPolicy != "" {
+			switch scope := land.RevalidationScope(settings.RevalidationPolicy); scope {
+			case land.RevalidationConflictOnly, land.RevalidationAffectedIntersection, land.RevalidationAlways:
+				return scope
+			default:
+				// The write path validates, so a bad stored value means
+				// manual meddling - fall through to the flag, loudly.
+				log.Printf("runkod: org %q stored revalidation_policy %q is not a tier - using the daemon default", orgName, settings.RevalidationPolicy)
+			}
+		}
+	}
+	if flagScope == "" {
+		return land.RevalidationConflictOnly
+	}
+	return flagScope
 }
 
 func (s *Server) clock() time.Time {

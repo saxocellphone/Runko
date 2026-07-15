@@ -461,7 +461,7 @@ func TestHandleLandChangeRequiresRevalidationWhenTrunkDeltaIntersects(t *testing
 		t.Fatalf("advance trunk directly: %v", err)
 	}
 
-	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true, Revalidation: land.RevalidationAffectedIntersection}
 	handler, err := server.Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
@@ -519,7 +519,7 @@ func TestRevalidationRebaseRepushLands(t *testing.T) {
 
 	store := NewMemStore()
 	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store}
-	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true, Revalidation: land.RevalidationAffectedIntersection}
 	handler, err := server.Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
@@ -685,4 +685,112 @@ func mustGitLand(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 	return string(out)
+}
+
+// The conflict-only default (§13.5, 2026-07-15): the exact scenario
+// TestHandleLandChangeRequiresRevalidationWhenTrunkDeltaIntersects pins
+// under the opt-in tier - an INTERSECTING trunk advance - lands with zero
+// re-runs when the Server carries no explicit tier.
+func TestHandleLandChangeDefaultLandsAcrossIntersectingTrunkAdvance(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\n")
+	repo.WriteFile("commerce/checkout/main.go", "package main\n")
+	initialSHA := repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	repo.WriteFile("commerce/checkout/other.go", "package main\n// change\n")
+	repo.Commit("touch checkout (change)\n\nChange-Id: I9876543210abcdef0123456789abcdef01234567")
+	_, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store}
+	result := processor.Process(context.Background(), RefUpdate{OldSHA: zeroOID, NewSHA: headSHA, Ref: "refs/for/main"}, nil)
+	if !result.Accepted {
+		t.Fatalf("seed push was rejected: %+v", result)
+	}
+
+	// Advance trunk directly, touching the SAME project - disjoint FILES,
+	// so the rebase is clean while the affected sets fully intersect.
+	repo.Run("checkout -q " + initialSHA)
+	repo.WriteFile("commerce/checkout/main.go", "package main\n// trunk also changed this\n")
+	trunkTip := repo.Commit("trunk touches checkout too")
+	if _, err := gitfixtureRunGit(repo.Dir, "push", "-f", bare, trunkTip+":refs/heads/main"); err != nil {
+		t.Fatalf("advance trunk directly: %v", err)
+	}
+
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", AllowUnpolicedLand: true}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp := postLand(t, srv, result.ChangeID, "sekret")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected the default tier to land across an intersecting trunk advance, got %d: %s", resp.StatusCode, body)
+	}
+
+	change, _, _ := store.GetChange(context.Background(), result.ChangeID)
+	if change.State != "landed" {
+		t.Fatalf("expected the Change landed, got %q", change.State)
+	}
+	tip, _ := gitfixtureRunGit(bare, "rev-parse", "refs/heads/main")
+	if tip != change.LandedSHA {
+		t.Fatalf("trunk should sit at the landed SHA, got %s want %s", tip, change.LandedSHA)
+	}
+}
+
+// An org's stored revalidation_policy overrides the daemon default: the
+// same intersecting advance that lands under conflict-only 409s when the
+// org opted into affected-intersection (§13.5 resolution order).
+func TestOrgRevalidationPolicyTightensDefault(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/PROJECT.yaml", "schema: project/v1\nname: checkout-api\ntype: service\n")
+	repo.WriteFile("commerce/checkout/main.go", "package main\n")
+	initialSHA := repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	repo.WriteFile("commerce/checkout/other.go", "package main\n// change\n")
+	repo.Commit("touch checkout (change)\n\nChange-Id: I5555543210abcdef0123456789abcdef01234567")
+	_, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store}
+	result := processor.Process(context.Background(), RefUpdate{OldSHA: zeroOID, NewSHA: headSHA, Ref: "refs/for/main"}, nil)
+	if !result.Accepted {
+		t.Fatalf("seed push was rejected: %+v", result)
+	}
+
+	repo.Run("checkout -q " + initialSHA)
+	repo.WriteFile("commerce/checkout/main.go", "package main\n// trunk also changed this\n")
+	trunkTip := repo.Commit("trunk touches checkout too")
+	if _, err := gitfixtureRunGit(repo.Dir, "push", "-f", bare, trunkTip+":refs/heads/main"); err != nil {
+		t.Fatalf("advance trunk directly: %v", err)
+	}
+
+	if err := store.UpdateOrgSettings(context.Background(), "acme", OrgSettings{RevalidationPolicy: "affected-intersection"}); err != nil {
+		t.Fatalf("store settings: %v", err)
+	}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret",
+		AllowUnpolicedLand: true, SettingsOrg: "acme", Directory: store}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp := postLand(t, srv, result.ChangeID, "sekret")
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected the org's stored tier to 409 requires_revalidation, got %d", resp.StatusCode)
+	}
+	var ce clierr.Error
+	json.NewDecoder(resp.Body).Decode(&ce)
+	if ce.Code != "requires_revalidation" {
+		t.Fatalf("expected requires_revalidation, got %+v", ce)
+	}
 }

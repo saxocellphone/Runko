@@ -447,3 +447,70 @@ func mustTree(t *testing.T, repoDir, rev string) string {
 	}
 	return tree
 }
+
+// The conflict-only default (§13.5, 2026-07-15 - Gerrit's Rebase If
+// Necessary): the same intersecting trunk delta that demands a re-run
+// under affected-intersection LANDS, because a clean rebase is the whole
+// bar.
+func TestLandConflictOnlyLandsAcrossIntersectingTrunkDelta(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("commerce/checkout/other.go", "package checkout\n")
+	base := repo.Commit("base")
+
+	repo.WriteFile("commerce/checkout/other.go", "package checkout\n// trunk change\n")
+	repo.Commit("trunk touches checkout-api too")
+
+	repo.Run("checkout -q " + base)
+	repo.WriteFile("commerce/checkout/handler.go", "package checkout\n// change\n")
+	changeHead := repo.Commit("change touches checkout-api")
+
+	projects := []affected.ProjectInfo{{Name: "checkout-api", Path: "commerce/checkout"}}
+	changeAffected := affected.Result{Projects: []affected.ProjectRef{{Name: "checkout-api", Path: "commerce/checkout"}}}
+
+	store := gitstore.New(repo.Dir)
+	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
+		RevalidationConflictOnly, changeAffected, projects, affected.Options{},
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
+	if err != nil {
+		t.Fatalf("Land: %v", err)
+	}
+	if !outcome.Landed {
+		t.Fatalf("expected conflict-only to land across an intersecting trunk delta, got %+v", outcome)
+	}
+	tip, err := store.ResolveRef("refs/heads/main")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+	if string(tip) != outcome.LandedSHA {
+		t.Fatalf("trunk should sit at the landed SHA")
+	}
+}
+
+// Conflicts are never subject to revalidation policy: the conflict-only
+// tier still refuses a genuinely conflicting rebase.
+func TestLandConflictOnlyStillBlocksOnConflict(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("a.txt", "line1\n")
+	base := repo.Commit("base")
+
+	repo.WriteFile("a.txt", "line1\ntrunk-version\n")
+	repo.Commit("trunk changes a.txt")
+
+	repo.Run("checkout -q " + base)
+	repo.WriteFile("a.txt", "line1\nchange-version\n")
+	changeHead := repo.Commit("change also changes a.txt")
+
+	store := gitstore.New(repo.Dir)
+	outcome, err := Land(store, repo.Dir, "main", base, changeHead,
+		RevalidationConflictOnly, affected.Result{}, nil, affected.Options{},
+		core.CommitMeta{Message: "land"}, DefaultIdentity)
+	if err != nil {
+		t.Fatalf("Land: %v", err)
+	}
+	if outcome.Landed || outcome.RequiresRevalidation {
+		t.Fatalf("expected a conflict outcome, got %+v", outcome)
+	}
+	if len(outcome.Conflicts) != 1 || outcome.Conflicts[0] != "a.txt" {
+		t.Fatalf("expected a.txt to conflict, got %v", outcome.Conflicts)
+	}
+}
