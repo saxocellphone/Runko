@@ -554,6 +554,26 @@ planning; entries marked `[observed]` happened during execution.
     gRPC/Connect (`runkod/proto/mailer/v1` InviteFeedService) and
     mailer declared `consumes: [runkod]`.
 
+    ADDENDUM (2026-07-14, whole-repo re-evaluation under the new model):
+    every project audited for actual-vs-declared communication. Correct
+    as declared: platform→internal, internal→db, runkod→{platform,
+    internal, db, proto} (all genuine build edges), db/docs/proto/root
+    leaf or glue. Mis-graded or missing, fixed in the ops manifests:
+    `web` — dependencies:[proto] is really a CLIENT edge (TS generated
+    from proto sources), flipped to consumes:[proto]; closure identical
+    today (a pure-contract project's whole tree is its surface) but the
+    flip survives the proto→runkod migration correctly. `watchdog` —
+    the ORIGINAL stub-pinned REST client (mailer copied its shape):
+    polls /api/changes + merge-requirements with zero declared relation
+    to runkod; +consumes:[runkod]. `cli` — runko/runko-ci are REST
+    clients of the daemon (docs/cli-contract.md is the pinned surface);
+    +consumes:[runkod]. KNOWN LIMIT, recorded: runkod's REST surface
+    carries no OpenAPI artifact, so a consumes edge on a REST-only
+    client currently triggers just on runkod/proto/** and the runkod
+    manifest - honest topology now, real closure value when runkod
+    gains its http capability + openapi.yaml (the follow-up that
+    mandate exists for).
+
 ## Distilled §18.3 requirements (running)
 
 - `import plan <src>` dry-run report: history size, trailer audit,
