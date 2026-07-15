@@ -161,7 +161,11 @@ func (s *Store) CommitOverlay(base core.Revision, overlay core.Overlay, meta cor
 
 	for _, ch := range overlay.Changes {
 		if ch.Delete {
-			if _, err := s.run(env, "update-index", "--force-remove", "--", ch.Path); err != nil {
+			// --force-remove needs a work tree; a zero-mode --index-info
+			// entry removes the path from a scratch index in a BARE repo
+			// too (the shape runkod serves - found by §13.1's delete verb,
+			// the first bare-repo caller of this branch).
+			if err := s.indexInfoRemove(env, ch.Path); err != nil {
 				return "", err
 			}
 			continue
@@ -263,3 +267,17 @@ func orDefault(v, def string) string {
 }
 
 var _ core.MonorepoStore = (*Store)(nil)
+
+// indexInfoRemove drops one path from the scratch index via
+// `update-index --index-info` with a zero-mode entry - the documented
+// removal form that works without a work tree.
+func (s *Store) indexInfoRemove(env []string, path string) error {
+	cmd := s.command(env, "update-index", "--index-info")
+	cmd.Stdin = strings.NewReader(fmt.Sprintf("0 %040d\t%s\n", 0, path))
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git update-index --index-info (remove %s): %w: %s", path, err, strings.TrimSpace(errBuf.String()))
+	}
+	return nil
+}
