@@ -25,6 +25,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,11 +186,14 @@ func cmdDoctor(args []string) error {
 }
 
 func cmdProject(args []string) error {
-	if len(args) < 1 || (args[0] != "create" && args[0] != "list") {
-		return usageError("usage: runko project create --name <name> --type <type> [--lang l] [--no-template] [--owners a,b] [--path p] [--template t] [--capabilities c,d] | runko project list --runkod-url <url> --token <t>")
+	if len(args) < 1 || (args[0] != "create" && args[0] != "list" && args[0] != "delete") {
+		return usageError("usage: runko project create --name <name> --type <type> [--lang l] [--no-template] [--owners a,b] [--path p] [--template t] [--capabilities c,d] | runko project list --runkod-url <url> --token <t> | runko project delete --name <name>")
 	}
 	if args[0] == "list" {
 		return cmdProjectList(args[1:])
+	}
+	if args[0] == "delete" {
+		return cmdProjectDelete(args[1:])
 	}
 	fs := flag.NewFlagSet("project create", flag.ExitOnError)
 	repoDir := fs.String("repo", ".", "path to the local repo")
@@ -239,6 +243,42 @@ func cmdProject(args []string) error {
 		})
 	}
 	fmt.Printf("created project %s at %s\n", intent.Name, rev)
+	return nil
+}
+
+// cmdProjectDelete implements `runko project delete` - create's dual
+// (§13.1): a server-calling verb, because the deletion plan needs the
+// trunk-tip index for edge-stripping and a sparse local worktree may not
+// even hold the project's files. The server authors an ordinary open
+// Change; nothing reaches trunk until it lands through the normal gates.
+func cmdProjectDelete(args []string) error {
+	fs := flag.NewFlagSet("project delete", flag.ExitOnError)
+	name := fs.String("name", "", "project to delete")
+	runkodURL := fs.String("runkod-url", "", "runkod base URL")
+	token := fs.String("token", "", "deploy token")
+	jsonOut := fs.Bool("json", false, "emit {change_id, title} as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *name == "" {
+		return fmt.Errorf("project delete: --name is required")
+	}
+	cred, err := resolveCredential(*runkodURL, *token)
+	if err != nil {
+		return err
+	}
+	var out struct {
+		ChangeID string `json:"change_id"`
+		Title    string `json:"title"`
+	}
+	if err := apiJSON(context.Background(), http.DefaultClient, http.MethodPost,
+		strings.TrimRight(cred.URL, "/")+"/api/projects/"+url.PathEscape(*name)+"/delete", cred.AuthHeader(), nil, &out); err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(out)
+	}
+	fmt.Printf("delete of %s opened as change %s - it lands through the normal gates\n", *name, out.ChangeID)
 	return nil
 }
 
