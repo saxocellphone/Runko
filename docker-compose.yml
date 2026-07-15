@@ -46,6 +46,12 @@ services:
       # Two named principals (§15.1 interim) so the eval loop exercises
       # real review: alice pushes, bob approves - self-approval is denied.
       RUNKO_PRINCIPALS: ${RUNKO_PRINCIPALS:-name=alice;token=alice-dev-token|name=bob;token=bob-dev-token}
+      # Revalidation tier (§13.5, 2026-07-15): the edge suite pins the
+      # opt-in affected-intersection tier's recovery loop (E7), so the
+      # eval daemon runs that tier here; production daemons default to
+      # conflict-only, whose zero-re-run landing is pinned by the runkod
+      # e2e tests (TestHandleLandChangeDefaultLandsAcrossIntersecting...).
+      RUNKO_REVALIDATION: ${RUNKO_REVALIDATION:-affected-intersection}
       # Org-level required checks (§14.9). The smoke sets one so landing
       # is gated by a real check, not vacuous mergeability.
       RUNKO_GLOBAL_REQUIRED_CHECKS: ${RUNKO_GLOBAL_REQUIRED_CHECKS:-}
