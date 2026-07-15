@@ -174,7 +174,7 @@ gate_and_land "$ID"
 git checkout -q - && git branch -q -D amendcase
 git fetch -q origin main && git reset -q --hard FETCH_HEAD
 
-step "E7: optimistic-land revalidation (§13.5) - 409, rebase, re-gate, land"
+step "E7: opt-in affected-intersection revalidation (§13.5; the compose daemon pins RUNKO_REVALIDATION=affected-intersection - the conflict-only default lands this with zero re-runs) - 409, rebase, re-gate, land"
 git checkout -q -b changeA
 printf 'a\n' > "$PROJECT_DIR/fileA.txt"
 git add -A && git commit -q -m "change A"
