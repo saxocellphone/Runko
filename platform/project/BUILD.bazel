@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "apply.go",
         "build.go",
+        "delete.go",
         "doc.go",
         "plan.go",
         "release.go",
@@ -24,6 +25,7 @@ go_test(
     name = "project_test",
     srcs = [
         "buildengine_test.go",
+        "delete_test.go",
         "language_test.go",
         "project_test.go",
         "release_test.go",
