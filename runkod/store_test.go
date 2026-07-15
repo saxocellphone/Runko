@@ -168,3 +168,46 @@ func TestMemStoreWebhookDeadLettersPastMaxAttempts(t *testing.T) {
 		t.Fatalf("expected a dead-lettered delivery to never be listed as due again, got %+v", due)
 	}
 }
+
+// The MemStore half of the §13.5 trivial-rebase carry-forward: passing
+// completed attempts copy with provenance; failing/pending skip; a name
+// already at the target head is left alone.
+func TestMemStoreCopyPassingCheckRuns(t *testing.T) {
+	store := NewMemStore()
+	ctx := context.Background()
+	seed := []checks.CheckRunView{
+		{Name: "unit", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionSuccess},
+		{Name: "lint", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionFailure},
+		{Name: "e2e", Status: checks.CheckStatusInProgress},
+		{Name: "raced", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionSuccess},
+	}
+	for _, run := range seed {
+		if err := store.UpsertCheckRun(ctx, "Icopy", "head1", run); err != nil {
+			t.Fatalf("UpsertCheckRun %s: %v", run.Name, err)
+		}
+	}
+	if err := store.UpsertCheckRun(ctx, "Icopy", "head2", checks.CheckRunView{
+		Name: "raced", Status: checks.CheckStatusQueued,
+	}); err != nil {
+		t.Fatalf("UpsertCheckRun raced@head2: %v", err)
+	}
+
+	names, err := store.CopyPassingCheckRuns(ctx, "Icopy", "head1", "head2")
+	if err != nil {
+		t.Fatalf("CopyPassingCheckRuns: %v", err)
+	}
+	if len(names) != 1 || names[0] != "unit" {
+		t.Fatalf("expected exactly [unit] copied, got %v", names)
+	}
+	runs, _ := store.ListCheckRuns(ctx, "Icopy", "head2")
+	byName := map[string]checks.CheckRunView{}
+	for _, r := range runs {
+		byName[r.Name] = r
+	}
+	if got := byName["unit"]; got.Conclusion != checks.ConclusionSuccess || got.CopiedFromHeadSHA != "head1" {
+		t.Fatalf("copied unit run wrong: %+v", got)
+	}
+	if got := byName["raced"]; got.Status != checks.CheckStatusQueued || got.CopiedFromHeadSHA != "" {
+		t.Fatalf("raced run must keep its real report: %+v", got)
+	}
+}

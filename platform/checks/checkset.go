@@ -46,6 +46,11 @@ type CheckRunView struct {
 	// through to merge requirements so humans can click from the gate row
 	// to the run page. Empty when the reporter never sent one.
 	DetailsURL string
+	// CopiedFromHeadSHA marks a §13.5 trivial-rebase carry-forward
+	// (2026-07-15): the head this result was actually earned at. Empty for
+	// runs CI reported directly at the current head. Provenance only -
+	// the merge gate treats a copied success like any other.
+	CopiedFromHeadSHA string
 }
 
 // CheckSetPolicy mirrors docs/spec/webhooks/checkrun.schema.json#/$defs/CheckSetPolicy.

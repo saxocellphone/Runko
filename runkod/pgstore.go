@@ -800,7 +800,7 @@ func (s *PostgresStore) RerunCheck(ctx context.Context, changeKey, checkName, re
 	if err != nil {
 		return checks.CheckRunView{}, err
 	}
-	return checkRunViewFromRow(run.Name, run.Status, run.Conclusion, run.LastSeenAt.Time, run.TtlSeconds, run.DetailsUrl), nil
+	return checkRunViewFromRow(run.Name, run.Status, run.Conclusion, run.LastSeenAt.Time, run.TtlSeconds, run.DetailsUrl, run.CopiedFromHeadSha), nil
 }
 
 func (s *PostgresStore) ListCheckRuns(ctx context.Context, changeKey, headSHA string) ([]checks.CheckRunView, error) {
@@ -818,7 +818,7 @@ func (s *PostgresStore) ListCheckRuns(ctx context.Context, changeKey, headSHA st
 	byName := map[string]int{}
 	out := make([]checks.CheckRunView, 0, len(rows))
 	for _, r := range rows {
-		view := checkRunViewFromRow(r.Name, r.Status, r.Conclusion, r.LastSeenAt.Time, r.TtlSeconds, r.DetailsUrl)
+		view := checkRunViewFromRow(r.Name, r.Status, r.Conclusion, r.LastSeenAt.Time, r.TtlSeconds, r.DetailsUrl, r.CopiedFromHeadSha)
 		if i, seen := byName[r.Name]; seen {
 			out[i] = view
 			continue
@@ -829,7 +829,7 @@ func (s *PostgresStore) ListCheckRuns(ctx context.Context, changeKey, headSHA st
 	return out, nil
 }
 
-func checkRunViewFromRow(name string, status dbgen.CheckStatus, conclusion *dbgen.CheckConclusion, lastSeen time.Time, ttl int32, detailsURL *string) checks.CheckRunView {
+func checkRunViewFromRow(name string, status dbgen.CheckStatus, conclusion *dbgen.CheckConclusion, lastSeen time.Time, ttl int32, detailsURL, copiedFrom *string) checks.CheckRunView {
 	view := checks.CheckRunView{
 		Name: name, Status: checks.CheckStatus(status),
 		LastSeenAt: lastSeen, TTLSeconds: int(ttl),
@@ -840,7 +840,33 @@ func checkRunViewFromRow(name string, status dbgen.CheckStatus, conclusion *dbge
 	if detailsURL != nil {
 		view.DetailsURL = *detailsURL
 	}
+	if copiedFrom != nil {
+		view.CopiedFromHeadSHA = *copiedFrom
+	}
 	return view
+}
+
+// CopyPassingCheckRuns clones the latest passing completed attempt of each
+// check name from fromHead to toHead as fresh attempt-1 rows stamped with
+// their provenance (§13.5 trivial-rebase carry-forward, 2026-07-15). A name
+// already reported at toHead is left alone - a racing real report is
+// fresher truth than a copy. Returns the copied names.
+func (s *PostgresStore) CopyPassingCheckRuns(ctx context.Context, changeKey, fromHead, toHead string) ([]string, error) {
+	changeID, err := s.resolveChangeID(ctx, changeKey)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.Queries.CopyPassingCheckRunsToHead(ctx, s.Pool, dbgen.CopyPassingCheckRunsToHeadParams{
+		ChangeID: changeID, FromHead: fromHead, ToHead: toHead,
+	})
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(rows))
+	for _, r := range rows {
+		names = append(names, r.Name)
+	}
+	return names, nil
 }
 
 // CreateWorkspace persists a registry row via stage 2's workspaces table

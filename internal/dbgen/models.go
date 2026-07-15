@@ -489,25 +489,26 @@ type CheckAnnotation struct {
 }
 
 type CheckRun struct {
-	ID            uuid.UUID          `json:"id"`
-	ChangeID      uuid.UUID          `json:"change_id"`
-	HeadSha       string             `json:"head_sha"`
-	Name          string             `json:"name"`
-	ExternalID    string             `json:"external_id"`
-	Status        CheckStatus        `json:"status"`
-	Conclusion    *CheckConclusion   `json:"conclusion"`
-	StartedAt     pgtype.Timestamptz `json:"started_at"`
-	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
-	DetailsUrl    *string            `json:"details_url"`
-	OutputTitle   *string            `json:"output_title"`
-	OutputSummary *string            `json:"output_summary"`
-	OutputText    *string            `json:"output_text"`
-	AppID         *string            `json:"app_id"`
-	Reporter      string             `json:"reporter"`
-	Attempt       int32              `json:"attempt"`
-	TtlSeconds    int32              `json:"ttl_seconds"`
-	LastSeenAt    pgtype.Timestamptz `json:"last_seen_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ID                uuid.UUID          `json:"id"`
+	ChangeID          uuid.UUID          `json:"change_id"`
+	HeadSha           string             `json:"head_sha"`
+	Name              string             `json:"name"`
+	ExternalID        string             `json:"external_id"`
+	Status            CheckStatus        `json:"status"`
+	Conclusion        *CheckConclusion   `json:"conclusion"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	DetailsUrl        *string            `json:"details_url"`
+	OutputTitle       *string            `json:"output_title"`
+	OutputSummary     *string            `json:"output_summary"`
+	OutputText        *string            `json:"output_text"`
+	AppID             *string            `json:"app_id"`
+	Reporter          string             `json:"reporter"`
+	Attempt           int32              `json:"attempt"`
+	TtlSeconds        int32              `json:"ttl_seconds"`
+	LastSeenAt        pgtype.Timestamptz `json:"last_seen_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	CopiedFromHeadSha *string            `json:"copied_from_head_sha"`
 }
 
 type InferredDependency struct {
