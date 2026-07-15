@@ -80,7 +80,7 @@ land_change() { # $1 = change id
 }
 
 echo "==> create project"
-"$BIN/runko" project create --name checkout-api --type service --owners group:commerce-eng
+"$BIN/runko" project create --name checkout-api --type service --api none --owners group:commerce-eng
 ID1=$("$BIN/runko" change push --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["change_id"])')
 land_change "$ID1"
 
