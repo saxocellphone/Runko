@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { ConnectError } from "@connectrpc/connect";
 import { projectsClient } from "../api/client";
 import { projectTypeLabel } from "../lib/format";
 import { Visibility } from "../gen/runko/v1/common_pb";
@@ -161,6 +163,72 @@ function RelatedProjects({ name }: { name: string }) {
             }}
           />
         </section>
+      )}
+
+      <DeleteProjectCard name={name} />
+    </section>
+  );
+}
+
+// DeleteProjectCard is create's dual (§13.1): deletion opens an ordinary
+// change - the project's subtree plus every other manifest stripped of its
+// edges to it - and nothing reaches trunk until that change lands. The
+// confirm asks for the name to be typed; the server refuses agents.
+function DeleteProjectCard({ name }: { name: string }) {
+  const navigate = useNavigate();
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ConnectError | undefined>();
+
+  const deleteProject = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const res = await projectsClient.deleteProject({ intent: { name } });
+      navigate(`/changes/${res.change!.id}`);
+    } catch (err) {
+      setError(ConnectError.from(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card side-card danger-card">
+      <h2>
+        Delete project
+        <InfoTip text="Opens an ordinary change deleting this project's files and removing its name from every other project's dependencies/consumes. Nothing reaches trunk until that change lands - and it can be abandoned like any other change." />
+      </h2>
+      {!confirming ? (
+        <button className="btn btn-danger" onClick={() => setConfirming(true)}>
+          Delete {name}…
+        </button>
+      ) : (
+        <div className="danger-confirm">
+          <label htmlFor="delete-confirm">
+            Type <span className="mono">{name}</span> to open the deletion change
+          </label>
+          <input
+            id="delete-confirm"
+            type="text"
+            value={typed}
+            autoFocus
+            onChange={(e) => setTyped(e.target.value)}
+          />
+          <div className="danger-actions">
+            <button
+              className="btn btn-danger"
+              disabled={busy || typed !== name}
+              onClick={() => void deleteProject()}
+            >
+              {busy ? "Opening change…" : "Delete as a change"}
+            </button>
+            <button className="btn" disabled={busy} onClick={() => { setConfirming(false); setTyped(""); setError(undefined); }}>
+              Cancel
+            </button>
+          </div>
+          {error && <ErrorNote error={error} />}
+        </div>
       )}
     </section>
   );

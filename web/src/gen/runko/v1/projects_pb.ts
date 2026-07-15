@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file runko/v1/projects.proto.
  */
 export const file_runko_v1_projects: GenFile = /*@__PURE__*/
-  fileDesc("ChdydW5rby92MS9wcm9qZWN0cy5wcm90bxIIcnVua28udjEizwEKB1JlbGVhc2USKQoHcHJvamVjdBgBIAEoCzIYLnJ1bmtvLnYxLlByb2plY3RTdW1tYXJ5Eg8KB3ZlcnNpb24YAiABKAkSDwoHdGFnX3JlZhgDIAEoCRIPCgd0YWdfc2hhGAQgASgJEhIKCnRhcmdldF9zaGEYBSABKAkSFwoPaGVhZF9jaGFuZ2Vfa2V5GAYgASgJEhEKCWNoYW5nZWxvZxgHIAEoCRISCgpjcmVhdGVkX2J5GAggASgJEhIKCmNyZWF0ZWRfYXQYCSABKAMiTQoTTGlzdFJlbGVhc2VzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEhEKCXBhZ2Vfc2l6ZRgCIAEoBRISCgpwYWdlX3Rva2VuGAMgASgJIlQKFExpc3RSZWxlYXNlc1Jlc3BvbnNlEiMKCHJlbGVhc2VzGAEgAygLMhEucnVua28udjEuUmVsZWFzZRIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkiOAoUQ3JlYXRlUmVsZWFzZVJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJIjsKFUNyZWF0ZVJlbGVhc2VSZXNwb25zZRIiCgdyZWxlYXNlGAEgASgLMhEucnVua28udjEuUmVsZWFzZSKuAQoTQ3JlYXRlUHJvamVjdEludGVudBIMCgRuYW1lGAEgASgJEgwKBHR5cGUYAiABKAkSDgoGb3duZXJzGAMgAygJEhMKC3RlbXBsYXRlX2lkGAQgASgJEgwKBHBhdGgYBSABKAkSEAoIbGFuZ3VhZ2UYBiABKAkSEwoLbm9fdGVtcGxhdGUYByABKAgSFAoMYnVpbGRfZW5naW5lGAggASgJEgsKA2FwaRgJIAEoCSJMChtQcmV2aWV3Q3JlYXRlUHJvamVjdFJlcXVlc3QSLQoGaW50ZW50GAEgASgLMh0ucnVua28udjEuQ3JlYXRlUHJvamVjdEludGVudCI8CgtQbGFubmVkRmlsZRIMCgRwYXRoGAEgASgJEg4KBmFjdGlvbhgCIAEoCRIPCgdjb250ZW50GAMgASgJIlIKHFByZXZpZXdDcmVhdGVQcm9qZWN0UmVzcG9uc2USDAoEcGF0aBgBIAEoCRIkCgVmaWxlcxgCIAMoCzIVLnJ1bmtvLnYxLlBsYW5uZWRGaWxlIkUKFENyZWF0ZVByb2plY3RSZXF1ZXN0Ei0KBmludGVudBgBIAEoCzIdLnJ1bmtvLnYxLkNyZWF0ZVByb2plY3RJbnRlbnQiQAoVQ3JlYXRlUHJvamVjdFJlc3BvbnNlEicKBmNoYW5nZRgBIAEoCzIXLnJ1bmtvLnYxLkNoYW5nZVN1bW1hcnkiSwoTTGlzdFByb2plY3RzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJbChRMaXN0UHJvamVjdHNSZXNwb25zZRIqCghwcm9qZWN0cxgBIAMoCzIYLnJ1bmtvLnYxLlByb2plY3RTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIkChFHZXRQcm9qZWN0UmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJIj0KDldob093bnNSZXF1ZXN0Eg4KBHBhdGgYASABKAlIABIRCgdwcm9qZWN0GAIgASgJSABCCAoGdGFyZ2V0Ij4KEkdldFByb2plY3RSZXNwb25zZRIoCgdwcm9qZWN0GAEgASgLMhcucnVua28udjEuUHJvamVjdERldGFpbCI5Cg9XaG9Pd25zUmVzcG9uc2USJgoGb3duZXJzGAEgASgLMhYucnVua28udjEuT3duZXJzUmVzdWx0MsIECg5Qcm9qZWN0U2VydmljZRJNCgxMaXN0UHJvamVjdHMSHS5ydW5rby52MS5MaXN0UHJvamVjdHNSZXF1ZXN0Gh4ucnVua28udjEuTGlzdFByb2plY3RzUmVzcG9uc2USRwoKR2V0UHJvamVjdBIbLnJ1bmtvLnYxLkdldFByb2plY3RSZXF1ZXN0GhwucnVua28udjEuR2V0UHJvamVjdFJlc3BvbnNlEj4KB1dob093bnMSGC5ydW5rby52MS5XaG9Pd25zUmVxdWVzdBoZLnJ1bmtvLnYxLldob093bnNSZXNwb25zZRJlChRQcmV2aWV3Q3JlYXRlUHJvamVjdBIlLnJ1bmtvLnYxLlByZXZpZXdDcmVhdGVQcm9qZWN0UmVxdWVzdBomLnJ1bmtvLnYxLlByZXZpZXdDcmVhdGVQcm9qZWN0UmVzcG9uc2USUAoNQ3JlYXRlUHJvamVjdBIeLnJ1bmtvLnYxLkNyZWF0ZVByb2plY3RSZXF1ZXN0Gh8ucnVua28udjEuQ3JlYXRlUHJvamVjdFJlc3BvbnNlEk0KDExpc3RSZWxlYXNlcxIdLnJ1bmtvLnYxLkxpc3RSZWxlYXNlc1JlcXVlc3QaHi5ydW5rby52MS5MaXN0UmVsZWFzZXNSZXNwb25zZRJQCg1DcmVhdGVSZWxlYXNlEh4ucnVua28udjEuQ3JlYXRlUmVsZWFzZVJlcXVlc3QaHy5ydW5rby52MS5DcmVhdGVSZWxlYXNlUmVzcG9uc2VCQlpAZ2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3J1bmtvZC9wcm90by9nZW4vcnVua28vdjE7cnVua292MWIGcHJvdG8z", [file_runko_v1_common]);
+  fileDesc("ChdydW5rby92MS9wcm9qZWN0cy5wcm90bxIIcnVua28udjEizwEKB1JlbGVhc2USKQoHcHJvamVjdBgBIAEoCzIYLnJ1bmtvLnYxLlByb2plY3RTdW1tYXJ5Eg8KB3ZlcnNpb24YAiABKAkSDwoHdGFnX3JlZhgDIAEoCRIPCgd0YWdfc2hhGAQgASgJEhIKCnRhcmdldF9zaGEYBSABKAkSFwoPaGVhZF9jaGFuZ2Vfa2V5GAYgASgJEhEKCWNoYW5nZWxvZxgHIAEoCRISCgpjcmVhdGVkX2J5GAggASgJEhIKCmNyZWF0ZWRfYXQYCSABKAMiTQoTTGlzdFJlbGVhc2VzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEhEKCXBhZ2Vfc2l6ZRgCIAEoBRISCgpwYWdlX3Rva2VuGAMgASgJIlQKFExpc3RSZWxlYXNlc1Jlc3BvbnNlEiMKCHJlbGVhc2VzGAEgAygLMhEucnVua28udjEuUmVsZWFzZRIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkiOAoUQ3JlYXRlUmVsZWFzZVJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJIjsKFUNyZWF0ZVJlbGVhc2VSZXNwb25zZRIiCgdyZWxlYXNlGAEgASgLMhEucnVua28udjEuUmVsZWFzZSKuAQoTQ3JlYXRlUHJvamVjdEludGVudBIMCgRuYW1lGAEgASgJEgwKBHR5cGUYAiABKAkSDgoGb3duZXJzGAMgAygJEhMKC3RlbXBsYXRlX2lkGAQgASgJEgwKBHBhdGgYBSABKAkSEAoIbGFuZ3VhZ2UYBiABKAkSEwoLbm9fdGVtcGxhdGUYByABKAgSFAoMYnVpbGRfZW5naW5lGAggASgJEgsKA2FwaRgJIAEoCSJMChtQcmV2aWV3Q3JlYXRlUHJvamVjdFJlcXVlc3QSLQoGaW50ZW50GAEgASgLMh0ucnVua28udjEuQ3JlYXRlUHJvamVjdEludGVudCI8CgtQbGFubmVkRmlsZRIMCgRwYXRoGAEgASgJEg4KBmFjdGlvbhgCIAEoCRIPCgdjb250ZW50GAMgASgJIlIKHFByZXZpZXdDcmVhdGVQcm9qZWN0UmVzcG9uc2USDAoEcGF0aBgBIAEoCRIkCgVmaWxlcxgCIAMoCzIVLnJ1bmtvLnYxLlBsYW5uZWRGaWxlIkUKFENyZWF0ZVByb2plY3RSZXF1ZXN0Ei0KBmludGVudBgBIAEoCzIdLnJ1bmtvLnYxLkNyZWF0ZVByb2plY3RJbnRlbnQiQAoVQ3JlYXRlUHJvamVjdFJlc3BvbnNlEicKBmNoYW5nZRgBIAEoCzIXLnJ1bmtvLnYxLkNoYW5nZVN1bW1hcnkiSwoTTGlzdFByb2plY3RzUmVxdWVzdBINCgVxdWVyeRgBIAEoCRIRCglwYWdlX3NpemUYAiABKAUSEgoKcGFnZV90b2tlbhgDIAEoCSJbChRMaXN0UHJvamVjdHNSZXNwb25zZRIqCghwcm9qZWN0cxgBIAMoCzIYLnJ1bmtvLnYxLlByb2plY3RTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIkChFHZXRQcm9qZWN0UmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJIj0KDldob093bnNSZXF1ZXN0Eg4KBHBhdGgYASABKAlIABIRCgdwcm9qZWN0GAIgASgJSABCCAoGdGFyZ2V0Ij4KEkdldFByb2plY3RSZXNwb25zZRIoCgdwcm9qZWN0GAEgASgLMhcucnVua28udjEuUHJvamVjdERldGFpbCI5Cg9XaG9Pd25zUmVzcG9uc2USJgoGb3duZXJzGAEgASgLMhYucnVua28udjEuT3duZXJzUmVzdWx0IiMKE0RlbGV0ZVByb2plY3RJbnRlbnQSDAoEbmFtZRgBIAEoCSJMChtQcmV2aWV3RGVsZXRlUHJvamVjdFJlcXVlc3QSLQoGaW50ZW50GAEgASgLMh0ucnVua28udjEuRGVsZXRlUHJvamVjdEludGVudCIoCghEZWxldGVPcBIMCgRwYXRoGAEgASgJEg4KBmFjdGlvbhgCIAEoCSJNChxQcmV2aWV3RGVsZXRlUHJvamVjdFJlc3BvbnNlEgwKBHBhdGgYASABKAkSHwoDb3BzGAIgAygLMhIucnVua28udjEuRGVsZXRlT3AiRQoURGVsZXRlUHJvamVjdFJlcXVlc3QSLQoGaW50ZW50GAEgASgLMh0ucnVua28udjEuRGVsZXRlUHJvamVjdEludGVudCJAChVEZWxldGVQcm9qZWN0UmVzcG9uc2USJwoGY2hhbmdlGAEgASgLMhcucnVua28udjEuQ2hhbmdlU3VtbWFyeTL7BQoOUHJvamVjdFNlcnZpY2USTQoMTGlzdFByb2plY3RzEh0ucnVua28udjEuTGlzdFByb2plY3RzUmVxdWVzdBoeLnJ1bmtvLnYxLkxpc3RQcm9qZWN0c1Jlc3BvbnNlEkcKCkdldFByb2plY3QSGy5ydW5rby52MS5HZXRQcm9qZWN0UmVxdWVzdBocLnJ1bmtvLnYxLkdldFByb2plY3RSZXNwb25zZRI+CgdXaG9Pd25zEhgucnVua28udjEuV2hvT3duc1JlcXVlc3QaGS5ydW5rby52MS5XaG9Pd25zUmVzcG9uc2USZQoUUHJldmlld0NyZWF0ZVByb2plY3QSJS5ydW5rby52MS5QcmV2aWV3Q3JlYXRlUHJvamVjdFJlcXVlc3QaJi5ydW5rby52MS5QcmV2aWV3Q3JlYXRlUHJvamVjdFJlc3BvbnNlEmUKFFByZXZpZXdEZWxldGVQcm9qZWN0EiUucnVua28udjEuUHJldmlld0RlbGV0ZVByb2plY3RSZXF1ZXN0GiYucnVua28udjEuUHJldmlld0RlbGV0ZVByb2plY3RSZXNwb25zZRJQCg1EZWxldGVQcm9qZWN0Eh4ucnVua28udjEuRGVsZXRlUHJvamVjdFJlcXVlc3QaHy5ydW5rby52MS5EZWxldGVQcm9qZWN0UmVzcG9uc2USUAoNQ3JlYXRlUHJvamVjdBIeLnJ1bmtvLnYxLkNyZWF0ZVByb2plY3RSZXF1ZXN0Gh8ucnVua28udjEuQ3JlYXRlUHJvamVjdFJlc3BvbnNlEk0KDExpc3RSZWxlYXNlcxIdLnJ1bmtvLnYxLkxpc3RSZWxlYXNlc1JlcXVlc3QaHi5ydW5rby52MS5MaXN0UmVsZWFzZXNSZXNwb25zZRJQCg1DcmVhdGVSZWxlYXNlEh4ucnVua28udjEuQ3JlYXRlUmVsZWFzZVJlcXVlc3QaHy5ydW5rby52MS5DcmVhdGVSZWxlYXNlUmVzcG9uc2VCQlpAZ2l0aHViLmNvbS9zYXhvY2VsbHBob25lL3J1bmtvL3J1bmtvZC9wcm90by9nZW4vcnVua28vdjE7cnVua292MWIGcHJvdG8z", [file_runko_v1_common]);
 
 /**
  * Release mirrors the release object in
@@ -504,6 +504,126 @@ export const WhoOwnsResponseSchema: GenMessage<WhoOwnsResponse> = /*@__PURE__*/
   messageDesc(file_runko_v1_projects, 16);
 
 /**
+ * @generated from message runko.v1.DeleteProjectIntent
+ */
+export type DeleteProjectIntent = Message<"runko.v1.DeleteProjectIntent"> & {
+  /**
+   * the whole request (§13.1) - create's dual
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message runko.v1.DeleteProjectIntent.
+ * Use `create(DeleteProjectIntentSchema)` to create a new message.
+ */
+export const DeleteProjectIntentSchema: GenMessage<DeleteProjectIntent> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 17);
+
+/**
+ * @generated from message runko.v1.PreviewDeleteProjectRequest
+ */
+export type PreviewDeleteProjectRequest = Message<"runko.v1.PreviewDeleteProjectRequest"> & {
+  /**
+   * @generated from field: runko.v1.DeleteProjectIntent intent = 1;
+   */
+  intent?: DeleteProjectIntent | undefined;
+};
+
+/**
+ * Describes the message runko.v1.PreviewDeleteProjectRequest.
+ * Use `create(PreviewDeleteProjectRequestSchema)` to create a new message.
+ */
+export const PreviewDeleteProjectRequestSchema: GenMessage<PreviewDeleteProjectRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 18);
+
+/**
+ * @generated from message runko.v1.DeleteOp
+ */
+export type DeleteOp = Message<"runko.v1.DeleteOp"> & {
+  /**
+   * repo-root-relative
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * "delete" | "modify" (a manifest stripped of an edge)
+   *
+   * @generated from field: string action = 2;
+   */
+  action: string;
+};
+
+/**
+ * Describes the message runko.v1.DeleteOp.
+ * Use `create(DeleteOpSchema)` to create a new message.
+ */
+export const DeleteOpSchema: GenMessage<DeleteOp> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 19);
+
+/**
+ * @generated from message runko.v1.PreviewDeleteProjectResponse
+ */
+export type PreviewDeleteProjectResponse = Message<"runko.v1.PreviewDeleteProjectResponse"> & {
+  /**
+   * the project root being removed
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: repeated runko.v1.DeleteOp ops = 2;
+   */
+  ops: DeleteOp[];
+};
+
+/**
+ * Describes the message runko.v1.PreviewDeleteProjectResponse.
+ * Use `create(PreviewDeleteProjectResponseSchema)` to create a new message.
+ */
+export const PreviewDeleteProjectResponseSchema: GenMessage<PreviewDeleteProjectResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 20);
+
+/**
+ * @generated from message runko.v1.DeleteProjectRequest
+ */
+export type DeleteProjectRequest = Message<"runko.v1.DeleteProjectRequest"> & {
+  /**
+   * @generated from field: runko.v1.DeleteProjectIntent intent = 1;
+   */
+  intent?: DeleteProjectIntent | undefined;
+};
+
+/**
+ * Describes the message runko.v1.DeleteProjectRequest.
+ * Use `create(DeleteProjectRequestSchema)` to create a new message.
+ */
+export const DeleteProjectRequestSchema: GenMessage<DeleteProjectRequest> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 21);
+
+/**
+ * @generated from message runko.v1.DeleteProjectResponse
+ */
+export type DeleteProjectResponse = Message<"runko.v1.DeleteProjectResponse"> & {
+  /**
+   * @generated from field: runko.v1.ChangeSummary change = 1;
+   */
+  change?: ChangeSummary | undefined;
+};
+
+/**
+ * Describes the message runko.v1.DeleteProjectResponse.
+ * Use `create(DeleteProjectResponseSchema)` to create a new message.
+ */
+export const DeleteProjectResponseSchema: GenMessage<DeleteProjectResponse> = /*@__PURE__*/
+  messageDesc(file_runko_v1_projects, 22);
+
+/**
  * ProjectService mirrors the navigation-category MCP tools (§17.4) and
  * runkod's GET /api/projects (§28.3 stage 12) - same underlying data, one
  * more transport. See proto/README.md.
@@ -547,6 +667,31 @@ export const ProjectService: GenService<{
     methodKind: "unary";
     input: typeof PreviewCreateProjectRequestSchema;
     output: typeof PreviewCreateProjectResponseSchema;
+  },
+  /**
+   * PreviewDeleteProject runs create's dual (§13.1, decided 2026-07-15)
+   * without applying: every operation DeleteProject would commit - the
+   * subtree's deletions plus each manifest stripped of its edges to the
+   * name. Refusals are INVALID_ARGUMENT/NOT_FOUND with an ErrorDetail.
+   *
+   * @generated from rpc runko.v1.ProjectService.PreviewDeleteProject
+   */
+  previewDeleteProject: {
+    methodKind: "unary";
+    input: typeof PreviewDeleteProjectRequestSchema;
+    output: typeof PreviewDeleteProjectResponseSchema;
+  },
+  /**
+   * DeleteProject applies the plan as one server-authored commit and
+   * registers an ordinary open Change through the normal gates. Agents
+   * are refused (agents_cannot_delete_projects).
+   *
+   * @generated from rpc runko.v1.ProjectService.DeleteProject
+   */
+  deleteProject: {
+    methodKind: "unary";
+    input: typeof DeleteProjectRequestSchema;
+    output: typeof DeleteProjectResponseSchema;
   },
   /**
    * CreateProject applies the plan as one commit and registers it as an
