@@ -12,6 +12,11 @@
 export interface DepGraphInput {
   name: string;
   deps: string[];
+  // §13.3.1 server/client edges: providers this project is a contract
+  // client of. Layered and highlighted like deps (a client sits above its
+  // provider; it re-tests when the provider's contract changes), drawn
+  // dashed to keep the two edge kinds distinguishable.
+  consumes?: string[];
 }
 
 export interface DagNode {
@@ -24,8 +29,9 @@ export interface DagNode {
 }
 
 export interface DagEdge {
-  from: string; // dependent
-  to: string; // dependency
+  kind: "dep" | "consumes";
+  from: string; // dependent / client
+  to: string; // dependency / provider
   x1: number; // bottom-center of `from`
   y1: number;
   x2: number; // top-center of `to`
@@ -51,6 +57,13 @@ export function nodeWidth(name: string): number {
 // Longest path to a no-dependency node; unknown deps are ignored, cycles
 // (which declared deps should never form, §13.3) are broken by treating
 // the back-edge's target as layer 0 rather than recursing forever.
+// edgesOf unifies both edge kinds for layering/ordering/closures - the
+// KIND only matters for rendering.
+function edgesOf(item: DepGraphInput | undefined): string[] {
+  if (!item) return [];
+  return [...new Set([...item.deps, ...(item.consumes ?? [])])];
+}
+
 export function assignLayers(items: DepGraphInput[]): Map<string, number> {
   const byName = new Map(items.map((p) => [p.name, p]));
   const layers = new Map<string, number>();
@@ -62,7 +75,7 @@ export function assignLayers(items: DepGraphInput[]): Map<string, number> {
     if (visiting.has(name)) return 0; // cycle guard
     visiting.add(name);
     const item = byName.get(name);
-    const deps = (item?.deps ?? []).filter((d) => byName.has(d) && d !== name);
+    const deps = edgesOf(item).filter((d) => byName.has(d) && d !== name);
     const layer =
       deps.length === 0 ? 0 : 1 + Math.max(...deps.map((d) => layerOf(d)));
     visiting.delete(name);
@@ -100,8 +113,8 @@ export function layoutDag(items: DepGraphInput[]): DagLayout {
       const bary = (name: string): number => {
         const neighbors =
           pass === "up"
-            ? (byName.get(name)?.deps ?? []).filter((d) => idx.has(d))
-            : neighborRow.filter((n) => (byName.get(n)?.deps ?? []).includes(name));
+            ? edgesOf(byName.get(name)).filter((d) => idx.has(d))
+            : neighborRow.filter((n) => edgesOf(byName.get(n)).includes(name));
         if (neighbors.length === 0) return Number.MAX_SAFE_INTEGER; // keep at right
         return neighbors.reduce((s, n) => s + idx.get(n)!, 0) / neighbors.length;
       };
@@ -134,10 +147,11 @@ export function layoutDag(items: DepGraphInput[]): DagLayout {
   // inputs, not their order.
   for (const p of [...items].sort((a, b) => a.name.localeCompare(b.name))) {
     const from = nodes.get(p.name)!;
-    for (const d of p.deps) {
+    const push = (d: string, kind: "dep" | "consumes") => {
       const to = nodes.get(d);
-      if (!to || d === p.name) continue;
+      if (!to || d === p.name) return;
       edges.push({
+        kind,
         from: p.name,
         to: d,
         x1: from.x + from.w / 2,
@@ -145,7 +159,10 @@ export function layoutDag(items: DepGraphInput[]): DagLayout {
         x2: to.x + to.w / 2,
         y2: to.y,
       });
-    }
+    };
+    for (const d of p.deps) push(d, "dep");
+    // A pair with both kinds keeps only the build edge - one arrow per pair.
+    for (const d of (p.consumes ?? []).filter((c) => !p.deps.includes(c))) push(d, "consumes");
   }
 
   return { nodes: [...nodes.values()], edges, width, height };
@@ -158,7 +175,7 @@ export function dependencyClosure(items: DepGraphInput[], name: string): Set<str
   const byName = new Map(items.map((p) => [p.name, p]));
   const out = new Set<string>();
   const walk = (n: string) => {
-    for (const d of byName.get(n)?.deps ?? []) {
+    for (const d of edgesOf(byName.get(n))) {
       if (byName.has(d) && !out.has(d)) {
         out.add(d);
         walk(d);
@@ -176,7 +193,7 @@ export function dependentClosure(items: DepGraphInput[], name: string): Set<stri
     grew = false;
     for (const p of items) {
       if (out.has(p.name) || p.name === name) continue;
-      if (p.deps.some((d) => d === name || out.has(d))) {
+      if (edgesOf(p).some((d) => d === name || out.has(d))) {
         out.add(p.name);
         grew = true;
       }
