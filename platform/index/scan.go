@@ -48,6 +48,18 @@ type IndexedProject struct {
 	Checks     []CheckDef
 	Visibility string
 	Owners     []OwnerEntry
+	// ContractGenDir is the repo-relative directory of this project's
+	// committed contract codegen (§13.3.1): <path>/<capability_config.
+	// rpc.path>/gen when the manifest declares the rpc capability, ""
+	// otherwise. A Go import under another project's ContractGenDir
+	// requires a direct declared dependency edge (platform/contract).
+	ContractGenDir string
+	// OpenAPIPath/OpenAPIPresent carry §13.3.1's http mandate: the
+	// manifest-implied OpenAPI document path (capability_config.http.
+	// openapi, default openapi.yaml, repo-relative) and whether it exists
+	// at rev. Zero-valued unless the http capability is declared.
+	OpenAPIPath    string
+	OpenAPIPresent bool
 	// RequiredChecks are the check names PROJECT.yaml's L2/opt-in `ci.checks`
 	// declares for this project (§14.9). Empty/nil when the manifest has no
 	// `ci` block at all - an unset ci.checks means "no checks required",
@@ -167,6 +179,17 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		}
 	}
 
+	var contractGenDir, openAPIPath string
+	openAPIPresent := false
+	if hasCapability(manifest.Capabilities, "rpc") {
+		contractGenDir = path.Join(dir, capabilityConfigString(manifest.CapabilityConfig, "rpc", "path", "proto"), "gen")
+	}
+	if hasCapability(manifest.Capabilities, "http") {
+		openAPIPath = path.Join(dir, capabilityConfigString(manifest.CapabilityConfig, "http", "openapi", "openapi.yaml"))
+		_, err := s.store.GetBlob(s.rev, openAPIPath)
+		openAPIPresent = err == nil
+	}
+
 	return IndexedProject{
 		Name:                      manifest.Name,
 		Path:                      dir,
@@ -180,7 +203,30 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		Owners:                    owners,
 		RequiredChecks:            requiredChecks,
 		Checks:                    checks,
+		ContractGenDir:            contractGenDir,
+		OpenAPIPath:               openAPIPath,
+		OpenAPIPresent:            openAPIPresent,
 	}, nil
+}
+
+func hasCapability(caps []string, name string) bool {
+	for _, c := range caps {
+		if c == name {
+			return true
+		}
+	}
+	return false
+}
+
+// capabilityConfigString reads capability_config.<cap>.<key> as a string,
+// falling back to def when the config, key, or type is absent - the
+// scanner's read-time normalization posture (the schema polices authoring).
+func capabilityConfigString(cfg map[string]interface{}, cap, key, def string) string {
+	sub, _ := cfg[cap].(map[string]interface{})
+	if v, ok := sub[key].(string); ok && v != "" {
+		return v
+	}
+	return def
 }
 
 // resolveOwners implements §7.3's precedence: explicit manifest owners win
