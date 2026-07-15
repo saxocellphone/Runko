@@ -1,0 +1,135 @@
+syntax = "proto3";
+
+package runko.v1;
+
+import "runko/v1/common.proto";
+
+option go_package = "github.com/saxocellphone/runko/runkod/proto/gen/runko/v1;runkov1";
+
+// RepoService is the read-only tree/blob surface behind the web UI's
+// repository browser (§17.2, added for stage 13's explorer). Barebones on
+// purpose: level-by-level directory listing plus whole-file reads at a
+// revision - no recursion, no pagination, no write verbs (the only write
+// path is the receive funnel, §11.5). REST equivalents don't exist in
+// runkod yet, same status as GetChangeStack/GetChangeDiff (see
+// proto/README.md).
+service RepoService {
+  // Immediate children of a directory ("" = repo root) at `rev` (empty =
+  // trunk tip). Directories sort before files, both alphabetical.
+  rpc GetTree(GetTreeRequest) returns (GetTreeResponse);
+  // Whole file content at `rev`. Binary files return binary=true with
+  // empty content; oversized files set truncated (the UI links to git).
+  rpc GetBlob(GetBlobRequest) returns (GetBlobResponse);
+  // Commits touching `path` ("" = whole repo) at/below `rev`, newest
+  // first. Files follow renames; each commit carries its Change-Id
+  // trailer and, when that Change exists on this control plane, its
+  // state - history links to REVIEWS, not just raw commits (§7.4's
+  // change-centric stance applied to the browser).
+  rpc ListCommits(ListCommitsRequest) returns (ListCommitsResponse);
+  // Per-line provenance for one file at `rev`: contiguous same-commit
+  // regions plus the file's lines (returned together so content and
+  // attribution can never come from different revisions).
+  rpc BlameFile(BlameFileRequest) returns (BlameFileResponse);
+}
+
+message GetTreeRequest {
+  string path = 1;
+  string rev = 2;
+}
+
+enum TreeEntryType {
+  TREE_ENTRY_TYPE_UNSPECIFIED = 0;
+  TREE_ENTRY_TYPE_FILE = 1;
+  TREE_ENTRY_TYPE_DIR = 2;
+}
+
+message TreeEntry {
+  string name = 1;  // base name within the directory
+  string path = 2;  // repo-root-relative
+  TreeEntryType type = 3;
+  int64 size = 4;  // bytes; 0 for directories
+  // Owning project by longest-prefix path match (§13.3), "" if unowned -
+  // lets the browser badge project boundaries in the tree.
+  string project = 5;
+}
+
+message GetTreeResponse {
+  repeated TreeEntry entries = 1;
+  string rev = 2;  // the resolved revision the listing came from
+}
+
+message GetBlobRequest {
+  string path = 1;
+  string rev = 2;
+}
+
+message GetBlobResponse {
+  string path = 1;
+  string rev = 2;
+  string content = 3;  // UTF-8 text; empty when binary
+  bool binary = 4;
+  bool truncated = 5;
+  int64 size = 6;
+  string project = 7;  // owning project, as in TreeEntry
+}
+
+message ListCommitsRequest {
+  string path = 1;       // "" = whole repo
+  string rev = 2;        // "" = trunk tip
+  int32 page_size = 3;   // default 30, capped at 100
+  string page_token = 4; // opaque offset token from a prior response
+}
+
+message CommitInfo {
+  string sha = 1;
+  string subject = 2;
+  string author_name = 3;
+  string author_email = 4;
+  int64 authored_at = 5;  // unix seconds
+  string change_id = 6;   // Change-Id trailer, "" when the commit has none
+  // State of the Change named by change_id when this control plane has
+  // its row; UNSPECIFIED otherwise (pre-Runko history, foreign imports).
+  ChangeState change_state = 7;
+  // Committer time (unix seconds). Distinct from authored_at on purpose:
+  // rebase-land preserves author dates, so along trunk they are NOT
+  // monotonic - a change authored early and landed late reads older than
+  // commits beneath it (2026-07-11, finding #43). History displays
+  // landing time, not authoring time.
+  int64 committed_at = 8;
+  // When the Change named by change_id landed (unix seconds, the control
+  // plane's own clock - the only land-time source no client clock can
+  // skew). 0 when there is no landed Change row (pre-Runko history,
+  // imports, open/abandoned changes); display falls back to committed_at.
+  int64 landed_at = 9;
+}
+
+message ListCommitsResponse {
+  repeated CommitInfo commits = 1;
+  string next_page_token = 2;  // "" when this page reaches the beginning
+  string rev = 3;              // the resolved revision history was read at
+}
+
+message BlameFileRequest {
+  string path = 1;
+  string rev = 2;  // "" = trunk tip
+}
+
+message BlameRegion {
+  int32 start_line = 1;  // 1-based line number in the file at `rev`
+  int32 line_count = 2;
+  string sha = 3;
+  string subject = 4;
+  string author_name = 5;
+  int64 authored_at = 6;  // unix seconds
+  string change_id = 7;
+  ChangeState change_state = 8;  // as in CommitInfo
+}
+
+message BlameFileResponse {
+  string path = 1;
+  string rev = 2;
+  repeated BlameRegion regions = 3;  // ordered, contiguous, covering lines
+  repeated string lines = 4;         // the blamed content itself
+  bool binary = 5;                   // binary files carry no regions/lines
+  bool truncated = 6;                // very large files are cut, not blamed whole
+}

@@ -1,0 +1,313 @@
+syntax = "proto3";
+
+package runko.v1;
+
+option go_package = "github.com/saxocellphone/runko/runkod/proto/gen/runko/v1;runkov1";
+
+import "runko/v1/common.proto";
+
+// ChangeService covers the Change page (§17.2) and its lifecycle actions.
+// ListChanges/AbandonChange/RerunCheck correspond to REST endpoints being
+// added alongside this draft (§28.3 stage 12c, slice 3) - included here so
+// the frontend can be built against the full intended surface rather than
+// today's partial REST subset. See proto/README.md.
+service ChangeService {
+  rpc GetChange(GetChangeRequest) returns (GetChangeResponse);
+  rpc ListChanges(ListChangesRequest) returns (ListChangesResponse);
+  // GetChangeStack returns the stack a Change belongs to (§17.2's stacked
+  // diff view, added for stage 13). The v1 stack relation is derived, not
+  // declared: Change B is stacked on Change A iff B.base_sha == A.head_sha
+  // and neither is abandoned (the Gerrit "related changes" analog - commit
+  // ancestry, not client-asserted metadata). A Change based directly on
+  // trunk with no dependents is a stack of one.
+  rpc GetChangeStack(GetChangeStackRequest) returns (GetChangeStackResponse);
+  // GetChangeDiff returns the Change's own delta, base_sha..head_sha. For
+  // a stacked Change base_sha is the parent Change's head, so this is
+  // already the per-Change "scoped diff" §17.2 asks for - no extra
+  // scoping parameter needed.
+  rpc GetChangeDiff(GetChangeDiffRequest) returns (GetChangeDiffResponse);
+  rpc GetAffected(GetAffectedRequest) returns (GetAffectedResponse);
+  rpc GetMergeRequirements(GetMergeRequirementsRequest) returns (GetMergeRequirementsResponse);
+  rpc ApproveChange(ApproveChangeRequest) returns (ApproveChangeResponse);
+  rpc LandChange(LandChangeRequest) returns (LandChangeResponse);
+  rpc AbandonChange(AbandonChangeRequest) returns (AbandonChangeResponse);
+  // SetAutomerge arms/disarms the when-ready land (§13.5): armed changes
+  // land themselves the moment merge requirements go green, attributed
+  // to the arming principal. Only open changes arm; disarm always works.
+  rpc SetAutomerge(SetAutomergeRequest) returns (SetAutomergeResponse);
+  rpc RerunCheck(RerunCheckRequest) returns (RerunCheckResponse);
+  // SyncChange rebases the requested Change's WHOLE stack onto the current
+  // trunk tip, server-side (the UI counterpart of `runko workspace sync`,
+  // reusing §13.5's merge-tree rebase). All-or-nothing: every member is
+  // rebased bottom-up in memory first, and refs move only if all of them
+  // rebase cleanly - one conflicted member reports conflict_change_id +
+  // conflicts and leaves the stack untouched. Rebased heads are new
+  // versions of their Changes: approvals bound to the old heads go stale
+  // and required checks re-run, exactly as if the author had re-pushed.
+  rpc SyncChange(SyncChangeRequest) returns (SyncChangeResponse);
+  // Review conversation (§13.4.1-13.4.2, stage 16). Comments anchor to the
+  // head they were written against and outdate on amend; threads are one
+  // level deep; agents comment (badge via author.type), never approve.
+  rpc ListComments(ListCommentsRequest) returns (ListCommentsResponse);
+  rpc CreateComment(CreateCommentRequest) returns (CreateCommentResponse);
+  rpc ResolveComment(ResolveCommentRequest) returns (ResolveCommentResponse);
+  rpc RequestReview(RequestReviewRequest) returns (RequestReviewResponse);
+}
+
+message GetChangeRequest {
+  string change_id = 1;
+}
+
+// ListChangesRequest's state filter defaults to CHANGE_STATE_OPEN when
+// unspecified - the Change list's overwhelmingly common view (§17.2's
+// "recent changes" / "owner attention inbox"). Pass an explicit state to
+// see landed or abandoned Changes instead.
+message ListChangesRequest {
+  ChangeState state = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListChangesResponse {
+  repeated ChangeSummary changes = 1;
+  string next_page_token = 2;
+}
+
+message ChangePaths {
+  repeated string paths = 1;
+}
+
+// GetAffectedRequest computes affected projects for an arbitrary path set,
+// OR re-fetches the computation already attached to a Change - exactly
+// one, matching the MCP get_affected tool's oneOf (§13.3, §14.4.3).
+message GetAffectedRequest {
+  oneof target {
+    ChangePaths paths = 1;
+    string change_id = 2;
+  }
+}
+
+message GetChangeStackRequest {
+  string change_id = 1;
+}
+
+message GetChangeStackResponse {
+  // The requested Change's whole related tree: its trunk-most ancestor
+  // first, then every descendant in pre-order (each parent before its
+  // children, siblings deterministic). Stacks can FORK - e.g. two
+  // workspace branches (§12.2) building on one base - so this is a tree
+  // flattened to a list; clients rebuild the edges from the same
+  // B.base_sha == A.head_sha relation that defines the stack. Always
+  // contains at least the requested Change itself.
+  repeated ChangeSummary changes = 1;
+  // Index of the requested Change within `changes`.
+  int32 position = 2;
+}
+
+message GetChangeDiffRequest {
+  string change_id = 1;
+}
+
+message GetChangeDiffResponse {
+  string change_id = 1;
+  string base_sha = 2;
+  string head_sha = 3;
+  repeated FileDiff files = 4;
+}
+
+enum FileDiffStatus {
+  FILE_DIFF_STATUS_UNSPECIFIED = 0;
+  FILE_DIFF_STATUS_ADDED = 1;
+  FILE_DIFF_STATUS_MODIFIED = 2;
+  FILE_DIFF_STATUS_DELETED = 3;
+  FILE_DIFF_STATUS_RENAMED = 4;
+}
+
+message FileDiff {
+  string path = 1;      // repo-root-relative, the new path for renames
+  string old_path = 2;  // set only when status == RENAMED
+  FileDiffStatus status = 3;
+  repeated DiffHunk hunks = 4;  // empty when binary
+  bool binary = 5;
+  int32 additions = 6;
+  int32 deletions = 7;
+  // Owning project by longest-prefix path match (§13.3) - lets the UI
+  // group a Change's diff by project. Empty for unowned paths.
+  string project = 8;
+}
+
+message DiffHunk {
+  int32 old_start = 1;
+  int32 old_lines = 2;
+  int32 new_start = 3;
+  int32 new_lines = 4;
+  // Git's section heading for the hunk (the text after the second @@),
+  // e.g. the enclosing function signature. Optional.
+  string header = 5;
+  repeated DiffLine lines = 6;
+}
+
+enum DiffLineType {
+  DIFF_LINE_TYPE_UNSPECIFIED = 0;
+  DIFF_LINE_TYPE_CONTEXT = 1;
+  DIFF_LINE_TYPE_ADDED = 2;
+  DIFF_LINE_TYPE_REMOVED = 3;
+}
+
+message DiffLine {
+  DiffLineType type = 1;
+  string content = 2;  // without the leading +/-/space marker
+  int32 old_line = 3;  // 0 when the line has no old-side number (added)
+  int32 new_line = 4;  // 0 when the line has no new-side number (removed)
+}
+
+message GetMergeRequirementsRequest {
+  string change_id = 1;
+}
+
+message ApproveChangeRequest {
+  string change_id = 1;
+  string owner_ref = 2;
+  // approved_by is client-asserted text, matching the current CLI/REST v1
+  // trust boundary (the deploy token gates the API - see §15.1 in
+  // proto/README.md). Once the named-token principal registry (§28.3
+  // stage 12c slice 2) lands, this field is expected to move to request
+  // metadata (the authenticated caller) and stop being client-supplied.
+  string approved_by = 3;
+}
+
+message LandChangeRequest {
+  string change_id = 1;
+  // Admin override (§13.5, added 2026-07-08): skip the owner/check gates
+  // and the revalidation rule. Only admin-capable principals (and the
+  // anonymous deploy token, the documented v1 operator credential) may set
+  // this; agents and bot lanes may never. Integrity guards still apply -
+  // conflicts, stacked-parent ordering, terminal states.
+  bool force = 2;
+}
+
+message LandChangeResponse {
+  bool landed = 1;
+  string landed_sha = 2;
+  bool requires_revalidation = 3;
+  repeated string conflicts = 4;
+  bool race_retry = 5;
+  // True when this land bypassed gates via LandChangeRequest.force -
+  // echoed for display; the durable audit bit is ChangeSummary.landed_forced.
+  bool forced = 6;
+}
+
+message SetAutomergeRequest {
+  string change_id = 1;
+  bool enabled = 2;
+}
+
+message SetAutomergeResponse {
+  ChangeSummary change = 1;
+}
+
+message AbandonChangeRequest {
+  string change_id = 1;
+  string reason = 2;
+}
+
+message RerunCheckRequest {
+  string change_id = 1;
+  string check_name = 2;
+}
+
+message SyncChangeRequest {
+  // Any member of the stack: sync always operates on the whole stack the
+  // Change belongs to, wherever the button was pressed.
+  string change_id = 1;
+}
+
+message SyncChangeResponse {
+  // Exactly one of synced / already_in_sync / (conflict_change_id != "")
+  // describes the outcome.
+  bool synced = 1;          // at least one member was rebased; refs moved
+  bool already_in_sync = 2; // the stack is already based on the trunk tip
+  // The member whose rebase hit a merge conflict ("" when none). Nothing
+  // was written: the conflict must be resolved client-side (rebase in the
+  // workspace and re-push), which replaces the whole stack in one push.
+  string conflict_change_id = 3;
+  repeated string conflicts = 4; // conflicted paths within that member
+  // The stack after the sync (trunk-most first), refreshed heads/bases.
+  repeated ChangeSummary stack = 5;
+}
+
+message ListCommentsRequest {
+  string change_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListCommentsResponse {
+  repeated Comment comments = 1;
+  string next_page_token = 2;
+}
+
+message CreateCommentRequest {
+  string change_id = 1;
+  string body = 2;
+  string path = 3;
+  CommentSide side = 4;
+  int32 line = 5;
+  string parent_id = 6;  // reply to this thread root; replies inherit its anchor
+  // author is client-asserted text honored only from the anonymous deploy
+  // token - the same v1 trust boundary as ApproveChangeRequest.approved_by.
+  string author = 7;
+}
+
+message ResolveCommentRequest {
+  string change_id = 1;
+  string comment_id = 2;  // must be a thread root
+  bool resolved = 3;      // false to reopen
+}
+
+message RequestReviewRequest {
+  string change_id = 1;
+  string reviewer = 2;  // principal name or group:<name>
+}
+
+// Per-RPC response wrappers (buf STANDARD lint: unique response types per
+// RPC, so any one response can grow fields later without entangling the
+// others).
+message GetChangeResponse {
+  ChangeSummary change = 1;
+}
+
+message GetAffectedResponse {
+  AffectedComputation affected = 1;
+}
+
+message GetMergeRequirementsResponse {
+  MergeRequirements requirements = 1;
+}
+
+message ApproveChangeResponse {
+  // The refreshed requirements, so the approver immediately sees what
+  // their approval covered and what still blocks (§7.3).
+  MergeRequirements requirements = 1;
+}
+
+message AbandonChangeResponse {
+  ChangeSummary change = 1;
+}
+
+message RerunCheckResponse {
+  MergeRequirements requirements = 1;
+}
+
+message CreateCommentResponse {
+  Comment comment = 1;
+}
+
+message ResolveCommentResponse {
+  Comment comment = 1;
+}
+
+message RequestReviewResponse {
+  string reviewer = 1;
+  string requested_by = 2;
+}

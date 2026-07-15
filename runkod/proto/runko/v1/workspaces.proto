@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package runko.v1;
+
+option go_package = "github.com/saxocellphone/runko/runkod/proto/gen/runko/v1;runkov1";
+
+import "runko/v1/changes.proto";
+import "runko/v1/common.proto";
+
+// WorkspaceService mirrors runkod's workspace registry API (§12.2/§12.3,
+// §28.3 stage 12b): CreateWorkspace/ListWorkspaces/GetWorkspace/
+// UpdateWorkspaceBase. Snapshotting itself (`runko workspace snapshot`) is
+// local git + a push to the snapshot ref through the ordinary receive
+// funnel, not a control-plane RPC - see proto/README.md for why that
+// action deliberately has no RPC here.
+//
+// The observability trio (§12.6, stage 18) reads what those snapshots
+// leave behind: GetWorkspaceDiff (the live WIP view), ListWorkspaceEvents
+// (the stats-only timeline), and WatchWorkspace - this surface's first
+// server-streaming RPC. None are on the §15.2 public-read allowlist;
+// workspace state is always authenticated.
+service WorkspaceService {
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (CreateWorkspaceResponse);
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
+  rpc GetWorkspace(GetWorkspaceRequest) returns (GetWorkspaceResponse);
+  rpc UpdateWorkspaceBase(UpdateWorkspaceBaseRequest) returns (UpdateWorkspaceBaseResponse);
+  // DeleteWorkspace removes the registry row and every
+  // refs/workspaces/<id>/* snapshot ref. Owner-only for named principals
+  // (operators exempt); refused while the workspace has OPEN changes -
+  // land or abandon them first (§12.2).
+  rpc DeleteWorkspace(DeleteWorkspaceRequest) returns (DeleteWorkspaceResponse);
+  // GetWorkspaceDiff is the live WIP view (§12.6): one workspace branch's
+  // snapshot tip diffed against the registry base_revision, the same
+  // FileDiff shape GetChangeDiff serves. A branch with no snapshot ref yet
+  // answers snapshot_sha "" and zero files - an empty workspace is a
+  // state, not an error.
+  rpc GetWorkspaceDiff(GetWorkspaceDiffRequest) returns (GetWorkspaceDiffResponse);
+  // ListWorkspaceEvents is the §12.6 activity timeline, newest-first:
+  // stats-only rows (numstat totals, shas, actors - never file content)
+  // recorded at receive/land time, capped per workspace server-side.
+  rpc ListWorkspaceEvents(ListWorkspaceEventsRequest) returns (ListWorkspaceEventsResponse);
+  // WatchWorkspace streams live pokes for one workspace (§12.6). Frames
+  // carry event metadata only - never diffs; a client refetches via the
+  // unary RPCs on EVERY frame and on every (re)connect, because delivery
+  // is deliberately lossy-with-coalescing (a slow stream can never block
+  // a push; bursts collapse to the newest event). A frame with no event
+  // set is a keepalive (~25s cadence, holds proxies open).
+  rpc WatchWorkspace(WatchWorkspaceRequest) returns (stream WatchWorkspaceResponse);
+  // ListWorkspaceActivity is the §12.6.1 harness-reported feed,
+  // newest-first: CLIENT-CLAIMED rows (see WorkspaceActivityEvent),
+  // capped per workspace server-side. Authenticated like the rest of
+  // this surface. Ingest is REST (POST /api/workspaces/{id}/activity,
+  // the CLI's `runko agent event`) - this RPC is the read side the
+  // WatchWorkspace pokes point at.
+  rpc ListWorkspaceActivity(ListWorkspaceActivityRequest) returns (ListWorkspaceActivityResponse);
+}
+
+message CreateWorkspaceRequest {
+  string name = 1;
+  string owner = 2;
+  repeated string projects = 3; // project affinity, at least one required
+}
+
+message ListWorkspacesRequest {}
+
+message ListWorkspacesResponse {
+  repeated WorkspaceSummary workspaces = 1;
+}
+
+message GetWorkspaceRequest {
+  string id = 1;
+}
+
+message DeleteWorkspaceRequest {
+  string id = 1;
+}
+
+message DeleteWorkspaceResponse {}
+
+message UpdateWorkspaceBaseRequest {
+  string id = 1;
+  string base_revision = 2;
+}
+
+message CreateWorkspaceResponse {
+  WorkspaceSummary workspace = 1;
+}
+
+message GetWorkspaceResponse {
+  WorkspaceSummary workspace = 1;
+}
+
+message UpdateWorkspaceBaseResponse {
+  WorkspaceSummary workspace = 1;
+}
+
+message GetWorkspaceDiffRequest {
+  string id = 1;
+  string branch = 2; // "" means "head", the default branch (§12.2)
+}
+
+message GetWorkspaceDiffResponse {
+  string id = 1;
+  string branch = 2;
+  string base_sha = 3;               // the registry base_revision
+  string snapshot_sha = 4;           // "" when the branch has no snapshot ref yet
+  repeated FileDiff files = 5;
+}
+
+// WorkspaceEventType mirrors runkod's workspace_events rows (§12.6).
+enum WorkspaceEventType {
+  WORKSPACE_EVENT_TYPE_UNSPECIFIED = 0;
+  WORKSPACE_EVENT_TYPE_SNAPSHOT_PUSHED = 1;
+  WORKSPACE_EVENT_TYPE_CHANGE_PUSHED = 2;
+  WORKSPACE_EVENT_TYPE_CHANGE_LANDED = 3;
+  WORKSPACE_EVENT_TYPE_CHANGE_ABANDONED = 4;
+  WORKSPACE_EVENT_TYPE_WORKSPACE_CLOSED = 5;
+  // Bus-only poke after an accepted §12.6.1 activity batch: never a
+  // stored timeline row - a WatchWorkspace frame carrying this says
+  // "refetch ListWorkspaceActivity".
+  WORKSPACE_EVENT_TYPE_AGENT_ACTIVITY = 6;
+}
+
+// WorkspaceEvent is one stats-only timeline row: what happened and how big
+// it was, never file content (§12.1). ids are strictly increasing - order
+// and dedupe on them.
+message WorkspaceEvent {
+  int64 id = 1;
+  WorkspaceEventType type = 2;
+  string workspace_id = 3;
+  string branch = 4;
+  Actor actor = 5;         // unset for the anonymous deploy token
+  string sha = 6;          // snapshot/landed sha at emission
+  string change_id = 7;    // set on change_* events
+  int32 files_changed = 8;
+  int32 additions = 9;     // numstat totals; binary files count 0/0
+  int32 deletions = 10;
+  int64 occurred_at = 11;  // unix seconds (the landed_at convention)
+}
+
+message ListWorkspaceEventsRequest {
+  string id = 1;
+  int32 page_size = 2;   // 0 = server default
+  string page_token = 3; // plain offset token (proto/README.md item 6)
+}
+
+message ListWorkspaceEventsResponse {
+  repeated WorkspaceEvent events = 1;
+  string next_page_token = 2;
+}
+
+message ListWorkspaceActivityRequest {
+  string id = 1;
+  int32 page_size = 2;   // 0 = server default
+  string page_token = 3; // plain offset token (proto/README.md item 6)
+}
+
+message ListWorkspaceActivityResponse {
+  repeated WorkspaceActivityEvent events = 1;
+  string next_page_token = 2;
+}
+
+message WatchWorkspaceRequest {
+  string id = 1;
+}
+
+message WatchWorkspaceResponse {
+  WorkspaceEvent event = 1; // unset = keepalive: refetch nothing, stay connected
+}
