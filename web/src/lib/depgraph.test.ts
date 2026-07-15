@@ -73,3 +73,31 @@ describe("closures", () => {
     expect(dependentClosure(scene, "tools/relbot")).toEqual(new Set());
   });
 });
+
+describe("consumes edges (§13.3.1)", () => {
+  const items = [
+    { name: "runkod", deps: ["platform"] },
+    { name: "platform", deps: [] },
+    { name: "mailer", deps: [], consumes: ["runkod"] },
+    { name: "hybrid", deps: ["runkod"], consumes: ["runkod"] },
+  ];
+
+  it("layers a client above its provider", () => {
+    const layers = assignLayers(items);
+    expect(layers.get("mailer")!).toBeGreaterThan(layers.get("runkod")!);
+  });
+
+  it("emits a dashed-kind edge, deduped when a dep edge covers the pair", () => {
+    const layout = layoutDag(items);
+    const kinds = layout.edges.map((e) => `${e.from}->${e.to}:${e.kind}`).sort();
+    expect(kinds).toContain("mailer->runkod:consumes");
+    expect(kinds).toContain("hybrid->runkod:dep");
+    expect(kinds).not.toContain("hybrid->runkod:consumes");
+  });
+
+  it("includes consumers in the affected-side closure and providers in the dependency closure", () => {
+    expect(dependentClosure(items, "runkod").has("mailer")).toBe(true);
+    expect(dependencyClosure(items, "mailer").has("runkod")).toBe(true);
+    expect(dependencyClosure(items, "mailer").has("platform")).toBe(true);
+  });
+});

@@ -2743,3 +2743,13 @@ tr.thread-row > td {
   display: flex;
   gap: 8px;
 }
+
+/* Consumes edges (§13.3.1): same DAG, dashed stroke - a client-of arrow,
+   not a build edge. The legend chip carries the same dash. */
+.graph-edge.consumes {
+  stroke-dasharray: 6 5;
+}
+.graph-legend-consumes {
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
