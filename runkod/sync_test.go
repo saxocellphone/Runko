@@ -69,17 +69,16 @@ func TestSyncChangeRebasesWholeStackOntoNewTrunk(t *testing.T) {
 		}
 	}
 
-	// The rebased heads re-trigger checks: one change.updated per member.
+	// These members declare no required checks, so their trivially-rebased
+	// heads are FULLY COVERED and the sync emits no change.updated at all
+	// (§13.5 carry-forward, 2026-07-15) - CI has nothing to re-run. The
+	// uncovered case still emits: TestSyncPartialCoverageStillEnqueuesWebhook.
 	due, _ := store.ListDueWebhookDeliveries(ctx, time.Now().Add(time.Hour))
-	perHead := 0
 	for _, d := range due {
 		if d.EventType == "change.updated" &&
 			(strings.Contains(string(d.Payload), newA.HeadSHA) || strings.Contains(string(d.Payload), newB.HeadSHA)) {
-			perHead++
+			t.Fatalf("a covered synced member must not re-trigger CI, got a change.updated for it")
 		}
-	}
-	if perHead < 2 {
-		t.Fatalf("want a change.updated webhook per rebased member, got %d (of %d due)", perHead, len(due))
 	}
 
 	// The rebased commits are real: the stack lands bottom-up and trunk

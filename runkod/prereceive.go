@@ -19,6 +19,7 @@ import (
 	"github.com/saxocellphone/runko/platform/contract"
 	"github.com/saxocellphone/runko/platform/core"
 	"github.com/saxocellphone/runko/platform/index"
+	"github.com/saxocellphone/runko/platform/land"
 	"github.com/saxocellphone/runko/platform/receive"
 )
 
@@ -155,6 +156,16 @@ type Processor struct {
 	// Server carries, so snapshot/change pushes poke WatchWorkspace
 	// subscribers. Nil-safe: rows still land in the Store without it.
 	Events *EventBus
+	// Revalidation mirrors Server.Revalidation for the funnel side: the
+	// §13.5 tier gates whether a trivial-rebase re-push carries check
+	// results forward (conflict-only) or resets them (stricter tiers,
+	// which opted into re-runs). Resolved through the same org-setting >
+	// flag > conflict-only order - see effectiveRevalidation.
+	Revalidation land.RevalidationScope
+	// GlobalRequiredChecks mirrors Server.GlobalRequiredChecks so
+	// carry-forward coverage never under-counts what the merge gate will
+	// demand (flag-level names; org-stored ones resolve live).
+	GlobalRequiredChecks []string
 }
 
 // DefaultMaxSnapshotBytes is the default snapshot size cap (§12.2): generous
@@ -874,12 +885,32 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 		}
 
 		base := p.computeBaseSHA(ctx, RefUpdate{OldSHA: v.update.OldSHA, NewSHA: m.sha, Ref: v.update.Ref}, m.changeID, v.extraEnv)
+		// The pre-push row, read before CreateOrUpdateChange moves the
+		// head: a trivial-rebase re-push (same message, delta replays
+		// cleanly onto the new base) carries results forward instead of
+		// resetting them (§13.5 carry-forward, 2026-07-15) - per series
+		// member, so an amended child resets while its trivially-rebased
+		// parent carries.
+		old, existed, _ := p.Store.GetChange(ctx, m.changeID)
 		change, err := p.Store.CreateOrUpdateChange(ctx, m.changeID, base, m.sha, changeRef, m.title, v.author, v.originWorkspace, v.originBranch)
 		if err != nil {
 			return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
 		}
 
-		p.computeAffectedAndEnqueue(ctx, change, m.changedPaths, v.extraEnv)
+		result, indexed, affErr := p.computeAffectedForChange(change, m.changedPaths, v.extraEnv)
+		if affErr != nil {
+			log.Printf("runkod: %s: scan projects at %s: %v", change.ChangeKey, change.HeadSHA, affErr)
+		} else {
+			covered := false
+			if existed && p.trivialRebaseOf(old, base, m.sha, v.extraEnv) {
+				covered = p.carryForwardTrivialRebase(ctx, old, change, result, indexed)
+			}
+			if covered {
+				fmt.Fprintf(&msg, "remote: %s: checks carried forward (trivial rebase of %.12s) - no CI re-run\n", change.ChangeKey, old.HeadSHA)
+			} else {
+				p.enqueueChangeUpdated(ctx, change, result)
+			}
+		}
 
 		if m.sha == v.update.NewSHA {
 			tip = change
@@ -1108,18 +1139,35 @@ func (p *Processor) nearestPendingChangeBase(ctx context.Context, newSHA, change
 // an otherwise-good push - it should show up as an operational alert
 // instead, which is exactly what the log line is for.
 func (p *Processor) computeAffectedAndEnqueue(ctx context.Context, change Change, changedPaths []string, extraEnv []string) {
-	store := &gitstore.Store{Dir: p.RepoDir, Ref: "HEAD", ExtraEnv: extraEnv}
-	indexed, err := index.Scan(store, core.Revision(change.HeadSHA), nil)
+	result, _, err := p.computeAffectedForChange(change, changedPaths, extraEnv)
 	if err != nil {
 		log.Printf("runkod: %s: scan projects at %s: %v", change.ChangeKey, change.HeadSHA, err)
 		return
+	}
+	p.enqueueChangeUpdated(ctx, change, result)
+}
+
+// computeAffectedForChange is the affected half of computeAffectedAndEnqueue,
+// split out so the §13.5 carry-forward can reuse one scan for both its
+// coverage math and the (possibly suppressed) webhook emission.
+func (p *Processor) computeAffectedForChange(change Change, changedPaths []string, extraEnv []string) (affected.Result, []index.IndexedProject, error) {
+	store := &gitstore.Store{Dir: p.RepoDir, Ref: "HEAD", ExtraEnv: extraEnv}
+	indexed, err := index.Scan(store, core.Revision(change.HeadSHA), nil)
+	if err != nil {
+		return affected.Result{}, nil, err
 	}
 	projects := index.AffectedProjectInfos(indexed)
 	result := affected.Compute(projects, changedPaths, affected.Options{
 		RootInvalidationPatterns: append(index.RootInvalidation(indexed), p.RootInvalidationPatterns...),
 		ProsePatterns:            index.Prose(indexed),
 	})
+	return result, indexed, nil
+}
 
+// enqueueChangeUpdated is the webhook half of computeAffectedAndEnqueue -
+// the change.updated emission that triggers CI. The §13.5 carry-forward
+// skips it for a fully-covered trivially-rebased head.
+func (p *Processor) enqueueChangeUpdated(ctx context.Context, change Change, result affected.Result) {
 	// Actor attribution and Change numbering need real AuthN/a persistent
 	// counter, neither built yet (doc.go's scope boundary) - placeholders
 	// here are informational fields on an already-durable Change, not a

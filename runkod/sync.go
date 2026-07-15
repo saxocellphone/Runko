@@ -169,12 +169,33 @@ func (s *Server) syncChangeCore(ctx context.Context, key string, change Change, 
 				log.Printf("runkod: sync %s: diff rebased head: %v", w.change.ChangeKey, err)
 				paths = nil
 			}
-			s.Processor.computeAffectedAndEnqueue(ctx, updated, paths, nil)
+			result, indexed, affErr := s.Processor.computeAffectedForChange(updated, paths, nil)
+			if affErr != nil {
+				log.Printf("runkod: sync %s: scan projects at %s: %v", updated.ChangeKey, updated.HeadSHA, affErr)
+				continue
+			}
+			// A clean stack sync is a trivial rebase BY CONSTRUCTION - the
+			// same message rides onto the new base with the land engine's
+			// own merge - but the detector stays the single oracle (a
+			// server-minted Change-Id appended to a trailer-less message
+			// makes the message differ, and such heads must reset).
+			covered := false
+			if s.Processor.trivialRebaseOf(w.change, w.newBase, w.newHead, nil) {
+				covered = s.Processor.carryForwardTrivialRebase(ctx, w.change, updated, result, indexed)
+			}
+			if !covered {
+				s.Processor.enqueueChangeUpdated(ctx, updated, result)
+			}
 		}
 	}
 	if s.Processor != nil {
 		s.Processor.Mirror.Trigger() // refs/changes/* are mirrored (§18.6)
 	}
+	// With the webhook suppressed for fully-covered heads, nothing else
+	// re-evaluates an armed change before the worker's 30s sweep - kick it
+	// so sync -> land is immediate. (The push path has no Server back-ref;
+	// the sweep interval is the accepted latency there.)
+	s.KickAutomerge()
 
 	who := "anonymous"
 	if principal != nil {
