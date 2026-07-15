@@ -13,7 +13,6 @@ dependencies:
   - platform
   - internal
   - db
-  - proto
 ci:
   checks:
     - name: runkod-test
