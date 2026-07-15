@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:lan": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc -b && vite build",
-    "gen": "buf generate ../proto",
+    "gen": "buf generate ../runkod/proto --path ../runkod/proto/runko",
     "lint": "oxlint",
     "test": "vitest run",
     "check": "tsc -b --force && oxlint && vitest run && vite build",
