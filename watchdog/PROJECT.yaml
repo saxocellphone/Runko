@@ -13,6 +13,13 @@ type: service
 language: go
 dependencies:
   - platform
+# consumes (§13.3.1, 2026-07-14 re-evaluation): the ORIGINAL stub-pinned
+# REST client - it polls /api/changes and merge-requirements with what
+# was, until finding #47, zero declared relation to runkod. Same OpenAPI
+# caveat as cli: narrow trigger surface until runkod's REST artifact
+# lands.
+consumes:
+  - runkod
 ci:
   checks:
     - name: watchdog-test

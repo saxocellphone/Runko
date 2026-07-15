@@ -1,19 +1,27 @@
+# Prose under docs/ (design.md, this file's siblings) re-attributes to the
+# root project (§14.5.7) and gates on docs-check there - so what reaches
+# THIS project is exactly the non-prose remainder: the !-excepted
+# load-bearing docs (docs/spec/** contract schemas, docs/cli-contract.md).
+#
+# Those files are this project's DECLARED contract surface (§13.3.1's
+# schemas shape, test encapsulation 2026-07-14): platform - whose suites
+# consume them as runfiles (data = ["//docs:contracts"]) - declares
+# consumes: [docs], so a spec change runs platform-test through the
+# ordinary closure. The old contracts-test check is gone: it hardcoded
+# platform's bazel targets in this manifest, which is exactly the
+# cross-boundary reach §14.9.1 encapsulation forbids. docs-check stays
+# for link hygiene on mixed docs changes.
 schema: project/v1
 name: docs
 type: other
-# Prose under docs/ (design.md, this file's siblings) re-attributes to the
-# root project (§14.5.7) and gates on docs-check there - so what reaches
-# THIS project's checks is exactly the non-prose remainder: the !-excepted
-# load-bearing docs (docs/spec/** contract schemas, docs/cli-contract.md)
-# plus docs/BUILD.bazel. contracts-test runs precisely the suites that
-# consume those files as runfiles data (//docs:contracts): checks' webhook
-# schema contract tests, mcp's catalog drift/validation, agentsmd's
-# CLI-contract cross-check - the §14.5.7 obligation that every prose
-# exception names what still gates it. docs-check rides along so a mixed
-# docs change validates its links too.
+capabilities:
+  - schemas
+capability_config:
+  schemas:
+    paths:
+      - spec
+      - cli-contract.md
 ci:
   checks:
     - name: docs-check
       command: make check-docs
-    - name: contracts-test
-      command: bazel test --test_output=errors //platform/agentsmd/... //platform/checks/... //platform/mcp/...

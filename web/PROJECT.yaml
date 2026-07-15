@@ -2,8 +2,13 @@ schema: project/v1
 name: web
 type: app
 language: ts
-# The TS client types in src/gen are generated from proto/ - a proto
-# change must re-run web-check via the affected closure.
+# consumes (§13.3.1): the TS client types in src/gen are GENERATED FROM
+# runkod's contract surface (runkod/proto/runko/v1, migrated from the
+# dissolved standalone proto project 2026-07-15) - web is a client of
+# that surface, so web-check runs exactly when runkod/proto/** changes,
+# never for daemon internals.
+consumes:
+  - runkod
 # The command runs from the repo root (the §14.9 executor contract gives
 # checks no working-directory of their own), so it scopes itself.
 ci:

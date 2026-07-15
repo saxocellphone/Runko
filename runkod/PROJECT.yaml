@@ -5,10 +5,21 @@
 # Checks are OWNED here (§14.9): scoped to //runkod/..., pg tests ride
 # runkod-test via the DSN passthrough. -race matters here - the daemon is
 # the concurrent surface (land races, outbox worker, mirror worker).
+#
+# rpc (§13.3.1): this project serves in-boundary contracts - sources at
+# proto/ (runko/v1, the web surface, migrated from the dissolved
+# standalone proto project 2026-07-15; mailer/v1, the invite feed),
+# committed codegen at proto/gen/. Consumers declare a consumes edge;
+# receive enforces it.
 schema: project/v1
 name: runkod
 type: service
 language: go
+capabilities:
+  - rpc
+capability_config:
+  rpc:
+    path: proto
 dependencies:
   - platform
   - internal
