@@ -254,6 +254,15 @@
       },
       "description": "§12.2 Workspace data model, orientation-sized."
     },
+    "DeleteProjectIntent": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$" }
+      },
+      "description": "Create's dual (§13.1, decided 2026-07-15): the name is the whole request. The plan deletes the project subtree and strips the name from every other manifest's dependencies/consumes; applied as a server-authored Change through the normal gates. Agents are refused at the intent surface."
+    },
     "CreateProjectIntent": {
       "type": "object",
       "required": ["name", "type"],

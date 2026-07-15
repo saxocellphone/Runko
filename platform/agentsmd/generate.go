@@ -21,6 +21,7 @@ var Commands = []Command{
 	{"runko", "doctor [--install-hook] [--json]", "check remotes/hooks, print a cheat-sheet (§6.9)", "DoctorReport"},
 	{"runko", "project create --name <n> --type <t> [--lang l] [--no-template] [--owners a,b] [--json]", "create a project from an intent (§10.1); --lang: go|python|ts|rust|java|cpp, others need --no-template", `{"name","path","rev"}`},
 	{"runko", "project list --runkod-url <url> --token <t> [--json]", "list projects indexed at trunk (§10.3) - needs a live runkod", "[]IndexedProject"},
+	{"runko", "project delete --name <p> [--json]", "open the deletion change: subtree removed, every other manifest's edges to it stripped (§13.1) - needs a live runkod", `{"change_id","title"}`},
 	{"runko", "change push [--remote origin] [--trunk main] [--no-sync] [--json]", "ensure a Change-Id trailer, auto-sync a stale base onto the trunk tip, push to refs/for/<trunk> (§11.5)", `{"change_id","ref"}`},
 	{"runko", "change land --change <id> --runkod-url <url> --token <t> [--json]", "land a mergeable change (§13.5) - on requires_revalidation it syncs, re-pushes, waits for checks, retries - needs a live runkod", "land.Outcome"},
 	{"runko", "change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t> [--json]", "record a required owner's approval (§13.5) - needs a live runkod", "MergeRequirements"},
