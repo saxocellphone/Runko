@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "runkov1connect",
+    srcs = [
+        "changes.connect.go",
+        "projects.connect.go",
+        "repo.connect.go",
+        "search.connect.go",
+        "workspaces.connect.go",
+    ],
+    importpath = "github.com/saxocellphone/runko/runkod/proto/gen/runko/v1/runkov1connect",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//runkod/proto/gen/runko/v1:runko",
+        "@com_connectrpc_connect//:connect",
+    ],
+)
