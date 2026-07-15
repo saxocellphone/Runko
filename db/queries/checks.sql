@@ -58,3 +58,26 @@ VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *;
 
 -- name: ListCheckAnnotations :many
 SELECT * FROM check_annotations WHERE check_run_id = $1;
+
+-- name: CopyPassingCheckRunsToHead :many
+-- §13.5 trivial-rebase carry-forward (2026-07-15): clone the LATEST passing
+-- completed attempt of each check name from one head to another as a fresh
+-- attempt-1 row stamped with its provenance. ON CONFLICT DO NOTHING: a run
+-- already reported at the new head (racing CI) is fresher truth than a copy.
+WITH latest AS (
+    SELECT DISTINCT ON (source.name) *
+    FROM check_runs source
+    WHERE source.change_id = sqlc.arg(change_id) AND source.head_sha = sqlc.arg(from_head)
+      AND source.status = 'completed' AND source.conclusion = 'success'
+    ORDER BY source.name, source.attempt DESC
+)
+INSERT INTO check_runs (change_id, head_sha, name, external_id, status, conclusion,
+    started_at, completed_at, details_url, output_title, output_summary, output_text,
+    app_id, reporter, attempt, ttl_seconds, copied_from_head_sha)
+SELECT latest.change_id, sqlc.arg(to_head)::text, latest.name, latest.external_id, latest.status,
+    latest.conclusion, latest.started_at, latest.completed_at, latest.details_url,
+    latest.output_title, latest.output_summary, latest.output_text, latest.app_id,
+    latest.reporter, 1, latest.ttl_seconds, sqlc.arg(from_head)::text
+FROM latest
+ON CONFLICT (change_id, head_sha, name, attempt) DO NOTHING
+RETURNING *;

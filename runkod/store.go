@@ -352,6 +352,13 @@ type Store interface {
 	// RerunCheck's explicit new-attempt semantics (§14.4.2). After a
 	// rerun, the update targets the rerun's (latest) attempt.
 	UpsertCheckRun(ctx context.Context, changeKey, headSHA string, run checks.CheckRunView) error
+	// CopyPassingCheckRuns clones the latest PASSING completed attempt of
+	// each check name from fromHead to toHead, stamped with its provenance
+	// (CheckRunView.CopiedFromHeadSHA) - the §13.5 trivial-rebase
+	// carry-forward (2026-07-15). Names already reported at toHead are
+	// left alone (a racing real report is fresher truth than a copy).
+	// Returns the copied names.
+	CopyPassingCheckRuns(ctx context.Context, changeKey, fromHead, toHead string) ([]string, error)
 	// ListCheckRuns returns one view per check NAME at (changeKey, headSHA)
 	// - the latest attempt where attempts exist, since that's the only one
 	// the merge gate cares about (§14.4.2).
@@ -924,6 +931,31 @@ func (s *MemStore) UpsertCheckRun(ctx context.Context, changeKey, headSHA string
 	}
 	s.checkRuns[key][run.Name] = run
 	return nil
+}
+
+// CopyPassingCheckRuns: the MemStore half of the §13.5 trivial-rebase
+// carry-forward - see the Store interface doc.
+func (s *MemStore) CopyPassingCheckRuns(ctx context.Context, changeKey, fromHead, toHead string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	from := s.checkRuns[checkRunKey(changeKey, fromHead)]
+	toKey := checkRunKey(changeKey, toHead)
+	if s.checkRuns[toKey] == nil {
+		s.checkRuns[toKey] = make(map[string]checks.CheckRunView)
+	}
+	var names []string
+	for name, run := range from {
+		if run.Status != checks.CheckStatusCompleted || run.Conclusion != checks.ConclusionSuccess {
+			continue
+		}
+		if _, taken := s.checkRuns[toKey][name]; taken {
+			continue // a run already reported at the new head wins
+		}
+		run.CopiedFromHeadSHA = fromHead
+		s.checkRuns[toKey][name] = run
+		names = append(names, name)
+	}
+	return names, nil
 }
 
 func (s *MemStore) RerunCheck(ctx context.Context, changeKey, checkName, requestedBy string) (checks.CheckRunView, error) {

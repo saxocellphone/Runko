@@ -1159,3 +1159,60 @@ func TestPostgresInviteRequests(t *testing.T) {
 		t.Fatalf("unknown id: %v", err)
 	}
 }
+
+// TestPostgresStoreCopyPassingCheckRuns pins the §13.5 trivial-rebase
+// carry-forward at the storage layer (2026-07-15): only passing completed
+// attempts copy, provenance is stamped, and a name already reported at the
+// new head is left alone.
+func TestPostgresStoreCopyPassingCheckRuns(t *testing.T) {
+	store := newTestPostgresStore(t)
+	ctx := context.Background()
+	if _, err := store.CreateOrUpdateChange(ctx, "Icopy", "base1", "head1", "refs/changes/1/head", "title", "", "", ""); err != nil {
+		t.Fatalf("CreateOrUpdateChange: %v", err)
+	}
+
+	seed := []checks.CheckRunView{
+		{Name: "unit", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionSuccess},
+		{Name: "lint", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionFailure},
+		{Name: "e2e", Status: checks.CheckStatusInProgress},
+		{Name: "raced", Status: checks.CheckStatusCompleted, Conclusion: checks.ConclusionSuccess},
+	}
+	for _, run := range seed {
+		if err := store.UpsertCheckRun(ctx, "Icopy", "head1", run); err != nil {
+			t.Fatalf("UpsertCheckRun %s: %v", run.Name, err)
+		}
+	}
+	// "raced" already has a real report at the new head - the copy must
+	// not clobber it.
+	if err := store.UpsertCheckRun(ctx, "Icopy", "head2", checks.CheckRunView{
+		Name: "raced", Status: checks.CheckStatusQueued,
+	}); err != nil {
+		t.Fatalf("UpsertCheckRun raced@head2: %v", err)
+	}
+
+	names, err := store.CopyPassingCheckRuns(ctx, "Icopy", "head1", "head2")
+	if err != nil {
+		t.Fatalf("CopyPassingCheckRuns: %v", err)
+	}
+	if len(names) != 1 || names[0] != "unit" {
+		t.Fatalf("expected exactly [unit] copied (lint failed, e2e pending, raced taken), got %v", names)
+	}
+
+	runs, err := store.ListCheckRuns(ctx, "Icopy", "head2")
+	if err != nil {
+		t.Fatalf("ListCheckRuns: %v", err)
+	}
+	byName := map[string]checks.CheckRunView{}
+	for _, r := range runs {
+		byName[r.Name] = r
+	}
+	if got := byName["unit"]; got.Conclusion != checks.ConclusionSuccess || got.CopiedFromHeadSHA != "head1" {
+		t.Fatalf("copied unit run wrong: %+v", got)
+	}
+	if got := byName["raced"]; got.Status != checks.CheckStatusQueued || got.CopiedFromHeadSHA != "" {
+		t.Fatalf("raced run must keep its real report: %+v", got)
+	}
+	if _, present := byName["lint"]; present {
+		t.Fatalf("a failing run must not copy")
+	}
+}
