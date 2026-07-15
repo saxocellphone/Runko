@@ -531,6 +531,26 @@ planning; entries marked `[observed]` happened during execution.
     --install` makes the activity wiring one verb, and the funnel
     answers the first never-streamed change push with a one-time
     advisory `remote:` block naming both.
+47. **[observed, dogfood review] The mailer connects to nothing in the
+    dependency graph, yet something clearly calls it - a real runtime
+    edge (mailer drains runkod's invite feed) that affected computation
+    could not see.** `mailer/PROJECT.yaml` declared no dependencies; the
+    feed contract existed only as a copy-pasted struct pinned by an
+    httptest stub (the watchdog convention, which is fine for a stub's
+    OWN tests and blind for the graph). A runkod change reshaping the
+    feed would land without ever running mailer-test. Root cause is
+    structural: `proto/` being a standalone project makes a contract a
+    PLACE, not a property of the serving project, and REST surfaces
+    carry no tree-resident contract artifact at all. Decided (§13.3.1):
+    contracts live in the owning project's boundary (`rpc` capability:
+    proto + committed gen in-tree; `http` capability: mandatory OpenAPI
+    document), consuming another project's contract gen dir requires a
+    DIRECT declared dependency edge enforced at receive
+    (`undeclared_contract_dependency`, platform/contract), and the API
+    surface is decided at `project create` (`--api grpc|rest|none`,
+    required for services). First application: the invite feed moved to
+    gRPC/Connect (`runkod/proto/mailer/v1` InviteFeedService) and
+    mailer declared `dependencies: [runkod]`.
 
 ## Distilled §18.3 requirements (running)
 
