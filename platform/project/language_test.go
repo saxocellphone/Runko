@@ -33,7 +33,7 @@ func planPaths(plan Plan) []string {
 // templates but writes NO language key - pre-multi-language manifests stay
 // byte-identical (the round-trip golden also pins this).
 func TestPlanCreateLanguageDefaultsToGoAndOmitsLanguageFromManifest(t *testing.T) {
-	plan, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service"}, DefaultTemplates())
+	plan, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service", API: "none"}, DefaultTemplates())
 	if len(errs) != 0 {
 		t.Fatalf("PlanCreate: unexpected errors: %v", errs)
 	}
@@ -65,7 +65,7 @@ func TestPlanCreatePerLanguageSkeletons(t *testing.T) {
 	templates := DefaultTemplates()
 	for _, tc := range cases {
 		t.Run(tc.lang, func(t *testing.T) {
-			svc, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service", Language: tc.lang}, templates)
+			svc, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service", API: "none", Language: tc.lang}, templates)
 			if len(errs) != 0 {
 				t.Fatalf("service PlanCreate(%s): %v", tc.lang, errs)
 			}
@@ -111,7 +111,7 @@ func TestPlanCreatePythonLibraryManifestGolden(t *testing.T) {
 
 func TestPlanCreateNoTemplateRecordsEscapeHatchLanguage(t *testing.T) {
 	plan, errs := PlanCreate(Intent{
-		Name: "exotic-svc", Type: "service", Language: "haskell", NoTemplate: true,
+		Name: "exotic-svc", Type: "service", API: "none", Language: "haskell", NoTemplate: true,
 	}, DefaultTemplates())
 	if len(errs) != 0 {
 		t.Fatalf("PlanCreate: unexpected errors: %v", errs)
@@ -131,7 +131,7 @@ func TestPlanCreateNoTemplateRecordsEscapeHatchLanguage(t *testing.T) {
 }
 
 func TestValidateUnsupportedLanguage(t *testing.T) {
-	errs := Validate(Intent{Name: "x-api", Type: "service", Language: "haskell"}, DefaultTemplates())
+	errs := Validate(Intent{Name: "x-api", Type: "service", API: "none", Language: "haskell"}, DefaultTemplates())
 	if len(errs) != 1 || errs[0].Code != "unsupported_language" || errs[0].Field != "language" {
 		t.Fatalf("want exactly one unsupported_language error, got: %+v", errs)
 	}
@@ -143,13 +143,13 @@ func TestValidateUnsupportedLanguage(t *testing.T) {
 	}
 
 	// NoTemplate legalizes any well-formed language - no error.
-	if errs := Validate(Intent{Name: "x-api", Type: "service", Language: "haskell", NoTemplate: true}, DefaultTemplates()); len(errs) != 0 {
+	if errs := Validate(Intent{Name: "x-api", Type: "service", API: "none", Language: "haskell", NoTemplate: true}, DefaultTemplates()); len(errs) != 0 {
 		t.Fatalf("no-template must accept any well-formed language, got: %+v", errs)
 	}
 }
 
 func TestValidateLanguageFormat(t *testing.T) {
-	errs := Validate(Intent{Name: "x-api", Type: "service", Language: "C++"}, DefaultTemplates())
+	errs := Validate(Intent{Name: "x-api", Type: "service", API: "none", Language: "C++"}, DefaultTemplates())
 	if len(errs) != 1 || errs[0].Code != "invalid_format" || errs[0].Field != "language" {
 		t.Fatalf("want exactly one invalid_format error (never a second unsupported_language), got: %+v", errs)
 	}
@@ -202,7 +202,7 @@ func TestCreateRustServiceRoundTripNestedPath(t *testing.T) {
 	base := repo.Commit("initial")
 
 	store := gitstore.New(repo.Dir)
-	plan, errs := PlanCreate(Intent{Name: "rusty-api", Type: "service", Language: "rust"}, DefaultTemplates())
+	plan, errs := PlanCreate(Intent{Name: "rusty-api", Type: "service", API: "none", Language: "rust"}, DefaultTemplates())
 	if len(errs) != 0 {
 		t.Fatalf("PlanCreate: unexpected errors: %v", errs)
 	}

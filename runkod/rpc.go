@@ -727,6 +727,7 @@ func intentFromProto(in *runkov1.CreateProjectIntent) project.Intent {
 		Owners:      in.Owners,
 		TemplateID:  in.TemplateId,
 		Path:        in.Path,
+		API:         in.Api,
 	}
 }
 

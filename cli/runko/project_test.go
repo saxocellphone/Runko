@@ -19,7 +19,7 @@ func TestCreateProjectWritesFilesAndAdvancesCurrentBranch(t *testing.T) {
 	before := repo.Commit("initial")
 
 	rev, err := CreateProject(repo.Dir, project.Intent{
-		Name: "checkout-api", Type: "service", Owners: []string{"group:commerce-eng"},
+		Name: "checkout-api", Type: "service", API: "none", Owners: []string{"group:commerce-eng"},
 	})
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
@@ -62,7 +62,7 @@ func TestCreateProjectOnEmptyRepoCreatesFirstCommit(t *testing.T) {
 	configureIdentity(t, repo.Dir)
 
 	rev, err := CreateProject(repo.Dir, project.Intent{
-		Name: "checkout-api", Type: "service", Owners: []string{"group:commerce-eng"},
+		Name: "checkout-api", Type: "service", API: "none", Owners: []string{"group:commerce-eng"},
 	})
 	if err != nil {
 		t.Fatalf("CreateProject on an empty repo: %v", err)
@@ -98,7 +98,7 @@ func TestCreateProjectOnEmptyRepoCreatesFirstCommit(t *testing.T) {
 func TestCreateProjectOnNonRepoDirReturnsStructuredError(t *testing.T) {
 	dir := t.TempDir() // not a git repo at all
 
-	_, err := CreateProject(dir, project.Intent{Name: "checkout-api", Type: "service"})
+	_, err := CreateProject(dir, project.Intent{Name: "checkout-api", Type: "service", API: "none"})
 	if err == nil {
 		t.Fatalf("expected an error for a non-repo directory")
 	}
@@ -120,7 +120,7 @@ func TestCreateProjectOnDetachedHeadReturnsStructuredError(t *testing.T) {
 		t.Fatalf("checkout --detach: %v", err)
 	}
 
-	_, err := CreateProject(repo.Dir, project.Intent{Name: "checkout-api", Type: "service"})
+	_, err := CreateProject(repo.Dir, project.Intent{Name: "checkout-api", Type: "service", API: "none"})
 	if err == nil {
 		t.Fatalf("expected an error in detached HEAD")
 	}
@@ -145,7 +145,7 @@ func TestCreateProjectWithBuildCapabilityWritesBuildFile(t *testing.T) {
 	repo.Commit("initial")
 
 	_, err := CreateProject(repo.Dir, project.Intent{
-		Name: "checkout-api", Type: "service", Path: "commerce/checkout",
+		Name: "checkout-api", Type: "service", API: "none", Path: "commerce/checkout",
 		Capabilities: []string{"build"},
 	})
 	if err != nil {
@@ -168,7 +168,7 @@ func TestCreateProjectRejectsInvalidIntent(t *testing.T) {
 	repo.WriteFile("README.md", "# monorepo\n")
 	repo.Commit("initial")
 
-	if _, err := CreateProject(repo.Dir, project.Intent{Name: "Not Valid!", Type: "service"}); err == nil {
+	if _, err := CreateProject(repo.Dir, project.Intent{Name: "Not Valid!", Type: "service", API: "none"}); err == nil {
 		t.Fatalf("expected an invalid project name to be rejected")
 	}
 }
@@ -183,7 +183,7 @@ func TestCreateProjectRefusesDuplicateName(t *testing.T) {
 	repo.WriteFile("README.md", "# monorepo\n")
 	repo.Commit("initial")
 
-	intent := project.Intent{Name: "checkout-api", Type: "service", Owners: []string{"group:commerce-eng"}}
+	intent := project.Intent{Name: "checkout-api", Type: "service", API: "none", Owners: []string{"group:commerce-eng"}}
 	if _, err := CreateProject(repo.Dir, intent); err != nil {
 		t.Fatalf("first CreateProject: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestCreateProjectUnsupportedLangRequiresNoTemplate(t *testing.T) {
 	repo.Commit("initial")
 
 	_, err := CreateProject(repo.Dir, project.Intent{
-		Name: "exotic-svc", Type: "service", Language: "haskell",
+		Name: "exotic-svc", Type: "service", API: "none", Language: "haskell",
 	})
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "unsupported_language" || ce.Field != "language" {
@@ -246,7 +246,7 @@ func TestCreateProjectUnsupportedLangRequiresNoTemplate(t *testing.T) {
 	}
 
 	if _, err := CreateProject(repo.Dir, project.Intent{
-		Name: "exotic-svc", Type: "service", Language: "haskell", NoTemplate: true,
+		Name: "exotic-svc", Type: "service", API: "none", Language: "haskell", NoTemplate: true,
 	}); err != nil {
 		t.Fatalf("CreateProject with NoTemplate: %v", err)
 	}

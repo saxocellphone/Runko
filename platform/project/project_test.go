@@ -23,6 +23,7 @@ func TestCreateProjectRoundTrip(t *testing.T) {
 	intent := Intent{
 		Name:   "checkout-api",
 		Type:   "service",
+		API:    "none",
 		Owners: []string{"group:commerce-eng"},
 	}
 
@@ -148,7 +149,7 @@ func TestPlanCreateExplicitPathAndTemplate(t *testing.T) {
 // capability name itself.
 func TestPlanCreateBuildCapabilityGeneratesBuildFileWithZeroHandAuthoredLines(t *testing.T) {
 	plan, errs := PlanCreate(Intent{
-		Name: "checkout-api", Type: "service", Path: "commerce/checkout",
+		Name: "checkout-api", Type: "service", API: "none", Path: "commerce/checkout",
 		Capabilities: []string{"build"},
 	}, DefaultTemplates())
 	if len(errs) != 0 {
@@ -185,7 +186,7 @@ func TestPlanCreateBuildCapabilityGeneratesBuildFileWithZeroHandAuthoredLines(t 
 // capability from every template; an EXPLICIT capability list (even empty)
 // replaces the defaults entirely - that's the opt-out.
 func TestPlanCreateDefaultsToBuildCapability(t *testing.T) {
-	plan, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service"}, DefaultTemplates())
+	plan, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service", API: "none"}, DefaultTemplates())
 	if len(errs) != 0 {
 		t.Fatalf("PlanCreate: unexpected errors: %v", errs)
 	}
@@ -202,7 +203,7 @@ func TestPlanCreateDefaultsToBuildCapability(t *testing.T) {
 }
 
 func TestPlanCreateExplicitCapabilitiesOptOutOfBuild(t *testing.T) {
-	plan, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service", Capabilities: []string{}}, DefaultTemplates())
+	plan, errs := PlanCreate(Intent{Name: "checkout-api", Type: "service", API: "none", Capabilities: []string{}}, DefaultTemplates())
 	if len(errs) != 0 {
 		t.Fatalf("PlanCreate: unexpected errors: %v", errs)
 	}
@@ -217,7 +218,7 @@ func TestPlanCreateExplicitCapabilitiesOptOutOfBuild(t *testing.T) {
 }
 
 func TestPlanCreateValidationFailure(t *testing.T) {
-	_, errs := PlanCreate(Intent{Name: "Bad Name!", Type: "service"}, DefaultTemplates())
+	_, errs := PlanCreate(Intent{Name: "Bad Name!", Type: "service", API: "none"}, DefaultTemplates())
 	if len(errs) == 0 {
 		t.Fatalf("expected validation errors for invalid name")
 	}
@@ -234,7 +235,7 @@ func TestPlanCreateValidationFailure(t *testing.T) {
 
 func TestValidateUnknownCapabilityAndTemplate(t *testing.T) {
 	errs := Validate(Intent{
-		Name: "checkout-api", Type: "service",
+		Name: "checkout-api", Type: "service", API: "none",
 		Capabilities: []string{"not-a-real-capability"},
 		TemplateID:   "does-not-exist",
 	}, DefaultTemplates())
@@ -250,5 +251,77 @@ func TestValidateUnknownCapabilityAndTemplate(t *testing.T) {
 	}
 	if !sawCapability || !sawTemplate {
 		t.Fatalf("expected errors on both capabilities and template_id, got %+v", errs)
+	}
+}
+
+// TestAPIDecidedAtCreation pins §13.3.1's creation step: a service must
+// answer --api (api_required; "none" is a valid answer, silence is not),
+// grpc maps to the rpc capability + in-boundary proto scaffold, rest to
+// the http capability + the mandatory OpenAPI document, and unknown
+// values are refused.
+func TestAPIDecidedAtCreation(t *testing.T) {
+	_, errs := PlanCreate(Intent{Name: "pay-api", Type: "service"}, DefaultTemplates())
+	if len(errs) != 1 || errs[0].Code != "api_required" {
+		t.Fatalf("service without api: want api_required, got %v", errs)
+	}
+
+	if _, errs := PlanCreate(Intent{Name: "pay-api", Type: "library", API: "soap"}, DefaultTemplates()); len(errs) != 1 || errs[0].Code != "unsupported_api" {
+		t.Fatalf("unknown api: want unsupported_api, got %v", errs)
+	}
+
+	// Libraries may stay silent: "" means none, nothing scaffolded.
+	plan, errs := PlanCreate(Intent{Name: "quiet-lib", Type: "library"}, DefaultTemplates())
+	if len(errs) != 0 {
+		t.Fatalf("library without api must pass, got %v", errs)
+	}
+	for _, f := range plan.Files {
+		if f.Path == "openapi.yaml" || strings.HasPrefix(f.Path, "proto/") {
+			t.Fatalf("api none must scaffold no contract, got %s", f.Path)
+		}
+	}
+
+	plan, errs = PlanCreate(Intent{Name: "pay-api", Type: "service", API: "grpc"}, DefaultTemplates())
+	if len(errs) != 0 {
+		t.Fatalf("grpc service: %v", errs)
+	}
+	if !hasCapability(plan.EffectiveManifest.Capabilities, "rpc") {
+		t.Fatalf("grpc must declare the rpc capability: %v", plan.EffectiveManifest.Capabilities)
+	}
+	rpcCfg, _ := plan.EffectiveManifest.CapabilityConfig["rpc"].(map[string]interface{})
+	if rpcCfg["path"] != "proto" {
+		t.Fatalf("rpc capability_config must pin path proto, got %v", plan.EffectiveManifest.CapabilityConfig)
+	}
+	var protoStub, bufGen bool
+	for _, f := range plan.Files {
+		switch f.Path {
+		case "proto/pay_api/v1/pay_api.proto":
+			protoStub = strings.Contains(f.Content, "package pay_api.v1;")
+		case "proto/buf.gen.yaml":
+			bufGen = strings.Contains(f.Content, "out: gen")
+		}
+	}
+	if !protoStub || !bufGen {
+		t.Fatalf("grpc must scaffold the in-boundary proto stub + buf.gen.yaml, got %+v", plan.Files)
+	}
+
+	plan, errs = PlanCreate(Intent{Name: "pay-api", Type: "service", API: "rest"}, DefaultTemplates())
+	if len(errs) != 0 {
+		t.Fatalf("rest service: %v", errs)
+	}
+	if !hasCapability(plan.EffectiveManifest.Capabilities, "http") {
+		t.Fatalf("rest must declare the http capability: %v", plan.EffectiveManifest.Capabilities)
+	}
+	httpCfg, _ := plan.EffectiveManifest.CapabilityConfig["http"].(map[string]interface{})
+	if httpCfg["openapi"] != "openapi.yaml" {
+		t.Fatalf("http capability_config must pin the document, got %v", plan.EffectiveManifest.CapabilityConfig)
+	}
+	found := false
+	for _, f := range plan.Files {
+		if f.Path == "openapi.yaml" && strings.Contains(f.Content, "openapi: 3.1.0") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("rest must scaffold openapi.yaml, got %+v", plan.Files)
 	}
 }

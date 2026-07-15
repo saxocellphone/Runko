@@ -356,6 +356,7 @@ type CreateProjectIntent struct {
 	Language      string                 `protobuf:"bytes,6,opt,name=language,proto3" json:"language,omitempty"`                          // empty -> the default (Go) templates; recorded in PROJECT.yaml verbatim, never default-filled (§10.4)
 	NoTemplate    bool                   `protobuf:"varint,7,opt,name=no_template,json=noTemplate,proto3" json:"no_template,omitempty"`   // escape hatch (§10.4): PROJECT.yaml + README only, any well-formed language recorded as-is
 	BuildEngine   string                 `protobuf:"bytes,8,opt,name=build_engine,json=buildEngine,proto3" json:"build_engine,omitempty"` // bazel|vite|none; empty -> language default (ts -> vite, else bazel; §14.5.5)
+	Api           string                 `protobuf:"bytes,9,opt,name=api,proto3" json:"api,omitempty"`                                    // grpc|rest|none (§13.3.1 contract surface); REQUIRED for type service (api_required), empty elsewhere -> none
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -442,6 +443,13 @@ func (x *CreateProjectIntent) GetNoTemplate() bool {
 func (x *CreateProjectIntent) GetBuildEngine() string {
 	if x != nil {
 		return x.BuildEngine
+	}
+	return ""
+}
+
+func (x *CreateProjectIntent) GetApi() string {
+	if x != nil {
+		return x.Api
 	}
 	return ""
 }
@@ -1050,7 +1058,7 @@ const file_runko_v1_projects_proto_rawDesc = "" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\"D\n" +
 	"\x15CreateReleaseResponse\x12+\n" +
-	"\arelease\x18\x01 \x01(\v2\x11.runko.v1.ReleaseR\arelease\"\xea\x01\n" +
+	"\arelease\x18\x01 \x01(\v2\x11.runko.v1.ReleaseR\arelease\"\xfc\x01\n" +
 	"\x13CreateProjectIntent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x16\n" +
@@ -1061,7 +1069,8 @@ const file_runko_v1_projects_proto_rawDesc = "" +
 	"\blanguage\x18\x06 \x01(\tR\blanguage\x12\x1f\n" +
 	"\vno_template\x18\a \x01(\bR\n" +
 	"noTemplate\x12!\n" +
-	"\fbuild_engine\x18\b \x01(\tR\vbuildEngine\"T\n" +
+	"\fbuild_engine\x18\b \x01(\tR\vbuildEngine\x12\x10\n" +
+	"\x03api\x18\t \x01(\tR\x03api\"T\n" +
 	"\x1bPreviewCreateProjectRequest\x125\n" +
 	"\x06intent\x18\x01 \x01(\v2\x1d.runko.v1.CreateProjectIntentR\x06intent\"S\n" +
 	"\vPlannedFile\x12\x12\n" +

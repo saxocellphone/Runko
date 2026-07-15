@@ -262,3 +262,54 @@ func DefaultTemplates() TemplateSet {
 	}
 	return set
 }
+
+// apiScaffoldFiles renders §13.3.1's creation-step contract stubs: grpc
+// gets an in-boundary proto tree (sources + a buf.gen.yaml committing
+// codegen at proto/gen/, the internal/dbgen convention), rest gets the
+// mandatory minimal OpenAPI 3.1 document. Paths are project-root-relative
+// like every FileWrite; projectPath feeds the go_package hint only.
+func apiScaffoldFiles(intent Intent, projectPath string) []FileWrite {
+	name := goPackageName(intent.Name)
+	switch intent.API {
+	case "grpc":
+		return []FileWrite{
+			{Path: "proto/" + name + "/v1/" + name + ".proto", Action: "create", Content: "" +
+				"// " + intent.Name + "'s contract surface (§13.3.1): sources live in-boundary,\n" +
+				"// generated Go is committed at proto/gen/ beside them. Regenerate after\n" +
+				"// any edit: buf generate (see ../../buf.gen.yaml). Consumers of this\n" +
+				"// contract must declare a dependency on " + intent.Name + " (§13.3.1).\n" +
+				"syntax = \"proto3\";\n\n" +
+				"package " + name + ".v1;\n\n" +
+				"// TODO: replace <module> with this monorepo's Go module path.\n" +
+				"option go_package = \"<module>/" + projectPath + "/proto/gen/" + name + "/v1;" + name + "v1\";\n"},
+			{Path: "proto/buf.gen.yaml", Action: "create", Content: "" +
+				"# Generated Go is committed at gen/ beside the sources (§13.3.1).\n" +
+				"# Regenerate after a .proto edit, with the plugins on PATH:\n" +
+				"#   go install google.golang.org/protobuf/cmd/protoc-gen-go\n" +
+				"#   go install connectrpc.com/connect/cmd/protoc-gen-connect-go\n" +
+				"#   (cd " + projectPath + "/proto && buf generate)\n" +
+				"version: v2\n" +
+				"inputs:\n" +
+				"  - directory: .\n" +
+				"plugins:\n" +
+				"  - local: protoc-gen-go\n" +
+				"    out: gen\n" +
+				"    opt: paths=source_relative\n" +
+				"  - local: protoc-gen-connect-go\n" +
+				"    out: gen\n" +
+				"    opt: paths=source_relative\n"},
+		}
+	case "rest":
+		return []FileWrite{{Path: "openapi.yaml", Action: "create", Content: "" +
+			"# " + intent.Name + "'s REST contract (§13.3.1): mandatory while the http\n" +
+			"# capability is declared - receive refuses a push that deletes it.\n" +
+			"# Consumers generate clients from THIS file and declare a dependency\n" +
+			"# edge on " + intent.Name + ".\n" +
+			"openapi: 3.1.0\n" +
+			"info:\n" +
+			"  title: " + intent.Name + "\n" +
+			"  version: 0.1.0\n" +
+			"paths: {}\n"}}
+	}
+	return nil
+}

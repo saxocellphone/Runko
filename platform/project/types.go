@@ -19,6 +19,12 @@ type Intent struct {
 	Capabilities []string // optional; nil -> template defaults
 	NoTemplate   bool     // escape hatch (§10.4): PROJECT.yaml + README only, Language recorded as-is
 	BuildEngine  string   // optional; "" -> language default (ts -> vite, else bazel; §14.5.5): bazel | vite | none
+	// API is the §13.3.1 contract surface, decided at creation: grpc |
+	// rest | none. REQUIRED for type service (api_required otherwise);
+	// "" on other types means none. grpc scaffolds the rpc capability +
+	// an in-boundary proto stub; rest scaffolds the http capability + a
+	// minimal in-boundary OpenAPI document.
+	API string
 }
 
 // FileWrite is one file a Plan will write, relative to the project root.

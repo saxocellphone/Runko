@@ -100,7 +100,7 @@ func TestCmdProjectJSONOutput(t *testing.T) {
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = cmdProject([]string{"create", "--repo", repo.Dir, "--name", "checkout-api", "--type", "service", "--json"})
+		cmdErr = cmdProject([]string{"create", "--repo", repo.Dir, "--name", "checkout-api", "--type", "service", "--api", "none", "--json"})
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdProject: %v", cmdErr)

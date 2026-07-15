@@ -33,8 +33,8 @@ func TestBuildEngineDefaultsByLanguage(t *testing.T) {
 		intent   Intent
 		wantVite bool
 	}{
-		{"go default", Intent{Name: "svc", Type: "service"}, false},
-		{"python -> bazel", Intent{Name: "svc", Type: "service", Language: "python"}, false},
+		{"go default", Intent{Name: "svc", Type: "service", API: "none"}, false},
+		{"python -> bazel", Intent{Name: "svc", Type: "service", API: "none", Language: "python"}, false},
 		{"ts -> vite", Intent{Name: "webapp", Type: "app", Language: "ts"}, true},
 		{"ts library -> vite", Intent{Name: "ui-kit", Type: "library", Language: "ts"}, true},
 		{"no-template ts stays bazel", Intent{Name: "legacy", Type: "other", Language: "ts", NoTemplate: true}, false},
@@ -79,7 +79,7 @@ func TestBuildEngineExplicitOverrides(t *testing.T) {
 	}
 
 	// Force vite onto a Go project.
-	plan, errs = PlanCreate(Intent{Name: "svc", Type: "service", BuildEngine: BuildEngineVite}, DefaultTemplates())
+	plan, errs = PlanCreate(Intent{Name: "svc", Type: "service", API: "none", BuildEngine: BuildEngineVite}, DefaultTemplates())
 	if len(errs) != 0 {
 		t.Fatalf("vite-on-go: %v", errs)
 	}
@@ -88,7 +88,7 @@ func TestBuildEngineExplicitOverrides(t *testing.T) {
 	}
 
 	// none: no scaffold at all, defaulted build capability dropped.
-	plan, errs = PlanCreate(Intent{Name: "svc", Type: "service", BuildEngine: BuildEngineNone}, DefaultTemplates())
+	plan, errs = PlanCreate(Intent{Name: "svc", Type: "service", API: "none", BuildEngine: BuildEngineNone}, DefaultTemplates())
 	if len(errs) != 0 {
 		t.Fatalf("none: %v", errs)
 	}
@@ -110,12 +110,12 @@ func TestBuildEngineExplicitOverrides(t *testing.T) {
 }
 
 func TestBuildEngineStructuredErrors(t *testing.T) {
-	_, errs := PlanCreate(Intent{Name: "svc", Type: "service", BuildEngine: "gradle"}, DefaultTemplates())
+	_, errs := PlanCreate(Intent{Name: "svc", Type: "service", API: "none", BuildEngine: "gradle"}, DefaultTemplates())
 	if len(errs) != 1 || errs[0].Code != "unsupported_build_engine" || !strings.Contains(errs[0].Message, "bazel") {
 		t.Fatalf("expected unsupported_build_engine naming the set, got %v", errs)
 	}
 
-	_, errs = PlanCreate(Intent{Name: "svc", Type: "service", BuildEngine: BuildEngineVite, Capabilities: []string{"build"}}, DefaultTemplates())
+	_, errs = PlanCreate(Intent{Name: "svc", Type: "service", API: "none", BuildEngine: BuildEngineVite, Capabilities: []string{"build"}}, DefaultTemplates())
 	if len(errs) != 1 || errs[0].Code != "invalid_combination" || errs[0].Field != "build_engine" {
 		t.Fatalf("expected invalid_combination for vite + explicit build capability, got %v", errs)
 	}
