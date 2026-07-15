@@ -1028,6 +1028,286 @@ func (x *WhoOwnsResponse) GetOwners() *OwnersResult {
 	return nil
 }
 
+type DeleteProjectIntent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // the whole request (§13.1) - create's dual
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteProjectIntent) Reset() {
+	*x = DeleteProjectIntent{}
+	mi := &file_runko_v1_projects_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteProjectIntent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteProjectIntent) ProtoMessage() {}
+
+func (x *DeleteProjectIntent) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteProjectIntent.ProtoReflect.Descriptor instead.
+func (*DeleteProjectIntent) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *DeleteProjectIntent) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type PreviewDeleteProjectRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Intent        *DeleteProjectIntent   `protobuf:"bytes,1,opt,name=intent,proto3" json:"intent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PreviewDeleteProjectRequest) Reset() {
+	*x = PreviewDeleteProjectRequest{}
+	mi := &file_runko_v1_projects_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreviewDeleteProjectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreviewDeleteProjectRequest) ProtoMessage() {}
+
+func (x *PreviewDeleteProjectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreviewDeleteProjectRequest.ProtoReflect.Descriptor instead.
+func (*PreviewDeleteProjectRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *PreviewDeleteProjectRequest) GetIntent() *DeleteProjectIntent {
+	if x != nil {
+		return x.Intent
+	}
+	return nil
+}
+
+type DeleteOp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`     // repo-root-relative
+	Action        string                 `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"` // "delete" | "modify" (a manifest stripped of an edge)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteOp) Reset() {
+	*x = DeleteOp{}
+	mi := &file_runko_v1_projects_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteOp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteOp) ProtoMessage() {}
+
+func (x *DeleteOp) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteOp.ProtoReflect.Descriptor instead.
+func (*DeleteOp) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *DeleteOp) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *DeleteOp) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+type PreviewDeleteProjectResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"` // the project root being removed
+	Ops           []*DeleteOp            `protobuf:"bytes,2,rep,name=ops,proto3" json:"ops,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PreviewDeleteProjectResponse) Reset() {
+	*x = PreviewDeleteProjectResponse{}
+	mi := &file_runko_v1_projects_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreviewDeleteProjectResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreviewDeleteProjectResponse) ProtoMessage() {}
+
+func (x *PreviewDeleteProjectResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreviewDeleteProjectResponse.ProtoReflect.Descriptor instead.
+func (*PreviewDeleteProjectResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *PreviewDeleteProjectResponse) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *PreviewDeleteProjectResponse) GetOps() []*DeleteOp {
+	if x != nil {
+		return x.Ops
+	}
+	return nil
+}
+
+type DeleteProjectRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Intent        *DeleteProjectIntent   `protobuf:"bytes,1,opt,name=intent,proto3" json:"intent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteProjectRequest) Reset() {
+	*x = DeleteProjectRequest{}
+	mi := &file_runko_v1_projects_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteProjectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteProjectRequest) ProtoMessage() {}
+
+func (x *DeleteProjectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteProjectRequest.ProtoReflect.Descriptor instead.
+func (*DeleteProjectRequest) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *DeleteProjectRequest) GetIntent() *DeleteProjectIntent {
+	if x != nil {
+		return x.Intent
+	}
+	return nil
+}
+
+type DeleteProjectResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Change        *ChangeSummary         `protobuf:"bytes,1,opt,name=change,proto3" json:"change,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteProjectResponse) Reset() {
+	*x = DeleteProjectResponse{}
+	mi := &file_runko_v1_projects_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteProjectResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteProjectResponse) ProtoMessage() {}
+
+func (x *DeleteProjectResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_runko_v1_projects_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteProjectResponse.ProtoReflect.Descriptor instead.
+func (*DeleteProjectResponse) Descriptor() ([]byte, []int) {
+	return file_runko_v1_projects_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *DeleteProjectResponse) GetChange() *ChangeSummary {
+	if x != nil {
+		return x.Change
+	}
+	return nil
+}
+
 var File_runko_v1_projects_proto protoreflect.FileDescriptor
 
 const file_runko_v1_projects_proto_rawDesc = "" +
@@ -1101,13 +1381,29 @@ const file_runko_v1_projects_proto_rawDesc = "" +
 	"\x12GetProjectResponse\x121\n" +
 	"\aproject\x18\x01 \x01(\v2\x17.runko.v1.ProjectDetailR\aproject\"A\n" +
 	"\x0fWhoOwnsResponse\x12.\n" +
-	"\x06owners\x18\x01 \x01(\v2\x16.runko.v1.OwnersResultR\x06owners2\xc2\x04\n" +
+	"\x06owners\x18\x01 \x01(\v2\x16.runko.v1.OwnersResultR\x06owners\")\n" +
+	"\x13DeleteProjectIntent\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"T\n" +
+	"\x1bPreviewDeleteProjectRequest\x125\n" +
+	"\x06intent\x18\x01 \x01(\v2\x1d.runko.v1.DeleteProjectIntentR\x06intent\"6\n" +
+	"\bDeleteOp\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
+	"\x06action\x18\x02 \x01(\tR\x06action\"X\n" +
+	"\x1cPreviewDeleteProjectResponse\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12$\n" +
+	"\x03ops\x18\x02 \x03(\v2\x12.runko.v1.DeleteOpR\x03ops\"M\n" +
+	"\x14DeleteProjectRequest\x125\n" +
+	"\x06intent\x18\x01 \x01(\v2\x1d.runko.v1.DeleteProjectIntentR\x06intent\"H\n" +
+	"\x15DeleteProjectResponse\x12/\n" +
+	"\x06change\x18\x01 \x01(\v2\x17.runko.v1.ChangeSummaryR\x06change2\xfb\x05\n" +
 	"\x0eProjectService\x12M\n" +
 	"\fListProjects\x12\x1d.runko.v1.ListProjectsRequest\x1a\x1e.runko.v1.ListProjectsResponse\x12G\n" +
 	"\n" +
 	"GetProject\x12\x1b.runko.v1.GetProjectRequest\x1a\x1c.runko.v1.GetProjectResponse\x12>\n" +
 	"\aWhoOwns\x12\x18.runko.v1.WhoOwnsRequest\x1a\x19.runko.v1.WhoOwnsResponse\x12e\n" +
-	"\x14PreviewCreateProject\x12%.runko.v1.PreviewCreateProjectRequest\x1a&.runko.v1.PreviewCreateProjectResponse\x12P\n" +
+	"\x14PreviewCreateProject\x12%.runko.v1.PreviewCreateProjectRequest\x1a&.runko.v1.PreviewCreateProjectResponse\x12e\n" +
+	"\x14PreviewDeleteProject\x12%.runko.v1.PreviewDeleteProjectRequest\x1a&.runko.v1.PreviewDeleteProjectResponse\x12P\n" +
+	"\rDeleteProject\x12\x1e.runko.v1.DeleteProjectRequest\x1a\x1f.runko.v1.DeleteProjectResponse\x12P\n" +
 	"\rCreateProject\x12\x1e.runko.v1.CreateProjectRequest\x1a\x1f.runko.v1.CreateProjectResponse\x12M\n" +
 	"\fListReleases\x12\x1d.runko.v1.ListReleasesRequest\x1a\x1e.runko.v1.ListReleasesResponse\x12P\n" +
 	"\rCreateRelease\x12\x1e.runko.v1.CreateReleaseRequest\x1a\x1f.runko.v1.CreateReleaseResponseBBZ@github.com/saxocellphone/runko/runkod/proto/gen/runko/v1;runkov1b\x06proto3"
@@ -1124,7 +1420,7 @@ func file_runko_v1_projects_proto_rawDescGZIP() []byte {
 	return file_runko_v1_projects_proto_rawDescData
 }
 
-var file_runko_v1_projects_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_runko_v1_projects_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_runko_v1_projects_proto_goTypes = []any{
 	(*Release)(nil),                      // 0: runko.v1.Release
 	(*ListReleasesRequest)(nil),          // 1: runko.v1.ListReleasesRequest
@@ -1143,41 +1439,55 @@ var file_runko_v1_projects_proto_goTypes = []any{
 	(*WhoOwnsRequest)(nil),               // 14: runko.v1.WhoOwnsRequest
 	(*GetProjectResponse)(nil),           // 15: runko.v1.GetProjectResponse
 	(*WhoOwnsResponse)(nil),              // 16: runko.v1.WhoOwnsResponse
-	(*ProjectSummary)(nil),               // 17: runko.v1.ProjectSummary
-	(*ChangeSummary)(nil),                // 18: runko.v1.ChangeSummary
-	(*ProjectDetail)(nil),                // 19: runko.v1.ProjectDetail
-	(*OwnersResult)(nil),                 // 20: runko.v1.OwnersResult
+	(*DeleteProjectIntent)(nil),          // 17: runko.v1.DeleteProjectIntent
+	(*PreviewDeleteProjectRequest)(nil),  // 18: runko.v1.PreviewDeleteProjectRequest
+	(*DeleteOp)(nil),                     // 19: runko.v1.DeleteOp
+	(*PreviewDeleteProjectResponse)(nil), // 20: runko.v1.PreviewDeleteProjectResponse
+	(*DeleteProjectRequest)(nil),         // 21: runko.v1.DeleteProjectRequest
+	(*DeleteProjectResponse)(nil),        // 22: runko.v1.DeleteProjectResponse
+	(*ProjectSummary)(nil),               // 23: runko.v1.ProjectSummary
+	(*ChangeSummary)(nil),                // 24: runko.v1.ChangeSummary
+	(*ProjectDetail)(nil),                // 25: runko.v1.ProjectDetail
+	(*OwnersResult)(nil),                 // 26: runko.v1.OwnersResult
 }
 var file_runko_v1_projects_proto_depIdxs = []int32{
-	17, // 0: runko.v1.Release.project:type_name -> runko.v1.ProjectSummary
+	23, // 0: runko.v1.Release.project:type_name -> runko.v1.ProjectSummary
 	0,  // 1: runko.v1.ListReleasesResponse.releases:type_name -> runko.v1.Release
 	0,  // 2: runko.v1.CreateReleaseResponse.release:type_name -> runko.v1.Release
 	5,  // 3: runko.v1.PreviewCreateProjectRequest.intent:type_name -> runko.v1.CreateProjectIntent
 	7,  // 4: runko.v1.PreviewCreateProjectResponse.files:type_name -> runko.v1.PlannedFile
 	5,  // 5: runko.v1.CreateProjectRequest.intent:type_name -> runko.v1.CreateProjectIntent
-	18, // 6: runko.v1.CreateProjectResponse.change:type_name -> runko.v1.ChangeSummary
-	17, // 7: runko.v1.ListProjectsResponse.projects:type_name -> runko.v1.ProjectSummary
-	19, // 8: runko.v1.GetProjectResponse.project:type_name -> runko.v1.ProjectDetail
-	20, // 9: runko.v1.WhoOwnsResponse.owners:type_name -> runko.v1.OwnersResult
-	11, // 10: runko.v1.ProjectService.ListProjects:input_type -> runko.v1.ListProjectsRequest
-	13, // 11: runko.v1.ProjectService.GetProject:input_type -> runko.v1.GetProjectRequest
-	14, // 12: runko.v1.ProjectService.WhoOwns:input_type -> runko.v1.WhoOwnsRequest
-	6,  // 13: runko.v1.ProjectService.PreviewCreateProject:input_type -> runko.v1.PreviewCreateProjectRequest
-	9,  // 14: runko.v1.ProjectService.CreateProject:input_type -> runko.v1.CreateProjectRequest
-	1,  // 15: runko.v1.ProjectService.ListReleases:input_type -> runko.v1.ListReleasesRequest
-	3,  // 16: runko.v1.ProjectService.CreateRelease:input_type -> runko.v1.CreateReleaseRequest
-	12, // 17: runko.v1.ProjectService.ListProjects:output_type -> runko.v1.ListProjectsResponse
-	15, // 18: runko.v1.ProjectService.GetProject:output_type -> runko.v1.GetProjectResponse
-	16, // 19: runko.v1.ProjectService.WhoOwns:output_type -> runko.v1.WhoOwnsResponse
-	8,  // 20: runko.v1.ProjectService.PreviewCreateProject:output_type -> runko.v1.PreviewCreateProjectResponse
-	10, // 21: runko.v1.ProjectService.CreateProject:output_type -> runko.v1.CreateProjectResponse
-	2,  // 22: runko.v1.ProjectService.ListReleases:output_type -> runko.v1.ListReleasesResponse
-	4,  // 23: runko.v1.ProjectService.CreateRelease:output_type -> runko.v1.CreateReleaseResponse
-	17, // [17:24] is the sub-list for method output_type
-	10, // [10:17] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	24, // 6: runko.v1.CreateProjectResponse.change:type_name -> runko.v1.ChangeSummary
+	23, // 7: runko.v1.ListProjectsResponse.projects:type_name -> runko.v1.ProjectSummary
+	25, // 8: runko.v1.GetProjectResponse.project:type_name -> runko.v1.ProjectDetail
+	26, // 9: runko.v1.WhoOwnsResponse.owners:type_name -> runko.v1.OwnersResult
+	17, // 10: runko.v1.PreviewDeleteProjectRequest.intent:type_name -> runko.v1.DeleteProjectIntent
+	19, // 11: runko.v1.PreviewDeleteProjectResponse.ops:type_name -> runko.v1.DeleteOp
+	17, // 12: runko.v1.DeleteProjectRequest.intent:type_name -> runko.v1.DeleteProjectIntent
+	24, // 13: runko.v1.DeleteProjectResponse.change:type_name -> runko.v1.ChangeSummary
+	11, // 14: runko.v1.ProjectService.ListProjects:input_type -> runko.v1.ListProjectsRequest
+	13, // 15: runko.v1.ProjectService.GetProject:input_type -> runko.v1.GetProjectRequest
+	14, // 16: runko.v1.ProjectService.WhoOwns:input_type -> runko.v1.WhoOwnsRequest
+	6,  // 17: runko.v1.ProjectService.PreviewCreateProject:input_type -> runko.v1.PreviewCreateProjectRequest
+	18, // 18: runko.v1.ProjectService.PreviewDeleteProject:input_type -> runko.v1.PreviewDeleteProjectRequest
+	21, // 19: runko.v1.ProjectService.DeleteProject:input_type -> runko.v1.DeleteProjectRequest
+	9,  // 20: runko.v1.ProjectService.CreateProject:input_type -> runko.v1.CreateProjectRequest
+	1,  // 21: runko.v1.ProjectService.ListReleases:input_type -> runko.v1.ListReleasesRequest
+	3,  // 22: runko.v1.ProjectService.CreateRelease:input_type -> runko.v1.CreateReleaseRequest
+	12, // 23: runko.v1.ProjectService.ListProjects:output_type -> runko.v1.ListProjectsResponse
+	15, // 24: runko.v1.ProjectService.GetProject:output_type -> runko.v1.GetProjectResponse
+	16, // 25: runko.v1.ProjectService.WhoOwns:output_type -> runko.v1.WhoOwnsResponse
+	8,  // 26: runko.v1.ProjectService.PreviewCreateProject:output_type -> runko.v1.PreviewCreateProjectResponse
+	20, // 27: runko.v1.ProjectService.PreviewDeleteProject:output_type -> runko.v1.PreviewDeleteProjectResponse
+	22, // 28: runko.v1.ProjectService.DeleteProject:output_type -> runko.v1.DeleteProjectResponse
+	10, // 29: runko.v1.ProjectService.CreateProject:output_type -> runko.v1.CreateProjectResponse
+	2,  // 30: runko.v1.ProjectService.ListReleases:output_type -> runko.v1.ListReleasesResponse
+	4,  // 31: runko.v1.ProjectService.CreateRelease:output_type -> runko.v1.CreateReleaseResponse
+	23, // [23:32] is the sub-list for method output_type
+	14, // [14:23] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_runko_v1_projects_proto_init() }
@@ -1196,7 +1506,7 @@ func file_runko_v1_projects_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_runko_v1_projects_proto_rawDesc), len(file_runko_v1_projects_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

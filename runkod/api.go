@@ -318,6 +318,9 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/search", s.requireReadAuth(s.handleSearch))
 
 	mux.HandleFunc("GET /api/projects", s.requireReadAuth(s.handleListProjects))
+	// Project deletion - create's dual (§13.1): the CLI's server-calling
+	// verb; the same core the Connect surface uses (deleteproject.go).
+	mux.HandleFunc("POST /api/projects/{name}/delete", s.requireAuth(s.handleDeleteProject))
 	mux.HandleFunc("POST /api/projects/{name}/releases", s.requireAuth(s.handleCreateRelease))
 	mux.HandleFunc("GET /api/projects/{name}/releases", s.requireReadAuth(s.handleListReleases))
 	mux.HandleFunc("GET /api/affected", s.requireReadAuth(s.handleAffectedByPaths))

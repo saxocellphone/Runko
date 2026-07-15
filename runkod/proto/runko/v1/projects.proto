@@ -18,6 +18,15 @@ service ProjectService {
   // UI can show them live while the form is being filled. Validation
   // failures are INVALID_ARGUMENT with an ErrorDetail (§6.5).
   rpc PreviewCreateProject(PreviewCreateProjectRequest) returns (PreviewCreateProjectResponse);
+  // PreviewDeleteProject runs create's dual (§13.1, decided 2026-07-15)
+  // without applying: every operation DeleteProject would commit - the
+  // subtree's deletions plus each manifest stripped of its edges to the
+  // name. Refusals are INVALID_ARGUMENT/NOT_FOUND with an ErrorDetail.
+  rpc PreviewDeleteProject(PreviewDeleteProjectRequest) returns (PreviewDeleteProjectResponse);
+  // DeleteProject applies the plan as one server-authored commit and
+  // registers an ordinary open Change through the normal gates. Agents
+  // are refused (agents_cannot_delete_projects).
+  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
   // CreateProject applies the plan as one commit and registers it as an
   // ordinary open Change - trunk stays closed to direct writes (§6.9), so
   // the project becomes real by LANDING that Change through the normal
@@ -142,4 +151,30 @@ message GetProjectResponse {
 
 message WhoOwnsResponse {
   OwnersResult owners = 1;
+}
+
+message DeleteProjectIntent {
+  string name = 1; // the whole request (§13.1) - create's dual
+}
+
+message PreviewDeleteProjectRequest {
+  DeleteProjectIntent intent = 1;
+}
+
+message DeleteOp {
+  string path = 1;   // repo-root-relative
+  string action = 2; // "delete" | "modify" (a manifest stripped of an edge)
+}
+
+message PreviewDeleteProjectResponse {
+  string path = 1; // the project root being removed
+  repeated DeleteOp ops = 2;
+}
+
+message DeleteProjectRequest {
+  DeleteProjectIntent intent = 1;
+}
+
+message DeleteProjectResponse {
+  ChangeSummary change = 1;
 }

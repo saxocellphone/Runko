@@ -807,6 +807,35 @@ func (r *rpcServer) CreateProject(ctx context.Context, req *connect.Request[runk
 	return connect.NewResponse(&runkov1.CreateProjectResponse{Change: r.s.protoChange(change)}), nil
 }
 
+func (r *rpcServer) PreviewDeleteProject(_ context.Context, req *connect.Request[runkov1.PreviewDeleteProjectRequest]) (*connect.Response[runkov1.PreviewDeleteProjectResponse], error) {
+	name := ""
+	if req.Msg.Intent != nil {
+		name = req.Msg.Intent.Name
+	}
+	plan, apiErr := r.s.previewDeleteProjectCore(name)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	ops := make([]*runkov1.DeleteOp, len(plan.Ops))
+	for i, op := range plan.Ops {
+		ops[i] = &runkov1.DeleteOp{Path: op.Path, Action: op.Action}
+	}
+	return connect.NewResponse(&runkov1.PreviewDeleteProjectResponse{Path: plan.Path, Ops: ops}), nil
+}
+
+func (r *rpcServer) DeleteProject(ctx context.Context, req *connect.Request[runkov1.DeleteProjectRequest]) (*connect.Response[runkov1.DeleteProjectResponse], error) {
+	principal := r.s.principalForAuthHeader(req.Header().Get("Authorization"))
+	name := ""
+	if req.Msg.Intent != nil {
+		name = req.Msg.Intent.Name
+	}
+	change, apiErr := r.s.deleteProjectCore(ctx, name, principal)
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	return connect.NewResponse(&runkov1.DeleteProjectResponse{Change: r.s.protoChange(change)}), nil
+}
+
 // ---- WorkspaceService ----
 
 func (r *rpcServer) CreateWorkspace(ctx context.Context, req *connect.Request[runkov1.CreateWorkspaceRequest]) (*connect.Response[runkov1.CreateWorkspaceResponse], error) {

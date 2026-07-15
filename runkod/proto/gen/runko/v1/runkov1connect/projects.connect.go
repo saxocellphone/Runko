@@ -44,6 +44,12 @@ const (
 	// ProjectServicePreviewCreateProjectProcedure is the fully-qualified name of the ProjectService's
 	// PreviewCreateProject RPC.
 	ProjectServicePreviewCreateProjectProcedure = "/runko.v1.ProjectService/PreviewCreateProject"
+	// ProjectServicePreviewDeleteProjectProcedure is the fully-qualified name of the ProjectService's
+	// PreviewDeleteProject RPC.
+	ProjectServicePreviewDeleteProjectProcedure = "/runko.v1.ProjectService/PreviewDeleteProject"
+	// ProjectServiceDeleteProjectProcedure is the fully-qualified name of the ProjectService's
+	// DeleteProject RPC.
+	ProjectServiceDeleteProjectProcedure = "/runko.v1.ProjectService/DeleteProject"
 	// ProjectServiceCreateProjectProcedure is the fully-qualified name of the ProjectService's
 	// CreateProject RPC.
 	ProjectServiceCreateProjectProcedure = "/runko.v1.ProjectService/CreateProject"
@@ -65,6 +71,15 @@ type ProjectServiceClient interface {
 	// UI can show them live while the form is being filled. Validation
 	// failures are INVALID_ARGUMENT with an ErrorDetail (§6.5).
 	PreviewCreateProject(context.Context, *connect.Request[v1.PreviewCreateProjectRequest]) (*connect.Response[v1.PreviewCreateProjectResponse], error)
+	// PreviewDeleteProject runs create's dual (§13.1, decided 2026-07-15)
+	// without applying: every operation DeleteProject would commit - the
+	// subtree's deletions plus each manifest stripped of its edges to the
+	// name. Refusals are INVALID_ARGUMENT/NOT_FOUND with an ErrorDetail.
+	PreviewDeleteProject(context.Context, *connect.Request[v1.PreviewDeleteProjectRequest]) (*connect.Response[v1.PreviewDeleteProjectResponse], error)
+	// DeleteProject applies the plan as one server-authored commit and
+	// registers an ordinary open Change through the normal gates. Agents
+	// are refused (agents_cannot_delete_projects).
+	DeleteProject(context.Context, *connect.Request[v1.DeleteProjectRequest]) (*connect.Response[v1.DeleteProjectResponse], error)
 	// CreateProject applies the plan as one commit and registers it as an
 	// ordinary open Change - trunk stays closed to direct writes (§6.9), so
 	// the project becomes real by LANDING that Change through the normal
@@ -116,6 +131,18 @@ func NewProjectServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(projectServiceMethods.ByName("PreviewCreateProject")),
 			connect.WithClientOptions(opts...),
 		),
+		previewDeleteProject: connect.NewClient[v1.PreviewDeleteProjectRequest, v1.PreviewDeleteProjectResponse](
+			httpClient,
+			baseURL+ProjectServicePreviewDeleteProjectProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("PreviewDeleteProject")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteProject: connect.NewClient[v1.DeleteProjectRequest, v1.DeleteProjectResponse](
+			httpClient,
+			baseURL+ProjectServiceDeleteProjectProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("DeleteProject")),
+			connect.WithClientOptions(opts...),
+		),
 		createProject: connect.NewClient[v1.CreateProjectRequest, v1.CreateProjectResponse](
 			httpClient,
 			baseURL+ProjectServiceCreateProjectProcedure,
@@ -143,6 +170,8 @@ type projectServiceClient struct {
 	getProject           *connect.Client[v1.GetProjectRequest, v1.GetProjectResponse]
 	whoOwns              *connect.Client[v1.WhoOwnsRequest, v1.WhoOwnsResponse]
 	previewCreateProject *connect.Client[v1.PreviewCreateProjectRequest, v1.PreviewCreateProjectResponse]
+	previewDeleteProject *connect.Client[v1.PreviewDeleteProjectRequest, v1.PreviewDeleteProjectResponse]
+	deleteProject        *connect.Client[v1.DeleteProjectRequest, v1.DeleteProjectResponse]
 	createProject        *connect.Client[v1.CreateProjectRequest, v1.CreateProjectResponse]
 	listReleases         *connect.Client[v1.ListReleasesRequest, v1.ListReleasesResponse]
 	createRelease        *connect.Client[v1.CreateReleaseRequest, v1.CreateReleaseResponse]
@@ -166,6 +195,16 @@ func (c *projectServiceClient) WhoOwns(ctx context.Context, req *connect.Request
 // PreviewCreateProject calls runko.v1.ProjectService.PreviewCreateProject.
 func (c *projectServiceClient) PreviewCreateProject(ctx context.Context, req *connect.Request[v1.PreviewCreateProjectRequest]) (*connect.Response[v1.PreviewCreateProjectResponse], error) {
 	return c.previewCreateProject.CallUnary(ctx, req)
+}
+
+// PreviewDeleteProject calls runko.v1.ProjectService.PreviewDeleteProject.
+func (c *projectServiceClient) PreviewDeleteProject(ctx context.Context, req *connect.Request[v1.PreviewDeleteProjectRequest]) (*connect.Response[v1.PreviewDeleteProjectResponse], error) {
+	return c.previewDeleteProject.CallUnary(ctx, req)
+}
+
+// DeleteProject calls runko.v1.ProjectService.DeleteProject.
+func (c *projectServiceClient) DeleteProject(ctx context.Context, req *connect.Request[v1.DeleteProjectRequest]) (*connect.Response[v1.DeleteProjectResponse], error) {
+	return c.deleteProject.CallUnary(ctx, req)
 }
 
 // CreateProject calls runko.v1.ProjectService.CreateProject.
@@ -193,6 +232,15 @@ type ProjectServiceHandler interface {
 	// UI can show them live while the form is being filled. Validation
 	// failures are INVALID_ARGUMENT with an ErrorDetail (§6.5).
 	PreviewCreateProject(context.Context, *connect.Request[v1.PreviewCreateProjectRequest]) (*connect.Response[v1.PreviewCreateProjectResponse], error)
+	// PreviewDeleteProject runs create's dual (§13.1, decided 2026-07-15)
+	// without applying: every operation DeleteProject would commit - the
+	// subtree's deletions plus each manifest stripped of its edges to the
+	// name. Refusals are INVALID_ARGUMENT/NOT_FOUND with an ErrorDetail.
+	PreviewDeleteProject(context.Context, *connect.Request[v1.PreviewDeleteProjectRequest]) (*connect.Response[v1.PreviewDeleteProjectResponse], error)
+	// DeleteProject applies the plan as one server-authored commit and
+	// registers an ordinary open Change through the normal gates. Agents
+	// are refused (agents_cannot_delete_projects).
+	DeleteProject(context.Context, *connect.Request[v1.DeleteProjectRequest]) (*connect.Response[v1.DeleteProjectResponse], error)
 	// CreateProject applies the plan as one commit and registers it as an
 	// ordinary open Change - trunk stays closed to direct writes (§6.9), so
 	// the project becomes real by LANDING that Change through the normal
@@ -240,6 +288,18 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 		connect.WithSchema(projectServiceMethods.ByName("PreviewCreateProject")),
 		connect.WithHandlerOptions(opts...),
 	)
+	projectServicePreviewDeleteProjectHandler := connect.NewUnaryHandler(
+		ProjectServicePreviewDeleteProjectProcedure,
+		svc.PreviewDeleteProject,
+		connect.WithSchema(projectServiceMethods.ByName("PreviewDeleteProject")),
+		connect.WithHandlerOptions(opts...),
+	)
+	projectServiceDeleteProjectHandler := connect.NewUnaryHandler(
+		ProjectServiceDeleteProjectProcedure,
+		svc.DeleteProject,
+		connect.WithSchema(projectServiceMethods.ByName("DeleteProject")),
+		connect.WithHandlerOptions(opts...),
+	)
 	projectServiceCreateProjectHandler := connect.NewUnaryHandler(
 		ProjectServiceCreateProjectProcedure,
 		svc.CreateProject,
@@ -268,6 +328,10 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 			projectServiceWhoOwnsHandler.ServeHTTP(w, r)
 		case ProjectServicePreviewCreateProjectProcedure:
 			projectServicePreviewCreateProjectHandler.ServeHTTP(w, r)
+		case ProjectServicePreviewDeleteProjectProcedure:
+			projectServicePreviewDeleteProjectHandler.ServeHTTP(w, r)
+		case ProjectServiceDeleteProjectProcedure:
+			projectServiceDeleteProjectHandler.ServeHTTP(w, r)
 		case ProjectServiceCreateProjectProcedure:
 			projectServiceCreateProjectHandler.ServeHTTP(w, r)
 		case ProjectServiceListReleasesProcedure:
@@ -297,6 +361,14 @@ func (UnimplementedProjectServiceHandler) WhoOwns(context.Context, *connect.Requ
 
 func (UnimplementedProjectServiceHandler) PreviewCreateProject(context.Context, *connect.Request[v1.PreviewCreateProjectRequest]) (*connect.Response[v1.PreviewCreateProjectResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ProjectService.PreviewCreateProject is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) PreviewDeleteProject(context.Context, *connect.Request[v1.PreviewDeleteProjectRequest]) (*connect.Response[v1.PreviewDeleteProjectResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ProjectService.PreviewDeleteProject is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) DeleteProject(context.Context, *connect.Request[v1.DeleteProjectRequest]) (*connect.Response[v1.DeleteProjectResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ProjectService.DeleteProject is not implemented"))
 }
 
 func (UnimplementedProjectServiceHandler) CreateProject(context.Context, *connect.Request[v1.CreateProjectRequest]) (*connect.Response[v1.CreateProjectResponse], error) {
