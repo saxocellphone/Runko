@@ -14,7 +14,7 @@ import (
 )
 
 func TestCmdProjectWrongSubcommandIsUsageError(t *testing.T) {
-	err := cmdProject([]string{"delete"})
+	err := cmdProject([]string{"destroy"})
 	if err == nil {
 		t.Fatalf("expected an error for an unrecognized project subcommand")
 	}
