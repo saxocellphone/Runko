@@ -325,3 +325,32 @@ func TestAPIDecidedAtCreation(t *testing.T) {
 		t.Fatalf("rest must scaffold openapi.yaml, got %+v", plan.Files)
 	}
 }
+
+// TestAPIIsForServingTypesOnly pins the 2026-07-15 refinement: grpc/rest
+// on library/job/other is invalid_combination (a library is consumed
+// through build deps, a job has no callers); app keeps the optional
+// opt-in; none stays valid everywhere.
+func TestAPIIsForServingTypesOnly(t *testing.T) {
+	for _, typ := range []string{"library", "job", "other"} {
+		for _, api := range []string{"grpc", "rest"} {
+			_, errs := PlanCreate(Intent{Name: "x-lib", Type: typ, API: api}, DefaultTemplates())
+			if len(errs) != 1 || errs[0].Code != "invalid_combination" {
+				t.Fatalf("%s + %s: want invalid_combination, got %v", typ, api, errs)
+			}
+		}
+		if _, errs := PlanCreate(Intent{Name: "x-lib", Type: typ, API: "none"}, DefaultTemplates()); len(errs) != 0 {
+			t.Fatalf("%s + none must pass, got %v", typ, errs)
+		}
+	}
+
+	plan, errs := PlanCreate(Intent{Name: "x-app", Type: "app", API: "grpc"}, DefaultTemplates())
+	if len(errs) != 0 {
+		t.Fatalf("app + grpc must pass, got %v", errs)
+	}
+	if !hasCapability(plan.EffectiveManifest.Capabilities, "rpc") {
+		t.Fatalf("app + grpc must scaffold the rpc capability: %v", plan.EffectiveManifest.Capabilities)
+	}
+	if _, errs := PlanCreate(Intent{Name: "x-app", Type: "app"}, DefaultTemplates()); len(errs) != 0 {
+		t.Fatalf("app without api must pass (optional), got %v", errs)
+	}
+}

@@ -202,7 +202,7 @@ func cmdProject(args []string) error {
 	template := fs.String("template", "", "template id (default: type's default template)")
 	capabilities := fs.String("capabilities", "", "comma-separated capabilities, e.g. http,rpc")
 	buildEngine := fs.String("build-engine", "", "build scaffold: bazel|vite|none (default by language: ts -> vite, else bazel; docs/design.md §14.5.5)")
-	api := fs.String("api", "", "contract surface: grpc|rest|none - required for --type service (docs/design.md §13.3.1)")
+	api := fs.String("api", "", "contract surface: grpc|rest|none - required for --type service, optional for app, unavailable elsewhere (docs/design.md §13.3.1)")
 	jsonOut := fs.Bool("json", false, "emit {name, path, rev} as JSON instead of a human summary")
 	// All flags, deliberately no positional <name> argument: the stdlib flag
 	// package stops parsing flags at the first positional token, so
