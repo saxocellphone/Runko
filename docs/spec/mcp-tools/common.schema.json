@@ -105,7 +105,8 @@
           "additionalProperties": false,
           "properties": {
             "declared": { "type": "array", "items": { "type": "string" }, "description": "Gates affected computation (§13.3)." },
-            "inferred": { "type": "array", "items": { "type": "string" }, "description": "Advisory-only, never gates merges (§13.3)." }
+            "inferred": { "type": "array", "items": { "type": "string" }, "description": "Advisory-only, never gates merges (§13.3)." },
+            "consumes": { "type": "array", "items": { "type": "string" }, "description": "§13.3.1 server/client edges: providers whose API contract this project is a client of. Contract-scoped closure - the client joins affected only when the provider's contract surface changes - distinct from build-grade declared dependencies." }
           }
         }
       },
