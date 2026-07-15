@@ -11,11 +11,15 @@ export function RailGraphRow({
   change,
   requirements,
   trunk,
+  terminal,
 }: {
   layout: StackLayout;
   rowIndex: number;
   change: ChangeSummary;
   trunk?: boolean;
+  // terminal: this row is the bottom of a rail with no trunk row below it,
+  // so the dot must not trail a connector into nothing.
+  terminal?: boolean;
   requirements?: MergeRequirements | undefined;
 }) {
   return (
@@ -34,7 +38,7 @@ export function RailGraphRow({
           {cell.kind === "dot" && (
             <>
               {cell.up && <span className="rg-v-top" />}
-              {cell.down && <span className="rg-v-bottom" />}
+              {cell.down && !terminal && <span className="rg-v-bottom" />}
               {cell.right && <span className="rg-h-right" />}
               <span className="rg-dot">
                 {trunk ? <TrunkIcon /> : <StatusDot requirements={requirements} state={change.state} />}
