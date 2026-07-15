@@ -94,7 +94,17 @@ func serverWorkspaces(ctx context.Context, client *http.Client, runkodURL, token
 // workspace bindings - the §12.7 adoption path for pre-registry layouts
 // (in-tree worktrees, per-task clones), and the proof the registry is a
 // rebuildable cache: truth is the worktrees' own runko.* config.
+// Adoption NEUTRALIZES the store first (found live on the finding #49
+// cleanup): a pre-§12.7 store embeds its creating agent's - long expired -
+// token in the origin URL, and the legacy no-double-auth rule then blocks
+// header injection, so the dead credential yields the anonymous
+// advertisement, refs/workspaces stays hidden, and every synced worktree
+// misdiagnoses as "no snapshot ref on the server". A store entering
+// lifecycle management gets the same retrofit create/attach would give it.
 func adoptFromStore(store, runkodURL string) error {
+	if err := neutralizeStoreRemote(store); err != nil {
+		return err
+	}
 	out, err := runGit(store, "worktree", "list", "--porcelain")
 	if err != nil {
 		return err
