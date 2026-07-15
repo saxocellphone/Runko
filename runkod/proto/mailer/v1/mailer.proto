@@ -1,0 +1,56 @@
+// runkod's mailer-facing contract (§13.3.1, §15.1): the invite-request
+// drain feed the runko-mailer service consumes - the first in-boundary
+// contract under the 2026-07-14 decision (sources here, generated Go
+// committed at ../gen/, consumers declare a dependency edge on runkod).
+// Operator-gated exactly like the REST drain it replaced: the rows carry
+// PII (emails) and the acks are writes. Retry, backoff, and dead-letter
+// state stay on the server row (the §14.4.1 outbox model); the mailer is
+// stateless and at-least-once.
+syntax = "proto3";
+
+package mailer.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1;mailerv1";
+
+// InviteFeedService is the drain surface: poll ListDue, attempt SMTP
+// delivery, ack MarkSent or MarkFailed. An unacked row simply comes due
+// again - crash-safe by construction.
+service InviteFeedService {
+  rpc ListDue(ListDueRequest) returns (ListDueResponse);
+  rpc MarkSent(MarkSentRequest) returns (AckResponse);
+  rpc MarkFailed(MarkFailedRequest) returns (AckResponse);
+}
+
+// InviteRequest mirrors runkod's due-feed row (runkod/invite.go).
+message InviteRequest {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  string message = 4;
+  int32 attempt = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListDueRequest {}
+
+message ListDueResponse {
+  repeated InviteRequest requests = 1;
+}
+
+message MarkSentRequest {
+  string id = 1;
+}
+
+message MarkFailedRequest {
+  string id = 1;
+  string error = 2; // empty is normalized server-side to an unspecified failure - "" means success to the store and must never pass through
+}
+
+message AckResponse {
+  string id = 1;
+  string status = 2; // pending|sent|failed|dead_letter (§14.4.1 lifecycle)
+  int32 attempt = 3;
+  google.protobuf.Timestamp next_attempt_at = 4;
+}

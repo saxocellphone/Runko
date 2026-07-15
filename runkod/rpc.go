@@ -36,6 +36,7 @@ import (
 	"github.com/saxocellphone/runko/platform/search"
 	runkov1 "github.com/saxocellphone/runko/proto/gen/runko/v1"
 	"github.com/saxocellphone/runko/proto/gen/runko/v1/runkov1connect"
+	"github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1/mailerv1connect"
 )
 
 // rpcServer implements all six runko.v1 service handler interfaces on one
@@ -62,6 +63,11 @@ func (s *Server) mountRPC(mux *http.ServeMux) {
 	mount(runkov1connect.NewWorkspaceServiceHandler(rpc))
 	mount(runkov1connect.NewSearchServiceHandler(rpc))
 	mount(runkov1connect.NewRepoServiceHandler(rpc))
+	// The invite feed (runkod/proto/mailer/v1, §13.3.1's first in-boundary
+	// contract) is operator-gated on top of the ordinary auth middleware:
+	// PII rows, write acks (invitefeed.go).
+	feedPath, feedHandler := mailerv1connect.NewInviteFeedServiceHandler(rpc)
+	mux.Handle(feedPath, s.rpcMiddleware(s.requireOperatorRPC(feedHandler)))
 }
 
 // publicReadProcedures is the §15.2 anonymous-read allowlist for the

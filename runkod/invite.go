@@ -11,7 +11,6 @@ package runkod
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -180,83 +179,7 @@ func (l *inviteLimiter) allow(key string, now time.Time) bool {
 	return true
 }
 
-// requireOperator gates the mailer's drain surface: the rows carry PII
-// (emails) and the acks are writes, so bot lanes, agents, and stored
-// accounts are all refused - only the deploy token and flag-configured
-// human principals (isOperator, orghub.go) pass.
-func (s *Server) requireOperator(next http.HandlerFunc) http.HandlerFunc {
-	return s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		c := s.callerForAuthHeader(r.Header.Get("Authorization"))
-		if c.lane != nil || !isOperator(c) {
-			writeAPIError(w, typedErr(http.StatusForbidden, clierr.Error{
-				Code: "operator_only", Field: "auth",
-				Message:    "invite requests are an operator surface",
-				Suggestion: "use the deploy token or an operator principal",
-			}))
-			return
-		}
-		next(w, r)
-	})
-}
-
-type inviteRequestView struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Message   string    `json:"message"`
-	Attempt   int       `json:"attempt"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-func (s *Server) handleListDueInviteRequests(w http.ResponseWriter, r *http.Request) {
-	reqs, err := s.Store.ListDueInviteRequests(r.Context(), time.Now())
-	if err != nil {
-		writeAPIError(w, internalErr(err))
-		return
-	}
-	views := make([]inviteRequestView, len(reqs))
-	for i, q := range reqs {
-		views[i] = inviteRequestView{
-			ID: q.ID, Name: q.Name, Email: q.Email, Message: q.Message,
-			Attempt: q.Attempt, CreatedAt: q.CreatedAt,
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"requests": views})
-}
-
-func (s *Server) ackInviteRequest(w http.ResponseWriter, r *http.Request, sendErr string) {
-	req, err := s.Store.RecordInviteSendResult(r.Context(), r.PathValue("id"), sendErr,
-		inviteBackoffBase, inviteBackoffMax, time.Now())
-	if errors.Is(err, errNoInviteRequest) {
-		writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
-			Code: "unknown_invite_request", Field: "id",
-			Message:    fmt.Sprintf("no invite request %q", r.PathValue("id")),
-			Suggestion: "re-poll GET /api/invite-requests/due",
-		}))
-		return
-	}
-	if err != nil {
-		writeAPIError(w, internalErr(err))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id": req.ID, "status": req.Status, "attempt": req.Attempt,
-		"next_attempt_at": req.NextAttemptAt,
-	})
-}
-
-func (s *Server) handleMarkInviteSent(w http.ResponseWriter, r *http.Request) {
-	s.ackInviteRequest(w, r, "")
-}
-
-func (s *Server) handleMarkInviteFailed(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Error string `json:"error"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Error == "" {
-		// A failure ack without a reason still fails the row: "" means
-		// success to the store, so it must never pass through.
-		body.Error = "unspecified mailer failure"
-	}
-	s.ackInviteRequest(w, r, body.Error)
-}
+// The drain surface (due feed + sent/failed acks) is served over Connect
+// from runkod's in-boundary contract - see invitefeed.go and
+// runkod/proto/mailer/v1 (§13.3.1). This file keeps the public intake and
+// the retry/backoff policy the RPC handlers share.
