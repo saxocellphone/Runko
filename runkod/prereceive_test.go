@@ -445,8 +445,8 @@ func TestProcessContractViolationRejectsPush(t *testing.T) {
 	}
 
 	repo.WriteFile("consumer/PROJECT.yaml",
-		"schema: project/v1\nname: consumer\ntype: service\ndependencies:\n  - provider\n")
-	repo.Commit("declare the edge")
+		"schema: project/v1\nname: consumer\ntype: service\nconsumes:\n  - provider\n")
+	repo.Commit("declare the client edge")
 	_, headSHA = pushCommit(t, repo, bare, "refs/for/main")
 	result = p.Process(context.Background(), RefUpdate{OldSHA: oldSHA, NewSHA: headSHA, Ref: "refs/for/main"}, nil)
 	if !result.Accepted {

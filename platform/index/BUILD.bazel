@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "index",
     srcs = [
+        "affectedinfo.go",
         "doc.go",
         "scan.go",
         "sync.go",
@@ -11,6 +12,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//internal/dbgen",
+        "//platform/affected",
         "//platform/core",
         "//platform/project",
         "@com_github_google_uuid//:uuid",

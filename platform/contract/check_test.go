@@ -57,12 +57,28 @@ func TestUndeclaredContractImportIsRefused(t *testing.T) {
 }
 
 func TestDeclaredEdgePermitsConsumption(t *testing.T) {
+	// dependencies (build-grade) sanctions the import ...
 	vs := Check(module, fixture(), []File{{
 		Path:    "runkod/rpc.go",
 		Content: goFile(module + "/proto/gen/runko/v1"),
 	}}, []string{"runkod/rpc.go"})
 	if len(vs) != 0 {
 		t.Fatalf("runkod declares proto; want no violations, got %v", vs)
+	}
+
+	// ... and consumes (the server/client edge) does too - the normal case.
+	projects := fixture()
+	for i := range projects {
+		if projects[i].Name == "mailer" {
+			projects[i].Consumes = []string{"runkod"}
+		}
+	}
+	vs = Check(module, projects, []File{{
+		Path:    "mailer/mailer.go",
+		Content: goFile(module + "/runkod/proto/gen/mailer/v1"),
+	}}, nil)
+	if len(vs) != 0 {
+		t.Fatalf("consumes edge must sanction the import, got %v", vs)
 	}
 }
 

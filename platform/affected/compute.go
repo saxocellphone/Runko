@@ -13,6 +13,9 @@ const (
 	ReasonDirectPath       = "direct_path"
 	ReasonDependsOn        = "depends_on"
 	ReasonRootInvalidation = "root_invalidation"
+	// ReasonConsumesContract marks a §13.3.1 client pulled in because a
+	// provider it consumes had its contract surface touched.
+	ReasonConsumesContract = "consumes_contract"
 )
 
 // Strictness values (§14.5.3). Conservative is the zero value/default:
@@ -30,6 +33,21 @@ type ProjectInfo struct {
 	Name                 string
 	Path                 string
 	DeclaredDependencies []string
+	// Consumes are §13.3.1's declared server/client edges: providers whose
+	// API contract this project is a client of. A consumes edge joins this
+	// project into the closure ONLY when the provider's contract surface
+	// (ContractPaths) changed - never for provider-internals changes - and
+	// consumes edges do not chain (being pulled in does not change this
+	// project's own contract). Consumers then participate in the ordinary
+	// dependent closure like any affected project.
+	Consumes []string
+	// ContractPaths are THIS project's contract-surface roots, repo-relative
+	// (§13.3.1): the rpc capability's path dir (prefix), the http
+	// capability's OpenAPI document, and the project manifest itself (fail
+	// closed - a manifest edit can move or reshape the surface). Empty when
+	// the project declares no contract; prefer index.AffectedProjectInfos
+	// over building these by hand.
+	ContractPaths []string
 }
 
 // ProjectRef is one affected project in a Result.
@@ -188,6 +206,35 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 		}
 	}
 
+	// §13.3.1 consumes edges: a provider whose CONTRACT SURFACE was touched
+	// pulls its declared clients into the seed (non-direct - their own
+	// paths didn't change, so §14.5.9 direct-only lanes still skip them).
+	// One hop by construction: joining the closure does not change the
+	// joiner's own contract, so consumes never chains; the ordinary
+	// dependent closure below continues from consumers as from anyone.
+	contractTouched := map[string]bool{}
+	for _, p := range projects {
+		if len(p.ContractPaths) == 0 {
+			continue
+		}
+		for _, cp := range paths {
+			if underAnyContractRoot(cp, p.ContractPaths) {
+				contractTouched[p.Name] = true
+				break
+			}
+		}
+	}
+	if len(contractTouched) > 0 {
+		for _, p := range projects {
+			for _, provider := range p.Consumes {
+				if contractTouched[provider] && !direct[p.Name] {
+					direct[p.Name] = false // presence in the map seeds the closure; false keeps it non-direct
+					reasons[ReasonConsumesContract] = true
+				}
+			}
+		}
+	}
+
 	affectedSet, sawDependent := closeOverDependents(projects, direct)
 	if sawDependent {
 		reasons[ReasonDependsOn] = true
@@ -201,7 +248,7 @@ func Compute(projects []ProjectInfo, changedPaths []string, opts Options) Result
 	sort.Slice(refs, func(i, j int) bool { return refs[i].Name < refs[j].Name })
 
 	var reasonList []string
-	for _, r := range []string{ReasonDirectPath, ReasonDependsOn, ReasonRootInvalidation} {
+	for _, r := range []string{ReasonDirectPath, ReasonDependsOn, ReasonRootInvalidation, ReasonConsumesContract} {
 		if reasons[r] {
 			reasonList = append(reasonList, r)
 		}
@@ -311,6 +358,21 @@ func findOwner(projects []ProjectInfo, changedPath string) (ProjectInfo, bool) {
 // closeOverDependents returns the transitive closure of direct plus every
 // project that (transitively) declares a dependency on a project in direct,
 // following reverse edges. Safe against dependency cycles.
+// underAnyContractRoot reports whether changedPath falls under any of the
+// contract-surface roots: each entry matches itself exactly (the OpenAPI
+// document, the manifest) or as a directory prefix (the rpc path dir).
+func underAnyContractRoot(changedPath string, roots []string) bool {
+	for _, r := range roots {
+		if r == "" {
+			continue
+		}
+		if changedPath == r || strings.HasPrefix(changedPath, r+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func closeOverDependents(projects []ProjectInfo, direct map[string]bool) (map[string]bool, bool) {
 	dependents := make(map[string][]string)
 	for _, p := range projects {

@@ -258,6 +258,8 @@ func TestScanContractSurfaces(t *testing.T) {
 		"capabilities:\n  - http\ncapability_config:\n  http:\n    openapi: api/openapi.yaml\n"))
 	repo.WriteFile("shop/api/openapi.yaml", "openapi: 3.1.0\n")
 	repo.WriteFile("plain/PROJECT.yaml", manifest("plain", "library", ""))
+	repo.WriteFile("mailer/PROJECT.yaml", manifest("mailer", "service",
+		"consumes:\n  - runkod\n"))
 	head := repo.Commit("contract surfaces")
 
 	store := gitstore.New(repo.Dir)
@@ -269,11 +271,14 @@ func TestScanContractSurfaces(t *testing.T) {
 	for _, p := range projects {
 		byName[p.Name] = p
 	}
-	if got := byName["runkod"].ContractGenDir; got != "runkod/proto/gen" {
-		t.Fatalf("runkod ContractGenDir = %q, want runkod/proto/gen", got)
+	if p := byName["runkod"]; p.ContractDir != "runkod/proto" || p.ContractGenDir != "runkod/proto/gen" {
+		t.Fatalf("runkod contract surface = %q/%q, want runkod/proto + runkod/proto/gen", p.ContractDir, p.ContractGenDir)
 	}
-	if got := byName["proto"].ContractGenDir; got != "proto/gen" {
-		t.Fatalf("proto ContractGenDir = %q, want proto/gen", got)
+	if p := byName["proto"]; p.ContractDir != "proto" || p.ContractGenDir != "proto/gen" {
+		t.Fatalf("proto contract surface = %q/%q, want proto + proto/gen", p.ContractDir, p.ContractGenDir)
+	}
+	if got := byName["mailer"].Consumes; len(got) != 1 || got[0] != "runkod" {
+		t.Fatalf("mailer Consumes = %v, want [runkod]", got)
 	}
 	if p := byName["billing"]; p.OpenAPIPath != "billing/openapi.yaml" || p.OpenAPIPresent {
 		t.Fatalf("billing = %+v, want default path, absent", p)

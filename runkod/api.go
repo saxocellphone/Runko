@@ -902,10 +902,7 @@ func (s *Server) computeAffected(change Change) (affected.Result, []index.Indexe
 	if err != nil {
 		return affected.Result{}, nil, fmt.Errorf("scan projects: %w", err)
 	}
-	projects := make([]affected.ProjectInfo, len(indexed))
-	for i, p := range indexed {
-		projects[i] = affected.ProjectInfo{Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies}
-	}
+	projects := index.AffectedProjectInfos(indexed)
 
 	base := change.BaseSHA
 	if base == "" {
@@ -1358,10 +1355,7 @@ func (s *Server) handleAffectedByPaths(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	projects := make([]affected.ProjectInfo, len(indexed))
-	for i, p := range indexed {
-		projects[i] = affected.ProjectInfo{Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies}
-	}
+	projects := index.AffectedProjectInfos(indexed)
 	rootInvalidation := index.RootInvalidation(indexed)
 	if s.Processor != nil {
 		rootInvalidation = append(rootInvalidation, s.Processor.RootInvalidationPatterns...)

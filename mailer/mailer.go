@@ -18,9 +18,10 @@ import (
 
 // RunkodClient speaks InviteFeedService - runkod's in-boundary contract
 // (runkod/proto/mailer/v1, §13.3.1) - with the deploy token (the feed is
-// operator-only). The generated-client import is exactly the declared
-// dependency edge mailer/PROJECT.yaml carries: a feed reshape now puts
-// this project in the affected closure instead of failing at runtime.
+// operator-only). The generated-client import is sanctioned by the
+// `consumes: [runkod]` edge mailer/PROJECT.yaml carries - the server/
+// client relationship, contract-scoped: a change under runkod/proto/**
+// puts this project in the affected closure; daemon internals don't.
 type RunkodClient struct {
 	feed mailerv1connect.InviteFeedServiceClient
 }

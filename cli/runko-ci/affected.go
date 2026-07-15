@@ -183,12 +183,7 @@ func computeFloor(repoDir, base, head string, rootInvalidationPatterns []string)
 	if err != nil {
 		return floorComputation{}, clierr.WrapRevisionError(fmt.Errorf("scan projects at %s: %w", head, err), "--head", head)
 	}
-	projects := make([]affected.ProjectInfo, len(indexed))
-	for i, p := range indexed {
-		projects[i] = affected.ProjectInfo{
-			Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies,
-		}
-	}
+	projects := index.AffectedProjectInfos(indexed)
 
 	changedPaths, err := diffPaths(repoDir, base, head)
 	if err != nil {

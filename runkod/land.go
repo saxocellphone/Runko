@@ -125,10 +125,7 @@ func (s *Server) attemptLand(ctx context.Context, change Change, scope land.Reva
 			}
 			opts.RootInvalidationPatterns = append(index.RootInvalidation(indexed), rootInvalidation...)
 			opts.ProsePatterns = index.Prose(indexed)
-			projects = make([]affected.ProjectInfo, len(indexed))
-			for i, p := range indexed {
-				projects[i] = affected.ProjectInfo{Name: p.Name, Path: p.Path, DeclaredDependencies: p.DeclaredDependencies}
-			}
+			projects = index.AffectedProjectInfos(indexed)
 		}
 		// else: trunk has no commits yet - no projects exist to scan,
 		// matching land.Land's own unborn-trunk bootstrap path below.

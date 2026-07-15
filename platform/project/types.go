@@ -56,14 +56,18 @@ type CICheck struct {
 // order matches the schema's example ordering, since yaml.Marshal preserves
 // struct field order.
 type Manifest struct {
-	Schema           string                  `yaml:"schema"`
-	Name             string                  `yaml:"name"`
-	Type             string                  `yaml:"type"`
-	Language         string                  `yaml:"language,omitempty"`
-	Owners           []string                `yaml:"owners,omitempty"`
-	Capabilities     []string                `yaml:"capabilities,omitempty"`
-	CapabilityConfig map[string]interface{}  `yaml:"capability_config,omitempty"`
-	Dependencies     []string                `yaml:"dependencies,omitempty"`
+	Schema           string                 `yaml:"schema"`
+	Name             string                 `yaml:"name"`
+	Type             string                 `yaml:"type"`
+	Language         string                 `yaml:"language,omitempty"`
+	Owners           []string               `yaml:"owners,omitempty"`
+	Capabilities     []string               `yaml:"capabilities,omitempty"`
+	CapabilityConfig map[string]interface{} `yaml:"capability_config,omitempty"`
+	Dependencies     []string               `yaml:"dependencies,omitempty"`
+	// Consumes are §13.3.1's server/client edges: providers whose declared
+	// API contract this project is a client of. Contract-scoped closure,
+	// unlike the build-grade Dependencies above.
+	Consumes         []string                `yaml:"consumes,omitempty"`
 	RootInvalidation []RootInvalidationEntry `yaml:"root_invalidation,omitempty"`
 	Prose            []string                `yaml:"prose,omitempty"`
 	Visibility       string                  `yaml:"visibility,omitempty"`
