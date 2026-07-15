@@ -90,7 +90,7 @@ func WorkspaceWatchSnapshot(dir, message, skipTree string) (ref, sha, tree strin
 			return "", "", "", fmt.Errorf("commit snapshot tree: %w", err)
 		}
 	}
-	if _, err := runGit(dir, "push", "origin", "+"+sha+":"+ref); err != nil {
+	if _, err := runGitNet(dir, "push", "origin", "+"+sha+":"+ref); err != nil {
 		return "", "", "", fmt.Errorf("push snapshot: %w", err)
 	}
 	return ref, sha, tree, nil
