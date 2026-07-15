@@ -93,6 +93,7 @@ func cmdServe(args []string) error {
 	databaseURL := fs.String("database-url", envString("DATABASE_URL", ""), "Postgres DSN for durable storage (default: in-memory Store, the §9.3 Eval/dev profile - lost on restart) [RUNKO_DATABASE_URL]")
 	rootInvalidation := fs.String("root-invalidation", envString("ROOT_INVALIDATION", ""), "comma-separated root-invalidation glob patterns (org policy, §14.5.2) [RUNKO_ROOT_INVALIDATION]")
 	landIdentity := fs.String("land-identity", envString("LAND_IDENTITY", "Runko <runko@localhost>"), "'Name <email>' stamped as BOTH author and committer on every LANDED commit (§7.5) - trunk and the outbound mirror carry a uniform identity; per-author attribution lives in Runko's authored_by/landed_by, not git. Set your deployment host here, e.g. 'Runko <runko@runko.example.com>' [RUNKO_LAND_IDENTITY]")
+	revalidation := fs.String("revalidation", envString("REVALIDATION", string(land.RevalidationConflictOnly)), "§13.5 revalidation tier: conflict-only (default - green changes whose rebase is clean land with zero re-runs, the Gerrit model) | affected-intersection (re-run when the trunk delta intersects the change's affected closure) | always. An org's stored revalidation_policy setting overrides this [RUNKO_REVALIDATION]")
 	globalChecks := fs.String("global-required-checks", envString("GLOBAL_REQUIRED_CHECKS", ""), "comma-separated org-level check names required on EVERY change (§14.9, e.g. secrets-scan) [RUNKO_GLOBAL_REQUIRED_CHECKS]")
 	allowSignup := fs.Bool("allow-signup", envBool("ALLOW_SIGNUP"), "enable self-service sign-up (POST /api/signup, §15.1) - default off [RUNKO_ALLOW_SIGNUP]")
 	signupCode := fs.String("signup-code", envString("SIGNUP_CODE", ""), "invite code sign-ups must present (only meaningful with --allow-signup) [RUNKO_SIGNUP_CODE]")
@@ -150,6 +151,14 @@ func cmdServe(args []string) error {
 	landID, err := land.ParseIdentity(*landIdentity)
 	if err != nil {
 		return fmt.Errorf("serve: --land-identity: %w", err)
+	}
+	revalidationScope := land.RevalidationScope(*revalidation)
+	switch revalidationScope {
+	case land.RevalidationConflictOnly, land.RevalidationAffectedIntersection, land.RevalidationAlways:
+	default:
+		// "never" included: it is the admin force override, not a policy
+		// tier (§13.5, 2026-07-15).
+		return fmt.Errorf("serve: --revalidation must be one of conflict-only | affected-intersection | always, got %q", *revalidation)
 	}
 
 	var scanner receive.SecretScanner
@@ -270,6 +279,7 @@ func cmdServe(args []string) error {
 		Principals:               principals,
 		Mirror:                   mirrorWorker,
 		LandIdentity:             landID,
+		Revalidation:             revalidationScope,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -358,6 +368,7 @@ func cmdServe(args []string) error {
 				Principals:               principals,
 				Mirror:                   orgMirror,
 				LandIdentity:             landID,
+				Revalidation:             revalidationScope,
 			}
 			// Each org gets its own when-ready land worker, same as the
 			// root server's (NewOrgServer is called once per org - the

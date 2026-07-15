@@ -48,9 +48,11 @@ type Outcome struct {
 //  1. Resolve the current trunk tip.
 //  2. If trunk hasn't moved since the Change's base, fast-forward trunk to
 //     changeHead directly (no rebase needed).
-//  3. Otherwise, compute the trunk delta's affected projects (using the same
-//     affectedOpts - root-invalidation patterns, strictness - the org
-//     configures for regular affected computation) and decide via
+//  3. Otherwise, when the configured tier consults the trunk delta at all
+//     (affected-intersection/always - the default conflict-only tier never
+//     does, §13.5 2026-07-15), compute the delta's affected projects (using
+//     the same affectedOpts - root-invalidation patterns, strictness - the
+//     org configures for regular affected computation) and decide via
 //     NeedsRevalidation whether checks must be re-run; if so, stop here
 //     without landing.
 //  4. Otherwise, rebase (§Rebase) onto the new tip; if clean, commit the
@@ -116,13 +118,19 @@ func Land(
 		return Outcome{}, fmt.Errorf("land: trunk %s has no commits yet, but the change's base %q is neither empty nor resolvable", trunkRefName, oldBase)
 	}
 
-	trunkDeltaPaths, err := diffPaths(repoDir, oldBase, string(trunkTip))
-	if err != nil {
-		return Outcome{}, err
-	}
-	trunkDelta := affected.Compute(projects, trunkDeltaPaths, affectedOpts)
-	if NeedsRevalidation(scope, changeAffected, trunkDelta) {
-		return Outcome{RequiresRevalidation: true}, nil
+	// The trunk delta is only consulted by the tiers that reason about it
+	// (affected-intersection, always) - under the default conflict-only
+	// tier the diff + project scan per attempt would be pure waste (§13.5,
+	// 2026-07-15).
+	if NeedsTrunkDelta(scope) {
+		trunkDeltaPaths, err := diffPaths(repoDir, oldBase, string(trunkTip))
+		if err != nil {
+			return Outcome{}, err
+		}
+		trunkDelta := affected.Compute(projects, trunkDeltaPaths, affectedOpts)
+		if NeedsRevalidation(scope, changeAffected, trunkDelta) {
+			return Outcome{RequiresRevalidation: true}, nil
+		}
 	}
 
 	rebased, err := Rebase(repoDir, oldBase, string(trunkTip), changeHead)

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/saxocellphone/runko/internal/gitfixture"
+	"github.com/saxocellphone/runko/platform/land"
 )
 
 const (
@@ -469,6 +470,9 @@ func TestClientPushToChangeRefsNamespaceIsRejected(t *testing.T) {
 // bPath), lands an unrelated change on interveningPath FIRST (so the parent A
 // rebase-lands, changing its SHA), lands A, then returns B's land outcome.
 // interveningPath is kept disjoint from A's project so A itself lands cleanly.
+// The server runs the OPT-IN affected-intersection tier: these fixtures pin
+// the 2026-07-13 stacked-land semantics under the tier they were decided
+// for; the conflict-only default (2026-07-15) lands both scenarios.
 func landStackWithIntervening(t *testing.T, aPath, bPath, interveningPath string) (landDecision, *apiError) {
 	t.Helper()
 	bare := newBareRepo(t)
@@ -481,7 +485,7 @@ func landStackWithIntervening(t *testing.T, aPath, bPath, interveningPath string
 	trunk0 := repo.Commit("initial")
 	pushCommit(t, repo, bare, "refs/heads/main")
 	p := newTestProcessor(bare, store)
-	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: p, AllowUnpolicedLand: true}
+	srv := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: p, AllowUnpolicedLand: true, Revalidation: land.RevalidationAffectedIntersection}
 
 	repo.WriteFile(aPath, "a\n")
 	repo.Commit("change A\n\nChange-Id: " + stackIDA)

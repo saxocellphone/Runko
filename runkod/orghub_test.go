@@ -659,3 +659,32 @@ func TestAdminPanelAndOrgArchive(t *testing.T) {
 		t.Fatalf("store-account whoami should not be operator: %d %v", status, body)
 	}
 }
+
+// The org revalidation_policy setting (§13.5, 2026-07-15): valid tiers
+// store and resolve; "never" (the admin force override) and garbage are
+// refused at write time.
+func TestOrgRevalidationPolicySetting(t *testing.T) {
+	srv, _ := newTestHub(t, true)
+	hubSignup(t, srv, "alice", "alicepw123")
+	if status, _ := hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}); status != http.StatusCreated {
+		t.Fatalf("create acme failed")
+	}
+
+	status, body := hubDo(t, srv, "PUT", "/api/orgs/acme/settings", "alice", "alicepw123", "",
+		map[string]any{"revalidation_policy": "affected-intersection"})
+	if status != http.StatusOK {
+		t.Fatalf("valid tier refused: %d %v", status, body)
+	}
+	status, body = hubDo(t, srv, "GET", "/api/orgs/acme/settings", "alice", "alicepw123", "", nil)
+	if status != http.StatusOK || body["settings"].(map[string]any)["revalidation_policy"] != "affected-intersection" {
+		t.Fatalf("tier did not persist: %d %v", status, body)
+	}
+
+	for _, bad := range []string{"never", "sometimes"} {
+		status, body = hubDo(t, srv, "PUT", "/api/orgs/acme/settings", "alice", "alicepw123", "",
+			map[string]any{"revalidation_policy": bad})
+		if status != http.StatusBadRequest || body["Code"] != "invalid_revalidation_policy" {
+			t.Fatalf("%q should be refused: %d %v", bad, status, body)
+		}
+	}
+}

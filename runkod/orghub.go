@@ -32,6 +32,7 @@ import (
 	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/platform/core"
 	"github.com/saxocellphone/runko/platform/index"
+	"github.com/saxocellphone/runko/platform/land"
 	"regexp"
 	"sort"
 	"strings"
@@ -93,6 +94,12 @@ type OrgSettings struct {
 	// GlobalRequiredChecks are required on EVERY change in this org
 	// (§14.9), merged with the daemon-level --global-required-checks.
 	GlobalRequiredChecks []string `json:"global_required_checks,omitempty"`
+	// RevalidationPolicy is the org's §13.5 revalidation tier
+	// (conflict-only | affected-intersection | always; "" defers to the
+	// daemon flag, then the conflict-only default - 2026-07-15). "never"
+	// is refused at write time: it is the admin force override, not a
+	// policy.
+	RevalidationPolicy string `json:"revalidation_policy,omitempty"`
 	// PublicRead opts this org in to anonymous READ access (§15.2, decided
 	// 2026-07-09): git upload-pack, the REST GET allowlist, and the read
 	// RPCs - never writes, workspaces, settings, or members. Enabling it
@@ -846,6 +853,17 @@ func (h *OrgHub) handlePutOrgSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settings.GlobalRequiredChecks = checks
+	switch settings.RevalidationPolicy {
+	case "", string(land.RevalidationConflictOnly), string(land.RevalidationAffectedIntersection), string(land.RevalidationAlways):
+		// valid tiers (§13.5, 2026-07-15); "" defers to the daemon flag
+	default:
+		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "invalid_revalidation_policy", Field: "revalidation_policy",
+			Message:    fmt.Sprintf("%q is not a revalidation tier", settings.RevalidationPolicy),
+			Suggestion: "one of conflict-only | affected-intersection | always (never is the admin force override, not a policy)",
+		}))
+		return
+	}
 	// public_read + visibility:restricted are mutually exclusive until
 	// §12.3 Phase B (per-principal filtered fetch) exists - fail closed at
 	// enable time rather than leaking a restricted project anonymously.
