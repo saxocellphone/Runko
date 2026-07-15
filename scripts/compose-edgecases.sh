@@ -97,7 +97,7 @@ push_change() { # prints the Change-Id
 }
 
 step "seed: create project, land it"
-"$BIN/runko" project create --name checkout-api --type service --owners group:commerce-eng >/dev/null
+"$BIN/runko" project create --name checkout-api --type service --api none --owners group:commerce-eng >/dev/null
 gate_and_land "$(push_change)"
 git fetch -q origin main && git reset -q --hard FETCH_HEAD
 PROJECT_DIR=$(dirname "$(git ls-files | grep PROJECT.yaml | head -1)")
