@@ -83,6 +83,19 @@ export function ProjectPage() {
           </dd>
 
           <dt>
+            Consumes
+            <InfoTip text="APIs this project is a client of (server/client edges, declared in PROJECT.yaml). Contract-scoped: this project re-tests when a provider's contract surface changes - its proto dir or OpenAPI document - never for the provider's internals." />
+          </dt>
+          <dd className="chip-row">
+            {(p.dependencies?.consumes.length ?? 0) === 0 && <span className="chip">none</span>}
+            {p.dependencies?.consumes.map((d) => (
+              <Link className="chip" key={d} to={`/projects/${d}`}>
+                {d} ⇄
+              </Link>
+            ))}
+          </dd>
+
+          <dt>
             Inferred deps
             <InfoTip text="Dependencies guessed by scanning imports, shown as suggestions to promote to declared. Advisory only - unlike declared deps, these never block a merge or trigger a re-run." />
           </dt>
