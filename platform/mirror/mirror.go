@@ -16,6 +16,10 @@
 //	Gitea / Forgejo                   -> any non-empty string
 //	Bitbucket Cloud app password      -> the account username
 //
+// The password half is either a static Token or a per-invocation
+// TokenSource for short-lived credentials (GitHub App installation
+// tokens, minted in the githubapp project - never here).
+//
 // Where providers genuinely diverge - inbound webhooks, PR-merge ingestion
 // as external Changes (§18.6.3), commit statuses - is M2's Provider seam,
 // deliberately NOT modeled here yet (docs/mirror.md records the shape).
@@ -47,6 +51,13 @@ type Remote struct {
 	// Empty means no auth is injected (ssh remotes, path remotes, public
 	// push targets behind other auth).
 	Token string
+	// TokenSource, when set, supplies the basic-auth password per git
+	// invocation instead of the static Token - for short-lived
+	// credentials (GitHub App installation tokens expire hourly). It is
+	// a plain func by design: the provider-specific minting lives
+	// elsewhere (the githubapp project), this package stays git-wire-only.
+	// The Username convention above still applies.
+	TokenSource func() (string, error)
 }
 
 func (r *Remote) username() string {
@@ -57,23 +68,40 @@ func (r *Remote) username() string {
 }
 
 // env returns the git env-borne config injecting the Authorization header
-// for https remotes - nil when no token applies.
-func (r *Remote) env() []string {
-	if r.Token == "" || !strings.HasPrefix(r.URL, "https://") {
-		return nil
+// for https remotes - nil when no token applies. A TokenSource that fails
+// fails the git invocation: the caller's retry loop (debounce + reconcile)
+// re-drives it, and a broken mirror never blocks anything else (§18.6).
+func (r *Remote) env() ([]string, error) {
+	if !strings.HasPrefix(r.URL, "https://") {
+		return nil, nil
 	}
-	basic := base64.StdEncoding.EncodeToString([]byte(r.username() + ":" + r.Token))
+	token := r.Token
+	if r.TokenSource != nil {
+		t, err := r.TokenSource()
+		if err != nil {
+			return nil, fmt.Errorf("mirror token source: %w", err)
+		}
+		token = t
+	}
+	if token == "" {
+		return nil, nil
+	}
+	basic := base64.StdEncoding.EncodeToString([]byte(r.username() + ":" + token))
 	return []string{
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=http.extraHeader",
 		"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
-	}
+	}, nil
 }
 
 func (r *Remote) git(args ...string) (string, error) {
+	env, err := r.env()
+	if err != nil {
+		return "", err
+	}
 	cmd := exec.Command("git", args...)
 	cmd.Dir = r.RepoDir
-	cmd.Env = append(os.Environ(), r.env()...)
+	cmd.Env = append(os.Environ(), env...)
 	var out, errBuf strings.Builder
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
