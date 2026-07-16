@@ -89,13 +89,16 @@ origin claim from the worktree's own config.
 jj is SURGICAL-ONLY (§21, repositioned 2026-07-11): the basic loop -
 create/push/land/snapshot - is runko in every checkout. Reach for jj
 when you need mid-stack rework (`jj edit`/`jj squash`; descendants
-auto-rebase), `jj split`, or history diagnosis. If you do want a
-colocated checkout (they cannot live inside git worktrees): clone with
-`jj git clone --colocate <remote>`, run `runko doctor --install-hook`
-(wires Change-Id trailers to jj change ids), then bind it:
-`git config runko.workspace <id>` + `git config runko.branch head`.
-Fetch with plain `git fetch origin` (jj's own fetch fails SILENTLY on
-URL-embedded basic auth), rebase with `jj rebase -d 'main@origin'`.
+auto-rebase), `jj split`, or history diagnosis. If you want a colocated
+checkout, runko sets it up (2026-07-16, §12.7): pass `--jj` to
+`workspace create` or `attach` - a STANDALONE full clone (jj cannot
+colocate inside a git worktree), trailer template + binding + hooks all
+wired; no `--clone-dir` (there is no shared store in this mode). In it,
+`workspace snapshot` is automatically out-of-band and `workspace
+branch` refuses (a parallel line = a second checkout via
+`attach --jj --branch <name>`). Fetch with plain `git fetch origin`
+(jj's own fetch fails SILENTLY on URL-embedded basic auth); sync is
+`runko workspace sync` as everywhere (jj-aware rebase).
 
 ## The loop
 
