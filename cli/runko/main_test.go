@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/saxocellphone/runko/internal/gitfixture"
+	"github.com/saxocellphone/runko/platform/agentsmd"
 )
 
 func TestCmdProjectWrongSubcommandIsUsageError(t *testing.T) {
@@ -164,6 +165,14 @@ func TestCmdAgentsMDWritesFile(t *testing.T) {
 	if !strings.Contains(string(content), "runko doctor") {
 		t.Fatalf("expected the generated command inventory, got:\n%s", content)
 	}
+
+	skill, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(agentsmd.SkillPath)))
+	if err != nil {
+		t.Fatalf("expected the agent skill to be written alongside AGENTS.md: %v", err)
+	}
+	if !strings.HasPrefix(string(skill), "---\nname: runko\n") {
+		t.Fatalf("expected the skill to open with frontmatter, got:\n%.120s", skill)
+	}
 }
 
 func TestCmdAgentsMDJSONOutput(t *testing.T) {
@@ -183,15 +192,23 @@ func TestCmdAgentsMDJSONOutput(t *testing.T) {
 	if result["path"] != filepath.Join(dir, "AGENTS.md") {
 		t.Fatalf("expected path in JSON output, got %+v", result)
 	}
+	if result["skill_path"] != filepath.Join(dir, filepath.FromSlash(agentsmd.SkillPath)) {
+		t.Fatalf("expected skill_path in JSON output, got %+v", result)
+	}
 }
 
 func TestCmdAgentsMDCustomOut(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := cmdAgentsMD([]string{"--repo", dir, "--out", "SKILL.md"}); err != nil {
+	if err := cmdAgentsMD([]string{"--repo", dir, "--out", "TEACHING.md"}); err != nil {
 		t.Fatalf("cmdAgentsMD: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "TEACHING.md")); err != nil {
 		t.Fatalf("expected --out to control the written filename: %v", err)
+	}
+	// --out moves AGENTS.md only; the skill's location is part of how
+	// harnesses discover it and stays fixed relative to --repo.
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(agentsmd.SkillPath))); err != nil {
+		t.Fatalf("expected the skill at its fixed path regardless of --out: %v", err)
 	}
 }

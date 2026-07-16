@@ -78,6 +78,7 @@ go_test(
     deps = [
         "//internal/clierr",
         "//internal/gitfixture",
+        "//platform/agentsmd",
         "//platform/checks",
         "//platform/land",
         "//platform/project",

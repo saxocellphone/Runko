@@ -104,7 +104,7 @@ commands (operate on the local repo only):
   doctor                          check remotes/hooks, print a cheat-sheet (§6.9) [--json]
   project create --name <n> ...   create a project from an intent, on top of HEAD (§10.1) [--json]
   change push                     push HEAD to refs/for/<trunk> for review (§11.5) [--json]
-  agents-md                       (re)generate AGENTS.md teaching this CLI to agents (§8.8) [--json]
+  agents-md                       (re)generate AGENTS.md + the agent skill (.claude/skills/runko/) teaching this CLI to agents (§8.8) [--json]
   self-update [--check]           replace this binary with the rolling cli-latest GitHub release build, checksum-verified (§17.1) [--json]
 
 commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
@@ -1156,16 +1156,18 @@ func cmdWorkspace(args []string) error {
 	}
 }
 
-// cmdAgentsMD implements `runko agents-md`: (re)write AGENTS.md at the repo
-// root from agentsmd.Generate() - §8.8's "reference prompts / skill files
-// ... generated per monorepo", stage 11's (§28.3) done-when bar. Overwrites
+// cmdAgentsMD implements `runko agents-md`: (re)write both generated agent
+// teaching surfaces - AGENTS.md at the repo root and the loadable skill at
+// agentsmd.SkillPath - from the same command inventory (§8.8's "reference
+// prompts / skill files ... generated per monorepo", stage 11's (§28.3)
+// done-when bar; org genesis seeds the identical pair). Overwrites
 // unconditionally, matching how sqlc/oapi-codegen generated files in this
 // repo are treated: regenerate, don't hand-edit.
 func cmdAgentsMD(args []string) error {
 	fs := flag.NewFlagSet("agents-md", flag.ExitOnError)
 	repoDir := fs.String("repo", ".", "path to the local repo")
 	out := fs.String("out", "AGENTS.md", "output path, relative to --repo unless absolute")
-	jsonOut := fs.Bool("json", false, "emit {path} as JSON instead of a human summary")
+	jsonOut := fs.Bool("json", false, "emit {path,skill_path} as JSON instead of a human summary")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -1177,10 +1179,17 @@ func cmdAgentsMD(args []string) error {
 	if err := os.WriteFile(path, []byte(agentsmd.Generate()), 0o644); err != nil {
 		return fmt.Errorf("agents-md: write %s: %w", path, err)
 	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(map[string]string{"path": path})
+	skillPath := filepath.Join(*repoDir, filepath.FromSlash(agentsmd.SkillPath))
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
+		return fmt.Errorf("agents-md: mkdir %s: %w", filepath.Dir(skillPath), err)
 	}
-	fmt.Printf("generated %s\n", path)
+	if err := os.WriteFile(skillPath, []byte(agentsmd.GenerateSkill()), 0o644); err != nil {
+		return fmt.Errorf("agents-md: write %s: %w", skillPath, err)
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"path": path, "skill_path": skillPath})
+	}
+	fmt.Printf("generated %s and %s\n", path, skillPath)
 	return nil
 }
 
