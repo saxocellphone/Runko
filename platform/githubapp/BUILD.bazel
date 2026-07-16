@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "githubapp",
+    srcs = ["githubapp.go"],
+    importpath = "github.com/saxocellphone/runko/platform/githubapp",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "githubapp_test",
+    srcs = ["githubapp_test.go"],
+    embed = [":githubapp"],
+)

@@ -23,6 +23,7 @@ there).
 | `agentsmd/` | the generated agent teaching surfaces: `AGENTS.md` + the loadable skill (§8.8) |
 | `search/` | Zoekt code-search integration — a process, not a library (§9) |
 | `mirror/` | outbound mirror to any git host, git wire protocol only ([`docs/mirror.md`](../docs/mirror.md), §18) |
+| `githubapp/` | GitHub App installation-token minting (stdlib RS256): the deployment-wide credential that replaces per-org PATs for mirror pushes and `runko-bridge` dispatch |
 | `core/` | shared interfaces (`MonorepoStore`, …) |
 
 ## Decided constraints (do not re-litigate)
@@ -82,3 +83,15 @@ New decisions land here as dated entries (repo-wide ones go in the root
 
 - **2026-07-16** — this README becomes the project's living spec;
   `docs/design.md` is retired and frozen (see [`docs/README.md`](../docs/README.md)).
+- **2026-07-16** — **GitHub App auth for the GitHub integration plane**
+  (`githubapp/`): one deployment-wide App credential (app id + private
+  key) replaces per-org PATs; per-org GitHub setup shrinks to
+  "install the App on the mirror repo". Installation tokens are minted
+  on demand via a stdlib-only RS256 App JWT (no new dependencies),
+  cached, and refreshed before their one-hour expiry; they serve both
+  Bearer REST auth (`repository_dispatch`) and `x-access-token` git
+  pushes. `mirror/` stays git-wire-only: it gained an injected
+  `TokenSource func() (string, error)` and never imports the minting
+  package; a failed mint fails that one git call and the worker's
+  reconcile loop re-drives it. Static `token=` config always wins over
+  App auth; PATs remain fully supported.
