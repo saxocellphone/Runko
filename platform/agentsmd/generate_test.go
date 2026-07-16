@@ -43,6 +43,38 @@ func TestGenerateIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestGenerateSkillWrapsGenerate: the skill is Generate()'s body under
+// loadable-skill frontmatter - byte-identical below the divider, so the two
+// teaching surfaces cannot drift apart.
+func TestGenerateSkillWrapsGenerate(t *testing.T) {
+	got := GenerateSkill()
+	if !strings.HasPrefix(got, "---\nname: runko\n") {
+		t.Fatalf("expected skill frontmatter to open with the skill name, got:\n%s", got[:min(len(got), 120)])
+	}
+	// Frontmatter = everything through the second "---" line; exactly one
+	// name and one single-line description between the markers.
+	rest, ok := strings.CutPrefix(got, "---\n")
+	if !ok {
+		t.Fatalf("expected the skill to open a frontmatter block")
+	}
+	front, body, ok := strings.Cut(rest, "---\n")
+	if !ok {
+		t.Fatalf("expected the skill frontmatter block to close")
+	}
+	if !strings.Contains(front, "\ndescription: ") {
+		t.Fatalf("expected a description: line in the skill frontmatter, got:\n%s", front)
+	}
+	if strings.TrimPrefix(body, "\n") != Generate() {
+		t.Fatalf("expected the skill body to be Generate()'s output verbatim")
+	}
+}
+
+func TestSkillPathIsProjectScoped(t *testing.T) {
+	if !strings.HasPrefix(SkillPath, ".claude/skills/") || !strings.HasSuffix(SkillPath, "/SKILL.md") {
+		t.Fatalf("SkillPath %q is not a harness-discoverable skill location", SkillPath)
+	}
+}
+
 // baseCommand strips flags/usage args off a Usage string, e.g.
 // "project create --name <n> --type <t>" -> "project create". Looks for
 // " --" or " [" (flag markers preceded by a space) rather than a bare "-",
