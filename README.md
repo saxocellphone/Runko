@@ -21,8 +21,11 @@ exact commit is fetchable here too).
 ![Reviewing a change on the public instance: diff, stack, and merge gates](docs/images/change-review.png)
 
 Git is the only storage substrate — Postgres holds a rebuildable index of
-trunk, never a second source of truth. The full design is in
-[`docs/design.md`](docs/design.md).
+trunk, never a second source of truth. Each project directory carries a
+`README.md` that is its spec surface — what it owns, its decided
+constraints, and a dated Decisions section; the original design spec,
+[`docs/design.md`](docs/design.md), is frozen as the historical record
+(see [`docs/README.md`](docs/README.md) for the documentation model).
 
 ## How changes land here
 
@@ -40,8 +43,7 @@ and everything it surfaced is recorded in
 ## Status
 
 Working end-to-end and in daily use by its own development (which is the
-current test of record). The build plan lives in `docs/design.md` §28; the
-per-stage engineering history is
+current test of record). The per-stage engineering history is
 [`docs/implementation-log.md`](docs/implementation-log.md). Implemented: the
 `runkod` daemon (smart-HTTP git, receive funnel, REST + Connect APIs,
 merge gates, automerge, multi-org, outbound mirror), the `runko`/`runko-ci`
@@ -57,18 +59,21 @@ edges; hardening findings land as ordinary changes.
 
 ## Repository layout
 
+Every project folder has a `README.md` — start there.
+
 ```
-docs/design.md      the full design spec
-docs/spec/          schema artifacts (PROJECT.yaml, MCP tool catalog, webhook/CheckRun schemas)
+docs/               the frozen design spec + histories, contract schemas (docs/spec/),
+                    the CLI output contract (docs/cli-contract.md)
 db/                 Postgres DDL (db/migrations) and sqlc queries (db/queries)
 internal/           shared internals (gitstore, gitfixture test harness, sqlc output)
 platform/           control-plane libraries: receive, land, affected, checks,
                     index, project templates, search, mirror, build adapters, MCP
-runkod/             the daemon: pre-receive processor, smart-HTTP, REST + Connect APIs
+runkod/             the daemon: pre-receive processor, smart-HTTP, REST + Connect APIs;
+                    runkod/proto/ is its Connect contract (web <-> runkod), gen committed
 runkod/cmd/         runkod and runko-bridge (webhook -> GitHub Actions shim) entrypoints
 watchdog/           runko-watchdog, the CI reconciler: force-reports finished-but-unreported
                     runs, one rescue rerun for lost dispatches
-proto/runko/v1/     Connect/gRPC schema (web <-> runkod); proto/gen/ is its generated Go
+mailer/             runko-mailer, the invite-request notifier (SMTP over the operator feed)
 web/                web UI (React + TypeScript + Vite + Connect-ES)
 cli/runko/          human/agent-facing CLI
 cli/runko-ci/       CI-facing CLI
@@ -167,6 +172,19 @@ end-to-end eval loop).
 Pull requests cannot be merged on GitHub — this repo is a mirror, and a
 divergent `main` would freeze it. Issues and discussion are welcome here;
 code changes go through review on the Runko instance.
+
+## Decisions (repo-wide)
+
+Decisions scoped to a single project are recorded in that project's
+`README.md`; entries here are the ones that cross project boundaries.
+The record through 2026-07-16 is [`docs/design.md`](docs/design.md)'s
+frozen changelog.
+
+- **2026-07-16** — the centralized spec is retired: `docs/design.md` is
+  frozen as the historical record and each project's `README.md`
+  becomes its living spec surface, with dated Decisions sections
+  replacing the central changelog
+  ([`docs/README.md`](docs/README.md) documents the model).
 
 ## License
 
