@@ -1,0 +1,8 @@
+# Path ownership (§7.3): the nearest OWNERS file up the tree applies
+# wherever a PROJECT.yaml names no owners itself. No manifest in this
+# repo declares owners, so this is the org-wide default - the §6.10
+# genesis shape, retrofitted to the runko org itself (2026-07-16).
+# Consequence: agent-authored changes need an explicit approval from a
+# name below before landing (§8.7 - agents never self-satisfy); human
+# owner-authors self-satisfy by pushing (uploader consent, §6.10).
+admin

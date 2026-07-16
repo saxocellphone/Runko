@@ -38,6 +38,7 @@ that declares no registered workspace origin. The model:
 | `runko doctor [--install-hook] [--json]` | check remotes/hooks, print a cheat-sheet (§6.9) | `DoctorReport` |
 | `runko project create --name <n> --type <t> [--lang l] [--no-template] [--owners a,b] [--json]` | create a project from an intent (§10.1); --lang: go|python|ts|rust|java|cpp, others need --no-template | `{"name","path","rev"}` |
 | `runko project list --runkod-url <url> --token <t> [--json]` | list projects indexed at trunk (§10.3) - needs a live runkod | `[]IndexedProject` |
+| `runko project delete --name <p> [--json]` | open the deletion change: subtree removed, every other manifest's edges to it stripped (§13.1) - needs a live runkod | `{"change_id","title"}` |
 | `runko change push [--remote origin] [--trunk main] [--no-sync] [--json]` | ensure a Change-Id trailer, auto-sync a stale base onto the trunk tip, push to refs/for/<trunk> (§11.5) | `{"change_id","ref"}` |
 | `runko change land --change <id> --runkod-url <url> --token <t> [--json]` | land a mergeable change (§13.5) - on requires_revalidation it syncs, re-pushes, waits for checks, retries - needs a live runkod | `land.Outcome` |
 | `runko change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t> [--json]` | record a required owner's approval (§13.5) - needs a live runkod | `MergeRequirements` |
@@ -45,16 +46,18 @@ that declares no registered workspace origin. The model:
 | `runko change abandon --change <id> --runkod-url <url> --token <t> [--json]` | abandon an open change (§7.4) - needs a live runkod | `ChangeInfo` |
 | `runko change describe [--change <Id>] [--description <text>] [--test-plan <text>] [--json]` | set the §8.6 summary on an open change (default: HEAD's Change-Id): what it does and how it was verified - agents SHOULD set this after push; shows on the change page, feeds release changelogs; an omitted flag preserves the stored value, an explicit "" clears - needs a live runkod | `ChangeInfo` |
 | `runko change rerun-check --change <id> --name <check> --runkod-url <url> --token <t> [--json]` | reset a required check to queued + emit the rerun webhook (§14.4.2) - needs a live runkod | `MergeRequirements` |
+| `runko auth signup --runkod-url <host> --name <you> --org <o> --create|--join [--invite-code <c>]` | first contact (§6.10): register the account, create or join the org, and store the credential pointed at its mount - signup IS login; refusals are the server's structured shapes | `text` |
 | `runko auth login --runkod-url <url> [--name <you>] [--token <t>]` | store a validated credential (0600); commands then need no --runkod-url/--token flags | `text` |
 | `runko auth status` | who the stored credential resolves to - needs a live runkod | `text` |
 | `runko auth logout` | forget the stored credential | `text` |
+| `runko auth git-credential <action>` | git's credential-helper protocol (workspace stores stamp it, §12.7): answers `get` from the INVOKING principal's stored login, own host only - called by git, not humans | `credential key=value lines` |
 | `runko change create [--dir .] [--json] -m <msg>` | commit ALL working-tree changes as one Change with its Change-Id (§7.4); push separately | `{"change_id"}` |
 | `runko change requirements [--change <Id>] [--dir .] [--json]` | the §13.5 gates for a Change (default: HEAD's Change-Id) - needs a live runkod | `checks.MergeRequirements` |
 | `runko change comment --change <id> -m <text> [--file <p> --line <n> --side head] [--reply-to <id>] [--json]` | anchored review comment bound to the current head (§13.4.1) - agents comment, never approve - needs a live runkod | `CommentInfo` |
 | `runko change comments [--change <Id>] [--dir .] [--json]` | list review threads, resolved/outdated marked (§13.4.1) - needs a live runkod | `{"comments":[CommentInfo],"next_page_token"}` |
 | `runko change resolve <comment-id> [--undo] [--change <Id>] [--json]` | resolve or reopen a review thread root (§13.4.1) - needs a live runkod | `CommentInfo` |
 | `runko change request-review <reviewer> [--change <Id>] [--json]` | ask a principal or group to review - they enter the derived attention set (§13.4.2) - needs a live runkod | `{"reviewer"}` |
-| `runko workspace create --name <n> --project <p> --by <who> --runkod-url <url> --token <t> [--json]` | worktree + sparse cone + registry row (§12.3) - needs a live runkod | `WorkspaceInfo` |
+| `runko workspace create --name <n> --project <p> [--by <who>] [--json]` | worktree + sparse cone + registry row (§12.3); --by defaults to the stored login (§6.10) - needs a live runkod | `WorkspaceInfo` |
 | `runko workspace list --runkod-url <url> --token <t> [--json]` | list workstreams, their cones and base revisions - needs a live runkod | `[]WorkspaceInfo` |
 | `runko workspace attach <id> --runkod-url <url> --token <t> [--branch <b>] [--json]` | restore a workspace branch from its snapshot ref (§12.2) - needs a live runkod | `WorkspaceInfo` |
 | `runko workspace delete <id> --runkod-url <url> --token <t> [--json]` | delete the registry row + snapshot refs - refused while the workspace has open changes; owner-only (§12.2) - needs a live runkod | `{"deleted"}` |
@@ -68,7 +71,9 @@ that declares no registered workspace origin. The model:
 | `runko workspace watch [--dir .] [--interval 15s] [--once] [--json]` | auto-snapshot loop feeding the live workspace view (§12.6): out-of-band commits, never touches HEAD/index - run it in the background while you work | `NDJSON {"ref","sha"} per push` |
 | `runko workspace branch <name> [--dir .] [--json]` | fork a parallel line of work: snapshots now target refs/workspaces/<id>/<name> (§12.2) | `{"ref"}` |
 | `runko workspace sync --runkod-url <url> --token <t> [--dir .] [--json]` | sync onto the trunk tip - fetch + rebase (jj-aware), record the new base (§12.3) - needs a live runkod | `{"base_revision"}` |
-| `runko org create --name <org> [--json]` | new org owning its own repo at /o/<org>/ (§7.1) - humans/operators only, agents are refused (§8.7) | `OrgInfo` |
+| `runko workspace path [<name>] [--json]` | print a workspace's local directory - cd $(runko workspace path <name>) (§12.7); no name: the current checkout answers for itself - local only | `{"workspace","branch","path"}` |
+| `runko workspace gc [--apply] [--idle <dur>] [--scan <store>] [--json]` | reclaim materializations whose durable state is server-side (closed + synced with the snapshot ref, §12.7): plan-only by default, fail-closed skips name their reason; --scan adopts pre-registry worktrees - needs a live runkod | `[]GCCandidate` |
+| `runko org create --name <org> [--no-switch] [--json]` | new org at /o/<org>/, genesis-seeded and ready to work in; rebinds the stored login to it unless --no-switch (§6.10, §7.1) - humans/operators only, agents are refused (§8.7) | `OrgInfo` |
 | `runko org list [--json]` | orgs your credential can reach (role + git URL) - needs a live runkod | `[]OrgInfo` |
 | `runko org add-member --org <org> --name <account> [--role member] [--json]` | grant an account org access (org admins/operators) - needs a live runkod | `{"org","name","role"}` |
 | `runko release create --project <p> [--version x.y.z] --runkod-url <url> --token <t> [--json]` | cut an immutable release (§14.10.3): server-minted annotated tag + changelog derived from landed changes since the previous release - needs a live runkod | `ReleaseInfo` |
