@@ -52,6 +52,7 @@ go_library(
         "//internal/dbgen",
         "//internal/gitstore",
         "//platform/affected",
+        "//platform/agentsmd",
         "//platform/checks",
         "//platform/contract",
         "//platform/core",

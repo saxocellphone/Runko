@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/saxocellphone/runko/internal/gitstore"
+	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/receive"
 )
 
@@ -686,5 +688,77 @@ func TestOrgRevalidationPolicySetting(t *testing.T) {
 		if status != http.StatusBadRequest || body["Code"] != "invalid_revalidation_policy" {
 			t.Fatalf("%q should be refused: %d %v", bad, status, body)
 		}
+	}
+}
+
+// TestCreatedOrgIsBornUsable pins §6.10's genesis: a creator-made org's
+// trunk is never unborn - it carries the seed tree (root manifest, OWNERS
+// naming the creator, AGENTS.md, CONTRIBUTING.md), the index resolves the
+// root project with the creator as its owner, and `workspace create
+// --project repo` works immediately (the trunk_unborn dead end is gone).
+func TestCreatedOrgIsBornUsable(t *testing.T) {
+	srv, hub := newTestHub(t, true)
+	hubSignup(t, srv, "alice", "alicepw123")
+	if status, body := hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}); status != http.StatusCreated {
+		t.Fatalf("create acme: %d %v", status, body)
+	}
+
+	gstore := gitstore.New(hub.repoDirFor("acme"))
+	rev, err := gstore.ResolveRef("refs/heads/main")
+	if err != nil {
+		t.Fatalf("created org's trunk is unborn: %v", err)
+	}
+	for _, path := range []string{"PROJECT.yaml", "OWNERS", "AGENTS.md", "CONTRIBUTING.md"} {
+		if _, err := gstore.GetBlob(rev, path); err != nil {
+			t.Fatalf("genesis tree is missing %s: %v", path, err)
+		}
+	}
+
+	// The seeded state must be what the rest of the system actually
+	// consumes: the index resolves exactly one project ("repo", at root)
+	// whose owner is the creator via OWNERS inheritance (§7.3).
+	projects, err := index.Scan(gstore, rev, nil)
+	if err != nil {
+		t.Fatalf("index.Scan over genesis: %v", err)
+	}
+	if len(projects) != 1 || projects[0].Name != "repo" || projects[0].Path != "" {
+		t.Fatalf("expected exactly the root project, got %+v", projects)
+	}
+	if len(projects[0].Owners) != 1 || projects[0].Owners[0].Ref != "alice" || projects[0].Owners[0].Source != "path_owners" {
+		t.Fatalf("expected alice as the seeded OWNERS owner, got %+v", projects[0].Owners)
+	}
+
+	status, body := hubDo(t, srv, "POST", "/o/acme/api/workspaces", "", "", "sekret",
+		map[string]any{"name": "first-ws", "owner": "alice", "projects": []string{"repo"}})
+	if status != http.StatusCreated {
+		t.Fatalf("workspace create against a fresh org: %d %v", status, body)
+	}
+}
+
+// TestGenesisNeverRewritesABornTrunk: re-assembly re-runs seedGenesisCommit
+// (crash recovery re-enters createOrg; finding #44's signup recovery), and
+// a trunk with history must be left byte-for-byte alone.
+func TestGenesisNeverRewritesABornTrunk(t *testing.T) {
+	srv, hub := newTestHub(t, true)
+	hubSignup(t, srv, "alice", "alicepw123")
+	if status, body := hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}); status != http.StatusCreated {
+		t.Fatalf("create acme: %d %v", status, body)
+	}
+
+	repoDir := hub.repoDirFor("acme")
+	gstore := gitstore.New(repoDir)
+	before, err := gstore.ResolveRef("refs/heads/main")
+	if err != nil {
+		t.Fatalf("trunk after create: %v", err)
+	}
+	if err := seedGenesisCommit(repoDir, "main", "acme", "mallory"); err != nil {
+		t.Fatalf("re-running genesis: %v", err)
+	}
+	after, err := gstore.ResolveRef("refs/heads/main")
+	if err != nil {
+		t.Fatalf("trunk after re-run: %v", err)
+	}
+	if before != after {
+		t.Fatalf("genesis rewrote a born trunk: %s -> %s", before, after)
 	}
 }
