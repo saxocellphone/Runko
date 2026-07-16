@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,6 +275,64 @@ func TestWorkspaceCreateRecyclesClosedWorktree(t *testing.T) {
 	writeFile(t, newDir, "libs/money/wip.go", "package money // recycled\n")
 	if _, err := WorkspaceSnapshot(newDir, "on recycled worktree"); err != nil {
 		t.Fatalf("WorkspaceSnapshot on recycled worktree: %v", err)
+	}
+}
+
+// TestWorkspaceGCScanNeutralizesDeadCredentialStore pins the finding #49
+// cleanup lesson: a pre-§12.7 store embeds its creating agent's (long
+// expired) token in the origin URL - the legacy no-double-auth rule then
+// blocks header injection, the dead credential yields the anonymous
+// advertisement, refs/workspaces stays hidden, and a perfectly synced
+// worktree misdiagnoses as unpushed. Adoption must neutralize the store
+// first, after which the invoking principal's credential sees the ref and
+// the worktree evaluates reclaimable.
+func TestWorkspaceGCScanNeutralizesDeadCredentialStore(t *testing.T) {
+	srv, _, store := startWorkspaceServerStore(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	storeDir := filepath.Join(root, "dead-cred-store")
+
+	_, dir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
+		"dead-cred-ws", "alice", []string{"checkout-api"},
+		MaterializeOptions{CloneDir: storeDir, Dir: filepath.Join(root, "dead-cred-ws")})
+	if err != nil {
+		t.Fatalf("WorkspaceCreate: %v", err)
+	}
+	writeFile(t, dir, "commerce/checkout/done.go", "package main\n")
+	if _, err := WorkspaceSnapshot(dir, "done"); err != nil {
+		t.Fatalf("WorkspaceSnapshot: %v", err)
+	}
+	if err := store.SetWorkspaceStatus(ctx, "dead-cred-ws", "closed"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Regress to the pre-§12.7 shape with an EXPIRED credential baked in,
+	// and forget the registry row (pre-registry world).
+	u, err := url.Parse(mustGit(t, storeDir, "config", "remote.origin.url"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword("agent-dead-1234", "expired-token")
+	mustGit(t, storeDir, "config", "remote.origin.url", u.String())
+	mustGit(t, storeDir, "config", "--unset", "credential.helper")
+	p, err := materializationsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := WorkspaceGC(ctx, http.DefaultClient, srv.URL, "sekret", GCOptions{Scan: []string{storeDir}})
+	if err != nil {
+		t.Fatalf("WorkspaceGC --scan: %v", err)
+	}
+	c := findCandidate(t, plan, "dead-cred-ws")
+	if !c.Reclaim {
+		t.Fatalf("adoption should neutralize the dead credential and prove the sync, got %+v", c)
+	}
+	if pu, err := url.Parse(mustGit(t, storeDir, "config", "remote.origin.url")); err != nil || pu.User != nil {
+		t.Fatalf("expected the scanned store neutralized")
 	}
 }
 
