@@ -233,7 +233,7 @@ func (s *Server) principalOwnsAnchor(ctx context.Context, change Change, path, n
 		}
 		return false, nil
 	}
-	owners, err := s.ownerRequirements(ctx, change.ChangeKey, change.HeadSHA, result, indexed)
+	owners, err := s.ownerRequirements(ctx, change.ChangeKey, change.HeadSHA, change.AuthoredBy, result, indexed)
 	if err != nil {
 		return false, err
 	}
