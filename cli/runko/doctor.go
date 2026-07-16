@@ -248,6 +248,24 @@ func InstallChangeIDHook(repoDir string) error {
 	return nil
 }
 
+// InstallChangeIDHookIfAbsent writes the commit-msg hook only when the repo
+// has NO commit-msg hook at all - the implicit installers' rule (§6.10:
+// workspace materialization wires the checkout without being asked). An
+// existing hook is never touched, ours included: an explicit
+// `runko doctor --install-hook` refreshes wording, an implicit path must
+// not surprise - and a foreign commit-msg hook may be Gerrit's own, which
+// also mints Change-Ids and must win.
+func InstallChangeIDHookIfAbsent(repoDir string) (installed bool, err error) {
+	hooksDir, err := hooksDirectory(repoDir)
+	if err != nil {
+		return false, fmt.Errorf("doctor: resolve hooks directory: %w", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(hooksDir, "commit-msg")); statErr == nil {
+		return false, nil
+	}
+	return true, InstallChangeIDHook(repoDir)
+}
+
 // InstallVerbNudgeHook writes verbNudgeHookScript to repoDir's pre-commit
 // hook. A pre-commit hook we didn't write is left alone (installed=false):
 // the nudge is advisory sugar, never worth clobbering a real hook - the
