@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -263,6 +264,132 @@ func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, w
 	return nil
 }
 
+// cloneJJCheckout lays down the standalone FULL clone a --jj workspace
+// lives in. jj refuses to colocate inside a git worktree, so unlike the
+// default mode there is no shared store - each --jj workspace is its own
+// clone, with the same store contract as ensureSharedClone: credential-
+// neutral remote answered by the helper, proactive auth for public_read
+// orgs (§15.2), and both identity hooks for the raw-git loop (§6.9, §6.10).
+// Full, not blobless: jj's backend reads the object store directly and
+// cannot lazy-fetch promisor objects, so a partial clone breaks the moment
+// jj materializes a commit whose blobs git never checked out (found by
+// TestWorkspaceAttachJJColocated). The jj binary is checked FIRST: failing
+// before the network round-trips beats failing after them.
+func cloneJJCheckout(remoteURL, dir string, authEnv []string) error {
+	if _, err := exec.LookPath("jj"); err != nil {
+		return &clierr.Error{
+			Code: "jj_not_found", Field: "jj",
+			Message:    "--jj needs the jj binary on PATH to set up a colocated checkout",
+			Suggestion: "install jj (https://jj-vcs.github.io), or drop --jj for a plain-git worktree",
+		}
+	}
+	if _, err := runGitEnv(".", authEnv, "clone", remoteURL, dir); err != nil {
+		return fmt.Errorf("clone: %w", err)
+	}
+	for _, kv := range [][2]string{
+		{"credential.helper", credentialHelperSpec()},
+		{"http.proactiveAuth", "basic"},
+	} {
+		if _, err := runGit(dir, "config", kv[0], kv[1]); err != nil {
+			return err
+		}
+	}
+	return installWorkspaceHooks(dir)
+}
+
+// finishJJCheckout colocates jj over the clone and parks it on startPoint
+// (§21: runko sets the surgical client up rather than leaving it
+// bring-your-own): the trailer template so Change-Ids derive from jj change
+// ids (§7.4), the cone mirrored via `jj sparse` (jj owns working-copy
+// materialization - git's sparse-checkout machinery doesn't apply), a fresh
+// empty @ on startPoint, and the runko.* binding in PLAIN config scope - a
+// standalone clone has no worktree config, and every reader (push
+// provenance, watch, sync) does plain lookups.
+func finishJJCheckout(dir string, info WorkspaceInfo, startPoint, wsBranch string) error {
+	// The snapshot line gets a real local branch (the worktree-mode naming):
+	// jj imports branches as bookmarks, and that import is what makes a
+	// non-branch commit - an attach's snapshot tip, fetched from
+	// refs/workspaces/* - visible to jj revsets at all.
+	if _, err := runGit(dir, "branch", "-f", "ws/"+info.ID+"/"+wsBranch, startPoint); err != nil {
+		return fmt.Errorf("anchor %s: %w", short(startPoint), err)
+	}
+	if err := jjGitInitColocate(dir); err != nil {
+		return err
+	}
+	if err := SetupJJChangeIDs(dir); err != nil {
+		return err
+	}
+	// Same no-identity fallback as the git verbs (§7.5): jj refuses to push
+	// empty-identity commits, and materializing must work on a fresh VM. A
+	// configured identity always wins - the repo scope is only written when
+	// jj resolves none at all.
+	if email, _ := runJJ(dir, "config", "get", "user.email"); strings.TrimSpace(email) == "" {
+		for _, kv := range [][2]string{{"user.name", "Runko"}, {"user.email", "runko@localhost"}} {
+			if _, err := runJJ(dir, "config", "set", "--repo", kv[0], kv[1]); err != nil {
+				return err
+			}
+		}
+	}
+	if patterns := jjSparsePatterns(dir, info.SparsePatterns, startPoint); len(patterns) > 0 {
+		args := []string{"sparse", "set", "--clear"}
+		for _, p := range patterns {
+			args = append(args, "--add", p)
+		}
+		if _, err := runJJ(dir, args...); err != nil {
+			return fmt.Errorf("mirror the sparse cone into jj: %w", err)
+		}
+	}
+	if _, err := runJJ(dir, "new", startPoint); err != nil {
+		return fmt.Errorf("start the working copy at %s: %w", short(startPoint), err)
+	}
+	for k, v := range map[string]string{
+		"runko.workspace": info.ID,
+		"runko.trunk":     info.TrunkRef,
+		"runko.branch":    wsBranch,
+	} {
+		if _, err := runGit(dir, "config", k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// jjSparsePatterns translates the workspace cone into jj prefix patterns.
+// Cone mode always materializes the repo root's FILES alongside the cone
+// dirs; jj has no "root files only" pattern, so they're enumerated from
+// startPoint's tree. A root-spanning pattern ("." - the whole tree) means
+// there is nothing to narrow: return nil and keep jj's default
+// (everything). The empty pattern is the root project's cone - root files
+// only, which the enumeration already covers.
+func jjSparsePatterns(dir string, cone []string, rev string) []string {
+	if len(cone) == 0 {
+		return nil
+	}
+	var patterns []string
+	for _, p := range cone {
+		if p == "." {
+			return nil
+		}
+		if p == "" {
+			continue
+		}
+		patterns = append(patterns, p)
+	}
+	out, err := runGit(dir, "ls-tree", rev)
+	if err != nil {
+		return patterns
+	}
+	for _, line := range strings.Split(out, "\n") {
+		// <mode> SP blob SP <sha> TAB <name>
+		tab := strings.IndexByte(line, '\t')
+		if tab < 0 || !strings.Contains(line[:tab], " blob ") {
+			continue
+		}
+		patterns = append(patterns, line[tab+1:])
+	}
+	return patterns
+}
+
 // MaterializeOptions is where a workspace lands on this machine. Empty
 // CloneDir/Dir take the §12.7 managed home - the pre-§12.7 cwd-relative
 // defaults ("mono", worktree named into the caller's cwd) are gone: run
@@ -273,6 +400,7 @@ type MaterializeOptions struct {
 	CloneDir    string // shared blobless store; "" = <home>/<host>/<org>/<repo>/.store
 	Dir         string // worktree; "" = <home>/<host>/<org>/<repo>/<workspace>[@<branch>]
 	ForceNested bool   // materialize inside another git checkout anyway
+	JJ          bool   // standalone jj colocated checkout instead of a worktree off the store
 }
 
 // preflight validates EXPLICIT paths before any server round-trip: a
@@ -282,6 +410,13 @@ type MaterializeOptions struct {
 // checkout is the pathological case, an explicit --dir into one is the
 // common misuse.
 func (o MaterializeOptions) preflight() error {
+	if o.JJ && o.CloneDir != "" {
+		return &clierr.Error{
+			Code: "jj_no_shared_store", Field: "clone-dir",
+			Message:    "--jj materializes a standalone colocated checkout; there is no shared store to point --clone-dir at",
+			Suggestion: "drop --clone-dir (--dir still places the checkout)",
+		}
+	}
 	for _, p := range []string{o.CloneDir, o.Dir} {
 		if p == "" {
 			continue
@@ -347,6 +482,18 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 		return WorkspaceInfo{}, "", err
 	}
 	authEnv := gitAuthConfigEnv(runkodURL, token)
+	if opts.JJ {
+		if err := cloneJJCheckout(remoteURL, dir, authEnv); err != nil {
+			return WorkspaceInfo{}, "", err
+		}
+		if err := finishJJCheckout(dir, info, info.BaseRevision, "head"); err != nil {
+			return WorkspaceInfo{}, "", err
+		}
+		_ = recordMaterialization(Materialization{
+			Workspace: info.ID, Branch: "head", Path: dir, RunkodURL: runkodURL,
+		})
+		return info, dir, nil
+	}
 	if err := ensureSharedClone(cloneDir, remoteURL, authEnv); err != nil {
 		return WorkspaceInfo{}, "", err
 	}
@@ -407,6 +554,27 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 		return WorkspaceInfo{}, "", err
 	}
 	authEnv := gitAuthConfigEnv(runkodURL, token)
+	if opts.JJ {
+		if err := cloneJJCheckout(remoteURL, dir, authEnv); err != nil {
+			return WorkspaceInfo{}, "", err
+		}
+		// Prefer the branch's snapshot tip; a branch that never snapshotted
+		// restores at the workspace's base revision.
+		snapshotRef := "refs/workspaces/" + id + "/" + branch
+		startPoint := info.BaseRevision
+		if _, err := runGitEnv(dir, authEnv, "fetch", "origin", "+"+snapshotRef+":"+snapshotRef); err == nil {
+			if sha, err := runGit(dir, "rev-parse", snapshotRef); err == nil {
+				startPoint = sha
+			}
+		}
+		if err := finishJJCheckout(dir, info, startPoint, branch); err != nil {
+			return WorkspaceInfo{}, "", err
+		}
+		_ = recordMaterialization(Materialization{
+			Workspace: info.ID, Branch: branch, Path: dir, RunkodURL: runkodURL,
+		})
+		return info, dir, nil
+	}
 	if err := ensureSharedClone(cloneDir, remoteURL, authEnv); err != nil {
 		return WorkspaceInfo{}, "", err
 	}
@@ -437,6 +605,22 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 // same receive funnel as Changes, so policy and secret scan run BEFORE the
 // bytes become durable.
 func WorkspaceSnapshot(dir, message string) (ref string, err error) {
+	// A bound jj colocated checkout (--jj) snapshots OUT-OF-BAND (watch.go's
+	// mechanics: throwaway index, commit-tree on HEAD, push the sha) -
+	// committing on the checked-out line would rewrite history behind jj's
+	// back. Same ref, same amend-at-the-tip semantics. Checked BEFORE the
+	// worktree lookup: without extensions.worktreeConfig, `git config
+	// --worktree` silently degrades to --local and would read the jj
+	// checkout's plain-scope binding as if it were a worktree.
+	if isJJWorkspace(dir) {
+		if plain, _ := runGit(dir, "config", "runko.workspace"); plain != "" {
+			if message == "" {
+				message = time.Now().UTC().Format(time.RFC3339)
+			}
+			ref, _, _, err := WorkspaceWatchSnapshot(dir, message, "")
+			return ref, err
+		}
+	}
 	id, err := runGit(dir, "config", "--worktree", "runko.workspace")
 	if err != nil || id == "" {
 		return "", &clierr.Error{
@@ -508,6 +692,21 @@ func WorkspaceSnapshot(dir, message string) (ref string, err error) {
 // the full sense comes from attaching the other branch into a second
 // worktree: `runko workspace attach <id> --branch head --dir <elsewhere>`.
 func WorkspaceBranch(dir, name string) (ref string, err error) {
+	// Workspace branches fork git worktrees off the shared store; a --jj
+	// workspace is a standalone colocated checkout with neither. Its
+	// parallel line is another standalone checkout of the same workspace -
+	// and stacked (not parallel) work is jj's home turf. Checked before the
+	// worktree lookup for the same --worktree-degrades-to-local reason as
+	// WorkspaceSnapshot.
+	if isJJWorkspace(dir) {
+		if plain, _ := runGit(dir, "config", "runko.workspace"); plain != "" {
+			return "", &clierr.Error{
+				Code: "jj_checkout", Field: "dir",
+				Message:    "workspace branches fork git worktrees; this is a standalone jj colocated checkout",
+				Suggestion: "attach the parallel line as its own checkout: `runko workspace attach " + plain + " --jj --branch " + name + " --dir <elsewhere>` (stacked work needs no branch - jj new / runko change create)",
+			}
+		}
+	}
 	id, err := runGit(dir, "config", "--worktree", "runko.workspace")
 	if err != nil || id == "" {
 		return "", &clierr.Error{

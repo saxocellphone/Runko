@@ -528,3 +528,125 @@ func TestWorkspaceMaterializationInstallsVerbNudge(t *testing.T) {
 		t.Fatalf("expected the verb nudge on a raw commit in a workspace worktree, stderr:\n%s", stderr)
 	}
 }
+
+// TestWorkspaceCreateJJColocated: `workspace create --jj` materializes a
+// STANDALONE jj colocated checkout (jj refuses to colocate inside a git
+// worktree, so there is no shared store) with the whole identity story
+// wired: trailer template, cone mirrored via jj sparse (root files ride
+// along, cone-mode parity), plain-scope runko.* binding, @ parked on base.
+// The interactive snapshot verb must route OUT-OF-BAND here - a commit on
+// the checked-out line would rewrite history behind jj's back.
+func TestWorkspaceCreateJJColocated(t *testing.T) {
+	srv, bare := startWorkspaceServer(t)
+	requireJJ(t)
+	root := t.TempDir()
+	wsDir := filepath.Join(root, "payments-jj")
+
+	info, dir, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-jj", "alice", []string{"checkout-api"}, MaterializeOptions{Dir: wsDir, JJ: true})
+	if err != nil {
+		t.Fatalf("WorkspaceCreate --jj: %v", err)
+	}
+	if dir != wsDir {
+		t.Fatalf("expected the checkout at %s, got %s", wsDir, dir)
+	}
+	for _, d := range []string{".jj", ".git"} {
+		if fi, err := os.Stat(filepath.Join(wsDir, d)); err != nil || !fi.IsDir() {
+			t.Fatalf("expected colocated %s directory: %v", d, err)
+		}
+	}
+	if !jjTrailerConfigured(wsDir) {
+		t.Fatalf("expected the Change-Id trailer template configured")
+	}
+	// Cone parity: the project dir and the repo root's files materialize,
+	// the other project does not.
+	if _, err := os.Stat(filepath.Join(wsDir, "commerce/checkout/main.go")); err != nil {
+		t.Fatalf("expected the cone's file materialized: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wsDir, ".gitignore")); err != nil {
+		t.Fatalf("expected root files materialized (cone-mode parity): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wsDir, "libs/money")); !os.IsNotExist(err) {
+		t.Fatalf("expected libs/money OUTSIDE the cone to not be materialized")
+	}
+	for k, want := range map[string]string{
+		"runko.workspace": "payments-jj", "runko.branch": "head", "runko.trunk": "main",
+	} {
+		if got := mustGit(t, wsDir, "config", k); got != want {
+			t.Fatalf("config %s = %q, want %q", k, got, want)
+		}
+	}
+	if parent, err := runJJ(wsDir, "log", "--no-graph", "-r", "@-", "-T", "commit_id"); err != nil || parent != info.BaseRevision {
+		t.Fatalf("expected @ parked on base %s, got %q (%v)", info.BaseRevision, parent, err)
+	}
+
+	// Interactive snapshot: durable on the ref, git HEAD untouched.
+	writeTestFile(t, wsDir, "commerce/checkout/wip.go", "package main // wip\n")
+	ref, err := WorkspaceSnapshot(wsDir, "wip")
+	if err != nil {
+		t.Fatalf("WorkspaceSnapshot in a jj checkout: %v", err)
+	}
+	if ref != "refs/workspaces/payments-jj/head" {
+		t.Fatalf("unexpected snapshot ref %q", ref)
+	}
+	snap := mustGit(t, bare, "rev-parse", ref)
+	if n := mustGit(t, bare, "rev-list", "--count", info.BaseRevision+".."+snap); n != "1" {
+		t.Fatalf("expected exactly 1 snapshot commit above base, got %s", n)
+	}
+	if head := mustGit(t, wsDir, "rev-parse", "HEAD"); head != info.BaseRevision {
+		t.Fatalf("snapshot moved git HEAD (%s) - it must stay out-of-band in a jj checkout", head)
+	}
+
+	// Workspace branches are worktree machinery; the refusal names the jj way.
+	if _, err := WorkspaceBranch(wsDir, "side"); err == nil {
+		t.Fatalf("expected workspace branch to refuse in a jj checkout")
+	} else {
+		var ce *clierr.Error
+		if !errors.As(err, &ce) || ce.Code != "jj_checkout" {
+			t.Fatalf("expected the jj_checkout refusal, got %v", err)
+		}
+	}
+}
+
+// TestWorkspaceAttachJJColocated: WIP snapshotted from a plain worktree
+// restores into a --jj checkout - the attach-from-anywhere contract (§12.2)
+// is client-mode agnostic.
+func TestWorkspaceAttachJJColocated(t *testing.T) {
+	srv, _ := startWorkspaceServer(t)
+	requireJJ(t)
+	root := t.TempDir()
+	cloneDir := filepath.Join(root, "mono")
+	wtDir := filepath.Join(root, "wt")
+
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"jj-restore", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wtDir}); err != nil {
+		t.Fatalf("WorkspaceCreate: %v", err)
+	}
+	writeFile(t, wtDir, "commerce/checkout/wip.go", "package main // durable\n")
+	if _, err := WorkspaceSnapshot(wtDir, "wip"); err != nil {
+		t.Fatalf("WorkspaceSnapshot: %v", err)
+	}
+
+	jjDir := filepath.Join(root, "jj-copy")
+	if _, _, err := WorkspaceAttach(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"jj-restore", "head", MaterializeOptions{Dir: jjDir, JJ: true}); err != nil {
+		t.Fatalf("WorkspaceAttach --jj: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(jjDir, ".jj")); err != nil {
+		t.Fatalf("expected a colocated jj checkout: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(jjDir, "commerce/checkout/wip.go"))
+	if err != nil || !strings.Contains(string(content), "durable") {
+		t.Fatalf("expected the snapshot's WIP restored, got %q (%v)", content, err)
+	}
+}
+
+// TestWorkspaceJJRefusesCloneDir: --jj has no shared store; pointing
+// --clone-dir at one is answered before any server round-trip.
+func TestWorkspaceJJRefusesCloneDir(t *testing.T) {
+	err := MaterializeOptions{CloneDir: "somewhere", JJ: true}.preflight()
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "jj_no_shared_store" {
+		t.Fatalf("expected jj_no_shared_store, got %v", err)
+	}
+}

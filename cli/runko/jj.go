@@ -41,6 +41,25 @@ func isJJWorkspace(repoDir string) bool {
 	return err == nil && info.IsDir()
 }
 
+// jjGitInitColocate turns an existing plain-git checkout into a colocated
+// jj workspace (jj + .git side by side). runJJ can't drive this one: -R
+// wants an existing jj repo, and this is the command that creates it. jj
+// itself refuses to colocate inside a git WORKTREE - which is exactly why
+// --jj workspaces are standalone clones (workspace.go).
+func jjGitInitColocate(dir string) error {
+	if _, err := exec.LookPath("jj"); err != nil {
+		return &clierr.Error{
+			Code: "jj_not_found", Field: "jj",
+			Message:    "setting up a jj colocated checkout needs the jj binary on PATH",
+			Suggestion: "install jj (https://jj-vcs.github.io), or drop --jj for a plain-git worktree",
+		}
+	}
+	if out, err := exec.Command("jj", "git", "init", "--colocate", dir).CombinedOutput(); err != nil {
+		return fmt.Errorf("jj git init --colocate: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func runJJ(repoDir string, args ...string) (string, error) {
 	if _, err := exec.LookPath("jj"); err != nil {
 		return "", &clierr.Error{
