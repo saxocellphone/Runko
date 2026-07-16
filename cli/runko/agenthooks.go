@@ -43,7 +43,7 @@ func InstallAgentHooks(dir string) (path string, installed bool, excludedVia str
 		return "", false, "", &clierr.Error{
 			Code: "not_a_workspace", Field: "dir",
 			Message:    fmt.Sprintf("%s is not bound to a runko workspace", dir),
-			Suggestion: "run inside a `runko workspace create/attach` worktree, or bind a clone with `git config runko.workspace <id>`",
+			Suggestion: "run inside a `runko workspace create/attach` checkout (--jj for a jj colocated clone), or bind one with `git config runko.workspace <id>`",
 		}
 	}
 	top, err := runGit(dir, "rev-parse", "--show-toplevel")

@@ -100,7 +100,7 @@ func resolveBaseOrEmpty(repoDir string, store *gitstore.Store) (core.Revision, e
 			Code:       "not_a_repo",
 			Field:      "repo",
 			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
-			Suggestion: "run `git init` first, then retry `runko project create`",
+			Suggestion: "run `git init` (or `jj git init --colocate`) first, then retry `runko project create`",
 			DocURL:     "docs/design.md#67-empty-states-and-education",
 		}
 	}

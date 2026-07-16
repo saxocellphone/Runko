@@ -748,7 +748,7 @@ func WorkspaceUpdateBase(ctx context.Context, client *http.Client, runkodURL, to
 		return "", &clierr.Error{
 			Code: "not_a_workspace", Field: "dir",
 			Message:    fmt.Sprintf("%s is not bound to a runko workspace", dir),
-			Suggestion: "runko workspace create/attach, or bind an existing checkout: git config runko.workspace <id>",
+			Suggestion: "runko workspace create/attach (--jj for a jj colocated checkout), or bind an existing checkout: git config runko.workspace <id>",
 		}
 	}
 	trunk, err := runGit(dir, "config", "runko.trunk")

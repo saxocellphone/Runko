@@ -47,11 +47,19 @@ func CreateChange(repoDir, message string) (changeID string, err error) {
 	// clierr below via the post-add untracked check.
 	addErr := func() error { _, err := runGit(repoDir, "add", "-A"); return err }()
 	if skipped, err := runGit(repoDir, "ls-files", "--others", "--exclude-standard"); err == nil && skipped != "" {
+		// The cone speaks the checkout's own dialect (§6.5's "a suggestion
+		// the user can type"): jj owns working-copy materialization in a
+		// jj colocated checkout, so git's sparse-checkout verb would not
+		// widen anything there.
+		widen := "widen the cone first (`git sparse-checkout add <dir>`)"
+		if isJJWorkspace(repoDir) {
+			widen = "widen the cone first (`jj sparse set --add <dir>`)"
+		}
 		return "", &clierr.Error{
 			Code:       "outside_sparse_cone",
 			Field:      "repo",
 			Message:    "these files are outside this workspace's sparse cone and cannot be part of the change: " + strings.Join(strings.Split(skipped, "\n"), ", "),
-			Suggestion: "widen the cone first (`git sparse-checkout add <dir>`), or move the files under a materialized project",
+			Suggestion: widen + ", or move the files under a materialized project",
 			DocURL:     "docs/design.md#122-durability-snapshot-refs",
 		}
 	}
@@ -63,10 +71,17 @@ func CreateChange(repoDir, message string) (changeID string, err error) {
 		return "", err
 	}
 	if staged == "" {
+		// Rewording in a jj checkout is `jj describe` - a plain-git amend
+		// here would rewrite history behind jj's back (the push guard
+		// refuses exactly that).
+		reword := "or amend HEAD with plain git if you meant to reword"
+		if isJJWorkspace(repoDir) {
+			reword = "or reword with `jj describe` if you meant to"
+		}
 		return "", &clierr.Error{
 			Code: "nothing_to_commit", Field: "repo",
 			Message:    "the working tree has no changes",
-			Suggestion: "edit something first, or amend HEAD with plain git if you meant to reword",
+			Suggestion: "edit something first, " + reword,
 		}
 	}
 
