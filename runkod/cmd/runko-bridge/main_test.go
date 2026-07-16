@@ -2,13 +2,20 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/saxocellphone/runko/githubapp"
 	"github.com/saxocellphone/runko/platform/checks"
 )
 
@@ -17,7 +24,7 @@ func newTestBridge(githubURL string) *bridge {
 		secret:      []byte("hmac-secret"),
 		org:         "runko",
 		dispatchURL: githubURL + "/repos/acme/runko/dispatches",
-		githubToken: "ghp_test",
+		token:       func() (string, error) { return "ghp_test", nil },
 		eventType:   "runko-change",
 		client:      &http.Client{Timeout: 5 * time.Second},
 		seen:        newSeenSet(4),
@@ -185,6 +192,105 @@ func TestBridgeSurfacesGitHubFailureForRetry(t *testing.T) {
 	// The failed delivery must NOT be marked seen - the retry must go through.
 	if b.seen.contains("d-fail") {
 		t.Fatalf("failed dispatch marked seen - outbox retry would be dropped")
+	}
+}
+
+// TestBridgeAppAuthMintsInstallationToken drives the whole App-auth
+// chain against a stub GitHub: installation resolved from the repo, an
+// installation token minted through the App JWT, and the dispatch sent
+// with that minted token as its Bearer.
+func TestBridgeAppAuthMintsInstallationToken(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+
+	var dispatchAuth atomic.Value
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/runko/installation", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"id": 7})
+	})
+	mux.HandleFunc("POST /app/installations/7/access_tokens", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{
+			"token":      "ghs_minted",
+			"expires_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+		})
+	})
+	mux.HandleFunc("POST /repos/acme/runko/dispatches", func(w http.ResponseWriter, r *http.Request) {
+		dispatchAuth.Store(r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	gh := httptest.NewServer(mux)
+	defer gh.Close()
+
+	app, err := githubapp.New("12345", keyPEM, gh.URL)
+	if err != nil {
+		t.Fatalf("githubapp.New: %v", err)
+	}
+	b := newTestBridge(gh.URL)
+	b.token = app.TokenSource("acme/runko")
+
+	rec := httptest.NewRecorder()
+	b.handleWebhook(rec, signedRequest(t, b, updatedEnvelope("d-app")))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("bridge status: want 204, got %d: %s", rec.Code, rec.Body)
+	}
+	if got, _ := dispatchAuth.Load().(string); got != "Bearer ghs_minted" {
+		t.Fatalf("dispatch must carry the minted installation token, got %q", got)
+	}
+}
+
+// TestBridgeTokenMintFailureSurfacesForRetry: no token, no dispatch - a
+// 502 hands the delivery back to the outbox, and the delivery id stays
+// unseen so the retry is not deduped away.
+func TestBridgeTokenMintFailureSurfacesForRetry(t *testing.T) {
+	var called atomic.Bool
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gh.Close()
+	b := newTestBridge(gh.URL)
+	b.token = func() (string, error) { return "", errors.New("mint failed") }
+
+	rec := httptest.NewRecorder()
+	b.handleWebhook(rec, signedRequest(t, b, updatedEnvelope("d-mint-fail")))
+	if rec.Code != http.StatusBadGateway || called.Load() {
+		t.Fatalf("want 502 with no github call, got %d called=%v", rec.Code, called.Load())
+	}
+	if b.seen.contains("d-mint-fail") {
+		t.Fatal("failed mint marked seen - outbox retry would be dropped")
+	}
+}
+
+// TestGithubTokenSourceValidation pins the flag contract: exactly one of
+// PAT or App auth, and App auth needs its key file.
+func TestGithubTokenSourceValidation(t *testing.T) {
+	cases := []struct {
+		name                string
+		pat, appID, keyFile string
+		wantErr             string
+	}{
+		{"neither", "", "", "", "github auth is required"},
+		{"both", "ghp_x", "12345", "", "mutually exclusive"},
+		{"app without key", "", "12345", "", "--github-app-key-file is required"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := githubTokenSource(tc.pat, tc.appID, tc.keyFile, "https://api.github.com", "acme/runko")
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+	src, err := githubTokenSource("ghp_x", "", "", "https://api.github.com", "acme/runko")
+	if err != nil {
+		t.Fatalf("PAT source: %v", err)
+	}
+	if tok, _ := src(); tok != "ghp_x" {
+		t.Fatalf("PAT source: got %q", tok)
 	}
 }
 

@@ -3,8 +3,12 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/saxocellphone/runko/githubapp"
 	"github.com/saxocellphone/runko/internal/dbtest"
 )
 
@@ -1458,6 +1463,40 @@ func TestParseOrgMirror(t *testing.T) {
 	} {
 		if _, err := parseOrgMirror(bad); err == nil {
 			t.Fatalf("parseOrgMirror(%q) should fail", bad)
+		}
+	}
+}
+
+// TestMirrorTokenSourceWiring pins when GitHub App auth applies to a
+// mirror remote (2026-07-16, githubapp/README.md): App configured + a
+// github https remote + no static token. Everything else keeps the auth
+// it declared - an explicit token= always wins.
+func TestMirrorTokenSourceWiring(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	app, err := githubapp.New("12345", keyPEM, "https://api.github.com")
+	if err != nil {
+		t.Fatalf("githubapp.New: %v", err)
+	}
+
+	cases := []struct {
+		name        string
+		app         *githubapp.App
+		remote, tok string
+		want        bool
+	}{
+		{"github remote, no token", app, "https://github.com/acme/runko.git", "", true},
+		{"static token wins", app, "https://github.com/acme/runko.git", "ghp_x", false},
+		{"no app configured", nil, "https://github.com/acme/runko.git", "", false},
+		{"non-github remote", app, "https://gitlab.com/acme/runko.git", "", false},
+		{"path remote", app, "/srv/mirrors/t1.git", "", false},
+	}
+	for _, tc := range cases {
+		if got := mirrorTokenSource(tc.app, tc.remote, tc.tok) != nil; got != tc.want {
+			t.Errorf("%s: app auth applied=%v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

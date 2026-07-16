@@ -7,6 +7,12 @@
 // (docs/migration-findings.md #14: this is the productization seam §18.3's
 // CI shadow period needs).
 //
+// GitHub auth is either a PAT (--github-token) or, preferred since
+// 2026-07-16 (runkod/README.md), a GitHub App (--github-app-id +
+// --github-app-key-file): every bridge instance shares the one App
+// credential and mints its own installation tokens, so onboarding an org
+// stops requiring a fresh PAT - install the App on the repo instead.
+//
 // Delivery contract: runkod's outbox retries with backoff until it sees a
 // 2xx, so the bridge answers 2xx ONLY after GitHub accepted the dispatch
 // (204) - a GitHub failure surfaces as 502 and the outbox re-drives it.
@@ -28,6 +34,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/saxocellphone/runko/githubapp"
 	"github.com/saxocellphone/runko/platform/checks"
 )
 
@@ -51,26 +58,31 @@ func run(args []string) error {
 	secret := fs.String("webhook-secret", envString("WEBHOOK_SECRET", ""), "HMAC secret shared with runkod's --webhook-secret [RUNKO_BRIDGE_WEBHOOK_SECRET]")
 	org := fs.String("org", envString("ORG", ""), "only forward envelopes whose org_id matches this org name [RUNKO_BRIDGE_ORG]")
 	githubRepo := fs.String("github-repo", envString("GITHUB_REPO", ""), "owner/name of the GitHub repo receiving repository_dispatch [RUNKO_BRIDGE_GITHUB_REPO]")
-	githubToken := fs.String("github-token", envString("GITHUB_TOKEN", ""), "GitHub token with contents:write (prefer the env var) [RUNKO_BRIDGE_GITHUB_TOKEN]")
+	githubToken := fs.String("github-token", envString("GITHUB_TOKEN", ""), "GitHub PAT with contents:write (prefer the env var); alternative: App auth below [RUNKO_BRIDGE_GITHUB_TOKEN]")
+	githubAppID := fs.String("github-app-id", envString("GITHUB_APP_ID", ""), "GitHub App id: dispatch with minted installation tokens instead of a per-org PAT (2026-07-16, runkod/README.md) [RUNKO_BRIDGE_GITHUB_APP_ID]")
+	githubAppKeyFile := fs.String("github-app-key-file", envString("GITHUB_APP_KEY_FILE", ""), "path to the GitHub App private key PEM (required with --github-app-id) [RUNKO_BRIDGE_GITHUB_APP_KEY_FILE]")
 	githubAPI := fs.String("github-api", envString("GITHUB_API", "https://api.github.com"), "GitHub API base URL (tests point this at a stub) [RUNKO_BRIDGE_GITHUB_API]")
 	eventType := fs.String("event-type", envString("EVENT_TYPE", "runko-change"), "repository_dispatch event_type the workflow subscribes to [RUNKO_BRIDGE_EVENT_TYPE]")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	for name, v := range map[string]string{
-		"--webhook-secret": *secret, "--org": *org,
-		"--github-repo": *githubRepo, "--github-token": *githubToken,
+		"--webhook-secret": *secret, "--org": *org, "--github-repo": *githubRepo,
 	} {
 		if v == "" {
 			return fmt.Errorf("%s is required", name)
 		}
+	}
+	token, err := githubTokenSource(*githubToken, *githubAppID, *githubAppKeyFile, *githubAPI, *githubRepo)
+	if err != nil {
+		return err
 	}
 
 	b := &bridge{
 		secret:      []byte(*secret),
 		org:         *org,
 		dispatchURL: strings.TrimRight(*githubAPI, "/") + "/repos/" + *githubRepo + "/dispatches",
-		githubToken: *githubToken,
+		token:       token,
 		eventType:   *eventType,
 		client:      &http.Client{Timeout: 30 * time.Second},
 		seen:        newSeenSet(512),
@@ -88,11 +100,39 @@ func run(args []string) error {
 	return srv.ListenAndServe()
 }
 
+// githubTokenSource resolves the bridge's GitHub auth: a static PAT, or
+// GitHub App installation tokens minted per dispatch (2026-07-16,
+// runkod/README.md - one App credential across every org's bridge, so a
+// new org's setup is just installing the App on its mirror repo).
+func githubTokenSource(pat, appID, appKeyFile, apiBase, repo string) (func() (string, error), error) {
+	switch {
+	case pat != "" && appID != "":
+		return nil, fmt.Errorf("--github-token and --github-app-id are mutually exclusive - pick PAT or App auth")
+	case pat != "":
+		return func() (string, error) { return pat, nil }, nil
+	case appID != "":
+		if appKeyFile == "" {
+			return nil, fmt.Errorf("--github-app-key-file is required with --github-app-id")
+		}
+		keyPEM, err := os.ReadFile(appKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("--github-app-key-file: %w", err)
+		}
+		app, err := githubapp.New(appID, keyPEM, apiBase)
+		if err != nil {
+			return nil, err
+		}
+		return app.TokenSource(repo), nil
+	default:
+		return nil, fmt.Errorf("github auth is required: --github-token (PAT) or --github-app-id + --github-app-key-file (App)")
+	}
+}
+
 type bridge struct {
 	secret      []byte
 	org         string
 	dispatchURL string
-	githubToken string
+	token       func() (string, error)
 	eventType   string
 	client      *http.Client
 	seen        *seenSet
@@ -169,6 +209,15 @@ func (b *bridge) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Minted per dispatch under App auth (cached until near expiry); a
+	// failed mint is a 502 like any GitHub failure - the outbox re-drives.
+	token, err := b.token()
+	if err != nil {
+		log.Printf("runko-bridge: github token for %s: %v", env.DeliveryID, err)
+		http.Error(w, "github auth unavailable", http.StatusBadGateway)
+		return
+	}
+
 	body, err := json.Marshal(map[string]any{"event_type": b.eventType, "client_payload": dp})
 	if err != nil {
 		http.Error(w, "marshal dispatch", http.StatusInternalServerError)
@@ -180,7 +229,7 @@ func (b *bridge) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("Authorization", "Bearer "+b.githubToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := b.client.Do(req)
