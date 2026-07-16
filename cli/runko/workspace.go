@@ -253,66 +253,138 @@ func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, w
 	return nil
 }
 
+// MaterializeOptions is where a workspace lands on this machine. Empty
+// CloneDir/Dir take the §12.7 managed home - the pre-§12.7 cwd-relative
+// defaults ("mono", worktree named into the caller's cwd) are gone: run
+// from the wrong directory they materialized workspaces into whatever
+// checkout the caller stood in, which is exactly how the in-tree sprawl
+// happened (migration finding #49).
+type MaterializeOptions struct {
+	CloneDir    string // shared blobless store; "" = <home>/<host>/<org>/<repo>/.store
+	Dir         string // worktree; "" = <home>/<host>/<org>/<repo>/<workspace>[@<branch>]
+	ForceNested bool   // materialize inside another git checkout anyway
+}
+
+// preflight validates EXPLICIT paths before any server round-trip: a
+// placement refusal after the registration POST would strand a name on
+// the server. Managed defaults need the API response (repo mount path)
+// and are guarded in resolve instead - a managed home nested inside a
+// checkout is the pathological case, an explicit --dir into one is the
+// common misuse.
+func (o MaterializeOptions) preflight() error {
+	for _, p := range []string{o.CloneDir, o.Dir} {
+		if p == "" {
+			continue
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return err
+		}
+		if err := refuseNestedCheckout(abs, o.ForceNested); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resolve pins explicit paths to the caller's cwd (the worktree-inside-
+// shared-clone lesson, absWorkspacePaths) or lays defaults out under the
+// managed home, then applies the nested-checkout guard to both.
+func (o MaterializeOptions) resolve(runkodURL, repoPath, wsName, branch string) (cloneDir, dir string, err error) {
+	cloneDir, dir = o.CloneDir, o.Dir
+	if cloneDir == "" || dir == "" {
+		mStore, mDir, err := managedPaths(runkodURL, repoPath, wsName, branch)
+		if err != nil {
+			return "", "", err
+		}
+		if cloneDir == "" {
+			cloneDir = mStore
+		}
+		if dir == "" {
+			dir = mDir
+		}
+	}
+	if cloneDir, dir, err = absWorkspacePaths(cloneDir, dir); err != nil {
+		return "", "", err
+	}
+	if err := refuseNestedCheckout(cloneDir, o.ForceNested); err != nil {
+		return "", "", err
+	}
+	if err := refuseNestedCheckout(dir, o.ForceNested); err != nil {
+		return "", "", err
+	}
+	return cloneDir, dir, nil
+}
+
 // WorkspaceCreate registers the workspace and materializes its worktree.
-func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token, name, owner string, projects []string, cloneDir, dir string) (WorkspaceInfo, error) {
-	cloneDir, dir, err := absWorkspacePaths(cloneDir, dir)
-	if err != nil {
-		return WorkspaceInfo{}, err
+// The returned dir is where it landed (callers may have passed none).
+func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token, name, owner string, projects []string, opts MaterializeOptions) (WorkspaceInfo, string, error) {
+	if err := opts.preflight(); err != nil {
+		return WorkspaceInfo{}, "", err
 	}
 	var info WorkspaceInfo
-	err = apiJSON(ctx, client, http.MethodPost, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces", token,
+	err := apiJSON(ctx, client, http.MethodPost, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces", token,
 		map[string]interface{}{"name": name, "owner": owner, "projects": projects}, &info)
 	if err != nil {
-		return WorkspaceInfo{}, err
+		return WorkspaceInfo{}, "", err
+	}
+	cloneDir, dir, err := opts.resolve(runkodURL, info.RepoPath, info.ID, "head")
+	if err != nil {
+		return WorkspaceInfo{}, "", err
 	}
 	remoteURL, err := composeRemoteURL(runkodURL, info.RepoPath)
 	if err != nil {
-		return WorkspaceInfo{}, err
+		return WorkspaceInfo{}, "", err
 	}
 	authEnv := gitAuthConfigEnv(runkodURL, token)
 	if err := ensureSharedClone(cloneDir, remoteURL, authEnv); err != nil {
-		return WorkspaceInfo{}, err
+		return WorkspaceInfo{}, "", err
 	}
 	if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision, "head", authEnv); err != nil {
-		return WorkspaceInfo{}, err
+		return WorkspaceInfo{}, "", err
 	}
-	return info, nil
+	// Cache, never truth (§12.7): a registry write failure must not fail
+	// the create that already did the real work.
+	_ = recordMaterialization(Materialization{
+		Workspace: info.ID, Branch: "head", Path: dir, Store: cloneDir, RunkodURL: runkodURL,
+	})
+	return info, dir, nil
 }
 
 // WorkspaceAttach restores a workspace on this machine from its registry
 // row and snapshot ref - the §12.2 "attach from anywhere" contract: delete
 // the directory (or lose the laptop) and nothing durable is lost.
-func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token, id, branch, cloneDir, dir string) (WorkspaceInfo, error) {
-	cloneDir, dir, err := absWorkspacePaths(cloneDir, dir)
-	if err != nil {
-		return WorkspaceInfo{}, err
-	}
+func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token, id, branch string, opts MaterializeOptions) (WorkspaceInfo, string, error) {
 	var info WorkspaceInfo
-	err = apiJSON(ctx, client, http.MethodGet, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces/"+id, token, nil, &info)
+	err := apiJSON(ctx, client, http.MethodGet, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces/"+id, token, nil, &info)
 	if err != nil {
 		if ce := (*clierr.Error)(nil); asClierr(err, &ce) && ce.Code == "not_found" {
-			return WorkspaceInfo{}, &clierr.Error{
+			return WorkspaceInfo{}, "", &clierr.Error{
 				Code: "not_found", Field: "workspace",
 				Message:    fmt.Sprintf("no workspace %q is registered", id),
 				Suggestion: "list yours with `runko workspace list`, or create it with `runko workspace create`",
 			}
 		}
-		return WorkspaceInfo{}, err
+		return WorkspaceInfo{}, "", err
+	}
+	if branch == "" {
+		branch = "head"
+	}
+	cloneDir, dir, err := opts.resolve(runkodURL, info.RepoPath, info.ID, branch)
+	if err != nil {
+		return WorkspaceInfo{}, "", err
 	}
 	remoteURL, err := composeRemoteURL(runkodURL, info.RepoPath)
 	if err != nil {
-		return WorkspaceInfo{}, err
+		return WorkspaceInfo{}, "", err
 	}
 	authEnv := gitAuthConfigEnv(runkodURL, token)
 	if err := ensureSharedClone(cloneDir, remoteURL, authEnv); err != nil {
-		return WorkspaceInfo{}, err
+		return WorkspaceInfo{}, "", err
 	}
 
 	// Prefer the branch's snapshot tip; a branch that never snapshotted
 	// restores at the workspace's base revision.
-	if branch == "" {
-		branch = "head"
-	}
 	snapshotRef := "refs/workspaces/" + id + "/" + branch
 	startPoint := info.BaseRevision
 	if _, err := runGitEnv(cloneDir, authEnv, "fetch", "origin", "+"+snapshotRef+":"+snapshotRef); err == nil {
@@ -321,9 +393,12 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 		}
 	}
 	if err := materializeWorktree(cloneDir, dir, info, startPoint, branch, authEnv); err != nil {
-		return WorkspaceInfo{}, err
+		return WorkspaceInfo{}, "", err
 	}
-	return info, nil
+	_ = recordMaterialization(Materialization{
+		Workspace: info.ID, Branch: branch, Path: dir, Store: cloneDir, RunkodURL: runkodURL,
+	})
+	return info, dir, nil
 }
 
 // WorkspaceSnapshot commits all WIP in dir (amend-by-default, §12.2) and
@@ -390,6 +465,7 @@ func WorkspaceSnapshot(dir, message string) (ref string, err error) {
 	if _, err := runGitNet(dir, "push", "origin", "+HEAD:"+ref); err != nil {
 		return "", fmt.Errorf("push snapshot: %w", err)
 	}
+	touchMaterialization(dir) // gc's --idle signal (§12.7)
 	return ref, nil
 }
 
@@ -459,6 +535,7 @@ func WorkspaceUpdateBase(ctx context.Context, client *http.Client, runkodURL, to
 	if err != nil {
 		return "", fmt.Errorf("record new base in registry: %w", err)
 	}
+	touchMaterialization(dir) // gc's --idle signal (§12.7)
 	return newBase, nil
 }
 

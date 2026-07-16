@@ -56,8 +56,8 @@ func TestStoreRemoteIsCredentialNeutral(t *testing.T) {
 	cloneDir := filepath.Join(root, "store")
 	wsDir := filepath.Join(root, "neutral-ws")
 
-	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"neutral-ws", "alice", []string{"checkout-api"}, cloneDir, wsDir); err != nil {
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"neutral-ws", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 
@@ -94,8 +94,8 @@ func TestPreS127StoreIsNeutralizedOnReuse(t *testing.T) {
 	srv, _ := startWorkspaceServer(t)
 	root := t.TempDir()
 	cloneDir := filepath.Join(root, "legacy-store")
-	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"legacy-a", "alice", []string{"checkout-api"}, cloneDir, filepath.Join(root, "legacy-a")); err != nil {
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"legacy-a", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "legacy-a")}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 
@@ -108,8 +108,8 @@ func TestPreS127StoreIsNeutralizedOnReuse(t *testing.T) {
 	mustGit(t, cloneDir, "config", "remote.origin.url", u.String())
 	mustGit(t, cloneDir, "config", "--unset", "credential.helper")
 
-	if _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"legacy-b", "bob", []string{"money-lib"}, cloneDir, filepath.Join(root, "legacy-b")); err != nil {
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"legacy-b", "bob", []string{"money-lib"}, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "legacy-b")}); err != nil {
 		t.Fatalf("WorkspaceCreate over the legacy store: %v", err)
 	}
 	remote := mustGit(t, cloneDir, "config", "remote.origin.url")
