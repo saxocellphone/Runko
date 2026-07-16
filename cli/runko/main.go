@@ -112,7 +112,7 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   change abandon --change <id> --runkod-url <url> --token <t>   abandon an open change (§7.4) [--json]
   change automerge --change <id> [--disable]                arm the when-ready land: the server lands it once checks+approvals go green [--json]
   change rerun-check --change <id> --name <check> --runkod-url <url> --token <t>   request a check re-run (§14.4.2) [--json]
-  workspace create --name <n> --project <p>... --by <who> --runkod-url <url> --token <t>   worktree + sparse cone + registry row (§12.3) [--json]
+  workspace create --name <n> --project <p>... [--by <who>]   worktree + sparse cone + registry row (§12.3; --by defaults to the stored login) [--json]
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
   workspace attach <id> --runkod-url <url> --token <t> [--branch <b>]   restore a workspace branch from its snapshot ref [--json]
   workspace delete <id> --runkod-url <url> --token <t>       delete the registry row + snapshot refs (refused while it has open changes) [--json]
@@ -127,9 +127,10 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace sync --runkod-url <url> --token <t> [--dir .]    sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)
 
+  auth signup --runkod-url <host> --name <you> --org <org> --create|--join   first contact: register, create/join the org, store the credential
   auth login --runkod-url <url>/o/<org> [--name <you>]        sign in once (password prompted, hidden); every command below then needs no flags
   auth status | auth logout                                   who am I (against which control plane) / forget the credential
-  org create --name <org>                                     new org owning its own repo at /o/<org>/ (§7.1) [--json]
+  org create --name <org>                                     new org owning its own repo at /o/<org>/, genesis-seeded and ready to work in (§6.10, §7.1) [--json]
   org list                                                    orgs you can reach (role + git URL) [--json]
   org add-member --org <org> --name <account> [--role member|admin|releaser]   grant an account access [--json]
   release create --project <p> [--version x.y.z]              cut an immutable release: server-minted tag + changelog from landed changes (§14.10.3) [--json]
@@ -435,10 +436,39 @@ func cmdChangeRequirements(args []string) error {
 
 func cmdAuth(args []string) error {
 	if len(args) < 1 {
-		return usageError("usage: runko auth login|status|logout ...")
+		return usageError("usage: runko auth signup|login|status|logout ...")
 	}
 	ctx := context.Background()
 	switch args[0] {
+	case "signup":
+		// First contact, CLI-first (§6.10): one command registers the
+		// account, creates or joins the org, and stores the credential -
+		// signup IS login, so nothing downstream needs auth flags.
+		fs := flag.NewFlagSet("auth signup", flag.ExitOnError)
+		runkodURL := fs.String("runkod-url", "", "the control plane HOST root, e.g. https://runko.example.com (signup is served by the hub, not an /o/<org> mount)")
+		name := fs.String("name", "", "the account name to register")
+		password := fs.String("password", "", "password (min 8 chars); omit to be prompted securely (input hidden)")
+		org := fs.String("org", "", "the org to create or join - every account belongs to one")
+		create := fs.Bool("create", false, "create --org as a new org; you become its admin")
+		join := fs.Bool("join", false, "join --org, an existing org, as a member")
+		code := fs.String("invite-code", "", "invite code, if this control plane requires one to sign up")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *runkodURL == "" || *name == "" || *org == "" || *create == *join {
+			return &clierr.Error{
+				Code: "missing_field", Field: "signup",
+				Message:    "auth signup needs --runkod-url, --name, --org, and exactly one of --create/--join",
+				Suggestion: "runko auth signup --runkod-url https://<host> --name <you> --org <org> --create",
+			}
+		}
+		orgMode := "join"
+		if *create {
+			orgMode = "create"
+		}
+		_, err := AuthSignup(ctx, http.DefaultClient, *runkodURL, *name, *password, *org, orgMode, *code, bufio.NewReader(os.Stdin), os.Stdout)
+		return err
+
 	case "login":
 		fs := flag.NewFlagSet("auth login", flag.ExitOnError)
 		runkodURL := fs.String("runkod-url", "", "runkod API base: the /o/<org> mount, NOT the web path - e.g. https://runko.victornazzaro.com/o/acme (required)")
@@ -500,7 +530,7 @@ func cmdAuth(args []string) error {
 		return AuthGitCredential(args[1], os.Stdin, os.Stdout)
 
 	default:
-		return usageError("usage: runko auth login|status|logout|git-credential ...")
+		return usageError("usage: runko auth signup|login|status|logout|git-credential ...")
 	}
 }
 
@@ -801,7 +831,7 @@ func cmdWorkspace(args []string) error {
 		runkodURL := fs.String("runkod-url", "", "runkod base URL")
 		token := fs.String("token", "", "deploy token")
 		name := fs.String("name", "", "workspace name (also the snapshot-ref segment)")
-		by := fs.String("by", "", "who owns this workspace")
+		by := fs.String("by", "", "who owns this workspace (default: the stored login's principal)")
 		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory (default: the managed home's .store, §12.7)")
 		dir := fs.String("dir", "", "worktree directory (default: under the managed home, ~/runko-ws)")
 		forceNested := fs.Bool("force-nested", false, "materialize inside another git checkout anyway")
@@ -811,12 +841,18 @@ func cmdWorkspace(args []string) error {
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		if *name == "" || *by == "" || len(projects) == 0 {
-			return fmt.Errorf("workspace create: --name, --by, and at least one --project are required")
-		}
 		cred, err := resolveCredential(*runkodURL, *token)
 		if err != nil {
 			return err
+		}
+		// The stored login already says who you are (§6.10): --by stays an
+		// override, not a toll. Only the anonymous deploy token has no name
+		// to default to.
+		if *by == "" {
+			*by = cred.Name
+		}
+		if *name == "" || *by == "" || len(projects) == 0 {
+			return fmt.Errorf("workspace create: --name and at least one --project are required (and --by, when signed in with a bare token)")
 		}
 		info, wsDir, err := WorkspaceCreate(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), *name, *by, projects,
 			MaterializeOptions{CloneDir: *cloneDir, Dir: *dir, ForceNested: *forceNested})
