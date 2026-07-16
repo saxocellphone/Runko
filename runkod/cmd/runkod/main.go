@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/saxocellphone/runko/platform/githubapp"
 	"github.com/saxocellphone/runko/platform/land"
 	"github.com/saxocellphone/runko/platform/mirror"
 	"github.com/saxocellphone/runko/platform/receive"
@@ -111,6 +112,9 @@ func cmdServe(args []string) error {
 	mirrorRemote := fs.String("mirror-remote", envString("MIRROR_REMOTE", ""), "outbound mirror git URL (§18.6 M1) - ANY git host: https:// gets token auth, everything else used as-is [RUNKO_MIRROR_REMOTE]")
 	mirrorUsername := fs.String("mirror-username", envString("MIRROR_USERNAME", ""), "basic-auth username for the mirror token: GitHub 'x-access-token' (default), GitLab 'oauth2', Gitea anything [RUNKO_MIRROR_USERNAME]")
 	mirrorToken := fs.String("mirror-token", envString("MIRROR_TOKEN", ""), "mirror access token (prefer the env var - never lands in shell history) [RUNKO_MIRROR_TOKEN]")
+	githubAppID := fs.String("github-app-id", envString("GITHUB_APP_ID", ""), "GitHub App id enabling App auth (2026-07-16, platform/README.md): mirrors on the App's GitHub host with no static token mint installation tokens on demand - no more per-org PATs [RUNKO_GITHUB_APP_ID]")
+	githubAppKeyFile := fs.String("github-app-key-file", envString("GITHUB_APP_KEY_FILE", ""), "path to the GitHub App private key PEM (required with --github-app-id) [RUNKO_GITHUB_APP_KEY_FILE]")
+	githubAPI := fs.String("github-api", envString("GITHUB_API", "https://api.github.com"), "GitHub API base for App auth; GHES: https://<host>/api/v3 (App auth then applies to that host's remotes) [RUNKO_GITHUB_API]")
 	allowOrgCreate := fs.Bool("allow-org-create", envBool("ALLOW_ORG_CREATE"), "enable self-service org creation (POST /api/orgs, §7.1) - each org owns its own repo under --orgs-dir; default off [RUNKO_ALLOW_ORG_CREATE]")
 	orgsDir := fs.String("orgs-dir", envString("ORGS_DIR", ""), "directory holding per-org repos at <orgs-dir>/<org>/repo.git (default: 'orgs' beside --repo-dir) [RUNKO_ORGS_DIR]")
 	var orgMirrors orgMirrorFlag
@@ -243,10 +247,32 @@ func cmdServe(args []string) error {
 		}
 	}
 
+	// GitHub App auth (decided 2026-07-16, platform/README.md): one
+	// deployment-wide App credential; every github mirror without a
+	// static token mints installation tokens instead. token= always wins.
+	var ghApp *githubapp.App
+	if *githubAppID != "" || *githubAppKeyFile != "" {
+		if *githubAppID == "" || *githubAppKeyFile == "" {
+			return fmt.Errorf("serve: --github-app-id and --github-app-key-file come together (App auth needs both)")
+		}
+		keyPEM, err := os.ReadFile(*githubAppKeyFile)
+		if err != nil {
+			return fmt.Errorf("serve: --github-app-key-file: %w", err)
+		}
+		if ghApp, err = githubapp.New(*githubAppID, keyPEM, *githubAPI); err != nil {
+			return fmt.Errorf("serve: %w", err)
+		}
+	}
+
 	var mirrorWorker *runkod.MirrorWorker
 	if *mirrorRemote != "" {
+		remote := &mirror.Remote{RepoDir: *repoDir, URL: *mirrorRemote, Username: *mirrorUsername, Token: *mirrorToken,
+			TokenSource: mirrorTokenSource(ghApp, *mirrorRemote, *mirrorToken)}
+		if remote.TokenSource != nil {
+			fmt.Printf("runkod: mirror %s authenticates via GitHub App %s\n", *mirrorRemote, *githubAppID)
+		}
 		mirrorWorker = &runkod.MirrorWorker{
-			Remote:   &mirror.Remote{RepoDir: *repoDir, URL: *mirrorRemote, Username: *mirrorUsername, Token: *mirrorToken},
+			Remote:   remote,
 			Store:    store,
 			TrunkRef: *trunk,
 			Debounce: 3 * time.Second,
@@ -351,7 +377,8 @@ func cmdServe(args []string) error {
 					continue
 				}
 				orgMirror = &runkod.MirrorWorker{
-					Remote:   &mirror.Remote{RepoDir: orgRepoDir, URL: cfg.Remote, Username: cfg.Username, Token: cfg.Token},
+					Remote: &mirror.Remote{RepoDir: orgRepoDir, URL: cfg.Remote, Username: cfg.Username, Token: cfg.Token,
+						TokenSource: mirrorTokenSource(ghApp, cfg.Remote, cfg.Token)},
 					Store:    orgStore,
 					TrunkRef: *trunk,
 					Debounce: 3 * time.Second,
@@ -591,6 +618,22 @@ func splitPipe(v string) []string {
 		}
 	}
 	return out
+}
+
+// mirrorTokenSource wires GitHub App installation tokens (2026-07-16,
+// platform/README.md) into one mirror remote. App auth applies only when
+// the App is configured, the remote lives on the App's GitHub host, and
+// no static token was given - an explicit token= always wins, and
+// non-GitHub remotes keep whatever auth they declared.
+func mirrorTokenSource(app *githubapp.App, remoteURL, staticToken string) func() (string, error) {
+	if app == nil || staticToken != "" {
+		return nil
+	}
+	repo := app.RepoPath(remoteURL)
+	if repo == "" {
+		return nil
+	}
+	return app.TokenSource(repo)
 }
 
 // orgMirrorConfig is one --org-mirror value: an outbound mirror (§18.6 M1)
