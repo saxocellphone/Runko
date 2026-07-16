@@ -274,9 +274,22 @@ func (s *Server) clock() time.Time {
 	return time.Now()
 }
 
+// repoMount is the git mount this server ADVERTISES (org info, the
+// workspace API's RepoPath): the org-named form on org-scoped servers -
+// `git clone` names the checkout folder after the URL's last segment, and
+// "repo" (every org repo's on-disk basename) says nothing about which org
+// you just cloned. The root-mounted default server keeps its repo-dir
+// basename (which IS the default org's name by construction, main.go).
+func (s *Server) repoMount() string {
+	if s.OrgName != "" {
+		return s.OrgName + ".git"
+	}
+	return RepoMountName(s.RepoDir)
+}
+
 // Handler assembles the full mux: smart-HTTP git hosting at
-// /<RepoMountName>/, the internal pre-receive callback, and the bearer-
-// token-authed REST API.
+// /<RepoMountName>/ (plus the advertised org-named alias on org servers),
+// the internal pre-receive callback, and the bearer-token-authed REST API.
 func (s *Server) Handler() (http.Handler, error) {
 	mux := http.NewServeMux()
 
@@ -284,7 +297,15 @@ func (s *Server) Handler() (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("runkod: build git smart-HTTP handler: %w", err)
 	}
-	mux.Handle("/"+RepoMountName(s.RepoDir)+"/", s.requireGitAuth(gitHandler))
+	mount := RepoMountName(s.RepoDir)
+	authedGit := s.requireGitAuth(gitHandler)
+	mux.Handle("/"+mount+"/", authedGit)
+	// Org-named alias (see repoMount): the historical /repo.git/ mount
+	// above stays served forever - every existing remote and CI config
+	// keeps working - the alias is only ADDITIONALLY routed.
+	if alias := s.repoMount(); alias != mount {
+		mux.Handle("/"+alias+"/", rewriteGitMount(alias, mount, authedGit))
+	}
 
 	// Unauthenticated by design: liveness/readiness probes and metrics
 	// scrapers (compose healthcheck, k8s, Prometheus) cannot carry the

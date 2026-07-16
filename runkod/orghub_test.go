@@ -113,7 +113,7 @@ func TestOrgLifecycleMemMode(t *testing.T) {
 	if status != http.StatusCreated {
 		t.Fatalf("create org: status %d body %v", status, body)
 	}
-	if body["git_url"] != "/o/acme/repo.git" || body["role"] != "admin" {
+	if body["git_url"] != "/o/acme/acme.git" || body["role"] != "admin" {
 		t.Fatalf("create org response: %v", body)
 	}
 

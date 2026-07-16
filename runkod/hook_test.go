@@ -1,6 +1,8 @@
 package runkod
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,6 +60,31 @@ func TestInstallPreReceiveHookWritesExecutableScript(t *testing.T) {
 func TestRepoMountName(t *testing.T) {
 	if got := RepoMountName("/data/monorepo.git/"); got != "monorepo.git" {
 		t.Fatalf("RepoMountName = %q, want monorepo.git", got)
+	}
+}
+
+// The org-named git mount: an org server advertises <org>.git and serves
+// it by rewriting onto the on-disk repo.git mount; the root default server
+// (no OrgName) keeps advertising its repo-dir basename unchanged.
+func TestRepoMountOrgAlias(t *testing.T) {
+	s := &Server{RepoDir: "/data/orgs/acme/repo.git", OrgName: "acme"}
+	if got := s.repoMount(); got != "acme.git" {
+		t.Fatalf("org server repoMount = %q, want acme.git", got)
+	}
+	root := &Server{RepoDir: "/data/monorepo.git"}
+	if got := root.repoMount(); got != "monorepo.git" {
+		t.Fatalf("root server repoMount = %q, want monorepo.git", got)
+	}
+
+	var sawPath string
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+	})
+	h := rewriteGitMount("acme.git", "repo.git", inner)
+	req := httptest.NewRequest("GET", "/acme.git/info/refs?service=git-upload-pack", nil)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if sawPath != "/repo.git/info/refs" {
+		t.Fatalf("rewritten path = %q, want /repo.git/info/refs", sawPath)
 	}
 }
 

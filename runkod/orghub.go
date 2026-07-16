@@ -601,7 +601,10 @@ func (h *OrgHub) orgInfoFor(name, role string) orgInfo {
 		// and CI config uses it.
 		return orgInfo{Name: name, Role: role, APIBase: "", GitURL: "/" + RepoMountName(h.Default.RepoDir), Default: true}
 	}
-	return orgInfo{Name: name, Role: role, APIBase: "/o/" + name, GitURL: "/o/" + name + "/repo.git"}
+	// Advertise the org-named mount (api.go repoMount): `git clone` of
+	// this URL lands in a folder named after the org, not "repo". The
+	// on-disk /o/<name>/repo.git path stays served for existing remotes.
+	return orgInfo{Name: name, Role: role, APIBase: "/o/" + name, GitURL: "/o/" + name + "/" + name + ".git"}
 }
 
 func (h *OrgHub) handleCreateOrg(w http.ResponseWriter, r *http.Request) {

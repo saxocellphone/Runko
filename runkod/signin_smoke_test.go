@@ -255,7 +255,7 @@ func TestSignupSigninWebSequence(t *testing.T) {
 	}
 	org := body["org"].(map[string]any)
 	if org["name"] != "carols-org" || org["role"] != "admin" ||
-		org["api_base"] != "/o/carols-org" || org["git_url"] != "/o/carols-org/repo.git" {
+		org["api_base"] != "/o/carols-org" || org["git_url"] != "/o/carols-org/carols-org.git" {
 		t.Fatalf("signup org info: %v", org)
 	}
 	// 4. The signIn round-trip the client performs next.

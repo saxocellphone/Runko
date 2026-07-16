@@ -1332,16 +1332,24 @@ func TestEndToEndDaemonOrgs(t *testing.T) {
 	if status := orgAPI(t, "POST", addr+"/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}, &created); status != http.StatusCreated {
 		t.Fatalf("create org: status %d", status)
 	}
-	if created.GitURL != "/o/acme/repo.git" || created.Role != "admin" {
+	// The advertised URL is ORG-NAMED (a plain `git clone` of it lands in
+	// acme/, not repo/); the on-disk repo.git path stays served below.
+	if created.GitURL != "/o/acme/acme.git" || created.Role != "admin" {
 		t.Fatalf("create org response: %+v", created)
 	}
 
-	// Clone the org's (empty) repo as alice and push a Change through the
-	// org's own funnel.
+	// Clone the org's (empty) repo as alice - via the advertised org-named
+	// mount - and push a Change through the org's own funnel.
 	work := t.TempDir()
 	authedRemote := strings.Replace(addr, "http://", "http://alice:alicepw123@", 1) + created.GitURL
 	if out, err := runGit(t, work, "clone", authedRemote, "."); err != nil {
 		t.Fatalf("clone org repo: %v\n%s", err, out)
+	}
+	// The historical /o/<org>/repo.git mount must keep serving forever -
+	// every pre-alias remote and CI config points at it.
+	legacyRemote := strings.Replace(addr, "http://", "http://alice:alicepw123@", 1) + "/o/acme/repo.git"
+	if out, err := runGit(t, t.TempDir(), "ls-remote", legacyRemote); err != nil {
+		t.Fatalf("legacy repo.git mount must stay served: %v\n%s", err, out)
 	}
 	if err := os.WriteFile(filepath.Join(work, "hello.txt"), []byte("hi from acme\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
