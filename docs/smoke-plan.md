@@ -63,7 +63,7 @@ suites (which already run with `-race` and live Postgres in CI).
 
 The scenarios below are the sign-in/sign-up contract: every user path
 that begins at the web login page (`web/src/api/client.ts` `signIn`/
-`signUp`) or `runko auth login`. Per the selection rule these live in the
+`signUp`) or `runko auth login`/`runko auth signup` (§6.10). Per the selection rule these live in the
 Go suite, not compose — every behavior here is fully determined at the
 HTTP-handler layer, and the suite drives the **full hub handler** (org
 routing included), which is byte-for-byte the mux `cmd/runkod` serves.
@@ -91,7 +91,7 @@ The two-sided contract:
 | S5 | Stored account in **two orgs** | whoami on both; org list carries both roles |
 | S6 | Bot lane, Basic name:token | root + org mounts (lanes are server-wide config); whoami `lane: true` |
 | S7 | Agent principal (minted), Basic and Bearer | its own org; whoami `is_agent: true` |
-| S8 | The web client's full signup sequence (config → signup → whoami on the returned org → org list) | every step 2xx, `api_base`/`git_url` usable verbatim |
+| S8 | The full signup sequence (config → signup → whoami on the returned org → org list) - the web client's login page AND `runko auth signup` both encode over exactly this | every step 2xx, `api_base`/`git_url` usable verbatim |
 | S9 | Passwords are opaque: colons allowed (Basic splits on the FIRST colon), 8-char minimum boundary accepted | signup + whoami round-trip |
 | S10 | CORS preflights on `/api/signup`, `/api/auth/config`, `/api/orgs`, `/o/<org>/api/whoami` | 204 with `Allow-Origin: *`, unauthenticated |
 | S11 | **Per-org identity** (migration 0017): the same username in two orgs is two independent accounts - each signs into its own org, selectors never leak the other's orgs, and an account creating a second org gets its credential cloned there | `TestSameNameDifferentOrgs` |
