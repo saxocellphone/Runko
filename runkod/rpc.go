@@ -437,6 +437,30 @@ func (r *rpcServer) LandChange(ctx context.Context, req *connect.Request[runkov1
 	}), nil
 }
 
+func (r *rpcServer) LandStack(ctx context.Context, req *connect.Request[runkov1.LandStackRequest]) (*connect.Response[runkov1.LandStackResponse], error) {
+	key := req.Msg.ChangeId
+	change, err := r.getChange(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	auth := req.Header().Get("Authorization")
+	dec, apiErr := r.s.landStackCore(ctx, key, change, r.s.laneForAuthHeader(auth), r.s.principalForAuthHeader(auth))
+	if apiErr != nil {
+		return nil, connectErr(apiErr)
+	}
+	resp := &runkov1.LandStackResponse{
+		StoppedChangeId:      dec.StoppedKey,
+		Blockers:             dec.Blockers,
+		RequiresRevalidation: dec.RequiresRevalidation,
+		Conflicts:            dec.Conflicts,
+		RaceRetry:            dec.RaceRetryExhausted,
+	}
+	for _, m := range dec.Landed {
+		resp.Landed = append(resp.Landed, &runkov1.LandStackLanded{ChangeId: m.ChangeKey, LandedSha: m.LandedSHA})
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (r *rpcServer) SyncChange(ctx context.Context, req *connect.Request[runkov1.SyncChangeRequest]) (*connect.Response[runkov1.SyncChangeResponse], error) {
 	key := req.Msg.ChangeId
 	change, err := r.getChange(ctx, key)

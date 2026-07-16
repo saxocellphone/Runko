@@ -30,6 +30,16 @@ service ChangeService {
   rpc GetMergeRequirements(GetMergeRequirementsRequest) returns (GetMergeRequirementsResponse);
   rpc ApproveChange(ApproveChangeRequest) returns (ApproveChangeResponse);
   rpc LandChange(LandChangeRequest) returns (LandChangeResponse);
+  // LandStack lands the chain from the stack's bottom THROUGH the
+  // requested Change (the Gerrit "submit including parents" analog,
+  // §13.5): open ancestors first, bottom-up, then the Change itself,
+  // each member through the exact same per-principal merge gate and land
+  // path as a single LandChange. The sweep stops at the first member
+  // that cannot land and reports it; members already landed are durable
+  // partial progress, never rolled back. Dependents stacked ABOVE the
+  // requested Change are left open. There is no force variant - the
+  // §13.5 override stays a single-change, eyes-on verb.
+  rpc LandStack(LandStackRequest) returns (LandStackResponse);
   rpc AbandonChange(AbandonChangeRequest) returns (AbandonChangeResponse);
   // SetAutomerge arms/disarms the when-ready land (§13.5): armed changes
   // land themselves the moment merge requirements go green, attributed
@@ -195,6 +205,34 @@ message LandChangeResponse {
   // True when this land bypassed gates via LandChangeRequest.force -
   // echoed for display; the durable audit bit is ChangeSummary.landed_forced.
   bool forced = 6;
+}
+
+message LandStackRequest {
+  // Any member of the stack: its open ancestors land first (bottom-up),
+  // then the member itself; anything stacked above it is untouched.
+  string change_id = 1;
+}
+
+message LandStackLanded {
+  string change_id = 1;
+  string landed_sha = 2;
+}
+
+message LandStackResponse {
+  // The members that landed in this sweep, bottom-up. Empty with
+  // stopped_change_id "" means there was nothing left to land (the
+  // requested Change had already landed).
+  repeated LandStackLanded landed = 1;
+  // The member the sweep stopped at ("" when it landed through the
+  // requested Change), explained by exactly one of: blockers (its own
+  // merge gate, the same strings its merge-requirements view shows),
+  // requires_revalidation, conflicts, or race_retry - the same
+  // non-landed outcomes LandChangeResponse models.
+  string stopped_change_id = 2;
+  repeated string blockers = 3;
+  bool requires_revalidation = 4;
+  repeated string conflicts = 5;
+  bool race_retry = 6;
 }
 
 message SetAutomergeRequest {

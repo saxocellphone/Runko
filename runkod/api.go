@@ -310,6 +310,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /api/changes/{key}/approve", s.requireAuth(s.handleApproveChange))
 	mux.HandleFunc("POST /api/changes/{key}/automerge", s.requireAuth(s.handleSetAutomerge))
 	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
+	mux.HandleFunc("POST /api/changes/{key}/land-stack", s.requireAuth(s.handleLandStack))
 	mux.HandleFunc("GET /api/changes/{key}/comments", s.requireReadAuth(s.handleListComments))
 	mux.HandleFunc("POST /api/changes/{key}/comments", s.requireAuth(s.handleCreateComment))
 	mux.HandleFunc("POST /api/changes/{key}/comments/{id}/resolve", s.requireAuth(s.handleResolveComment))
