@@ -211,7 +211,12 @@ step "E8: workspace snapshots - owner-only (§12.2), ghost refs refused"
   --runkod-url "$BASE_URL" --token "$ALICE" \
   --clone-dir "$WORK/wsclone" --dir "$WORK/wsdemo" >/dev/null
 printf 'wip\n' > "$WORK/wsdemo/$PROJECT_DIR/wip.txt"
-"$BIN/runko" workspace snapshot --dir "$WORK/wsdemo" >/dev/null
+# §12.7: the store is credential-neutral (no token in the remote URL), so
+# the flagless snapshot verb resolves auth env > stored login. This eval
+# runs from a bare environment with neither - the env form IS the
+# documented contract for exactly this shape (cli-contract.md).
+RUNKO_RUNKOD_URL="$BASE_URL" RUNKO_TOKEN="$ALICE" \
+  "$BIN/runko" workspace snapshot --dir "$WORK/wsdemo" >/dev/null
 git ls-remote "$ALICE_URL" "refs/workspaces/wsdemo/head" | grep -q . || fail "E8: owner's snapshot must be durable"
 expect_fail "bob pushing alice's snapshot ref" git -C "$WORK/mono" push "$BOB_URL" +HEAD:refs/workspaces/wsdemo/head
 expect_in "belongs to alice" "E8"
