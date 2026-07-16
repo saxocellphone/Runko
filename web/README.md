@@ -1,8 +1,9 @@
 # Runko web frontend
 
 The web UI (docs/design.md §17.2), built against the Connect contract in
-`proto/runko/v1/` via [Connect-ES](https://connectrpc.com/) — see
-proto/README.md for the server side. Design language is inspired by
+`runkod/proto/runko/v1/` via [Connect-ES](https://connectrpc.com/) — see
+[runkod/proto/README.md](../runkod/proto/README.md) for the server side.
+Design language is inspired by
 [Graphite](https://graphite.dev): stacked changes rendered as a rail with
 per-change status dots, trunk at the bottom, quiet neutral surfaces with a
 single violet accent, light + dark themes.
@@ -73,7 +74,7 @@ npm install
 npm run dev        # vite dev server (demo data unless VITE_RUNKO_URL set)
 npm run check      # tsc + oxlint + vitest + production build (CI runs this)
 npm run test       # vitest only
-npm run gen        # regenerate src/gen from ../proto (buf + protoc-gen-es)
+npm run gen        # regenerate src/gen from ../runkod/proto (buf + protoc-gen-es)
 npm run screenshot # headless visual smoke: screenshots into screenshots/
                    # (needs: npx playwright-core install chromium-headless-shell,
                    #  and a dev server on :5173 or BASE_URL)
