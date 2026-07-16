@@ -30,6 +30,7 @@ import (
 	"path/filepath"
 
 	"github.com/saxocellphone/runko/internal/gitstore"
+	"github.com/saxocellphone/runko/platform/agentsmd"
 	"github.com/saxocellphone/runko/platform/core"
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/land"
@@ -442,9 +443,74 @@ func (h *OrgHub) routeOrg(w http.ResponseWriter, r *http.Request, defaultHandler
 	http.StripPrefix("/o/"+name, target).ServeHTTP(w, r)
 }
 
-// CreateOrg assembles a brand-new org end to end: repo + hook + store +
-// server + workers + creator membership. Also the boot-time reload path
-// (creator == "" and requireNew == false re-attaches existing orgs).
+// genesisFiles renders a created org's seed tree (§6.10): the minimal
+// state that makes a fresh org immediately usable instead of a bare unborn
+// trunk. A root manifest, so every path resolves an owning project and
+// `workspace create --project repo` works before any real project exists;
+// OWNERS naming the creator, so §7.3 inheritance covers every path and the
+// default-deny posture resolves a policy from day one (uploader consent,
+// api.go ownerRequirements, is what lets the solo creator actually land);
+// AGENTS.md, so a coding agent pointed at a fresh clone knows the verbs
+// (§8.8); CONTRIBUTING.md, because §6.9 promises the generated repo shows
+// the three commands that matter. All of it is ordinary tree content the
+// org evolves or deletes through ordinary Changes (tree-as-truth, §10.3).
+func genesisFiles(orgName, creator, trunkRef string) []core.FileChange {
+	rootManifest := "# Root glue project, seeded at org creation (§6.10). It owns every path\n" +
+		"# no deeper PROJECT.yaml claims, so every change resolves a merge policy;\n" +
+		"# carve real projects out of it with `runko project create`.\n" +
+		"schema: project/v1\n" +
+		"name: repo\n" +
+		"type: other\n"
+	owners := "# Path ownership (§7.3): the nearest OWNERS file up the tree applies\n" +
+		"# wherever a PROJECT.yaml names no owners itself. Seeded with the org's\n" +
+		"# creator - add teammates as they join.\n" +
+		creator + "\n"
+	contributing := "# Contributing to " + orgName + "\n\n" +
+		"Trunk (`" + trunkRef + "`) is closed to direct push: work lands as reviewed\n" +
+		"Changes (§6.9). The three commands that matter:\n\n" +
+		"    runko change create -m \"<what and why>\"   # commit your work as one Change\n" +
+		"    runko change push                          # submit it (and its stack) for review\n" +
+		"    runko change land --change <Change-Id>     # rebase-land once its gates are green\n\n" +
+		"No runko CLI? Plain git works end to end: `git push origin HEAD:refs/for/" + trunkRef + "`\n" +
+		"creates the same Change, and the server's reply names your next step at\n" +
+		"every push. `runko doctor` checks a checkout and prints the cheat-sheet;\n" +
+		"AGENTS.md (alongside this file) teaches coding agents the same loop.\n"
+	return []core.FileChange{
+		{Path: "PROJECT.yaml", Content: []byte(rootManifest)},
+		{Path: "OWNERS", Content: []byte(owners)},
+		{Path: "AGENTS.md", Content: []byte(agentsmd.Generate())},
+		{Path: "CONTRIBUTING.md", Content: []byte(contributing)},
+	}
+}
+
+// seedGenesisCommit writes genesisFiles as a created org's first trunk
+// commit, directly - not through the receive funnel, because it IS the
+// org's initial state: it exists before the org is announced to anyone,
+// so there is no trunk to close and no reviewer to ask (the same standing
+// as `git init`'s unborn branch). A born trunk is left strictly alone -
+// that makes re-assembly after a crashed create (finding #44's recovery
+// re-runs createOrg) a no-op instead of a history rewrite.
+func seedGenesisCommit(repoDir, trunkRef, orgName, creator string) error {
+	gstore := gitstore.New(repoDir)
+	trunk := "refs/heads/" + trunkRef
+	if _, err := gstore.ResolveRef(trunk); err == nil {
+		return nil
+	}
+	rev, err := gstore.CommitOverlay("", core.Overlay{Changes: genesisFiles(orgName, creator, trunkRef)}, core.CommitMeta{
+		Message: fmt.Sprintf("org genesis: root manifest, OWNERS (%s), AGENTS.md, CONTRIBUTING.md (§6.10)", creator),
+	})
+	if err != nil {
+		return fmt.Errorf("genesis commit: %w", err)
+	}
+	if err := gstore.UpdateRef(trunk, rev, nil); err != nil {
+		return fmt.Errorf("genesis ref: %w", err)
+	}
+	return nil
+}
+
+// CreateOrg assembles a brand-new org end to end: repo + hook + genesis +
+// store + server + workers + creator membership. Also the boot-time reload
+// path (creator == "" and requireNew == false re-attaches existing orgs).
 func (h *OrgHub) createOrg(ctx context.Context, name, creator string, requireNew bool) *apiError {
 	if !orgNamePattern.MatchString(name) || reservedOrgNames[name] {
 		return typedErr(http.StatusBadRequest, clierr.Error{
@@ -473,6 +539,15 @@ func (h *OrgHub) createOrg(ctx context.Context, name, creator string, requireNew
 	}
 	if err := InstallPreReceiveHook(repoDir, h.SelfURL+"/o/"+name, h.Default.Token); err != nil {
 		return internalErr(err)
+	}
+	// Genesis (§6.10): a creator-made org is born with a usable trunk.
+	// creator == "" is the boot-reload path (org exists; its trunk is
+	// whatever history it has) and the anonymous deploy token (no one to
+	// seed OWNERS with) - both keep the bare-repo behavior.
+	if creator != "" {
+		if err := seedGenesisCommit(repoDir, h.Default.TrunkRef, name, creator); err != nil {
+			return internalErr(err)
+		}
 	}
 	if err := h.Directory.EnsureOrg(ctx, name); err != nil {
 		return internalErr(err)
