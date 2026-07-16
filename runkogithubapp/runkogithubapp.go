@@ -1,4 +1,4 @@
-// Package githubapp mints GitHub App installation tokens - the
+// Package runkogithubapp mints GitHub App installation tokens - the
 // deployment-wide replacement for per-org PATs on the GitHub integration
 // plane (§14.3 Mode C dispatch via runko-bridge, §18.6 M1 mirror pushes).
 // One App credential (app id + RS256 private key) serves every org: an
@@ -14,7 +14,7 @@
 //
 // Implemented on stdlib crypto only (RS256 = RSASSA-PKCS1-v1_5 over
 // SHA-256); no new dependencies.
-package githubapp
+package runkogithubapp
 
 import (
 	"context"

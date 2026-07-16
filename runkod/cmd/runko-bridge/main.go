@@ -34,8 +34,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/saxocellphone/runko/githubapp"
 	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/runkogithubapp"
 )
 
 func main() {
@@ -118,7 +118,7 @@ func githubTokenSource(pat, appID, appKeyFile, apiBase, repo string) (func() (st
 		if err != nil {
 			return nil, fmt.Errorf("--github-app-key-file: %w", err)
 		}
-		app, err := githubapp.New(appID, keyPEM, apiBase)
+		app, err := runkogithubapp.New(appID, keyPEM, apiBase)
 		if err != nil {
 			return nil, err
 		}

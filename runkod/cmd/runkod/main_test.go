@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saxocellphone/runko/githubapp"
 	"github.com/saxocellphone/runko/internal/dbtest"
+	"github.com/saxocellphone/runko/runkogithubapp"
 )
 
 // buildRunkod compiles the real runkod binary once per test run - the
@@ -1468,7 +1468,7 @@ func TestParseOrgMirror(t *testing.T) {
 }
 
 // TestMirrorTokenSourceWiring pins when GitHub App auth applies to a
-// mirror remote (2026-07-16, githubapp/README.md): App configured + a
+// mirror remote (2026-07-16, runkogithubapp/README.md): App configured + a
 // github https remote + no static token. Everything else keeps the auth
 // it declared - an explicit token= always wins.
 func TestMirrorTokenSourceWiring(t *testing.T) {
@@ -1477,14 +1477,14 @@ func TestMirrorTokenSourceWiring(t *testing.T) {
 		t.Fatalf("GenerateKey: %v", err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	app, err := githubapp.New("12345", keyPEM, "https://api.github.com")
+	app, err := runkogithubapp.New("12345", keyPEM, "https://api.github.com")
 	if err != nil {
-		t.Fatalf("githubapp.New: %v", err)
+		t.Fatalf("runkogithubapp.New: %v", err)
 	}
 
 	cases := []struct {
 		name        string
-		app         *githubapp.App
+		app         *runkogithubapp.App
 		remote, tok string
 		want        bool
 	}{

@@ -6,8 +6,8 @@ go_library(
     importpath = "github.com/saxocellphone/runko/runkod/cmd/runko-bridge",
     visibility = ["//visibility:private"],
     deps = [
-        "//githubapp",
         "//platform/checks",
+        "//runkogithubapp",
     ],
 )
 
@@ -22,7 +22,7 @@ go_test(
     srcs = ["main_test.go"],
     embed = [":runko-bridge_lib"],
     deps = [
-        "//githubapp",
         "//platform/checks",
+        "//runkogithubapp",
     ],
 )

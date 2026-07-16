@@ -1,4 +1,4 @@
-package githubapp
+package runkogithubapp
 
 import (
 	"crypto"

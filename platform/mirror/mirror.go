@@ -18,7 +18,7 @@
 //
 // The password half is either a static Token or a per-invocation
 // TokenSource for short-lived credentials (GitHub App installation
-// tokens, minted in the githubapp project - never here).
+// tokens, minted in the runkogithubapp project - never here).
 //
 // Where providers genuinely diverge - inbound webhooks, PR-merge ingestion
 // as external Changes (§18.6.3), commit statuses - is M2's Provider seam,
@@ -55,7 +55,7 @@ type Remote struct {
 	// invocation instead of the static Token - for short-lived
 	// credentials (GitHub App installation tokens expire hourly). It is
 	// a plain func by design: the provider-specific minting lives
-	// elsewhere (the githubapp project), this package stays git-wire-only.
+	// elsewhere (the runkogithubapp project), this package stays git-wire-only.
 	// The Username convention above still applies.
 	TokenSource func() (string, error)
 }

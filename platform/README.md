@@ -85,7 +85,7 @@ New decisions land here as dated entries (repo-wide ones go in the root
 - **2026-07-16** — **`mirror.Remote` gains an injected `TokenSource
   func() (string, error)`** for short-lived credentials (GitHub App
   installation tokens expire hourly), part of the App-auth decision
-  recorded in [`githubapp/README.md`](../githubapp/README.md). The
+  recorded in [`runkogithubapp/README.md`](../runkogithubapp/README.md). The
   mirror stays git-wire-only and provider-agnostic: it receives a plain
   func and never imports the minting project; when set, the source wins
   over the static `Token`, and a failed mint fails only that one git

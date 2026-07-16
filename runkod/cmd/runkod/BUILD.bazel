@@ -6,12 +6,12 @@ go_library(
     importpath = "github.com/saxocellphone/runko/runkod/cmd/runkod",
     visibility = ["//visibility:private"],
     deps = [
-        "//githubapp",
         "//platform/land",
         "//platform/mirror",
         "//platform/receive",
         "//platform/search",
         "//runkod",
+        "//runkogithubapp",
     ],
 )
 
@@ -30,7 +30,7 @@ go_test(
     ],
     embed = [":runkod_lib"],
     deps = [
-        "//githubapp",
         "//internal/dbtest",
+        "//runkogithubapp",
     ],
 )
