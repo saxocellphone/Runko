@@ -1,0 +1,10 @@
+schema: project/v1
+name: runkogithubapp
+type: library
+capabilities:
+    - build
+capability_config:
+    build:
+        engine: bazel
+        target_patterns:
+            - //runkogithubapp/...
