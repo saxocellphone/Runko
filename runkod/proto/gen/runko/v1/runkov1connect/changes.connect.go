@@ -56,6 +56,8 @@ const (
 	// ChangeServiceLandChangeProcedure is the fully-qualified name of the ChangeService's LandChange
 	// RPC.
 	ChangeServiceLandChangeProcedure = "/runko.v1.ChangeService/LandChange"
+	// ChangeServiceLandStackProcedure is the fully-qualified name of the ChangeService's LandStack RPC.
+	ChangeServiceLandStackProcedure = "/runko.v1.ChangeService/LandStack"
 	// ChangeServiceAbandonChangeProcedure is the fully-qualified name of the ChangeService's
 	// AbandonChange RPC.
 	ChangeServiceAbandonChangeProcedure = "/runko.v1.ChangeService/AbandonChange"
@@ -102,6 +104,16 @@ type ChangeServiceClient interface {
 	GetMergeRequirements(context.Context, *connect.Request[v1.GetMergeRequirementsRequest]) (*connect.Response[v1.GetMergeRequirementsResponse], error)
 	ApproveChange(context.Context, *connect.Request[v1.ApproveChangeRequest]) (*connect.Response[v1.ApproveChangeResponse], error)
 	LandChange(context.Context, *connect.Request[v1.LandChangeRequest]) (*connect.Response[v1.LandChangeResponse], error)
+	// LandStack lands the chain from the stack's bottom THROUGH the
+	// requested Change (the Gerrit "submit including parents" analog,
+	// §13.5): open ancestors first, bottom-up, then the Change itself,
+	// each member through the exact same per-principal merge gate and land
+	// path as a single LandChange. The sweep stops at the first member
+	// that cannot land and reports it; members already landed are durable
+	// partial progress, never rolled back. Dependents stacked ABOVE the
+	// requested Change are left open. There is no force variant - the
+	// §13.5 override stays a single-change, eyes-on verb.
+	LandStack(context.Context, *connect.Request[v1.LandStackRequest]) (*connect.Response[v1.LandStackResponse], error)
 	AbandonChange(context.Context, *connect.Request[v1.AbandonChangeRequest]) (*connect.Response[v1.AbandonChangeResponse], error)
 	// SetAutomerge arms/disarms the when-ready land (§13.5): armed changes
 	// land themselves the moment merge requirements go green, attributed
@@ -185,6 +197,12 @@ func NewChangeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(changeServiceMethods.ByName("LandChange")),
 			connect.WithClientOptions(opts...),
 		),
+		landStack: connect.NewClient[v1.LandStackRequest, v1.LandStackResponse](
+			httpClient,
+			baseURL+ChangeServiceLandStackProcedure,
+			connect.WithSchema(changeServiceMethods.ByName("LandStack")),
+			connect.WithClientOptions(opts...),
+		),
 		abandonChange: connect.NewClient[v1.AbandonChangeRequest, v1.AbandonChangeResponse](
 			httpClient,
 			baseURL+ChangeServiceAbandonChangeProcedure,
@@ -246,6 +264,7 @@ type changeServiceClient struct {
 	getMergeRequirements *connect.Client[v1.GetMergeRequirementsRequest, v1.GetMergeRequirementsResponse]
 	approveChange        *connect.Client[v1.ApproveChangeRequest, v1.ApproveChangeResponse]
 	landChange           *connect.Client[v1.LandChangeRequest, v1.LandChangeResponse]
+	landStack            *connect.Client[v1.LandStackRequest, v1.LandStackResponse]
 	abandonChange        *connect.Client[v1.AbandonChangeRequest, v1.AbandonChangeResponse]
 	setAutomerge         *connect.Client[v1.SetAutomergeRequest, v1.SetAutomergeResponse]
 	rerunCheck           *connect.Client[v1.RerunCheckRequest, v1.RerunCheckResponse]
@@ -294,6 +313,11 @@ func (c *changeServiceClient) ApproveChange(ctx context.Context, req *connect.Re
 // LandChange calls runko.v1.ChangeService.LandChange.
 func (c *changeServiceClient) LandChange(ctx context.Context, req *connect.Request[v1.LandChangeRequest]) (*connect.Response[v1.LandChangeResponse], error) {
 	return c.landChange.CallUnary(ctx, req)
+}
+
+// LandStack calls runko.v1.ChangeService.LandStack.
+func (c *changeServiceClient) LandStack(ctx context.Context, req *connect.Request[v1.LandStackRequest]) (*connect.Response[v1.LandStackResponse], error) {
+	return c.landStack.CallUnary(ctx, req)
 }
 
 // AbandonChange calls runko.v1.ChangeService.AbandonChange.
@@ -356,6 +380,16 @@ type ChangeServiceHandler interface {
 	GetMergeRequirements(context.Context, *connect.Request[v1.GetMergeRequirementsRequest]) (*connect.Response[v1.GetMergeRequirementsResponse], error)
 	ApproveChange(context.Context, *connect.Request[v1.ApproveChangeRequest]) (*connect.Response[v1.ApproveChangeResponse], error)
 	LandChange(context.Context, *connect.Request[v1.LandChangeRequest]) (*connect.Response[v1.LandChangeResponse], error)
+	// LandStack lands the chain from the stack's bottom THROUGH the
+	// requested Change (the Gerrit "submit including parents" analog,
+	// §13.5): open ancestors first, bottom-up, then the Change itself,
+	// each member through the exact same per-principal merge gate and land
+	// path as a single LandChange. The sweep stops at the first member
+	// that cannot land and reports it; members already landed are durable
+	// partial progress, never rolled back. Dependents stacked ABOVE the
+	// requested Change are left open. There is no force variant - the
+	// §13.5 override stays a single-change, eyes-on verb.
+	LandStack(context.Context, *connect.Request[v1.LandStackRequest]) (*connect.Response[v1.LandStackResponse], error)
 	AbandonChange(context.Context, *connect.Request[v1.AbandonChangeRequest]) (*connect.Response[v1.AbandonChangeResponse], error)
 	// SetAutomerge arms/disarms the when-ready land (§13.5): armed changes
 	// land themselves the moment merge requirements go green, attributed
@@ -435,6 +469,12 @@ func NewChangeServiceHandler(svc ChangeServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(changeServiceMethods.ByName("LandChange")),
 		connect.WithHandlerOptions(opts...),
 	)
+	changeServiceLandStackHandler := connect.NewUnaryHandler(
+		ChangeServiceLandStackProcedure,
+		svc.LandStack,
+		connect.WithSchema(changeServiceMethods.ByName("LandStack")),
+		connect.WithHandlerOptions(opts...),
+	)
 	changeServiceAbandonChangeHandler := connect.NewUnaryHandler(
 		ChangeServiceAbandonChangeProcedure,
 		svc.AbandonChange,
@@ -501,6 +541,8 @@ func NewChangeServiceHandler(svc ChangeServiceHandler, opts ...connect.HandlerOp
 			changeServiceApproveChangeHandler.ServeHTTP(w, r)
 		case ChangeServiceLandChangeProcedure:
 			changeServiceLandChangeHandler.ServeHTTP(w, r)
+		case ChangeServiceLandStackProcedure:
+			changeServiceLandStackHandler.ServeHTTP(w, r)
 		case ChangeServiceAbandonChangeProcedure:
 			changeServiceAbandonChangeHandler.ServeHTTP(w, r)
 		case ChangeServiceSetAutomergeProcedure:
@@ -556,6 +598,10 @@ func (UnimplementedChangeServiceHandler) ApproveChange(context.Context, *connect
 
 func (UnimplementedChangeServiceHandler) LandChange(context.Context, *connect.Request[v1.LandChangeRequest]) (*connect.Response[v1.LandChangeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.LandChange is not implemented"))
+}
+
+func (UnimplementedChangeServiceHandler) LandStack(context.Context, *connect.Request[v1.LandStackRequest]) (*connect.Response[v1.LandStackResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("runko.v1.ChangeService.LandStack is not implemented"))
 }
 
 func (UnimplementedChangeServiceHandler) AbandonChange(context.Context, *connect.Request[v1.AbandonChangeRequest]) (*connect.Response[v1.AbandonChangeResponse], error) {
