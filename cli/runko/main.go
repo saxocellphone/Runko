@@ -115,9 +115,9 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   change abandon --change <id> --runkod-url <url> --token <t>   abandon an open change (§7.4) [--json]
   change automerge --change <id> [--disable]                arm the when-ready land: the server lands it once checks+approvals go green [--json]
   change rerun-check --change <id> --name <check> --runkod-url <url> --token <t>   request a check re-run (§14.4.2) [--json]
-  workspace create --name <n> --project <p>... [--by <who>]   worktree + sparse cone + registry row (§12.3; --by defaults to the stored login) [--json]
+  workspace create --name <n> --project <p>... [--by <who>] [--jj]   worktree + sparse cone + registry row (§12.3; --by defaults to the stored login; --jj: standalone jj colocated checkout) [--json]
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
-  workspace attach <id> --runkod-url <url> --token <t> [--branch <b>]   restore a workspace branch from its snapshot ref [--json]
+  workspace attach <id> --runkod-url <url> --token <t> [--branch <b>] [--jj]   restore a workspace branch from its snapshot ref [--json]
   workspace delete <id> --runkod-url <url> --token <t>       delete the registry row + snapshot refs (refused while it has open changes) [--json]
   workspace path [<name>]                                     print a workspace's local directory: cd $(runko workspace path <name>) (§12.7) [--json]
   workspace gc [--apply] [--idle <dur>] [--scan <store>]...   reclaim closed+synced materializations; plan-only by default (§12.7) [--json]
@@ -838,6 +838,7 @@ func cmdWorkspace(args []string) error {
 		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory (default: the managed home's .store, §12.7)")
 		dir := fs.String("dir", "", "worktree directory (default: under the managed home, ~/runko-ws)")
 		forceNested := fs.Bool("force-nested", false, "materialize inside another git checkout anyway")
+		jjClient := fs.Bool("jj", false, "standalone jj colocated checkout (jj + .git side by side, Change-Ids from jj change ids) instead of a worktree off the shared store")
 		var projects stringSliceFlag
 		fs.Var(&projects, "project", "project affinity (repeatable)")
 		jsonOut := fs.Bool("json", false, "emit the workspace (+ Dir) as JSON")
@@ -858,7 +859,7 @@ func cmdWorkspace(args []string) error {
 			return fmt.Errorf("workspace create: --name and at least one --project are required (and --by, when signed in with a bare token)")
 		}
 		info, wsDir, err := WorkspaceCreate(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), *name, *by, projects,
-			MaterializeOptions{CloneDir: *cloneDir, Dir: *dir, ForceNested: *forceNested})
+			MaterializeOptions{CloneDir: *cloneDir, Dir: *dir, ForceNested: *forceNested, JJ: *jjClient})
 		if err != nil {
 			return err
 		}
@@ -868,7 +869,11 @@ func cmdWorkspace(args []string) error {
 				Dir string
 			}{info, wsDir})
 		}
-		fmt.Printf("workspace %s ready at %s (base %s, cone: %s)\n", info.ID, wsDir, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
+		mode := ""
+		if *jjClient {
+			mode = "jj colocated, "
+		}
+		fmt.Printf("workspace %s ready at %s (%sbase %s, cone: %s)\n", info.ID, wsDir, mode, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
 		printWorkspaceStreamingGuidance(os.Stdout, wsDir)
 		printWorkspaceLoop(os.Stdout)
 		return nil
@@ -949,6 +954,7 @@ func cmdWorkspace(args []string) error {
 		dir := fs.String("dir", "", "worktree directory (default: under the managed home; branches land at <workspace>@<branch>)")
 		branch := fs.String("branch", "head", "workspace branch to restore (parallel lines of work, §12.2)")
 		forceNested := fs.Bool("force-nested", false, "materialize inside another git checkout anyway")
+		jjClient := fs.Bool("jj", false, "restore as a standalone jj colocated checkout instead of a worktree off the shared store")
 		jsonOut := fs.Bool("json", false, "emit the workspace (+ Dir) as JSON")
 		// The documented form is id-first (`workspace attach <id> --runkod-url
 		// ...`), but stdlib flag stops parsing at the first positional - pop
@@ -972,7 +978,7 @@ func cmdWorkspace(args []string) error {
 			return err
 		}
 		info, wsDir, err := WorkspaceAttach(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id, *branch,
-			MaterializeOptions{CloneDir: *cloneDir, Dir: *dir, ForceNested: *forceNested})
+			MaterializeOptions{CloneDir: *cloneDir, Dir: *dir, ForceNested: *forceNested, JJ: *jjClient})
 		if err != nil {
 			return err
 		}
@@ -982,7 +988,11 @@ func cmdWorkspace(args []string) error {
 				Dir string
 			}{info, wsDir})
 		}
-		fmt.Printf("workspace %s restored at %s\n", info.ID, wsDir)
+		mode := ""
+		if *jjClient {
+			mode = " (jj colocated)"
+		}
+		fmt.Printf("workspace %s restored at %s%s\n", info.ID, wsDir, mode)
 		printWorkspaceStreamingGuidance(os.Stdout, wsDir)
 		return nil
 
