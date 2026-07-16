@@ -194,8 +194,17 @@ func neutralizeStoreRemote(cloneDir string) error {
 // (§6.9 UX one moment earlier; the materialized environment should teach
 // the verbs, not just AGENTS.md). Advisory only - a foreign pre-commit
 // hook is silently left in place, and the nudge never blocks a commit.
+// The Change-Id commit-msg hook rides along (§6.10): raw git commits in a
+// materialized worktree should be pushable without the separate
+// `runko doctor --install-hook` step onboarding used to require - runko's
+// own verbs stamp Change-Ids regardless, so this only serves the raw-git
+// loop. Same politeness: an existing commit-msg hook (Gerrit's own mints
+// Change-Ids too) is never overwritten.
 func installWorkspaceHooks(cloneDir string) error {
 	if _, err := InstallVerbNudgeHook(cloneDir); err != nil {
+		return err
+	}
+	if _, err := InstallChangeIDHookIfAbsent(cloneDir); err != nil {
 		return err
 	}
 	return nil
@@ -603,4 +612,15 @@ func printWorkspaceStreamingGuidance(w io.Writer, dir string) {
 	fmt.Fprintf(w, "  cd %s\n", dir)
 	fmt.Fprintln(w, "  runko workspace watch &          # auto-snapshot loop: the workspace page follows WIP live")
 	fmt.Fprintln(w, "  runko agent hooks --install      # agents: reads/edits/commands on the live activity feed (§12.6.1)")
+}
+
+// printWorkspaceLoop is §6.9's three commands, printed the moment a fresh
+// checkout exists (§6.10) - the same script CONTRIBUTING.md and doctor's
+// cheat-sheet teach, delivered when it is actually needed instead of
+// waiting to be asked for.
+func printWorkspaceLoop(w io.Writer) {
+	fmt.Fprintln(w, "the loop:")
+	fmt.Fprintln(w, "  runko change create -m \"<what and why>\"   # commit your work as one Change")
+	fmt.Fprintln(w, "  runko change push                          # submit it (and its stack) for review")
+	fmt.Fprintln(w, "  runko change requirements                  # owners + checks outstanding")
 }

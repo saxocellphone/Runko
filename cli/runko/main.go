@@ -867,6 +867,7 @@ func cmdWorkspace(args []string) error {
 		}
 		fmt.Printf("workspace %s ready at %s (base %s, cone: %s)\n", info.ID, wsDir, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
 		printWorkspaceStreamingGuidance(os.Stdout, wsDir)
+		printWorkspaceLoop(os.Stdout)
 		return nil
 
 	case "delete":

@@ -340,3 +340,61 @@ func TestRunDoctorRedactsRemoteURLPassword(t *testing.T) {
 		t.Fatalf("unexpected redacted form: %q", report.RemoteURL)
 	}
 }
+
+// TestInstallChangeIDHookIfAbsentNeverTouchesAnExistingHook: the implicit
+// installer (workspace materialization, §6.10) writes into a bare hooks
+// dir, but an EXISTING commit-msg hook - foreign (Gerrit's own also mints
+// Change-Ids) or ours - is never rewritten by an implicit path.
+func TestInstallChangeIDHookIfAbsentNeverTouchesAnExistingHook(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("init")
+
+	installed, err := InstallChangeIDHookIfAbsent(repo.Dir)
+	if err != nil || !installed {
+		t.Fatalf("fresh repo: installed=%v err=%v", installed, err)
+	}
+	report, err := RunDoctor(repo.Dir, "main")
+	if err != nil || !report.HasChangeIDHook {
+		t.Fatalf("expected the hook detected after install: %+v err=%v", report, err)
+	}
+
+	hooksDir, err := hooksDirectory(repo.Dir)
+	if err != nil {
+		t.Fatalf("hooksDirectory: %v", err)
+	}
+	hookPath := filepath.Join(hooksDir, "commit-msg")
+	foreign := "#!/bin/sh\n# gerrit's own change-id hook\nexit 0\n"
+	if err := os.WriteFile(hookPath, []byte(foreign), 0o755); err != nil {
+		t.Fatalf("write foreign hook: %v", err)
+	}
+	installed, err = InstallChangeIDHookIfAbsent(repo.Dir)
+	if err != nil || installed {
+		t.Fatalf("existing hook must be left alone: installed=%v err=%v", installed, err)
+	}
+	if content, _ := os.ReadFile(hookPath); string(content) != foreign {
+		t.Fatalf("existing commit-msg hook was rewritten: %q", content)
+	}
+}
+
+// TestWorkspaceHooksWireTheWholeRawGitLoop: materializing a workspace
+// (installWorkspaceHooks runs on every create/attach) leaves the shared
+// clone with BOTH client hooks - the §6.9 verb nudge and the Change-Id
+// trailer - so a raw `git commit` in any worktree is nudged AND pushable
+// without a separate `runko doctor --install-hook` onboarding step.
+func TestWorkspaceHooksWireTheWholeRawGitLoop(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("init")
+
+	if err := installWorkspaceHooks(repo.Dir); err != nil {
+		t.Fatalf("installWorkspaceHooks: %v", err)
+	}
+	report, err := RunDoctor(repo.Dir, "main")
+	if err != nil {
+		t.Fatalf("RunDoctor: %v", err)
+	}
+	if !report.HasVerbNudgeHook || !report.HasChangeIDHook {
+		t.Fatalf("expected both client hooks after materialization, got %+v", report)
+	}
+}
