@@ -52,25 +52,9 @@ func WorkspaceWatchSnapshot(dir, message, skipTree string) (ref, sha, tree strin
 		}
 	}
 
-	// The throwaway index: GIT_INDEX_FILE redirects read-tree/add/write-tree
-	// away from .git/index, so the agent's own staging is never contended.
-	tmp, err := os.CreateTemp("", "runko-watch-index-")
+	tree, err = workingTreeHash(dir)
 	if err != nil {
-		return "", "", "", fmt.Errorf("create temp index: %w", err)
-	}
-	tmpIndex := tmp.Name()
-	tmp.Close()
-	defer os.Remove(tmpIndex)
-	env := []string{"GIT_INDEX_FILE=" + tmpIndex}
-	if _, err := runGitEnv(dir, env, "read-tree", "HEAD"); err != nil {
-		return "", "", "", fmt.Errorf("seed temp index: %w", err)
-	}
-	if _, err := runGitEnv(dir, env, "add", "-A"); err != nil {
-		return "", "", "", fmt.Errorf("stage into temp index: %w", err)
-	}
-	tree, err = runGitEnv(dir, env, "write-tree")
-	if err != nil {
-		return "", "", "", fmt.Errorf("write snapshot tree: %w", err)
+		return "", "", "", err
 	}
 	if tree == skipTree {
 		return ref, "", tree, nil // steady state: this exact tree already pushed
@@ -94,6 +78,35 @@ func WorkspaceWatchSnapshot(dir, message, skipTree string) (ref, sha, tree strin
 		return "", "", "", fmt.Errorf("push snapshot: %w", err)
 	}
 	return ref, sha, tree, nil
+}
+
+// workingTreeHash stages the working tree into a throwaway index and
+// returns its tree hash. The §12.6 out-of-band builder: GIT_INDEX_FILE
+// redirects read-tree/add/write-tree away from .git/index, so HEAD, the
+// real index, and the worktree are never touched - safe beside a working
+// agent or jj. Shared with `workspace gc`'s durability check (§12.7),
+// where "tree equals the snapshot ref's tree" is what makes a dirty but
+// watch-parked worktree provably disposable.
+func workingTreeHash(dir string) (string, error) {
+	tmp, err := os.CreateTemp("", "runko-watch-index-")
+	if err != nil {
+		return "", fmt.Errorf("create temp index: %w", err)
+	}
+	tmpIndex := tmp.Name()
+	tmp.Close()
+	defer os.Remove(tmpIndex)
+	env := []string{"GIT_INDEX_FILE=" + tmpIndex}
+	if _, err := runGitEnv(dir, env, "read-tree", "HEAD"); err != nil {
+		return "", fmt.Errorf("seed temp index: %w", err)
+	}
+	if _, err := runGitEnv(dir, env, "add", "-A"); err != nil {
+		return "", fmt.Errorf("stage into temp index: %w", err)
+	}
+	tree, err := runGitEnv(dir, env, "write-tree")
+	if err != nil {
+		return "", fmt.Errorf("write snapshot tree: %w", err)
+	}
+	return tree, nil
 }
 
 // WatchOptions configures WorkspaceWatch.

@@ -107,6 +107,11 @@ type DoctorReport struct {
 	// WorkspaceID is set.
 	WorkspaceID   string
 	HasAgentHooks bool
+	// TrackedMaterializations: §12.7's machine-local registry rows whose
+	// directories still exist - `runko workspace gc` reviews and reclaims
+	// them. Machine state, not repo state; reported so the cheat sheet
+	// can point at the chore verb without a network call.
+	TrackedMaterializations int
 }
 
 // RunDoctor inspects repoDir and returns a DoctorReport. It never fails hard
@@ -170,7 +175,18 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 		}
 	}
 
+	report.TrackedMaterializations = len(localPathsByWorkspaceFlat())
+
 	return report, nil
+}
+
+// localPathsByWorkspaceFlat flattens the registry to surviving paths.
+func localPathsByWorkspaceFlat() []string {
+	var paths []string
+	for _, ps := range localPathsByWorkspace() {
+		paths = append(paths, ps...)
+	}
+	return paths
 }
 
 // redactURLPassword replaces the password of a URL's user:pass@host
@@ -297,6 +313,9 @@ func PrintCheatSheet(w io.Writer, report DoctorReport) {
 		} else {
 			fmt.Fprintln(w, "  agent hooks:     NOT installed - run `runko agent hooks --install` (and keep `runko workspace watch` running)")
 		}
+	}
+	if report.TrackedMaterializations > 0 {
+		fmt.Fprintf(w, "  materializations: %d tracked on this machine - `runko workspace gc` reviews and reclaims (§12.7)\n", report.TrackedMaterializations)
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "The commands that matter:")
