@@ -18,7 +18,7 @@ basic-auth **username** for token auth:
 
 | Provider | `--mirror-username` | Token type |
 |---|---|---|
-| GitHub | `x-access-token` *(the default — omit the flag)* | fine-grained PAT, `contents: write` on the mirror repo |
+| GitHub | `x-access-token` *(the default — omit the flag)* | **GitHub App installation token** (preferred, minted automatically — see below) or a fine-grained PAT, `contents: write` on the mirror repo |
 | GitLab | `oauth2` | project access token, `write_repository` |
 | Gitea / Forgejo | any non-empty string | access token |
 | Bitbucket Cloud | the account username | app password |
@@ -26,6 +26,27 @@ basic-auth **username** for token auth:
 
 The token rides git's env-borne config (`GIT_CONFIG_*` →
 `http.extraHeader`), never argv — `ps` on the daemon host shows nothing.
+
+## GitHub App auth (2026-07-16, preferred for GitHub mirrors)
+
+Per-org PATs don't scale: every new org means minting, wiring, and
+rotating another token. With one **GitHub App** registration
+(permissions: `contents: write`) the whole deployment holds a single
+credential — `runkod serve --github-app-id <id>
+--github-app-key-file <pem>` (+ `--github-api https://<host>/api/v3`
+for GHES) — and every mirror on the App's GitHub host that declares
+**no** static `token=` mints short-lived installation tokens on demand
+(`platform/githubapp`, stdlib-only RS256; cached, refreshed before
+their one-hour expiry). An explicit `token=`/`--mirror-token` always
+wins, and non-GitHub remotes are untouched — the mirror itself stays
+git-wire-only, fed by an injected `TokenSource`.
+
+Onboarding an org's GitHub mirror is then two steps: **install the App
+on the mirror repo**, add the `--org-mirror org=…;remote=…` entry (no
+`token=`). `runko-bridge` accepts the same pair
+(`--github-app-id`/`--github-app-key-file`, mutually exclusive with
+`--github-token`) so Mode C dispatch rides the same App — see
+`runkod/README.md`'s 2026-07-16 decision entry.
 
 ## Semantics (§18.6 invariants, outbound reading)
 
@@ -83,7 +104,9 @@ type Provider interface {
 }
 ```
 
-Candidates: `github` (App auth — installation tokens), `gitlab`, `gitea`.
-The git-transport half (push/lease/cursors/freeze) is M1's code, reused
-unchanged; stage-1 additionally inverts the trunk lease (provider owns
-`main`, landing becomes a leased push to the provider, §18.6.2).
+Candidates: `github` (App auth — installation-token minting already
+exists in `platform/githubapp` since 2026-07-16, M2 reuses it),
+`gitlab`, `gitea`. The git-transport half (push/lease/cursors/freeze)
+is M1's code, reused unchanged; stage-1 additionally inverts the trunk
+lease (provider owns `main`, landing becomes a leased push to the
+provider, §18.6.2).
