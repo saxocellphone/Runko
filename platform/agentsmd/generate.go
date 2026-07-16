@@ -68,6 +68,12 @@ var Commands = []Command{
 	{"runko-ci", "report-check --url <u> --name <n> --external-id <id> --reporter <r> [--json]", "POST a CheckRun result to the Checks API (§14.4.1)", `{"name","status","external_id"}`},
 }
 
+// SkillPath is where GenerateSkill's output lives in a managed monorepo's
+// tree: the project-scoped location skill-loading harnesses (Claude Code
+// and compatible) discover skills at. A tree path, not a filesystem path -
+// callers writing to disk convert with filepath.FromSlash.
+const SkillPath = ".claude/skills/runko/SKILL.md"
+
 // Generate renders AGENTS.md's content: static orientation bullets (§8.8's
 // example snippet), the Commands table, the exit-code contract, and the
 // §6.5 structured-error shape - everything an agent needs to use this CLI
@@ -141,4 +147,18 @@ func Generate() string {
 	b.WriteString("Full contract, including per-command flag details: `docs/cli-contract.md`.\n")
 
 	return b.String()
+}
+
+// GenerateSkill renders Generate()'s content as a loadable agent skill:
+// the identical body under the frontmatter harnesses use to decide when to
+// load it (§8.8's "reference prompts / skill files ... generated per
+// monorepo"). One generator behind both surfaces is what keeps AGENTS.md
+// (ambient, read by whoever looks) and the skill (pulled into context at
+// the moment of a change) from ever teaching two different CLIs.
+func GenerateSkill() string {
+	return "---\n" +
+		"name: runko\n" +
+		"description: Use BEFORE making any change in this Runko-managed monorepo - the workspace/change/land workflow, the runko/runko-ci command inventory with --json contracts, and the structured-error shape. Load it before creating a workspace, committing, pushing, or landing.\n" +
+		"---\n\n" +
+		Generate()
 }
