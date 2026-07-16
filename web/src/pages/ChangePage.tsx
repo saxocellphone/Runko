@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { ConnectError } from "@connectrpc/connect";
 import { authUser, publicBrowse, changesClient } from "../api/client";
 import { ChangeState, CommentSide, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
-import type { LandChangeResponse, SyncChangeResponse } from "../gen/runko/v1/changes_pb";
+import type { LandChangeResponse, LandStackResponse, SyncChangeResponse } from "../gen/runko/v1/changes_pb";
 import { groupThreads, partitionThreads } from "../lib/comments";
 import { absoluteTime, changeNumberLabel, shortSha, timeAgo } from "../lib/format";
 import { useRpc } from "../lib/useRpc";
@@ -18,6 +18,7 @@ export function ChangePage() {
   const { changeId = "" } = useParams();
   const [busy, setBusy] = useState(false);
   const [landResult, setLandResult] = useState<LandChangeResponse | undefined>();
+  const [landStackResult, setLandStackResult] = useState<LandStackResponse | undefined>();
   const [syncResult, setSyncResult] = useState<SyncChangeResponse | undefined>();
   const [actionError, setActionError] = useState<ConnectError | undefined>();
 
@@ -76,6 +77,14 @@ export function ChangePage() {
 
   const { change, stack, diff, requirements, requirementsById, comments } = data;
   const open = change.state === ChangeState.OPEN;
+  // The open ancestors below this change - what "Land all" would land
+  // before it (LandStack's chain, derived the same way: parent is the
+  // open member whose head is the child's base).
+  const ancestors = openAncestors(change, stack);
+  const numberLabelById = (id: string) => {
+    const m = stack.find((c) => c.id === id);
+    return m ? changeNumberLabel(m.number) : `${id.slice(0, 13)}…`;
+  };
 
   // §13.4.1: threads partition by anchor against the CURRENT head -
   // current line/file threads anchor into the diff, change-level ones form
@@ -169,6 +178,31 @@ export function ChangePage() {
       {landResult && !landResult.landed && landResult.raceRetry && (
         <div className="land-banner land-banner-warn">
           Lost a land race — try again.
+        </div>
+      )}
+      {landStackResult && landStackResult.landed.length > 0 && (
+        <div className="land-banner land-banner-ok">
+          Landed {landStackResult.landed.length === 1 ? "" : `${landStackResult.landed.length} changes, bottom-up: `}
+          {landStackResult.landed.map((m) => numberLabelById(m.changeId)).join(", ")}
+          {landStackResult.stoppedChangeId === "" && " — everything through this change is on trunk."}
+        </div>
+      )}
+      {landStackResult && landStackResult.stoppedChangeId !== "" && (
+        <div className={`land-banner ${landStackResult.conflicts.length > 0 ? "land-banner-err" : "land-banner-warn"}`}>
+          Stopped at {numberLabelById(landStackResult.stoppedChangeId)}:{" "}
+          {landStackResult.conflicts.length > 0
+            ? `rebase conflicts in ${landStackResult.conflicts.join(", ")}`
+            : landStackResult.requiresRevalidation
+              ? "trunk moved in a way that intersects its affected set — required checks must re-run (§13.5)"
+              : landStackResult.raceRetry
+                ? "lost a land race — try again"
+                : landStackResult.blockers.join("; ") || "not mergeable yet"}
+          . Changes landed before the stop stay landed.
+        </div>
+      )}
+      {landStackResult && landStackResult.landed.length === 0 && landStackResult.stoppedChangeId === "" && (
+        <div className="land-banner land-banner-warn">
+          Nothing to land — everything through this change had already landed.
         </div>
       )}
       {syncResult?.synced && (
@@ -266,12 +300,29 @@ export function ChangePage() {
                   onClick={() =>
                     act(async () => {
                       setSyncResult(undefined);
+                      setLandStackResult(undefined);
                       setLandResult(await changesClient.landChange({ changeId }));
                     })
                   }
                 >
                   Land
                 </button>
+                {ancestors.length > 0 && (
+                  <button
+                    className="btn btn-primary"
+                    disabled={busy}
+                    title={`Land the ${ancestors.length + 1} changes from the bottom of the stack through this one, bottom-up (§13.5) - each through its own merge gate, exactly like ${ancestors.length + 1} Land clicks. Stops at the first member that can't land; members landed before the stop stay landed. Changes stacked above this one are left open.`}
+                    onClick={() =>
+                      act(async () => {
+                        setLandResult(undefined);
+                        setSyncResult(undefined);
+                        setLandStackResult(await changesClient.landStack({ changeId }));
+                      })
+                    }
+                  >
+                    Land all ({ancestors.length + 1})
+                  </button>
+                )}
                 <button
                   className="btn"
                   disabled={busy}
@@ -279,6 +330,7 @@ export function ChangePage() {
                   onClick={() =>
                     act(async () => {
                       setLandResult(undefined);
+                      setLandStackResult(undefined);
                       setSyncResult(await changesClient.syncChange({ changeId }));
                     })
                   }
@@ -395,4 +447,22 @@ function LandCleanlinessChip({ change, stack }: { change: ChangeSummary; stack: 
       ⚠ base not on trunk · sync needed
     </span>
   );
+}
+
+// openAncestors walks the open chain below a change, trunk-most last -
+// the members LandStack would land before it (the server derives the same
+// chain: parent is the OPEN member whose head is the child's base).
+function openAncestors(change: ChangeSummary, stack: ChangeSummary[]): ChangeSummary[] {
+  const byHead = new Map(stack.map((c) => [c.headSha, c]));
+  const out: ChangeSummary[] = [];
+  const seen = new Set([change.id]);
+  let cur = change;
+  for (;;) {
+    const parent = byHead.get(cur.baseSha);
+    if (!parent || parent.state !== ChangeState.OPEN || seen.has(parent.id)) break;
+    seen.add(parent.id);
+    out.push(parent);
+    cur = parent;
+  }
+  return out;
 }
