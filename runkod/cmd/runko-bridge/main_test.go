@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/saxocellphone/runko/githubapp"
 	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/runkogithubapp"
 )
 
 func newTestBridge(githubURL string) *bridge {
@@ -225,9 +225,9 @@ func TestBridgeAppAuthMintsInstallationToken(t *testing.T) {
 	gh := httptest.NewServer(mux)
 	defer gh.Close()
 
-	app, err := githubapp.New("12345", keyPEM, gh.URL)
+	app, err := runkogithubapp.New("12345", keyPEM, gh.URL)
 	if err != nil {
-		t.Fatalf("githubapp.New: %v", err)
+		t.Fatalf("runkogithubapp.New: %v", err)
 	}
 	b := newTestBridge(gh.URL)
 	b.token = app.TokenSource("acme/runko")
