@@ -35,6 +35,8 @@ import {
   GetMergeRequirementsResponseSchema,
   ApproveChangeResponseSchema,
   LandChangeResponseSchema,
+  LandStackLandedSchema,
+  LandStackResponseSchema,
   AbandonChangeResponseSchema,
   SetAutomergeResponseSchema,
   RerunCheckResponseSchema,
@@ -679,6 +681,47 @@ export function createFakeTransport(): Transport {
           state.pendingProjects.delete(c.id);
         }
         return create(LandChangeResponseSchema, { landed: true, landedSha: c.landedSha, forced });
+      },
+
+      // Mirrors runkod's landStackCore: land the open ancestor chain
+      // through the requested change bottom-up, each member through the
+      // same gate a single land uses, stopping at the first member that
+      // can't land. Landed members stay landed (durable partial progress).
+      async landStack(req) {
+        await delay();
+        const target = mustChange(state, req.changeId);
+        if (target.state === ChangeState.ABANDONED) {
+          throw new ConnectError("change is abandoned", Code.FailedPrecondition);
+        }
+        const byHead = new Map([...state.changes.values()].map((c) => [c.headSha, c]));
+        const chain = [target];
+        const seen = new Set([target.id]);
+        for (;;) {
+          const parent = byHead.get(chain[0]!.baseSha);
+          if (!parent || parent.state !== ChangeState.OPEN || seen.has(parent.id)) break;
+          seen.add(parent.id);
+          chain.unshift(parent);
+        }
+        const resp = create(LandStackResponseSchema, {});
+        for (const m of chain) {
+          if (m.state === ChangeState.LANDED) continue;
+          const r = mustRequirements(state, m.id);
+          if (!r.mergeable) {
+            resp.stoppedChangeId = m.id;
+            resp.blockers = r.blockers;
+            break;
+          }
+          m.state = ChangeState.LANDED;
+          m.landedSha = fakeSha(m.id + "-landed");
+          m.landedAt = BigInt(Math.floor(Date.now() / 1000));
+          const pending = state.pendingProjects.get(m.id);
+          if (pending) {
+            state.projects.push(pending);
+            state.pendingProjects.delete(m.id);
+          }
+          resp.landed.push(create(LandStackLandedSchema, { changeId: m.id, landedSha: m.landedSha }));
+        }
+        return resp;
       },
 
       async abandonChange(req) {
