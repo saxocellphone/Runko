@@ -66,12 +66,13 @@ func cmdOrg(args []string) error {
 		runkodURL := fs.String("runkod-url", "", "runkod base URL")
 		token := fs.String("token", "", "deploy token")
 		name := fs.String("name", "", "org name (lowercase letters, digits, dashes)")
+		noSwitch := fs.Bool("no-switch", false, "keep the stored login pointed where it is (default: rebind it to the new org)")
 		jsonOut := fs.Bool("json", false, "emit the created org as JSON")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if *name == "" {
-			return usageError("usage: runko org create --name <org> [--runkod-url <url> --token <t>]")
+			return usageError("usage: runko org create --name <org> [--no-switch] [--runkod-url <url> --token <t>]")
 		}
 		cred, err := resolveCredential(*runkodURL, *token)
 		if err != nil {
@@ -81,12 +82,36 @@ func cmdOrg(args []string) error {
 		if err != nil {
 			return err
 		}
+		base := strings.TrimSuffix(cred.URL, "/")
+		// Rebind the stored login to the new org (§6.10): creating an org
+		// means working in it next, and the hub cloned the creating
+		// account's credential into it (per-org accounts), so the stored
+		// secret is already valid there - re-typing the password into a
+		// second `auth login` taught nothing. Rebinding is verified by
+		// whoami before it is saved; the pre-login scripting form
+		// (explicit --token) stores nothing, so there is nothing to move.
+		switched := false
+		if *token == "" && !*noSwitch {
+			orgCred := cred
+			orgCred.URL = base + info.APIBase
+			if _, _, err := whoami(ctx, http.DefaultClient, orgCred); err == nil {
+				if _, err := saveCredential(orgCred); err == nil {
+					switched = true
+				}
+			}
+		}
 		if *jsonOut {
 			return json.NewEncoder(os.Stdout).Encode(info)
 		}
-		base := strings.TrimSuffix(cred.URL, "/")
-		fmt.Printf("created org %s\n  git remote: %s%s\n  API base:   %s%s\n  -> runko auth login --runkod-url %s%s   # work in this org\n",
-			info.Name, base, info.GitURL, base, info.APIBase, base, info.APIBase)
+		fmt.Printf("created org %s\n  git remote: %s%s\n  API base:   %s%s\n",
+			info.Name, base, info.GitURL, base, info.APIBase)
+		if switched {
+			fmt.Printf("  signed in:  stored login now points at %s%s\n", base, info.APIBase)
+			fmt.Println("next:")
+			fmt.Println("  runko workspace create --name <workstream> --project repo   # a checkout to work in (repo is genesis-seeded)")
+		} else {
+			fmt.Printf("  -> runko auth login --runkod-url %s%s   # work in this org\n", base, info.APIBase)
+		}
 		return nil
 
 	case "list":

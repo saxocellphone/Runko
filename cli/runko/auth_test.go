@@ -226,3 +226,147 @@ func TestChangeRequirementsFetchAndPrintShape(t *testing.T) {
 		t.Fatalf("want unknown_change for a 404, got %v", err)
 	}
 }
+
+// signupStub answers the hub's POST /api/signup (201 + org info) and the
+// new org's whoami; it records the last signup body and workspace-create
+// owner it saw, for assertions.
+func signupStub(t *testing.T) (*httptest.Server, *map[string]string) {
+	t.Helper()
+	lastSignup := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/signup":
+			json.NewDecoder(r.Body).Decode(&lastSignup)
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{
+				"name": lastSignup["name"],
+				"org":  map[string]any{"name": lastSignup["org"], "role": "admin", "api_base": "/o/" + lastSignup["org"], "git_url": "/o/" + lastSignup["org"] + "/" + lastSignup["org"] + ".git"},
+			})
+		case "/o/" + lastSignup["org"] + "/api/whoami":
+			json.NewEncoder(w).Encode(map[string]any{"name": lastSignup["name"]})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &lastSignup
+}
+
+// TestAuthSignupRegistersAndStoresOrgScopedCredential: §6.10's first
+// contact - one signup registers the account AND stores the credential
+// already pointed at the created org's mount, so signup is login.
+func TestAuthSignupRegistersAndStoresOrgScopedCredential(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, lastSignup := signupStub(t)
+
+	// Password can come from the (hidden) prompt, like auth login.
+	if _, err := AuthSignup(context.Background(), srv.Client(), srv.URL,
+		"val", "", "acme", "create", "", bufio.NewReader(strings.NewReader("hunter2hunter2\n")), os.Stdout); err != nil {
+		t.Fatalf("AuthSignup: %v", err)
+	}
+	if (*lastSignup)["org_mode"] != "create" || (*lastSignup)["password"] != "hunter2hunter2" {
+		t.Fatalf("signup body: %v", *lastSignup)
+	}
+	cred, found, err := loadCredential()
+	if err != nil || !found {
+		t.Fatalf("expected a stored credential, found=%v err=%v", found, err)
+	}
+	if cred.URL != srv.URL+"/o/acme" || cred.Name != "val" || cred.Secret != "hunter2hunter2" {
+		t.Fatalf("stored credential must point at the new org's mount: %+v", cred)
+	}
+}
+
+// TestAuthSignupRefusalIsStructuredAndStoresNothing: the server's §6.5
+// refusal shapes (here org_exists) pass through verbatim, and a failed
+// signup never half-stores a credential.
+func TestAuthSignupRefusalIsStructuredAndStoresNothing(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(clierr.Error{Code: "org_exists", Field: "org", Message: "an org named \"acme\" already exists"})
+	}))
+	defer srv.Close()
+
+	_, err := AuthSignup(context.Background(), srv.Client(), srv.URL,
+		"val", "hunter2hunter2", "acme", "create", "", bufio.NewReader(strings.NewReader("")), os.Stdout)
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "org_exists" {
+		t.Fatalf("want org_exists, got %v", err)
+	}
+	if _, found, _ := loadCredential(); found {
+		t.Fatalf("a refused signup must not store a credential")
+	}
+}
+
+// TestOrgCreateRebindsStoredLogin: after `org create`, the stored login
+// points at the new org (the hub cloned the account's credential there -
+// per-org accounts), verified by whoami before saving; --no-switch keeps
+// the old binding. Re-typing the password into a second auth login is the
+// exact onboarding toll §6.10 deletes.
+func TestOrgCreateRebindsStoredLogin(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/orgs":
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"name": "acme", "role": "admin", "api_base": "/o/acme", "git_url": "/o/acme/acme.git"})
+		case "/o/acme/api/whoami":
+			json.NewEncoder(w).Encode(map[string]any{"name": "val"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	if _, err := saveCredential(Credential{URL: srv.URL, Name: "val", Secret: "hunter2hunter2"}); err != nil {
+		t.Fatalf("seed credential: %v", err)
+	}
+	if err := cmdOrg([]string{"create", "--name", "acme"}); err != nil {
+		t.Fatalf("org create: %v", err)
+	}
+	cred, _, _ := loadCredential()
+	if cred.URL != srv.URL+"/o/acme" {
+		t.Fatalf("expected the stored login rebound to the new org, got %q", cred.URL)
+	}
+
+	// --no-switch: the binding stays put.
+	if _, err := saveCredential(Credential{URL: srv.URL, Name: "val", Secret: "hunter2hunter2"}); err != nil {
+		t.Fatalf("re-seed credential: %v", err)
+	}
+	if err := cmdOrg([]string{"create", "--name", "acme", "--no-switch"}); err != nil {
+		t.Fatalf("org create --no-switch: %v", err)
+	}
+	if cred, _, _ := loadCredential(); cred.URL != srv.URL {
+		t.Fatalf("--no-switch must keep the stored login, got %q", cred.URL)
+	}
+}
+
+// TestWorkspaceCreateDefaultsByToStoredLogin: the stored login already
+// says who you are - --by is an override, not a toll (§6.10).
+func TestWorkspaceCreateDefaultsByToStoredLogin(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var gotOwner string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Owner string `json:"owner"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		gotOwner = body.Owner
+		// Refuse after recording: the test needs no worktree machinery.
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(clierr.Error{Code: "invalid_workspace_name", Message: "stub"})
+	}))
+	defer srv.Close()
+
+	if _, err := saveCredential(Credential{URL: srv.URL, Name: "val", Secret: "hunter2hunter2"}); err != nil {
+		t.Fatalf("seed credential: %v", err)
+	}
+	err := cmdWorkspace([]string{"create", "--name", "ws1", "--project", "repo"})
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "invalid_workspace_name" {
+		t.Fatalf("expected the stub refusal to surface, got %v", err)
+	}
+	if gotOwner != "val" {
+		t.Fatalf("expected --by to default to the stored login's principal, got %q", gotOwner)
+	}
+}

@@ -249,6 +249,57 @@ func AuthLogin(ctx context.Context, client *http.Client, url, name, secret strin
 	return cred, nil
 }
 
+// AuthSignup registers a brand-new account against a control plane's hub
+// (POST /api/signup, §15.1) and stores the resulting credential pointed at
+// the org it created or joined - signup IS login (§6.10's golden path), so
+// first contact with a Runko needs neither the web UI nor a second auth
+// step. hubURL is the HOST root (the hub serves signup), not an /o/<org>
+// mount - the org half travels in the body. The refusal shapes are the
+// server's structured ones (signup_disabled, org_exists, weak_password,
+// ...), relayed as-is by apiJSON.
+func AuthSignup(ctx context.Context, client *http.Client, hubURL, name, password, org, orgMode, code string, prompt *bufio.Reader, out *os.File) (Credential, error) {
+	if password == "" {
+		fmt.Fprintf(out, "choose a password for %s: ", name)
+		s, err := readSecret(prompt, out)
+		if err != nil {
+			return Credential{}, fmt.Errorf("read password: %w", err)
+		}
+		password = s
+	}
+	base := strings.TrimSuffix(hubURL, "/")
+	var resp struct {
+		Name string  `json:"name"`
+		Org  OrgInfo `json:"org"`
+	}
+	if err := apiJSON(ctx, client, http.MethodPost, base+"/api/signup", "",
+		map[string]string{"name": name, "password": password, "org": org, "org_mode": orgMode, "code": code}, &resp); err != nil {
+		return Credential{}, err
+	}
+	cred := Credential{URL: base + resp.Org.APIBase, Name: name, Secret: password}
+	path, err := saveCredential(cred)
+	if err != nil {
+		return Credential{}, err
+	}
+	// The project named in the next-step hint is real: a created org is
+	// genesis-seeded with the root "repo" project (§6.10); in a joined org
+	// the names come from the index.
+	project := "repo"
+	if orgMode == "create" {
+		fmt.Fprintf(out, "signed up as %s and created org %s - you are its admin\n", name, resp.Org.Name)
+	} else {
+		fmt.Fprintf(out, "signed up as %s and joined org %s\n", name, resp.Org.Name)
+		project = "<p>"
+	}
+	fmt.Fprintf(out, "logged in to %s; credential stored in %s\n", cred.URL, path)
+	fmt.Fprintf(out, "next:\n")
+	if orgMode != "create" {
+		fmt.Fprintf(out, "  runko project list                                   # the projects you can work on\n")
+	}
+	fmt.Fprintf(out, "  runko workspace create --name <workstream> --project %s   # a checkout to work in\n", project)
+	fmt.Fprintf(out, "  runko doctor                                          # checkout health + the cheat-sheet\n")
+	return cred, nil
+}
+
 // readSecret reads one secret line from prompt. When stdin is an
 // interactive terminal it turns echo off first, so a typed password
 // never lands on screen or in scrollback; a piped or redirected stdin
