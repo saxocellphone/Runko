@@ -2,6 +2,7 @@ package runkod
 
 import (
 	"fmt"
+	"net/http"
 	"net/http/cgi"
 	"os/exec"
 	"path/filepath"
@@ -42,6 +43,23 @@ func GitHTTPHandler(repoDir string) (*cgi.Handler, error) {
 // clones via http://host:port/<RepoMountName>/.
 func RepoMountName(repoDir string) string {
 	return filepath.Base(filepath.Clean(repoDir))
+}
+
+// rewriteGitMount serves next (a git smart-HTTP handler expecting paths
+// under /<mount>/) at /<alias>/ by rewriting the request path. Org repos
+// live on disk at <orgs-dir>/<org>/repo.git, so http-backend only answers
+// under /repo.git/ - but `git clone .../repo.git` names every checkout
+// "repo". The org-named alias (<org>.git) is what gets advertised, so a
+// plain clone lands in a folder named after the org.
+func rewriteGitMount(alias, mount string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/" + mount + strings.TrimPrefix(r.URL.Path, "/"+alias)
+		// Path is authoritative for CGI PATH_INFO only when RawPath is
+		// empty; git's URLs carry no escaping, so drop it.
+		r2.URL.RawPath = ""
+		next.ServeHTTP(w, r2)
+	})
 }
 
 // gitHTTPBackendPath locates git-http-backend, which ships in git's

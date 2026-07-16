@@ -72,7 +72,7 @@ func cmdAgent(args []string) error {
 		fmt.Printf("token (shown ONCE): %s\n", out.Token)
 		fmt.Printf("use it:\n")
 		fmt.Printf("  API/CLI:  --token %s:%s   (Basic name:token)\n", out.Name, out.Token)
-		fmt.Printf("  git:      https://%s:%s@<host>/o/<org>/repo.git\n", out.Name, out.Token)
+		fmt.Printf("  git:      https://%s:%s@<host>/o/<org>/<org>.git\n", out.Name, out.Token)
 		// The §12.6 golden-path teach (decided 2026-07-14): the streaming
 		// commands, with the exact exports hooks need - hooks inherit an
 		// environment, not flags (§12.6.1).

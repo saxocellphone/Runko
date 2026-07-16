@@ -122,7 +122,7 @@ func (s *Server) workspaceResponse(ws Workspace) workspaceResponse {
 	return workspaceResponse{
 		Workspace:      ws,
 		SparsePatterns: ws.WriteAllowlist,
-		RepoPath:       RepoMountName(s.RepoDir),
+		RepoPath:       s.repoMount(),
 		TrunkRef:       s.TrunkRef,
 		Branches:       s.workspaceBranches(ws.ID),
 	}
