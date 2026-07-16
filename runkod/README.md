@@ -76,3 +76,17 @@ New decisions land here as dated entries; the record through
 
 - **2026-07-16** — this README becomes the project's living spec;
   `docs/design.md` is retired and frozen (see [`docs/README.md`](../docs/README.md)).
+- **2026-07-16** — **GitHub App auth on the daemon and bridge**
+  (the minting library is the `githubapp` project, see
+  [`githubapp/README.md`](../githubapp/README.md)): `runkod serve`
+  takes `--github-app-id` + `--github-app-key-file` (+ `--github-api`
+  for GHES) and any mirror — `--mirror-remote` or `--org-mirror` — on
+  the App's GitHub host with no static `token=` mints installation
+  tokens per push; `runko-bridge` takes the same pair as the PAT
+  alternative (mutually exclusive with `--github-token`) and mints per
+  dispatch, a failed mint answering 502 so the outbox re-drives.
+  Onboarding an org's GitHub CI is now: install the App on the org's
+  mirror repo, point `--org-mirror`/bridge at it — no PAT minting or
+  rotation. This adds runkod's first `dependencies:` edge to
+  `githubapp` (admin-lane ops change, alongside that project's
+  manifest).
