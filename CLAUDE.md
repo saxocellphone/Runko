@@ -53,25 +53,33 @@ remote is named `github` and is the OUTBOUND MIRROR — **never push to it**
 
 ## Repository status
 
-The design spec (`docs/design.md`, ~2300 lines) is fully implemented
-through its §28.3 session DAG: daemon (`runkod` — smart-HTTP git, receive
-funnel, merge gates, land engine, REST + Connect APIs, webhook outbox,
-outbound mirror, multi-org), CLIs (`runko`, `runko-ci`), workspaces,
-affected computation with a Bazel adapter, checks/merge requirements,
-Zoekt search, MCP server, the React web UI, and the measured
-docker-compose eval loop. Current work is **dogfood hardening** (§28.3
-stage 15): the platform develops on itself, and findings land as ordinary
-Changes.
+The platform is fully implemented and develops on itself; current work is
+**dogfood hardening** — findings land as ordinary Changes: daemon
+(`runkod` — smart-HTTP git, receive funnel, merge gates, land engine,
+REST + Connect APIs, webhook outbox, outbound mirror, multi-org), CLIs
+(`runko`, `runko-ci`), workspaces, affected computation with a Bazel
+adapter, checks/merge requirements, Zoekt search, MCP server, the React
+web UI, and the measured docker-compose eval loop.
 
-History lives in three places — do not re-derive it: the per-stage
-engineering record (what each stage shipped, the bugs its tests caught) in
-`docs/implementation-log.md`; decision-by-decision history in
-`docs/design.md`'s changelog table; self-hosting findings in
+**The centralized spec is retired (2026-07-16). Each project's README.md
+is its spec surface** — what it owns, decided constraints, contract
+surfaces, checks, and a dated **Decisions** section where new decisions
+are recorded in the same change that implements them (repo-wide decisions
+go in the root README.md; `docs/README.md` documents the model).
+`docs/design.md` is frozen in place as the historical record — the `§`
+citations in package headers, commit messages, and older docs resolve
+there as rationale; never edit it or cite it for new work.
+
+History — do not re-derive it: decision-by-decision history through
+2026-07-16 in `docs/design.md`'s (closed) changelog table and thereafter
+in the per-project Decisions sections; the per-stage engineering record
+in `docs/implementation-log.md`; self-hosting findings (ongoing) in
 `docs/migration-findings.md`.
 
-The spec is deliberately decided (not a discussion doc) — read the cited
-section before editing; implementation is transcription of a decision, not
-a fresh design exercise.
+The decided constraints are still decided — read the owning project's
+README (and the frozen § it cites, for rationale) before editing;
+implementation remains transcription of a decision, not a fresh design
+exercise.
 
 Go module: `github.com/saxocellphone/runko`. In this environment the Go
 toolchain, Node, jj, and bazelisk are hand-installed (`~/.local/go/bin`,
@@ -129,9 +137,11 @@ One Go module; every folder with a `PROJECT.yaml` is itself a Runko
 project (`repo` at the root owns only glue; `platform`, `runkod`, `cli`,
 `internal`, `db`, `web`, `docs`, `mailer`, `watchdog`), and `dependencies:` edges
 between them drive the affected closure — see the manifests themselves.
+**Each project's README.md is its spec surface — read it before working
+in that project.**
 
 ```
-docs/design.md      # the full design spec — cite §s from here in package docs and commits
+docs/design.md      # the RETIRED design spec, frozen 2026-07-16 — historical §-citation target only
 docs/spec/          # schema artifacts (PROJECT.yaml, MCP catalog, webhooks/CheckRun, build-adapter) — generate types from these, don't hand-duplicate
 runkod/proto/       # runkod's contract surface (§13.3.1): runko/v1 (web <-> runkod, §17.4) + mailer/v1; gen/ committed — never hand-edit, see runkod/proto/README.md
 db/migrations/      # Postgres DDL (golang-migrate numbered up/down files); runkod.ApplyMigrations embeds + applies them at boot
@@ -162,13 +172,13 @@ cli/runko-ci/       # CI-facing CLI: affected, checks, checkout, report-check
 web/                # web UI: React+TS+Vite+Connect-ES over runkod/proto/runko/v1 (web/README.md); src/gen committed
 ```
 
-Each package header cites the spec section(s) it implements. Shell out to
-system `git`; do not use a Git-in-Go library (the spec mandates matching
-real upstream Git behavior).
+Package headers citing `§`s point into the frozen design.md — historical
+rationale, still worth reading. Shell out to system `git`; do not use a
+Git-in-Go library (matching real upstream Git behavior is mandated).
 
-## Working rules (spec §28.2, still in force)
+## Working rules (still in force)
 
-- **Spec-before-code**: new contract surfaces get their schema/doc under `docs/spec/` (or a design.md section) before implementation; record decisions in design.md's changelog as they're made.
+- **Doc-before-code**: new contract surfaces get their schema under `docs/spec/` before implementation; every decision is recorded as a dated entry in the owning project's README.md **in the same change that implements it** (repo-wide: the root README.md). design.md and its changelog are closed.
 - **Never hand-edit generated code** (`internal/dbgen`, `runkod/proto/gen`, `web/src/gen`) — regenerate.
 - **Test against real git/Postgres/binaries, never mocks**: `internal/gitfixture` for repos, `internal/dbtest` for Postgres (skips without a DSN), scripted fake binaries for engines (bazel/gitleaks/zoekt pattern), compiled-binary e2e tests for the daemon and CLIs. Verify bazel-graph-sensitive changes with `bazel test`, not just `go test`.
 - **One Change per session focus**; don't refactor packages two hops away. No mid-session dependency additions.
@@ -177,21 +187,22 @@ real upstream Git behavior).
 
 ## Where to look for a given topic
 
+Current truth: the owning project's README. Frozen rationale: design.md §s.
+
 | Topic | Where |
 |---|---|
-| Object model (Org/Monorepo/Project/Workspace/Change/Owner/Agent) | design.md §7 |
-| Agentic coding, MCP tool catalog, AgentPolicy | design.md §8 |
-| Component architecture, data stores, deployment shapes | design.md §9 |
-| Project creation intent→files pipeline | design.md §10 |
-| Git usage, write paths, `MonorepoStore` interface | design.md §11 |
-| Workspaces (CitC-class, snapshot refs, Josh) | design.md §12 |
-| Change lifecycle, affected computation, merge gates/landing | design.md §13; docs/change-lifecycle.md (state machine, executable) |
-| CI/CD contracts, encapsulated checks, webhook/Checks schemas | design.md §14 (executor: §14.9.1) |
-| Auth, multi-tenancy, read ACLs, threat model | design.md §15 |
-| OSS/self-host scope, compose eval definition of done | design.md §16; docs/smoke-plan.md |
-| CLI/Web/Editor/MCP client surfaces | design.md §17; docs/cli-contract.md |
-| Migration, mirror-first adoption, outbound mirror | design.md §18; docs/mirror.md |
-| Competitive landscape / prior art (jj, Josh, Scalar, Gerrit, CitC) | design.md §21 |
-| Decided-vs-open questions | design.md §22 |
-| Implementation strategy + session DAG | design.md §28; docs/implementation-log.md (history) |
+| Control-plane domain: receive funnel, landing/revalidation, affected computation, checks, index, MCP, mirror, agent teaching surfaces | platform/README.md (rationale: design.md §7, §10–§14, §18) |
+| The daemon: write path, REST/Connect APIs, merge gates, orgs, auth/agents, outbox, mirror worker | runkod/README.md (rationale: design.md §9, §11.5, §13.5, §15) |
+| CLI surfaces and output contract | cli/README.md + docs/cli-contract.md (rationale: design.md §6.9, §17, §21) |
+| Shared internals: gitstore, gitfixture, clierr, dbtest, dbgen | internal/README.md |
+| Postgres schema, sqlc, live-DB test rules | db/README.md |
+| Web UI: pages, transports, demo mode, conventions | web/README.md (rationale: design.md §17.2) |
+| CI reconciler / invite mailer | watchdog/README.md, mailer/README.md |
+| Documentation model; what lives under docs/ | docs/README.md |
+| Change lifecycle state machine (executable) | docs/change-lifecycle.md |
+| Contract schemas (PROJECT.yaml, MCP catalog, webhooks/CheckRun, build-adapter) | docs/spec/ |
+| Outbound mirror contract | docs/mirror.md |
+| Compose eval definition of done | docs/smoke-plan.md |
+| Implementation history (stages, what tests caught) | docs/implementation-log.md |
 | Self-hosting findings (numbered, ongoing) | docs/migration-findings.md |
+| Decision history through 2026-07-16 | design.md §25 (closed); since then: per-project README Decisions sections |
