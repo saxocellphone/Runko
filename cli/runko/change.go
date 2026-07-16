@@ -55,7 +55,7 @@ func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (cha
 			Code:       "not_a_repo",
 			Field:      "repo",
 			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
-			Suggestion: "run `git init` first, then retry `runko change push`",
+			Suggestion: "run `git init` (or `jj git init --colocate`) first, then retry `runko change push`",
 			DocURL:     "docs/design.md#67-empty-states-and-education",
 		}
 	}
@@ -112,11 +112,17 @@ func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (cha
 			}
 		}
 		if onTrunk {
+			// The alternative verb matches the checkout: jj commits in a jj
+			// workspace, plain git elsewhere.
+			commit := "plain git commit"
+			if jj {
+				commit = "`jj commit`"
+			}
 			return "", &clierr.Error{
 				Code:       "already_on_trunk",
 				Field:      "repo",
 				Message:    fmt.Sprintf("HEAD (%.12s) is already on %s's trunk - there is no new commit to submit", headSHA, remote),
-				Suggestion: "make a commit first (`runko change create -m ...` or plain git commit)",
+				Suggestion: "make a commit first (`runko change create -m ...` or " + commit + ")",
 				DocURL:     "docs/change-lifecycle.md",
 			}
 		}
