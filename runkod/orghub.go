@@ -451,7 +451,10 @@ func (h *OrgHub) routeOrg(w http.ResponseWriter, r *http.Request, defaultHandler
 // default-deny posture resolves a policy from day one (uploader consent,
 // api.go ownerRequirements, is what lets the solo creator actually land);
 // AGENTS.md, so a coding agent pointed at a fresh clone knows the verbs
-// (§8.8); CONTRIBUTING.md, because §6.9 promises the generated repo shows
+// (§8.8), plus the same teaching as a loadable agent skill at
+// agentsmd.SkillPath, so skill-loading harnesses pull it into context at
+// the moment of a change instead of hoping the agent read AGENTS.md;
+// CONTRIBUTING.md, because §6.9 promises the generated repo shows
 // the three commands that matter. All of it is ordinary tree content the
 // org evolves or deletes through ordinary Changes (tree-as-truth, §10.3).
 func genesisFiles(orgName, creator, trunkRef string) []core.FileChange {
@@ -479,6 +482,7 @@ func genesisFiles(orgName, creator, trunkRef string) []core.FileChange {
 		{Path: "PROJECT.yaml", Content: []byte(rootManifest)},
 		{Path: "OWNERS", Content: []byte(owners)},
 		{Path: "AGENTS.md", Content: []byte(agentsmd.Generate())},
+		{Path: agentsmd.SkillPath, Content: []byte(agentsmd.GenerateSkill())},
 		{Path: "CONTRIBUTING.md", Content: []byte(contributing)},
 	}
 }
@@ -497,7 +501,7 @@ func seedGenesisCommit(repoDir, trunkRef, orgName, creator string) error {
 		return nil
 	}
 	rev, err := gstore.CommitOverlay("", core.Overlay{Changes: genesisFiles(orgName, creator, trunkRef)}, core.CommitMeta{
-		Message: fmt.Sprintf("org genesis: root manifest, OWNERS (%s), AGENTS.md, CONTRIBUTING.md (§6.10)", creator),
+		Message: fmt.Sprintf("org genesis: root manifest, OWNERS (%s), AGENTS.md, agent skill, CONTRIBUTING.md (§6.10)", creator),
 	})
 	if err != nil {
 		return fmt.Errorf("genesis commit: %w", err)

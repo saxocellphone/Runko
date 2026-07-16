@@ -140,6 +140,7 @@ go_test(
         "//internal/gitfixture",
         "//internal/gitstore",
         "//platform/affected",
+        "//platform/agentsmd",
         "//platform/checks",
         "//platform/core",
         "//platform/index",
