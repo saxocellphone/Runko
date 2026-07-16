@@ -16,7 +16,7 @@ import (
 // its tip. Returns the trunk tip synced onto. A no-op sync (already
 // based on the tip) is fine and returns the tip.
 func SyncToTrunk(dir, remote, trunk string) (string, error) {
-	if _, err := runGit(dir, "fetch", remote, trunk); err != nil {
+	if _, err := runGitNet(dir, "fetch", remote, trunk); err != nil {
 		return "", fmt.Errorf("sync: fetch %s %s: %w", remote, trunk, err)
 	}
 	tip, err := runGit(dir, "rev-parse", "FETCH_HEAD")

@@ -88,16 +88,17 @@ func apiJSON(ctx context.Context, client *http.Client, method, urlStr, token str
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// composeRemoteURL builds the authed smart-HTTP remote from the runkod base
-// URL + deploy token + the repo mount path the workspace API reports -
-// plain HTTP Basic, which every git client supports natively (§14.11).
-func composeRemoteURL(runkodURL, token, repoPath string) (string, error) {
+// composeRemoteURL builds the smart-HTTP remote from the runkod base URL +
+// the repo mount path the workspace API reports. CREDENTIAL-NEUTRAL by
+// §12.7: the URL never carries userinfo - auth is injected per invocation
+// (gitauth.go), so one shared store serves every principal on the machine
+// without misattributing anyone's push.
+func composeRemoteURL(runkodURL, repoPath string) (string, error) {
 	u, err := url.Parse(runkodURL)
 	if err != nil {
 		return "", fmt.Errorf("parse --runkod-url: %w", err)
 	}
-	user, pass := gitUserPass(token)
-	u.User = url.UserPassword(user, pass)
+	u.User = nil
 	u.Path = strings.TrimSuffix(u.Path, "/") + "/" + repoPath + "/"
 	return u.String(), nil
 }
@@ -123,13 +124,21 @@ func absWorkspacePaths(cloneDir, dir string) (string, string, error) {
 // workspace worktree hangs off (§12.3: "one blobless clone, N git
 // worktrees"). --no-checkout: the shared clone itself never materializes a
 // working tree; only worktrees do, each under its own sparse cone.
-func ensureSharedClone(cloneDir, remoteURL string) error {
+// authEnv carries the CALLING verb's credential for the initial clone
+// (gitauth.go) - the one network op that runs before any config exists.
+func ensureSharedClone(cloneDir, remoteURL string, authEnv []string) error {
 	if _, err := os.Stat(filepath.Join(cloneDir, ".git")); err == nil {
-		// The nudge below arrived after some shared clones existed -
-		// installing on every create/attach retrofits them too.
+		// Retrofits for clones that predate a config decision: the verb
+		// nudge (2026-07-14) and §12.7's credential-neutral remote - a
+		// pre-§12.7 store still carries its creator's token in the origin
+		// URL, misattributing every other principal's push; strip it and
+		// let the helper answer instead.
+		if err := neutralizeStoreRemote(cloneDir); err != nil {
+			return err
+		}
 		return installWorkspaceHooks(cloneDir)
 	}
-	if _, err := runGit(".", "clone", "--filter=blob:none", "--no-checkout", remoteURL, cloneDir); err != nil {
+	if _, err := runGitEnv(".", authEnv, "clone", "--filter=blob:none", "--no-checkout", remoteURL, cloneDir); err != nil {
 		return fmt.Errorf("blobless clone: %w", err)
 	}
 	// Per-worktree sparse cones and per-worktree runko.* config both need
@@ -137,17 +146,45 @@ func ensureSharedClone(cloneDir, remoteURL string) error {
 	if _, err := runGit(cloneDir, "config", "extensions.worktreeConfig", "true"); err != nil {
 		return err
 	}
+	// The store is credential-neutral (§12.7): raw git in any worktree -
+	// including the blobless clone's lazy blob fetches - asks this helper,
+	// which resolves the INVOKING principal's stored login.
+	if _, err := runGit(cloneDir, "config", "credential.helper", credentialHelperSpec()); err != nil {
+		return err
+	}
 	// On a public_read org (§15.2), a credential-less read gets an
-	// anonymous 200 - git never sees the 401 that would make it send the
-	// URL-embedded credentials, and the anonymous advertisement HIDES
+	// anonymous 200 - git never sees the 401 that would make it ask the
+	// credential helper, and the anonymous advertisement HIDES
 	// refs/workspaces, which is exactly what this clone must fetch.
-	// proactiveAuth (git >= 2.46) sends the credentials up front; older
+	// proactiveAuth (git >= 2.46) asks the helper up front; older
 	// gits ignore the unknown key and keep today's behavior (fine on
 	// private orgs, where the challenge fires).
 	if _, err := runGit(cloneDir, "config", "http.proactiveAuth", "basic"); err != nil {
 		return err
 	}
 	return installWorkspaceHooks(cloneDir)
+}
+
+// neutralizeStoreRemote strips userinfo from a pre-§12.7 store's origin
+// URL and stamps the credential helper in its place. Idempotent; a store
+// that is already neutral is untouched.
+func neutralizeStoreRemote(cloneDir string) error {
+	remote, err := runGit(cloneDir, "config", "remote.origin.url")
+	if err != nil {
+		return nil // no origin (hand-built store): nothing to neutralize
+	}
+	u, err := url.Parse(remote)
+	if err != nil || u.User == nil {
+		return nil
+	}
+	u.User = nil
+	if _, err := runGit(cloneDir, "config", "remote.origin.url", u.String()); err != nil {
+		return err
+	}
+	if _, err := runGit(cloneDir, "config", "credential.helper", credentialHelperSpec()); err != nil {
+		return err
+	}
+	return nil
 }
 
 // installWorkspaceHooks stamps the shared clone's hooks dir (worktrees
@@ -166,7 +203,11 @@ func installWorkspaceHooks(cloneDir string) error {
 // materializeWorktree adds a worktree for the workspace at dir, checked out
 // at startPoint under the workspace's sparse cone, and stamps the worktree
 // config so snapshot/update-base know which workspace they're in.
-func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, wsBranch string) error {
+// authEnv rides every subprocess: in a blobless clone, sparse-checkout and
+// checkout LAZILY FETCH blobs from the promisor remote - any of them is a
+// network call needing the calling verb's credential (found live: the
+// daemon e2e's checkout 401ed with only the obvious fetch/push covered).
+func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, wsBranch string, authEnv []string) error {
 	// A previously-deleted workspace directory leaves stale worktree
 	// metadata behind; prune first so attach-after-laptop-loss just works.
 	if _, err := runGit(cloneDir, "worktree", "prune"); err != nil {
@@ -193,11 +234,11 @@ func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, w
 	}
 	if len(info.SparsePatterns) > 0 {
 		args := append([]string{"sparse-checkout", "set", "--cone"}, info.SparsePatterns...)
-		if _, err := runGit(dir, args...); err != nil {
+		if _, err := runGitEnv(dir, authEnv, args...); err != nil {
 			return fmt.Errorf("sparse-checkout set: %w", err)
 		}
 	}
-	if _, err := runGit(dir, "checkout"); err != nil {
+	if _, err := runGitEnv(dir, authEnv, "checkout"); err != nil {
 		return fmt.Errorf("checkout: %w", err)
 	}
 	for k, v := range map[string]string{
@@ -224,14 +265,15 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	remoteURL, err := composeRemoteURL(runkodURL, token, info.RepoPath)
+	remoteURL, err := composeRemoteURL(runkodURL, info.RepoPath)
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	if err := ensureSharedClone(cloneDir, remoteURL); err != nil {
+	authEnv := gitAuthConfigEnv(runkodURL, token)
+	if err := ensureSharedClone(cloneDir, remoteURL, authEnv); err != nil {
 		return WorkspaceInfo{}, err
 	}
-	if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision, "head"); err != nil {
+	if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision, "head", authEnv); err != nil {
 		return WorkspaceInfo{}, err
 	}
 	return info, nil
@@ -257,11 +299,12 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 		}
 		return WorkspaceInfo{}, err
 	}
-	remoteURL, err := composeRemoteURL(runkodURL, token, info.RepoPath)
+	remoteURL, err := composeRemoteURL(runkodURL, info.RepoPath)
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	if err := ensureSharedClone(cloneDir, remoteURL); err != nil {
+	authEnv := gitAuthConfigEnv(runkodURL, token)
+	if err := ensureSharedClone(cloneDir, remoteURL, authEnv); err != nil {
 		return WorkspaceInfo{}, err
 	}
 
@@ -272,12 +315,12 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 	}
 	snapshotRef := "refs/workspaces/" + id + "/" + branch
 	startPoint := info.BaseRevision
-	if _, err := runGit(cloneDir, "fetch", "origin", "+"+snapshotRef+":"+snapshotRef); err == nil {
+	if _, err := runGitEnv(cloneDir, authEnv, "fetch", "origin", "+"+snapshotRef+":"+snapshotRef); err == nil {
 		if sha, err := runGit(cloneDir, "rev-parse", snapshotRef); err == nil {
 			startPoint = sha
 		}
 	}
-	if err := materializeWorktree(cloneDir, dir, info, startPoint, branch); err != nil {
+	if err := materializeWorktree(cloneDir, dir, info, startPoint, branch, authEnv); err != nil {
 		return WorkspaceInfo{}, err
 	}
 	return info, nil
@@ -344,7 +387,7 @@ func WorkspaceSnapshot(dir, message string) (ref string, err error) {
 	ref = "refs/workspaces/" + id + "/" + branch
 	// Force: amends rewrite the tip, and the snapshot ref's history is
 	// exactly "latest durable WIP" (§12.2), not an append-only log.
-	if _, err := runGit(dir, "push", "origin", "+HEAD:"+ref); err != nil {
+	if _, err := runGitNet(dir, "push", "origin", "+HEAD:"+ref); err != nil {
 		return "", fmt.Errorf("push snapshot: %w", err)
 	}
 	return ref, nil

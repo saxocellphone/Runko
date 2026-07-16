@@ -184,7 +184,7 @@ func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (cha
 		source = headSHA // git HEAD is meaningless in a colocated jj repo
 	}
 	args = append(args, remote, "+"+source+":refs/for/"+trunk)
-	if _, err := runGit(repoDir, args...); err != nil {
+	if _, err := runGitNet(repoDir, args...); err != nil {
 		return "", fmt.Errorf("push to refs/for/%s: %w", trunk, err)
 	}
 	return id, nil
@@ -193,7 +193,7 @@ func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (cha
 // lsRemoteTrunk asks the remote for its trunk tip ("" when the remote has
 // no such ref yet - an unborn trunk).
 func lsRemoteTrunk(repoDir, remote, trunk string) (string, error) {
-	out, err := runGit(repoDir, "ls-remote", remote, "refs/heads/"+trunk)
+	out, err := runGitNet(repoDir, "ls-remote", remote, "refs/heads/"+trunk)
 	if err != nil {
 		return "", err
 	}

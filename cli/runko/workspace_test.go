@@ -50,7 +50,34 @@ func startWorkspaceServer(t *testing.T) (srv *httptest.Server, bare string) {
 	}
 	srv = httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
+
+	// §12.7 credential-neutral stores: the remote URL carries no secret, so
+	// runko's own verbs resolve the stored login (isolated per test via
+	// XDG_CONFIG_HOME) and raw git asks the stamped credential helper - a
+	// scripted fake here, the same pattern as the fake bazel/gitleaks
+	// binaries. RUNKO_TOKEN/RUNKO_RUNKOD_URL are cleared so an inherited
+	// environment can never outrank the test credential.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("RUNKO_TOKEN", "")
+	t.Setenv("RUNKO_RUNKOD_URL", "")
+	if _, err := saveCredential(Credential{URL: srv.URL, Secret: "sekret"}); err != nil {
+		t.Fatalf("saveCredential: %v", err)
+	}
+	t.Setenv("RUNKO_CREDENTIAL_HELPER", writeFakeCredentialHelper(t))
 	return srv, bare
+}
+
+// writeFakeCredentialHelper scripts a git credential helper that answers
+// `get` with the test server's deploy token - what the real stamped
+// `runko auth git-credential` does with a stored login.
+func writeFakeCredentialHelper(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-credential-helper")
+	script := "#!/bin/sh\n[ \"$1\" = get ] || exit 0\necho username=runko\necho password=sekret\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake helper: %v", err)
+	}
+	return path
 }
 
 func mustGit(t *testing.T, dir string, args ...string) string {

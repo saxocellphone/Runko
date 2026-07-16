@@ -486,8 +486,19 @@ func cmdAuth(args []string) error {
 		fmt.Println("logged out")
 		return nil
 
+	case "git-credential":
+		// git's credential-helper protocol (§12.7): workspace stores stamp
+		// `credential.helper = !runko auth git-credential`, so raw git in
+		// any worktree resolves the INVOKING principal's stored login.
+		// Called by git, not humans; get/store/erase on argv, attributes
+		// on stdin.
+		if len(args) < 2 {
+			return usageError("usage: runko auth git-credential <get|store|erase> (called by git)")
+		}
+		return AuthGitCredential(args[1], os.Stdin, os.Stdout)
+
 	default:
-		return usageError("usage: runko auth login|status|logout ...")
+		return usageError("usage: runko auth login|status|logout|git-credential ...")
 	}
 }
 

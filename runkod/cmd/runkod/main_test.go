@@ -696,9 +696,24 @@ func TestEndToEndDaemonWorkspaces(t *testing.T) {
 	baseURL := startDaemon(t, runkodBin, repoDir, token)
 	remoteURL := strings.Replace(baseURL, "http://", "http://runko:"+token+"@", 1) + "/" + filepath.Base(repoDir) + "/"
 
+	// §12.7: workspace stores are credential-neutral, so the CLI's network
+	// git (snapshot pushes, blobless lazy blob fetches) resolves auth per
+	// invocation. This e2e's user holds no stored login - it rides the
+	// documented RUNKO_RUNKOD_URL/RUNKO_TOKEN env fallback - and the §12.7
+	// machine-local state (materialization registry, managed home) is
+	// isolated exactly like the credential file, so a test run never
+	// touches the developer's real ~/.local/state or ~/runko-ws.
+	cliHome := t.TempDir()
 	runko := func(dir string, args ...string) (string, error) {
 		cmd := exec.Command(runkoBin, args...)
 		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"RUNKO_RUNKOD_URL="+baseURL,
+			"RUNKO_TOKEN="+token,
+			"XDG_CONFIG_HOME="+filepath.Join(cliHome, "config"),
+			"XDG_STATE_HOME="+filepath.Join(cliHome, "state"),
+			"RUNKO_WORKSPACE_HOME="+filepath.Join(cliHome, "ws-home"),
+		)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
