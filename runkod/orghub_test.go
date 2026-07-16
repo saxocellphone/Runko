@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/saxocellphone/runko/internal/gitstore"
+	"github.com/saxocellphone/runko/platform/agentsmd"
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/receive"
 )
@@ -693,9 +694,10 @@ func TestOrgRevalidationPolicySetting(t *testing.T) {
 
 // TestCreatedOrgIsBornUsable pins §6.10's genesis: a creator-made org's
 // trunk is never unborn - it carries the seed tree (root manifest, OWNERS
-// naming the creator, AGENTS.md, CONTRIBUTING.md), the index resolves the
-// root project with the creator as its owner, and `workspace create
-// --project repo` works immediately (the trunk_unborn dead end is gone).
+// naming the creator, AGENTS.md, the agent skill, CONTRIBUTING.md), the
+// index resolves the root project with the creator as its owner, and
+// `workspace create --project repo` works immediately (the trunk_unborn
+// dead end is gone).
 func TestCreatedOrgIsBornUsable(t *testing.T) {
 	srv, hub := newTestHub(t, true)
 	hubSignup(t, srv, "alice", "alicepw123")
@@ -708,10 +710,19 @@ func TestCreatedOrgIsBornUsable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("created org's trunk is unborn: %v", err)
 	}
-	for _, path := range []string{"PROJECT.yaml", "OWNERS", "AGENTS.md", "CONTRIBUTING.md"} {
+	for _, path := range []string{"PROJECT.yaml", "OWNERS", "AGENTS.md", agentsmd.SkillPath, "CONTRIBUTING.md"} {
 		if _, err := gstore.GetBlob(rev, path); err != nil {
 			t.Fatalf("genesis tree is missing %s: %v", path, err)
 		}
+	}
+	// The seeded skill must be loadable: frontmatter first, so a harness
+	// scanning .claude/skills/*/SKILL.md can key on its description.
+	skill, err := gstore.GetBlob(rev, agentsmd.SkillPath)
+	if err != nil {
+		t.Fatalf("read seeded skill: %v", err)
+	}
+	if !bytes.HasPrefix(skill.Content, []byte("---\nname: runko\n")) {
+		t.Fatalf("seeded skill does not open with frontmatter:\n%.120s", skill.Content)
 	}
 
 	// The seeded state must be what the rest of the system actually
