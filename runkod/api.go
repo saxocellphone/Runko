@@ -1066,7 +1066,7 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	if lane != nil {
 		requiredNames = mergeCheckNames(requiredNames, lane.RequiredChecks)
 	} else {
-		owners, err = s.ownerRequirements(ctx, key, change.HeadSHA, result, indexed)
+		owners, err = s.ownerRequirements(ctx, key, change.HeadSHA, change.AuthoredBy, result, indexed)
 		if err != nil {
 			return checks.MergeRequirements{}, err
 		}
@@ -1207,7 +1207,17 @@ func mergeCheckNames(names, extra []string) []string {
 // 11c work, not a default). The SATISFIED side joins stored approvals; an
 // approval for an owner the tree no longer requires is simply ignored,
 // never resurrected as a requirement (tree-as-truth, §10.3).
-func (s *Server) ownerRequirements(ctx context.Context, key, headSHA string, result affected.Result, indexed []index.IndexedProject) ([]checks.OwnerRequirement, error) {
+//
+// authoredBy is who pushed the change's current head. A HUMAN author who is
+// themselves a required owner satisfies that requirement implicitly - the
+// push is the consent the gate exists to collect (Gerrit's uploader model,
+// §6.10). Without this, a path whose ONLY owner is the author can never
+// land: the approve action denies self-approval (actions.go), so the
+// requirement is unsatisfiable - the exact deadlock a fresh org would hit
+// the moment genesis seeds OWNERS with its creator. Agents never
+// self-satisfy: §8.7's "no approving at all" covers their own authorship,
+// so an agent-authored change always keeps a human owner in the loop.
+func (s *Server) ownerRequirements(ctx context.Context, key, headSHA, authoredBy string, result affected.Result, indexed []index.IndexedProject) ([]checks.OwnerRequirement, error) {
 	required := map[string]bool{}
 	for _, path := range result.Paths {
 		project, ok := owningProject(indexed, path)
@@ -1235,6 +1245,15 @@ func (s *Server) ownerRequirements(ctx context.Context, key, headSHA string, res
 		// never matches: unknown approval head reads as stale, fail closed.
 		if a.HeadSHA == headSHA {
 			approved[a.OwnerRef] = true
+		}
+	}
+	if authoredBy != "" && required[authoredBy] {
+		// Owner refs and principal names share a flat namespace for direct
+		// user refs; group refs ("group:...") can never equal a principal
+		// name, so this match is exact-user only - group membership never
+		// self-satisfies.
+		if _, isAgent := s.agentPolicyForAuthor(ctx, authoredBy); !isAgent {
+			approved[authoredBy] = true
 		}
 	}
 

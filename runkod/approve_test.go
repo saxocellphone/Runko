@@ -320,3 +320,86 @@ func TestAmendResetsOwnerApprovals(t *testing.T) {
 		t.Fatalf("expected the owner gate satisfied after re-approval at v2, got satisfied=%v outstanding=%v", reqs.SatisfiedOwners, reqs.OutstandingOwners)
 	}
 }
+
+// newUploaderConsentServer seeds one open change pushed by `author` in a repo
+// whose ROOT OWNERS file names `owner` (no manifest owners anywhere - the
+// §6.10 genesis shape, resolved via §7.3 OWNERS inheritance). Deliberately
+// NOT AllowUnpolicedLand: the owner requirement is what makes the policy
+// resolve, so these tests also pin that an OWNERS-only org satisfies the
+// default-deny posture.
+func newUploaderConsentServer(t *testing.T, owner string, author Principal) (*httptest.Server, string) {
+	t.Helper()
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("OWNERS", "# seeded at org genesis (§6.10)\n"+owner+"\n")
+	repo.WriteFile("commerce/checkout/PROJECT.yaml",
+		"schema: project/v1\nname: checkout-api\ntype: service\n")
+	repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	repo.WriteFile("commerce/checkout/main.go", "package main\n")
+	repo.Commit("add main.go\n\nChange-Id: I0123456789abcdef0123456789abcdef01234567")
+	_, headSHA := pushCommit(t, repo, bare, "refs/for/main")
+
+	store := NewMemStore()
+	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store, Principals: []Principal{author}}
+	result := processor.Process(context.Background(), RefUpdate{OldSHA: zeroOID, NewSHA: headSHA, Ref: "refs/for/main"}, []string{"REMOTE_USER=" + author.Name})
+	if !result.Accepted {
+		t.Fatalf("seed push rejected: %+v", result)
+	}
+
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret", Principals: []Principal{author}}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	return httptest.NewServer(handler), result.ChangeID
+}
+
+// TestAuthorAsOwnerSatisfiesOwnRequirement is the §6.10 uploader-consent
+// rule (Gerrit's model): a HUMAN author who is themselves the required owner
+// satisfies that requirement by having pushed the change - the push is the
+// consent the gate collects. Without this, a path whose only owner is the
+// author is permanently unlandable (self-approval is denied, actions.go),
+// which would deadlock every fresh org the moment genesis seeds OWNERS with
+// its creator. The land at the end is the solo-org bar end to end.
+func TestAuthorAsOwnerSatisfiesOwnRequirement(t *testing.T) {
+	srv, changeID := newUploaderConsentServer(t, "alice",
+		Principal{Name: "alice", Token: "alice-token"})
+	defer srv.Close()
+
+	reqs := getMergeRequirements(t, srv, changeID)
+	if len(reqs.RequiredOwners) != 1 || reqs.RequiredOwners[0] != "alice" {
+		t.Fatalf("required owners: want [alice], got %v", reqs.RequiredOwners)
+	}
+	if len(reqs.SatisfiedOwners) != 1 || len(reqs.OutstandingOwners) != 0 {
+		t.Fatalf("expected alice's own push to satisfy her requirement, got satisfied=%v outstanding=%v", reqs.SatisfiedOwners, reqs.OutstandingOwners)
+	}
+	if !reqs.Mergeable {
+		t.Fatalf("expected the solo owner-author's change mergeable, got %+v", reqs)
+	}
+
+	resp := postLand(t, srv, changeID, "sekret")
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected the solo-org land to succeed, got %d: %s", resp.StatusCode, body)
+	}
+}
+
+// TestAgentAuthorshipNeverSelfSatisfies: §8.7's "no approving at all"
+// includes an agent's own authorship - an OWNERS entry naming the agent
+// stays outstanding on the agent's own change, so agent work always keeps
+// a (non-author) approver in the loop.
+func TestAgentAuthorshipNeverSelfSatisfies(t *testing.T) {
+	srv, changeID := newUploaderConsentServer(t, "agent-fix",
+		Principal{Name: "agent-fix", Token: "agent-token", IsAgent: true})
+	defer srv.Close()
+
+	reqs := getMergeRequirements(t, srv, changeID)
+	if len(reqs.OutstandingOwners) != 1 || reqs.OutstandingOwners[0] != "agent-fix" {
+		t.Fatalf("expected the agent's own requirement outstanding, got satisfied=%v outstanding=%v", reqs.SatisfiedOwners, reqs.OutstandingOwners)
+	}
+	if reqs.Mergeable {
+		t.Fatalf("an agent-authored change must not become mergeable by its own authorship: %+v", reqs)
+	}
+}

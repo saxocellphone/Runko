@@ -138,7 +138,7 @@ func (s *Server) approveChangeCore(ctx context.Context, key string, change Chang
 	if err != nil {
 		return checks.MergeRequirements{}, internalErr(err)
 	}
-	owners, err := s.ownerRequirements(ctx, key, change.HeadSHA, result, indexed)
+	owners, err := s.ownerRequirements(ctx, key, change.HeadSHA, change.AuthoredBy, result, indexed)
 	if err != nil {
 		return checks.MergeRequirements{}, internalErr(err)
 	}
