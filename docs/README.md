@@ -48,7 +48,7 @@ surface (root `README.md` for what crosses project boundaries).
 | `mirror.md` | the outbound mirror's behavior contract (`platform/mirror`) |
 | `smoke-plan.md` | the compose eval loop's definition of done |
 | `implementation-log.md` | per-stage engineering history: what each stage shipped, what its tests caught |
-| `migration-findings.md` | numbered self-hosting findings — **still live**, dogfood findings keep landing here |
+| `migration-findings.md` | numbered self-hosting findings — **frozen history** (ledger closed at #50, 2026-07-16); new findings live in the change descriptions that fix them |
 | `images/` | doc images (prose-gated) |
 
 ## Checks (owned here)
@@ -69,3 +69,10 @@ surface (root `README.md` for what crosses project boundaries).
   major architectural shifts"): entries are reserved for shifts as
   defined above; per-change entries pruned from the READMEs that had
   accumulated them.
+- **2026-07-16** — `migration-findings.md` retired, ledger closed at
+  finding #50 (user direction, same conversation as the cadence fix):
+  the migration is done and dogfooding is the ordinary state — a
+  standing findings ledger is one more central file every agent
+  appends to. A new finding is recorded in the change description of
+  the change that fixes it; one that changes a decided constraint gets
+  a Decisions entry in the owning project's README.
