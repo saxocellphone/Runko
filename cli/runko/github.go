@@ -88,11 +88,9 @@ func cmdGithub(args []string) error {
 		fmt.Printf("wired org %s to %s\n", res.Org, res.RemoteURL)
 		fmt.Println("  verified: repo reachable, GitHub App installed, push token minted")
 		fmt.Println("  mirror:   armed; first sync triggered (runko github status)")
-		fmt.Println("CI dispatch (Mode C) still runs through the org's runko-bridge:")
-		fmt.Printf("  bridge env:  RUNKO_BRIDGE_ORG=%s RUNKO_BRIDGE_GITHUB_REPO=%s\n", res.Org, res.Repo)
-		fmt.Println("               RUNKO_BRIDGE_GITHUB_APP_ID/RUNKO_BRIDGE_GITHUB_APP_KEY_FILE (the same App)")
-		fmt.Println("               RUNKO_BRIDGE_WEBHOOK_SECRET (runkod's --webhook-secret)")
-		fmt.Println("  workflow:    .github/workflows/runko-checks.yml on the mirror (repository_dispatch -> runko-ci checks)")
+		fmt.Println("  dispatch: native (2026-07-17) - the outbox sends repository_dispatch for this org's changes itself")
+		fmt.Println("one manual step remains, on the GitHub repo:")
+		fmt.Println("  workflow: .github/workflows/runko-checks.yml (repository_dispatch types: [runko-change] -> runko-ci checks)")
 		return nil
 
 	case "status":
