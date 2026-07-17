@@ -59,6 +59,44 @@ func newTestHub(t *testing.T, allowCreate bool, extraPrincipals ...Principal) (*
 	return srv, hub
 }
 
+// newOrglessTestHub assembles the ORG-LESS hub (2026-07-17, the
+// default-org retirement): Default is an AUTH-ONLY Server - no repo, no
+// Processor, its Handler never built - and DefaultOrgName is empty, so
+// the hub itself serves the root and every org lives at /o/<name>/.
+func newOrglessTestHub(t *testing.T, allowCreate bool, extraPrincipals ...Principal) (*httptest.Server, *OrgHub) {
+	t.Helper()
+	store := NewMemStore()
+	def := &Server{
+		Store: store, Token: "sekret", TrunkRef: "main",
+		AllowSignup: true, Principals: extraPrincipals,
+		Directory: store,
+	}
+	hub := &OrgHub{
+		Default:        def,
+		DataDir:        t.TempDir(),
+		AllowOrgCreate: allowCreate,
+		Directory:      store,
+		NewOrgStore: func(ctx context.Context, orgName string) (Store, error) {
+			return NewMemStore(), nil
+		},
+		NewOrgServer: func(orgName, repoDir string, orgStore Store) (*Server, error) {
+			return &Server{
+				RepoDir: repoDir, TrunkRef: "main", Store: orgStore,
+				Processor: &Processor{RepoDir: repoDir, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: orgStore, Directory: store},
+				Token:     "sekret", AllowUnpolicedLand: true, Principals: extraPrincipals,
+			}, nil
+		},
+	}
+	handler, err := hub.Handler()
+	if err != nil {
+		t.Fatalf("hub.Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	hub.SelfURL = srv.URL
+	return srv, hub
+}
+
 // hubSignup registers an account joining the shared default org - since
 // the org-required signup contract, every account arrives into SOME org.
 func hubSignup(t *testing.T, srv *httptest.Server, name, password string) {
@@ -817,5 +855,85 @@ func TestGenesisNeverRewritesABornTrunk(t *testing.T) {
 	}
 	if before != after {
 		t.Fatalf("genesis rewrote a born trunk: %s -> %s", before, after)
+	}
+}
+
+// TestOrglessHub pins the default-org retirement (2026-07-17): with no
+// DefaultOrgName the hub serves the ops floor and the global APIs at the
+// root, a structured 404 everywhere else, and every org - the FIRST one
+// included - is born via signup/admin-create and lives at /o/<name>/.
+// No listing or estate row is flagged default, and no org is
+// archive-immutable, because the special case no longer exists.
+func TestOrglessHub(t *testing.T) {
+	srv, _ := newOrglessTestHub(t, true)
+
+	// Ops floor at the root; org surfaces are a structured 404.
+	if status, _ := hubDo(t, srv, "GET", "/healthz", "", "", "", nil); status != http.StatusOK {
+		t.Fatalf("healthz: %d", status)
+	}
+	if status, _ := hubDo(t, srv, "GET", "/readyz", "", "", "", nil); status != http.StatusOK {
+		t.Fatalf("readyz: %d", status)
+	}
+	status, body := hubDo(t, srv, "GET", "/api/changes", "", "", "sekret", nil)
+	if status != http.StatusNotFound || body["Code"] != "no_default_org" {
+		t.Fatalf("root org API should be a structured 404, got %d %v", status, body)
+	}
+	if status, body = hubDo(t, srv, "GET", "/", "", "", "", nil); status != http.StatusNotFound || body["Code"] != "no_default_org" {
+		t.Fatalf("root should answer no_default_org, got %d %v", status, body)
+	}
+
+	// Signup CREATES the first org; there is no landing zone to join.
+	if status, body := signupOrg(t, srv, "alice", "alicepw123", "acme", "create"); status != http.StatusCreated {
+		t.Fatalf("first-org signup: %d %v", status, body)
+	}
+	status, body = signupOrg(t, srv, "bob", "bobpw1234", "defaultorg", "join")
+	if status != http.StatusNotFound || body["Code"] != "unknown_org" {
+		t.Fatalf("joining the retired default org must be unknown_org, got %d %v", status, body)
+	}
+	if status, _ := signupOrg(t, srv, "bob", "bobpw1234", "acme", "join"); status != http.StatusCreated {
+		t.Fatalf("joining acme: %d", status)
+	}
+
+	// The org serves at its own mount; nothing anywhere is default.
+	if status, _ := hubDo(t, srv, "GET", "/o/acme/api/whoami", "alice", "alicepw123", "", nil); status != http.StatusOK {
+		t.Fatalf("org-scoped sign-in: %d", status)
+	}
+	status, body = hubDo(t, srv, "GET", "/api/orgs", "alice", "alicepw123", "", nil)
+	if status != http.StatusOK || len(body["orgs"].([]any)) != 1 {
+		t.Fatalf("alice should see exactly acme: %d %v", status, body)
+	}
+	for _, o := range body["orgs"].([]any) {
+		row := o.(map[string]any)
+		if row["default"] == true || row["api_base"] == "" {
+			t.Fatalf("no listing row may be default or root-mounted: %v", row)
+		}
+	}
+	status, body = hubDo(t, srv, "GET", "/api/admin/orgs", "", "", "sekret", nil)
+	if status != http.StatusOK {
+		t.Fatalf("estate: %d", status)
+	}
+	rows := body["orgs"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("estate should hold exactly acme, got %v", rows)
+	}
+	if rows[0].(map[string]any)["default"] == true {
+		t.Fatalf("estate must not flag a default org: %v", rows)
+	}
+	if status, body = hubDo(t, srv, "GET", "/api/admin/whoami", "", "", "sekret", nil); status != http.StatusOK || body["operator"] != true {
+		t.Fatalf("admin whoami: %d %v", status, body)
+	}
+
+	// Archive works on ANY org - the immutable special case is gone.
+	if status, _ := hubDo(t, srv, "POST", "/api/admin/orgs/acme/archive", "", "", "sekret", nil); status != http.StatusOK {
+		t.Fatalf("archive: %d", status)
+	}
+	if status, _ := hubDo(t, srv, "GET", "/o/acme/api/whoami", "alice", "alicepw123", "", nil); status != http.StatusGone {
+		t.Fatalf("archived org should be 410")
+	}
+	if status, _ := hubDo(t, srv, "POST", "/api/admin/orgs/acme/unarchive", "", "", "sekret", nil); status != http.StatusOK {
+		t.Fatalf("unarchive: %d", status)
+	}
+	if status, _ := hubDo(t, srv, "GET", "/o/acme/api/whoami", "alice", "alicepw123", "", nil); status != http.StatusOK {
+		t.Fatalf("unarchived org should serve again")
 	}
 }

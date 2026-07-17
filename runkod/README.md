@@ -79,6 +79,25 @@ Repo-wide shifts: the root [`README.md`](../README.md); the record
 through 2026-07-16 is [`docs/design.md`](../docs/design.md)'s frozen
 changelog.
 
+- **2026-07-17** — **the default org is retired: org-less hub mode**.
+  `runkod serve` without `--repo-dir` (which now requires an explicit
+  `--orgs-dir`) runs a hub with NO root-mounted org: the root serves
+  only the global surfaces (accounts/signup, org listing/creation,
+  `/api/admin/*`, invite intake) plus the hub's own ops floor
+  (`/healthz`, `/readyz`, `/metrics`), answers a structured
+  `no_default_org` 404 everywhere else, and every org — the first one
+  included — lives at `/o/<name>/`. `OrgHub.Default` degrades to an
+  AUTH-ONLY `Server` (accounts, signup config, credential resolution;
+  its `Handler` is never built), backed in Postgres by
+  `NewHubPostgresStore` (shared pool, no bootstrap org row).
+  `--mirror-remote` and `--zoekt-index-dir` ride the default org's repo
+  and are refused in this mode (`--org-mirror`/`github connect` per
+  org; per-org zoekt indexing is a recorded follow-up). The historical
+  mode — a repo-dir'd default org served at the root — is unchanged
+  whenever `--repo-dir` is given; nothing existing migrates
+  automatically. Rationale: the default org was the multi-org
+  retrofit's compatibility seam (root remotes, CI URLs), not a designed
+  object — deployments born multi-org get to not have one.
 - **2026-07-16** — this README becomes the project's living spec;
   `docs/design.md` is retired and frozen (see [`docs/README.md`](../docs/README.md)).
 - **2026-07-16** — **GitHub App auth on the daemon and bridge**

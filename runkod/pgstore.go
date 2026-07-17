@@ -48,6 +48,16 @@ func BootstrapPostgresStore(ctx context.Context, dsn, orgName, trunkRef string) 
 	return NewOrgPostgresStore(ctx, pool, orgName, trunkRef)
 }
 
+// NewHubPostgresStore is the ORG-LESS hub's store (orghub.go): the shared
+// pool with NO org/monorepo/actor bootstrap - it backs exactly the
+// hub-global surfaces (the account directory, org rows/memberships,
+// signup, Ping). Org-scoped methods (changes, workspaces, checks) must
+// never be called on it - they key on the zero OrgID/MonorepoID; every
+// real org gets its own NewOrgPostgresStore off the same pool.
+func NewHubPostgresStore(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{Pool: pool, Queries: dbgen.New()}
+}
+
 // OpenPostgresPool connects and applies migrations - once per daemon; the
 // per-org stores (NewOrgPostgresStore) all share the returned pool.
 func OpenPostgresPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
