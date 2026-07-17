@@ -216,6 +216,68 @@ target-determinator -working-directory <disposable-clone> \
 stdout is one affected target label per line. The clone is checked out at
 `HeadRev` first; the tool diffs against the positional base revision.
 
+## 5c. Target-scoped check execution (`runko-ci test-impacted`)
+
+§3 left "whether check-set policies key on projects (default) or the
+refined target set" as an org policy choice. This verb is that opt-in,
+made where §14.9.1 wants policy to live: inside the manifest-owned check
+command. A bazel-test lane wraps itself -
+
+```yaml
+ci:
+  checks:
+    - name: runkod-test
+      command: go run ./cli/runko-ci test-impacted --universe //runkod/... -- --test_env=RUNKO_TEST_DATABASE_URL --test_output=errors
+```
+
+- and runs `bazel test <args after -->` against ONLY the targets the §5b
+snapshot diff proves impacted between base and head, instead of the whole
+universe pattern. The merge gate is untouched: it keys on check NAMES
+(§13.5, §14.5.9), every required lane still runs and reports - scoping
+changes what a named check *costs*, never whether it gates.
+
+**Inputs.** `--universe` (required): the bazel target pattern this check
+owns - also the verbatim fallback command's pattern. `--base`/`--head`
+default to `$BASE_SHA`/`$HEAD_SHA`, the §14.4 executor payload env that
+pre-land executors already export to check jobs (then `HEAD` for head).
+Everything after `--` is passed to `bazel test` unchanged, ahead of the
+target list.
+
+**The fail-closed ladder.** Every rung that cannot vouch for a narrower
+set runs the FULL universe pattern - the exact command the manifest
+declared before wrapping, so the floor of this verb is the status quo,
+never "run nothing":
+
+1. no base revision (developer shells, post-land ci.yml) -> full;
+2. `target-determinator` not installed -> full;
+3. git preparation failed (unshallowing a CI checkout for the §5b
+   disposable clone, fetching the base commit) -> full;
+4. the affected floor's `run_everything` came from a BLUNT (out-of-graph)
+   root-invalidation pattern or an unowned path -> full: §14.5.8's
+   all-or-nothing rule, mirrored per check - nothing can vouch for a
+   narrower blast radius of a Makefile edit. A *refinable-only*
+   escalation (MODULE.bazel, go.mod, BUILD.bazel) proceeds: the graph
+   sees those, which is the §5b strategy's whole point;
+5. the snapshot diff itself errors -> full.
+
+**Outcomes.** An empty impacted set exits 0 without invoking bazel - the
+closure pulled this lane in, but the change never reaches its targets. A
+non-empty set runs and propagates bazel's exit code verbatim, with ONE
+mapping: scoped exit 4 ("no test targets were found") is success, because
+bazel builds the requested targets before noticing none are tests -
+impacted code compiled, no impacted test exists. The full-universe path
+keeps raw exit semantics (there, exit 4 means the manifest's own pattern
+matches no tests - a manifest bug).
+
+**Race lanes ride free.** A `run_when: direct` race check wraps
+identically - the impacted set is config-independent, bazel applies
+`--@rules_go//go/config:race` to whatever the diff named.
+
+**What the executor must provide** for scoping to engage (and may simply
+not, degrading to today's behavior): bazel and `target-determinator` on
+PATH, `BASE_SHA`/`HEAD_SHA` in the check job's env, and a checkout whose
+history can reach base (fetch-depth 0, or let the verb unshallow).
+
 ## 6. Buck2 mapping notes (contract-shaped from day one, not implemented yet)
 
 Buck2's `buck2 uquery` exposes the same shape:
