@@ -369,6 +369,18 @@ type Store interface {
 	// audit attribution, "" for the anonymous deploy token.
 	RerunCheck(ctx context.Context, changeKey, checkName, requestedBy string) (checks.CheckRunView, error)
 
+	// Deploy records (§14.10 inverted CD trigger; db/migrations/0021): the
+	// server-of-record for a landed commit's rollout. OpenDeployRecord (called
+	// on land) names the affected images the post-land build must report and is
+	// idempotent - a re-land never resets reported digests. RecordDeployImage
+	// upserts one reported digest keyed (trunk_sha, image) and reports whether
+	// THIS call completed the expected set (pending->ready), so the caller
+	// emits deploy.images_ready exactly once; ok is false for an unknown sha.
+	// GetDeployRecord reads the record (ok false when the land opened none).
+	OpenDeployRecord(ctx context.Context, trunkSHA, changeKey, provenance string, expected []string) error
+	RecordDeployImage(ctx context.Context, trunkSHA string, img DeployImageRow) (rec DeployRecord, ok, nowReady bool, err error)
+	GetDeployRecord(ctx context.Context, trunkSHA string) (DeployRecord, bool, error)
+
 	// Mirror cursors (§18.6, outbound M1): per-(remote, ref) sync state.
 	// GetMirrorCursor's bool reports row existence; UpsertMirrorCursor
 	// records a successful sync (and clears frozen - the sync that lands a
@@ -505,6 +517,7 @@ type MemStore struct {
 	comments      map[string][]Comment                      // changeKey -> comments, creation order
 	reviewReqs    map[string]map[string]ReviewRequest       // changeKey -> reviewer -> request
 	releases      map[string][]Release                      // projectName -> releases, creation order
+	deployRecords map[string]*memDeployRecord               // trunk_sha -> deploy record (§14.10 CD trigger)
 	workspaces    map[string]Workspace
 	wsEvents      map[string][]WorkspaceEvent // workspaceID -> events, id order
 	wsEventSeq    int64
@@ -543,19 +556,20 @@ type memDelivery struct {
 // NewMemStore returns an empty MemStore.
 func NewMemStore() *MemStore {
 	return &MemStore{
-		changes:    make(map[string]Change),
-		checkRuns:  make(map[string]map[string]checks.CheckRunView),
-		approvals:  make(map[string]map[string]Approval),
-		comments:   make(map[string][]Comment),
-		reviewReqs: make(map[string]map[string]ReviewRequest),
-		releases:   make(map[string][]Release),
-		workspaces: make(map[string]Workspace),
-		wsEvents:   make(map[string][]WorkspaceEvent),
-		wsActivity: make(map[string][]WorkspaceActivity),
-		agents:     make(map[string]AgentPrincipal),
-		deliveries: make(map[string]*memDelivery),
-		inviteReqs: make(map[string]*InviteRequest),
-		mirrors:    make(map[string]MirrorCursor),
+		changes:       make(map[string]Change),
+		checkRuns:     make(map[string]map[string]checks.CheckRunView),
+		approvals:     make(map[string]map[string]Approval),
+		comments:      make(map[string][]Comment),
+		reviewReqs:    make(map[string]map[string]ReviewRequest),
+		releases:      make(map[string][]Release),
+		deployRecords: make(map[string]*memDeployRecord),
+		workspaces:    make(map[string]Workspace),
+		wsEvents:      make(map[string][]WorkspaceEvent),
+		wsActivity:    make(map[string][]WorkspaceActivity),
+		agents:        make(map[string]AgentPrincipal),
+		deliveries:    make(map[string]*memDelivery),
+		inviteReqs:    make(map[string]*InviteRequest),
+		mirrors:       make(map[string]MirrorCursor),
 	}
 }
 
@@ -907,6 +921,108 @@ func (s *MemStore) GetLatestRelease(ctx context.Context, projectName string) (Re
 		return Release{}, false, nil
 	}
 	return all[len(all)-1], true, nil
+}
+
+// DeployRecord is the inverted CD trigger's server-of-record for one landed
+// trunk commit (§14.10, db/migrations/0021): the affected images whose digests
+// the post-land build must report, plus the digests reported so far. When
+// Reported covers Expected the record is "ready" and runkod emits
+// deploy.images_ready; the runko-deployer pins the digests and Argo CD rolls.
+type DeployRecord struct {
+	TrunkSHA   string
+	ChangeKey  string
+	Expected   []string
+	Reported   []DeployImageRow
+	State      string // "pending" | "ready"
+	Provenance string
+}
+
+// DeployImageRow is one built image's reported digest. ImageRef is the full
+// pushed reference sans digest, so the deployer pins image_ref@digest and
+// stays registry-agnostic.
+type DeployImageRow struct {
+	Image    string
+	ImageRef string
+	Digest   string
+	RunURL   string
+}
+
+// memDeployRecord is MemStore's mutable form (a map for O(1) image upsert);
+// the Store methods return the immutable DeployRecord view.
+type memDeployRecord struct {
+	changeKey  string
+	expected   []string
+	provenance string
+	reported   map[string]DeployImageRow
+	state      string
+}
+
+func (s *MemStore) OpenDeployRecord(ctx context.Context, trunkSHA, changeKey, provenance string, expected []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.deployRecords[trunkSHA]; ok {
+		return nil // idempotent: never reset an existing record's reported digests
+	}
+	s.deployRecords[trunkSHA] = &memDeployRecord{
+		changeKey:  changeKey,
+		expected:   append([]string(nil), expected...),
+		provenance: provenance,
+		reported:   map[string]DeployImageRow{},
+		state:      "pending",
+	}
+	return nil
+}
+
+func (s *MemStore) RecordDeployImage(ctx context.Context, trunkSHA string, img DeployImageRow) (DeployRecord, bool, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.deployRecords[trunkSHA]
+	if !ok {
+		return DeployRecord{}, false, false, nil
+	}
+	r.reported[img.Image] = img
+	nowReady := false
+	if r.state != "ready" && deployComplete(r.expected, r.reported) {
+		r.state = "ready"
+		nowReady = true
+	}
+	return memDeployToDomain(trunkSHA, r), true, nowReady, nil
+}
+
+func (s *MemStore) GetDeployRecord(ctx context.Context, trunkSHA string) (DeployRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.deployRecords[trunkSHA]
+	if !ok {
+		return DeployRecord{}, false, nil
+	}
+	return memDeployToDomain(trunkSHA, r), true, nil
+}
+
+// deployComplete reports whether every expected image has a reported digest.
+func deployComplete(expected []string, reported map[string]DeployImageRow) bool {
+	for _, e := range expected {
+		if _, ok := reported[e]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func memDeployToDomain(trunkSHA string, r *memDeployRecord) DeployRecord {
+	imgs := make([]DeployImageRow, 0, len(r.reported))
+	for _, img := range r.reported {
+		imgs = append(imgs, img)
+	}
+	sort.Slice(imgs, func(i, j int) bool { return imgs[i].Image < imgs[j].Image })
+	return DeployRecord{
+		TrunkSHA:   trunkSHA,
+		ChangeKey:  r.changeKey,
+		Expected:   append([]string(nil), r.expected...),
+		Reported:   imgs,
+		State:      r.state,
+		Provenance: r.provenance,
+	}
 }
 
 func checkRunKey(changeKey, headSHA string) string { return changeKey + "|" + headSHA }

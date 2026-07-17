@@ -511,6 +511,27 @@ type CheckRun struct {
 	CopiedFromHeadSha *string            `json:"copied_from_head_sha"`
 }
 
+type DeployImage struct {
+	MonorepoID uuid.UUID          `json:"monorepo_id"`
+	TrunkSha   string             `json:"trunk_sha"`
+	Image      string             `json:"image"`
+	ImageRef   string             `json:"image_ref"`
+	Digest     string             `json:"digest"`
+	RunUrl     string             `json:"run_url"`
+	ReportedAt pgtype.Timestamptz `json:"reported_at"`
+}
+
+type DeployRecord struct {
+	MonorepoID uuid.UUID          `json:"monorepo_id"`
+	TrunkSha   string             `json:"trunk_sha"`
+	ChangeKey  string             `json:"change_key"`
+	Expected   []string           `json:"expected"`
+	State      string             `json:"state"`
+	Provenance string             `json:"provenance"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ReadyAt    pgtype.Timestamptz `json:"ready_at"`
+}
+
 type InferredDependency struct {
 	ProjectID          uuid.UUID          `json:"project_id"`
 	DependsOnProjectID uuid.UUID          `json:"depends_on_project_id"`

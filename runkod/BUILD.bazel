@@ -93,6 +93,7 @@ go_test(
         "comment_test.go",
         "createproject_test.go",
         "deleteproject_test.go",
+        "deploy_test.go",
         "describe_test.go",
         "descriptiongate_test.go",
         "diff_test.go",

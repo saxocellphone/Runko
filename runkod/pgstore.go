@@ -753,6 +753,78 @@ func (s *PostgresStore) GetLatestRelease(ctx context.Context, projectName string
 	return releaseFromRow(row), true, nil
 }
 
+func (s *PostgresStore) OpenDeployRecord(ctx context.Context, trunkSHA, changeKey, provenance string, expected []string) error {
+	return s.Queries.OpenDeployRecord(ctx, s.Pool, dbgen.OpenDeployRecordParams{
+		MonorepoID: s.MonorepoID, TrunkSha: trunkSHA, ChangeKey: changeKey,
+		Expected: expected, Provenance: provenance,
+	})
+}
+
+func (s *PostgresStore) RecordDeployImage(ctx context.Context, trunkSHA string, img DeployImageRow) (DeployRecord, bool, bool, error) {
+	// Unknown sha (no record opened at land) -> ok=false, not an error.
+	if _, err := s.Queries.GetDeployRecord(ctx, s.Pool, dbgen.GetDeployRecordParams{
+		MonorepoID: s.MonorepoID, TrunkSha: trunkSHA,
+	}); errors.Is(err, pgx.ErrNoRows) {
+		return DeployRecord{}, false, false, nil
+	} else if err != nil {
+		return DeployRecord{}, false, false, err
+	}
+	if err := s.Queries.UpsertDeployImage(ctx, s.Pool, dbgen.UpsertDeployImageParams{
+		MonorepoID: s.MonorepoID, TrunkSha: trunkSHA, Image: img.Image,
+		ImageRef: img.ImageRef, Digest: img.Digest, RunUrl: img.RunURL,
+	}); err != nil {
+		return DeployRecord{}, false, false, err
+	}
+	// A returned row IS the once-only pending->ready transition (the query
+	// flips only when the expected set is complete and state <> 'ready').
+	nowReady := false
+	if _, err := s.Queries.MarkDeployReadyIfComplete(ctx, s.Pool, dbgen.MarkDeployReadyIfCompleteParams{
+		MonorepoID: s.MonorepoID, TrunkSha: trunkSHA,
+	}); err == nil {
+		nowReady = true
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return DeployRecord{}, false, false, err
+	}
+	rec, ok, err := s.GetDeployRecord(ctx, trunkSHA)
+	if err != nil {
+		return DeployRecord{}, false, false, err
+	}
+	return rec, ok, nowReady, nil
+}
+
+func (s *PostgresStore) GetDeployRecord(ctx context.Context, trunkSHA string) (DeployRecord, bool, error) {
+	row, err := s.Queries.GetDeployRecord(ctx, s.Pool, dbgen.GetDeployRecordParams{
+		MonorepoID: s.MonorepoID, TrunkSha: trunkSHA,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DeployRecord{}, false, nil
+	}
+	if err != nil {
+		return DeployRecord{}, false, err
+	}
+	imgs, err := s.Queries.ListDeployImages(ctx, s.Pool, dbgen.ListDeployImagesParams{
+		MonorepoID: s.MonorepoID, TrunkSha: trunkSHA,
+	})
+	if err != nil {
+		return DeployRecord{}, false, err
+	}
+	return deployRecordFromRows(row, imgs), true, nil
+}
+
+func deployRecordFromRows(row *dbgen.DeployRecord, imgs []*dbgen.DeployImage) DeployRecord {
+	reported := make([]DeployImageRow, 0, len(imgs))
+	for _, di := range imgs {
+		reported = append(reported, DeployImageRow{
+			Image: di.Image, ImageRef: di.ImageRef, Digest: di.Digest, RunURL: di.RunUrl,
+		})
+	}
+	return DeployRecord{
+		TrunkSHA: row.TrunkSha, ChangeKey: row.ChangeKey,
+		Expected: row.Expected, Reported: reported,
+		State: row.State, Provenance: row.Provenance,
+	}
+}
+
 func (s *PostgresStore) UpsertCheckRun(ctx context.Context, changeKey, headSHA string, run checks.CheckRunView) error {
 	changeID, err := s.resolveChangeID(ctx, changeKey)
 	if err != nil {

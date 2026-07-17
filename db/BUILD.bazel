@@ -44,6 +44,8 @@ go_library(
         "migrations/0019_invite_requests.up.sql",
         "migrations/0020_check_run_provenance.down.sql",
         "migrations/0020_check_run_provenance.up.sql",
+        "migrations/0021_deploy_records.down.sql",
+        "migrations/0021_deploy_records.up.sql",
     ],
     importpath = "github.com/saxocellphone/runko/db",
     visibility = ["//visibility:public"],
