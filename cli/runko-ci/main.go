@@ -38,6 +38,8 @@ func main() {
 		err = cmdCheckout(os.Args[2:])
 	case "report-check":
 		err = cmdReportCheck(os.Args[2:])
+	case "report-image":
+		err = cmdReportImage(os.Args[2:])
 	case "-h", "--help", "help":
 		printUsage()
 		return
@@ -61,6 +63,7 @@ commands:
   checks         resolve affected projects' manifest-declared checks (name+command) for a generic CI executor (JSON always)
   checkout       partial-clone + sparse-checkout a rev for CI [--json]
   report-check   POST a CheckRun result to the platform's Checks API [--json]
+  report-image   POST a built image's digest to the platform's deploy API (post-land CD) [--json]
 
 exit codes: 0 success, 1 command failed, 2 usage error (docs/cli-contract.md)`)
 }
@@ -173,6 +176,42 @@ func cmdReportCheck(args []string) error {
 		})
 	}
 	fmt.Printf("reported %s (%s) for %s\n", *name, *status, *externalID)
+	return nil
+}
+
+func cmdReportImage(args []string) error {
+	fs := flag.NewFlagSet("report-image", flag.ExitOnError)
+	url := fs.String("url", "", "deploy API URL to POST to, e.g. $RUNKO_URL/api/deploys/$SHA/images")
+	token := fs.String("token", "", "bearer token")
+	image := fs.String("image", "", "logical image name (runkod|web|webadmin)")
+	imageRef := fs.String("image-ref", "", "full pushed reference sans digest, e.g. ghcr.io/saxocellphone/runko/runkod")
+	digest := fs.String("digest", "", "image digest, e.g. sha256:...")
+	runURL := fs.String("run-url", "", "deep link to the CI run that built the image")
+	reporter := fs.String("reporter", "", "reporter id, e.g. github-actions")
+	jsonOut := fs.Bool("json", false, "emit {image, digest} as JSON instead of a human summary")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *url == "" || *image == "" || *digest == "" {
+		return fmt.Errorf("report-image: --url, --image, and --digest are required")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	report := ImageReport{
+		Image: *image, ImageRef: *imageRef, Digest: *digest,
+		RunURL: *runURL, Reporter: *reporter,
+	}
+	if err := ReportImage(ctx, http.DefaultClient, *url, *token, report); err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{
+			"image": *image, "digest": *digest,
+		})
+	}
+	fmt.Printf("reported image %s -> %s\n", *image, *digest)
 	return nil
 }
 
