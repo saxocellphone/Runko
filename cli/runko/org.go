@@ -55,9 +55,27 @@ func AddOrgMember(ctx context.Context, client *http.Client, cred Credential, org
 		cred.AuthHeader(), body, nil)
 }
 
+// BootstrapOrg wires `runko org bootstrap` to POST /api/org/bootstrap
+// (runkod/bootstraporg.go): the one-command governance retrofit for an
+// ownerless org - a self-landable Change adding root OWNERS naming you
+// (plus the root manifest when none exists), or a directly seeded genesis
+// when trunk is unborn.
+type BootstrapOrgResult struct {
+	SeededGenesis bool   `json:"seeded_genesis"`
+	ChangeID      string `json:"change_id"`
+	Title         string `json:"title"`
+}
+
+func BootstrapOrg(ctx context.Context, client *http.Client, cred Credential) (BootstrapOrgResult, error) {
+	var out BootstrapOrgResult
+	err := apiJSON(ctx, client, http.MethodPost,
+		strings.TrimSuffix(cred.URL, "/")+"/api/org/bootstrap", cred.AuthHeader(), nil, &out)
+	return out, err
+}
+
 func cmdOrg(args []string) error {
 	if len(args) < 1 {
-		return usageError("usage: runko org create|list|add-member ... (see docs/cli-contract.md)")
+		return usageError("usage: runko org create|list|add-member|bootstrap ... (see docs/cli-contract.md)")
 	}
 	ctx := context.Background()
 	switch args[0] {
@@ -168,6 +186,36 @@ func cmdOrg(args []string) error {
 		}
 		fmt.Printf("added %s to %s as %s\n", *name, *org, *role)
 		return nil
+
+	case "bootstrap":
+		fs := flag.NewFlagSet("org bootstrap", flag.ExitOnError)
+		runkodURL := fs.String("runkod-url", "", "runkod base URL (point it at <host>/o/<org>)")
+		token := fs.String("token", "", "deploy token")
+		jsonOut := fs.Bool("json", false, "emit {seeded_genesis, change_id, title} as JSON")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		cred, err := resolveCredential(*runkodURL, *token)
+		if err != nil {
+			return err
+		}
+		out, err := BootstrapOrg(ctx, http.DefaultClient, cred)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(os.Stdout).Encode(out)
+		}
+		if out.SeededGenesis {
+			fmt.Println("trunk was unborn - genesis seeded directly: root manifest, OWNERS (you), AGENTS.md, agent skill, CONTRIBUTING.md")
+			fmt.Println("next:")
+			fmt.Println("  runko workspace create --name <workstream> --project repo   # a checkout to work in")
+			return nil
+		}
+		fmt.Printf("opened %s (%q)\n", out.ChangeID, out.Title)
+		fmt.Println("your push is your consent (uploader model), so it is landable by you right now:")
+		fmt.Printf("  runko change land --change %s\n", out.ChangeID)
+		return nil
 	}
-	return usageError("usage: runko org create|list|add-member ...")
+	return usageError("usage: runko org create|list|add-member|bootstrap ...")
 }
