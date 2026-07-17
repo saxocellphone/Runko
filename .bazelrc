@@ -3,3 +3,8 @@
 # green, but `go test` via `make check` remains the test truth. See
 # docs/migration-findings.md for the migration record.
 test --test_output=errors
+
+# Release binaries (the Dockerfile's prebuilt mode): pure = CGO off, so
+# every binary is static and runs on the alpine/musl runtime layer -
+# the bazel equivalent of the source mode's CGO_ENABLED=0.
+build:release --@rules_go//go/config:pure
