@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/platform/affected"
 	"github.com/saxocellphone/runko/platform/checks"
@@ -20,6 +22,7 @@ import (
 	"github.com/saxocellphone/runko/platform/core"
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/land"
+	"github.com/saxocellphone/runko/platform/project"
 	"github.com/saxocellphone/runko/platform/receive"
 )
 
@@ -384,7 +387,11 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		wholePush.MaxChangedFiles, wholePush.MaxDiffBytes = 0, 0
 		req.Principal = receive.Principal{IsAgent: true, Policy: wholePush}
 		req.DiffBytes = totalContentBytes(files)
-		req.ModifiesOwners = modifiesOwners(changedPaths)
+		modifies, creates, newOwners := p.classifyOwnershipTouch(diffBase, u.NewSHA, changedPaths, extraEnv)
+		req.ModifiesOwners = modifies
+		req.IsProjectCreate = creates
+		req.NewProjectOwners = newOwners
+		req.Author = author
 		if originWS != "" && author != "" && originWorkspace.Owner == author {
 			req.WorkspaceAffinity = originWorkspace.WriteAllowlist
 		}
@@ -650,21 +657,78 @@ func totalContentBytes(files []receive.FileContent) int64 {
 	return total
 }
 
-// modifiesOwners reports whether any changed path can alter ownership
-// resolution (§7.3's two sources: an OWNERS file or a PROJECT.yaml's
-// owners field - conservatively, ANY manifest edit counts, since parsing
-// the before/after owners here would duplicate the indexer).
-func modifiesOwners(changedPaths []string) bool {
+// classifyOwnershipTouch splits the old any-OWNERS/PROJECT.yaml boolean
+// into what a push does to ownership of EXISTING code versus a genuine
+// project creation - the distinction that makes CanCreateProjects (§8.7)
+// reachable at all: every scaffold carries a manifest, so the path-only
+// reading fired owners_modification_denied on every agent project create
+// (2026-07-16 dogfood review, finding 2).
+//
+//   - modifies: an ownership file that existed at base (edit or delete), a
+//     brand-new OWNERS file anywhere (§7.3's nearest-file rule re-resolves
+//     ownership of existing paths - OWNERS files stay a human surface; the
+//     agent-reachable form of "who owns this" is a new manifest's owners:
+//     field), or a new PROJECT.yaml whose directory already held content
+//     at base (a nested-project carve-out reassigns its subtree by longest
+//     prefix).
+//   - creates: a new PROJECT.yaml in a directory with NO content at base.
+//     The manifest's owners: refs are returned for the self-grant gate
+//     (EvaluatePolicy's owner_self_grant).
+func (p *Processor) classifyOwnershipTouch(baseSHA, newSHA string, changedPaths []string, extraEnv []string) (modifies, creates bool, newOwners []string) {
 	for _, path := range changedPaths {
-		base := path
+		name := path
+		dir := ""
 		if i := strings.LastIndexByte(path, '/'); i >= 0 {
-			base = path[i+1:]
+			name = path[i+1:]
+			dir = path[:i]
 		}
-		if base == "OWNERS" || base == "PROJECT.yaml" {
-			return true
+		if name != "OWNERS" && name != "PROJECT.yaml" {
+			continue
 		}
+		if p.blobExistsAt(baseSHA, path, extraEnv) || name == "OWNERS" ||
+			dir == "" || p.treeHasContentAt(baseSHA, dir, extraEnv) {
+			modifies = true
+			continue
+		}
+		creates = true
+		newOwners = append(newOwners, p.manifestOwnersAt(newSHA, path, extraEnv)...)
 	}
-	return false
+	return modifies, creates, newOwners
+}
+
+// blobExistsAt reports whether rev:path resolves to an object. A zero or
+// empty rev (unborn trunk, first push) holds nothing.
+func (p *Processor) blobExistsAt(rev, path string, extraEnv []string) bool {
+	if rev == "" || rev == zeroOID {
+		return false
+	}
+	_, err := p.runGit(extraEnv, "cat-file", "-e", rev+":"+path)
+	return err == nil
+}
+
+// treeHasContentAt reports whether rev holds ANY entry under dir.
+func (p *Processor) treeHasContentAt(rev, dir string, extraEnv []string) bool {
+	if rev == "" || rev == zeroOID {
+		return false
+	}
+	out, err := p.runGit(extraEnv, "ls-tree", "--name-only", rev, dir+"/")
+	return err == nil && strings.TrimSpace(out) != ""
+}
+
+// manifestOwnersAt parses the owners: refs of the manifest at rev:path.
+// Unreadable or unparsable manifests contribute none here - the indexer
+// (index.Scan, run one step later for contract checks) is the surface
+// that fails a push over a broken manifest, not this gate.
+func (p *Processor) manifestOwnersAt(rev, path string, extraEnv []string) []string {
+	out, err := p.runGit(extraEnv, "cat-file", "-p", rev+":"+path)
+	if err != nil {
+		return nil
+	}
+	var manifest project.Manifest
+	if err := yaml.Unmarshal([]byte(out), &manifest); err != nil {
+		return nil
+	}
+	return manifest.Owners
 }
 
 // evaluateSnapshot polices a workspace snapshot push (§12.2's "policy and
@@ -705,19 +769,22 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 		}}
 	}
 
-	// A FIRST push to a fresh snapshot ref arrives with old == zero; the
-	// snapshot's real delta is against trunk, not the empty tree. Without
-	// this, policy/caps judge the pusher as having authored the ENTIRE
-	// repository - an agent's first snapshot violated affinity on any
-	// file outside its cone, making agent workspaces unusable (found
-	// live, first real agent-token workspace run; the stage-11b BaseSHA
-	// bug's sibling). An unborn trunk keeps the empty-tree base - there
-	// is genuinely nothing else the content could be a delta over.
+	// A snapshot's policy delta is ALWAYS against trunk (merge-base),
+	// never the ref's previous value - the same rule magic-ref pushes
+	// follow (finding #37). The zero-old first push was the original case
+	// (policy judged the pusher as authoring the ENTIRE repository; found
+	// live, first real agent-token workspace run). The non-zero old is
+	// the same bug one sync later: after `workspace sync` rebases onto an
+	// advanced trunk, old..new contains trunk-side commits this pusher
+	// never authored - a denylisted or OWNERS-touching path landed by
+	// SOMEONE ELSE false-positived every subsequent snapshot (found live,
+	// 2026-07-16: trunk changed a denylisted path after the workspace
+	// base and the workspace's snapshots started refusing "modifying
+	// owners"). An unborn trunk (no merge-base) keeps the raw base, which
+	// diff() maps to the empty tree.
 	oldSHA := u.OldSHA
-	if oldSHA == zeroOID {
-		if mb, err := p.runGit(extraEnv, "merge-base", u.NewSHA, "refs/heads/"+p.TrunkRef); err == nil && strings.TrimSpace(mb) != "" {
-			oldSHA = strings.TrimSpace(mb)
-		}
+	if mb, err := p.runGit(extraEnv, "merge-base", u.NewSHA, "refs/heads/"+p.TrunkRef); err == nil && strings.TrimSpace(mb) != "" {
+		oldSHA = strings.TrimSpace(mb)
 	}
 	changedPaths, files, err := p.diff(oldSHA, u.NewSHA, extraEnv)
 	if err != nil {
@@ -729,11 +796,15 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 		// A snapshot push is exactly the workspace-affine write §8.7's
 		// policy wants agents making - so it carries the workspace's own
 		// write allowlist as affinity, and the denylist/caps still apply.
+		modifies, creates, newOwners := p.classifyOwnershipTouch(oldSHA, u.NewSHA, changedPaths, extraEnv)
 		violations := receive.EvaluatePolicy(pr.Policy, receive.PushSummary{
 			ChangedFiles:      changedPaths,
 			DiffBytes:         totalContentBytes(files),
 			WorkspaceAffinity: ws.WriteAllowlist,
-			ModifiesOwners:    modifiesOwners(changedPaths),
+			ModifiesOwners:    modifies,
+			IsProjectCreate:   creates,
+			NewProjectOwners:  newOwners,
+			Author:            author,
 		})
 		if len(violations) > 0 {
 			return verdict{update: u, isSnapshot: true, author: author,

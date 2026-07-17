@@ -114,6 +114,17 @@ func TestEvaluatePolicyTable(t *testing.T) {
 			want: "project_create_denied",
 		},
 		{
+			name:   "owner self grant denied",
+			policy: AgentPolicy{CanCreateProjects: true},
+			summary: PushSummary{
+				ChangedFiles:     []string{"newproj/PROJECT.yaml"},
+				IsProjectCreate:  true,
+				Author:           "agent-task-1",
+				NewProjectOwners: []string{"agent-task-1"},
+			},
+			want: "owner_self_grant",
+		},
+		{
 			name:   "land denied by default",
 			policy: AgentPolicy{CanLandChanges: false},
 			summary: PushSummary{
@@ -154,5 +165,21 @@ func TestEvaluatePolicyLandAllowedWhenPolicyPermits(t *testing.T) {
 	v := EvaluatePolicy(policy, PushSummary{IsLandRequest: true})
 	if len(v) != 0 {
 		t.Fatalf("expected no violations when CanLandChanges=true, got %+v", v)
+	}
+}
+
+// TestEvaluatePolicyProjectCreateNamingOthersPasses is finding 2 of the
+// 2026-07-16 dogfood review, at the policy layer: a create that names the
+// minting human (not the agent) violates nothing under the default policy.
+func TestEvaluatePolicyProjectCreateNamingOthersPasses(t *testing.T) {
+	v := EvaluatePolicy(DefaultAgentPolicy(), PushSummary{
+		ChangedFiles:      []string{"services/newproj/PROJECT.yaml", "services/newproj/main.go"},
+		WorkspaceAffinity: []string{"services"},
+		IsProjectCreate:   true,
+		Author:            "agent-task-1",
+		NewProjectOwners:  []string{"alice"},
+	})
+	if len(v) != 0 {
+		t.Fatalf("expected no violations for a create naming the minting human, got %+v", v)
 	}
 }
