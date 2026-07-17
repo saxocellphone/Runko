@@ -15,7 +15,6 @@ import { ChangePage } from "./pages/ChangePage";
 import { ChangesPage } from "./pages/ChangesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NewProjectPage } from "./pages/NewProjectPage";
-import { AdminPage } from "./pages/AdminPage";
 import { OrgSettingsPage } from "./pages/OrgSettingsPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
@@ -117,7 +116,9 @@ function AppRoutes() {
         <Route path="/workspaces/:workspaceId" element={<WorkspacePage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/settings" element={<OrgSettingsPage />} />
-        <Route path="/admin" element={<AdminPage />} />
+        {/* The deployment admin panel is NOT a route here anymore: it is
+            its own app (webadmin/) at the root /admin mount, with its own
+            operator sign-in - deliberately outside this app's session. */}
         <Route path="*" element={<Navigate to="/changes" replace />} />
       </Route>
     </Routes>
