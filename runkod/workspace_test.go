@@ -201,3 +201,53 @@ func TestSparsePatternsEndpoint(t *testing.T) {
 		t.Fatalf("expected 400 for unknown project, got %d", resp.StatusCode)
 	}
 }
+
+// TestWorkspaceCreateWithNewPaths is the greenfield bootstrap (2026-07-16
+// dogfood review, finding 3): a workspace can carry affinity for a project
+// that does NOT exist at trunk yet, so the change that creates it has a
+// workspace to be born in. New paths join the write allowlist (= the cone)
+// alongside resolved project paths; a project-less workspace with only a
+// new path is legal; junk paths and already-indexed paths are refused
+// with structured errors.
+func TestWorkspaceCreateWithNewPaths(t *testing.T) {
+	srv, _, _ := newWorkspaceTestServer(t)
+	defer srv.Close()
+
+	resp := apiDo(t, srv, http.MethodPost, "/api/workspaces",
+		`{"name": "greenfield", "owner": "alice", "projects": ["checkout-api"], "new_paths": ["services/newproj/"]}`)
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 201, got %d: %s", resp.StatusCode, body)
+	}
+	var created workspaceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// Sorted union of the resolved project path and the (slash-trimmed)
+	// new path - what affinity enforcement and the sparse cone both read.
+	if len(created.SparsePatterns) != 2 || created.SparsePatterns[0] != "commerce/checkout" || created.SparsePatterns[1] != "services/newproj" {
+		t.Fatalf("unexpected sparse patterns: %v", created.SparsePatterns)
+	}
+
+	// A workspace for ONLY the not-yet-born project is the whole point.
+	resp = apiDo(t, srv, http.MethodPost, "/api/workspaces",
+		`{"name": "greenfield-only", "owner": "alice", "new_paths": ["services/other"]}`)
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("project-less create with a new path: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+
+	for body, wantCode := range map[string]string{
+		`{"name": "bad-dotdot", "owner": "alice", "new_paths": ["../escape"]}`:         "invalid_new_path",
+		`{"name": "bad-root", "owner": "alice", "new_paths": ["."]}`:                   "invalid_new_path",
+		`{"name": "bad-exists", "owner": "alice", "new_paths": ["commerce/checkout"]}`: "project_exists_at_path",
+	} {
+		resp := apiDo(t, srv, http.MethodPost, "/api/workspaces", body)
+		var ce struct {
+			Code string `json:"code"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&ce); err != nil || ce.Code != wantCode {
+			t.Fatalf("body %s: code = %q (status %d, err %v), want %s", body, ce.Code, resp.StatusCode, err, wantCode)
+		}
+	}
+}

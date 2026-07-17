@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -102,6 +103,13 @@ type createWorkspaceRequest struct {
 	Name     string   `json:"name"`
 	Owner    string   `json:"owner"`
 	Projects []string `json:"projects"`
+	// NewPaths are path roots for projects that do NOT exist at trunk yet
+	// - the greenfield bootstrap (2026-07-16 dogfood review, finding 3):
+	// a workspace could only name indexed projects, but the push that
+	// puts a new project ON trunk needs a workspace whose affinity covers
+	// its path first. Each entry joins the write allowlist (and so the
+	// sparse cone) exactly like a resolved project path.
+	NewPaths []string `json:"new_paths"`
 }
 
 // workspaceResponse enriches a registry row with what a client needs to
@@ -154,9 +162,64 @@ func (s *Server) resolveProjectPaths(rev core.Revision, names []string) (paths [
 	return paths, unknown, nil
 }
 
+// validateNewPaths admits a workspace's declared not-yet-on-trunk project
+// roots (§12.2 affinity is path roots either way; the greenfield bootstrap,
+// 2026-07-16 dogfood review finding 3): each must be a clean relative
+// directory path, and must not be a project that ALREADY exists at trunk -
+// that one is spelled --project, so its cone and affinity stay derived
+// from the index rather than frozen at whatever the caller typed.
+func (s *Server) validateNewPaths(base core.Revision, newPaths []string) ([]string, *apiError) {
+	if len(newPaths) == 0 {
+		return nil, nil
+	}
+	store := gitstore.New(s.RepoDir)
+	indexed, err := s.indexedProjectsAt(store, base)
+	if err != nil {
+		return nil, &apiError{Status: http.StatusInternalServerError, Err: clierr.Error{Message: err.Error()}}
+	}
+	byPath := make(map[string]string, len(indexed))
+	for _, p := range indexed {
+		byPath[p.Path] = p.Name
+	}
+	var roots []string
+	for _, raw := range newPaths {
+		p := strings.TrimSuffix(raw, "/")
+		if p == "" || p == "." || p != path.Clean(p) || path.IsAbs(p) || p == ".." || strings.HasPrefix(p, "../") {
+			return nil, typedErr(http.StatusBadRequest, clierr.Error{
+				Code: "invalid_new_path", Field: "new_paths",
+				Message:    fmt.Sprintf("%q is not a clean repo-relative directory path", raw),
+				Suggestion: "use a path like services/checkout - relative, no leading /, no ..; the repo root is --project repo, never --new-path",
+			})
+		}
+		if name, exists := byPath[p]; exists {
+			return nil, typedErr(http.StatusConflict, clierr.Error{
+				Code: "project_exists_at_path", Field: "new_paths",
+				Message:    fmt.Sprintf("%s is already project %q at trunk", p, name),
+				Suggestion: fmt.Sprintf("use --project %s instead of --new-path", name),
+			})
+		}
+		roots = append(roots, p)
+	}
+	return roots, nil
+}
+
+// mergePathRoots unions two sorted-ish path-root lists, deduped and sorted.
+func mergePathRoots(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	var out []string
+	for _, p := range append(append([]string{}, a...), b...) {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // createWorkspaceCore is POST /api/workspaces' decision core, shared with
 // the Connect CreateWorkspace RPC (rpc.go) - see actions.go on the pattern.
-func (s *Server) createWorkspaceCore(ctx context.Context, name, owner string, projects []string) (Workspace, *apiError) {
+func (s *Server) createWorkspaceCore(ctx context.Context, name, owner string, projects, newPaths []string) (Workspace, *apiError) {
 	if !workspaceIDPattern.MatchString(name) {
 		return Workspace{}, typedErr(http.StatusBadRequest, clierr.Error{
 			Code: "invalid_workspace_name", Field: "name",
@@ -164,10 +227,10 @@ func (s *Server) createWorkspaceCore(ctx context.Context, name, owner string, pr
 			Suggestion: "use letters, digits, dots, dashes, underscores; start with a letter or digit",
 		})
 	}
-	if owner == "" || len(projects) == 0 {
+	if owner == "" || len(projects)+len(newPaths) == 0 {
 		return Workspace{}, typedErr(http.StatusBadRequest, clierr.Error{
 			Code: "missing_field", Field: "projects",
-			Message:    "owner and at least one project are required",
+			Message:    "owner and at least one --project (or --new-path) are required",
 			Suggestion: "runko workspace create --name <n> --by <you> --project <p> --runkod-url <url> --token <t>",
 		})
 	}
@@ -190,9 +253,14 @@ func (s *Server) createWorkspaceCore(ctx context.Context, name, owner string, pr
 		return Workspace{}, typedErr(http.StatusBadRequest, clierr.Error{
 			Code: "unknown_project", Field: "projects",
 			Message:    fmt.Sprintf("no such project(s): %s", strings.Join(unknown, ", ")),
-			Suggestion: "runko project list --runkod-url <url> --token <t>  # see the names indexed at trunk",
+			Suggestion: "runko project list  # see the names indexed at trunk; a project not on trunk yet is --new-path <dir>",
 		})
 	}
+	newRoots, apiErr := s.validateNewPaths(base, newPaths)
+	if apiErr != nil {
+		return Workspace{}, apiErr
+	}
+	paths = mergePathRoots(paths, newRoots)
 
 	ws := Workspace{
 		ID: name, Owner: owner,
@@ -221,7 +289,7 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	created, apiErr := s.createWorkspaceCore(r.Context(), req.Name, req.Owner, req.Projects)
+	created, apiErr := s.createWorkspaceCore(r.Context(), req.Name, req.Owner, req.Projects, req.NewPaths)
 	if apiErr != nil {
 		writeAPIError(w, apiErr)
 		return

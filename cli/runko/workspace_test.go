@@ -125,7 +125,7 @@ func TestWorkspaceCreateSnapshotAttachRoundTrip(t *testing.T) {
 	wsDir := filepath.Join(root, "payments-fix")
 
 	info, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir})
+		"payments-fix", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
@@ -193,11 +193,11 @@ func TestWorkspaceTwoWorktreesOneObjectStore(t *testing.T) {
 	ctx := context.Background()
 
 	if _, _, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "payments-fix")}); err != nil {
+		"payments-fix", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "payments-fix")}); err != nil {
 		t.Fatalf("create ws1: %v", err)
 	}
 	if _, _, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"risk-refactor", "alice", []string{"money-lib"}, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "risk-refactor")}); err != nil {
+		"risk-refactor", "alice", []string{"money-lib"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "risk-refactor")}); err != nil {
 		t.Fatalf("create ws2: %v", err)
 	}
 
@@ -229,7 +229,7 @@ func TestWorkspaceUpdateBase(t *testing.T) {
 	ctx := context.Background()
 
 	info, _, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"w1", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir})
+		"w1", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestWorkspaceAttachDocumentedArgumentOrderWorks(t *testing.T) {
 	wsDir := filepath.Join(root, "payments-fix")
 
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
+		"payments-fix", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 	if err := os.RemoveAll(wsDir); err != nil {
@@ -360,7 +360,7 @@ func TestWorkspaceListColumnsAreAligned(t *testing.T) {
 	srv, _ := startWorkspaceServer(t)
 	root := t.TempDir()
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"money-fix", "alice", []string{"money-lib"}, MaterializeOptions{CloneDir: filepath.Join(root, "mono"), Dir: filepath.Join(root, "money-fix")}); err != nil {
+		"money-fix", "alice", []string{"money-lib"}, nil, MaterializeOptions{CloneDir: filepath.Join(root, "mono"), Dir: filepath.Join(root, "money-fix")}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 
@@ -405,7 +405,7 @@ func TestWorkspaceBranchParallelWork(t *testing.T) {
 	wsDir := filepath.Join(root, "payments-fix")
 
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-fix", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
+		"payments-fix", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 
@@ -487,7 +487,7 @@ func TestWorkspaceCreateRelativeDirLandsInCallerCwd(t *testing.T) {
 	t.Chdir(root)
 
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"rel-dir", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: "mono", Dir: "rel-dir"}); err != nil {
+		"rel-dir", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: "mono", Dir: "rel-dir"}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "rel-dir", "commerce/checkout/main.go")); err != nil {
@@ -513,7 +513,7 @@ func TestWorkspaceMaterializationInstallsVerbNudge(t *testing.T) {
 	wsDir := filepath.Join(root, "nudge-ws")
 
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"nudge-ws", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
+		"nudge-ws", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 	if !hookContains(filepath.Join(cloneDir, ".git", "hooks", "pre-commit"), verbNudgeMarker) {
@@ -543,7 +543,7 @@ func TestWorkspaceCreateJJColocated(t *testing.T) {
 	wsDir := filepath.Join(root, "payments-jj")
 
 	info, dir, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"payments-jj", "alice", []string{"checkout-api"}, MaterializeOptions{Dir: wsDir, JJ: true})
+		"payments-jj", "alice", []string{"checkout-api"}, nil, MaterializeOptions{Dir: wsDir, JJ: true})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate --jj: %v", err)
 	}
@@ -619,7 +619,7 @@ func TestWorkspaceAttachJJColocated(t *testing.T) {
 	wtDir := filepath.Join(root, "wt")
 
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"jj-restore", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wtDir}); err != nil {
+		"jj-restore", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: wtDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 	writeFile(t, wtDir, "commerce/checkout/wip.go", "package main // durable\n")
