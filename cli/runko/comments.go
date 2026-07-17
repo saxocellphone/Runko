@@ -94,12 +94,18 @@ func GetChangeInfo(ctx context.Context, client *http.Client, runkodURL, token, c
 }
 
 // resolveChangeFlag returns --change or falls back to HEAD's Change-Id
-// trailer, the `change requirements` convention.
-func resolveChangeFlag(changeID, dir string) (string, error) {
+// trailer, the `change requirements` convention. The HEAD lookup honors
+// -w/--workspace (resolveWorkspaceDir) so the fallback works from
+// anywhere, not just inside the worktree.
+func resolveChangeFlag(changeID, workspace, dir string) (string, error) {
 	if changeID != "" {
 		return changeID, nil
 	}
-	return headChangeID(dir)
+	wd, err := resolveWorkspaceDir(workspace, dir)
+	if err != nil {
+		return "", err
+	}
+	return headChangeID(wd)
 }
 
 func cmdChangeComment(args []string) error {
@@ -108,6 +114,7 @@ func cmdChangeComment(args []string) error {
 	token := fs.String("token", "", "deploy token")
 	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
 	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
+	ws := addWorkspaceFlag(fs)
 	msg := fs.String("m", "", "comment body (required)")
 	file := fs.String("file", "", "file-level or line-level anchor path")
 	line := fs.Int("line", 0, "line anchor (needs --file)")
@@ -120,7 +127,7 @@ func cmdChangeComment(args []string) error {
 	if *msg == "" {
 		return fmt.Errorf("change comment: -m is required")
 	}
-	id, err := resolveChangeFlag(*changeID, *dir)
+	id, err := resolveChangeFlag(*changeID, *ws, *dir)
 	if err != nil {
 		return err
 	}
@@ -158,11 +165,12 @@ func cmdChangeComments(args []string) error {
 	token := fs.String("token", "", "deploy token")
 	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
 	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
+	ws := addWorkspaceFlag(fs)
 	jsonOut := fs.Bool("json", false, "emit {comments, next_page_token} as JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	id, err := resolveChangeFlag(*changeID, *dir)
+	id, err := resolveChangeFlag(*changeID, *ws, *dir)
 	if err != nil {
 		return err
 	}
@@ -239,6 +247,7 @@ func cmdChangeResolve(args []string) error {
 	token := fs.String("token", "", "deploy token")
 	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
 	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
+	ws := addWorkspaceFlag(fs)
 	undo := fs.Bool("undo", false, "reopen the thread instead of resolving it")
 	jsonOut := fs.Bool("json", false, "emit the updated comment as JSON")
 	// Positional comment id, flags after: `runko change resolve <id> [--undo]`.
@@ -253,7 +262,7 @@ func cmdChangeResolve(args []string) error {
 	if commentID == "" {
 		return usageError("usage: runko change resolve <comment-id> [--undo] [--change <Id>]")
 	}
-	id, err := resolveChangeFlag(*changeID, *dir)
+	id, err := resolveChangeFlag(*changeID, *ws, *dir)
 	if err != nil {
 		return err
 	}
@@ -282,6 +291,7 @@ func cmdChangeRequestReview(args []string) error {
 	token := fs.String("token", "", "deploy token")
 	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
 	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
+	ws := addWorkspaceFlag(fs)
 	jsonOut := fs.Bool("json", false, "emit {reviewer} as JSON")
 	var reviewer string
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -294,7 +304,7 @@ func cmdChangeRequestReview(args []string) error {
 	if reviewer == "" {
 		return usageError("usage: runko change request-review <principal|group:name> [--change <Id>]")
 	}
-	id, err := resolveChangeFlag(*changeID, *dir)
+	id, err := resolveChangeFlag(*changeID, *ws, *dir)
 	if err != nil {
 		return err
 	}

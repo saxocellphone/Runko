@@ -107,7 +107,7 @@ func printUsage() {
 commands (operate on the local repo only):
   doctor                          check remotes/hooks, print a cheat-sheet (§6.9) [--json]
   project create --name <n> ...   create a project from an intent, on top of HEAD (§10.1) [--json]
-  change push                     push HEAD to refs/for/<trunk> for review (§11.5) [--json]
+  change push [-w <ws[@branch]>]  push HEAD to refs/for/<trunk> for review (§11.5) [--json]
   agents-md                       (re)generate AGENTS.md + the agent skill (.claude/skills/runko/) teaching this CLI to agents (§8.8) [--json]
   self-update [--check]           replace this binary with the rolling cli-latest GitHub release build, checksum-verified (§17.1) [--json]
   version                         which binary is this: vcs revision + build time + toolchain, from the Go build stamp [--json]
@@ -131,8 +131,11 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   agent revoke <name> --runkod-url <url> --token <t>         kill an agent credential immediately [--json]
   agent event --kind <k> --detail <text> [--from-hook] [--session <id>]   report what the agent is doing to the workspace's live feed (§12.6.1) [--json]
   agent hooks [--install [--dir .]] [--json]                  print the harness hooks snippet; --install merges it into the worktree's .claude/settings.local.json
-  workspace snapshot [--dir .] [-m <msg>]                    WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir .]                           fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
-  workspace sync --runkod-url <url> --token <t> [--dir .]    sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
+  workspace snapshot [--dir . | -w <ws>] [-m <msg>]          WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir . | -w <ws>]                 fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
+  workspace sync [--dir . | -w <ws>]                          sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
+
+  -w/--workspace <name[@branch]> on checkout verbs (create/push/land/requirements/describe/comment*/snapshot/watch/branch/sync):
+  run against that workspace's registered materialization from ANYWHERE - no cd into the worktree (§12.7; workspace list shows what's local)
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)
 
   auth signup --runkod-url <host> --name <you> --org <org> --create|--join   first contact: register, create/join the org, store the credential
@@ -146,8 +149,8 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   github status                                                the org's mirror state: target, cursors, freezes [--json]
   release create --project <p> [--version x.y.z]              cut an immutable release: server-minted tag + changelog from landed changes (§14.10.3) [--json]
   release list --project <p>                                  the project's releases, newest first [--json]
-  change create -m <msg> [--dir .]                            commit WIP as one Change (with its Change-Id) [--json]
-  change requirements [--change <Id>] [--dir .]               the §13.5 gates for a Change (default: HEAD's) [--json]
+  change create -m <msg> [--dir . | -w <ws[@branch]>]         commit WIP as one Change (with its Change-Id) [--json]
+  change requirements [--change <Id>] [--dir . | -w <ws>]     the §13.5 gates for a Change (default: HEAD's) [--json]
   change comment --change <id> -m <text> [--file <p> --line <n> --side head|base] [--reply-to <id>]   anchored review comment (§13.4.1) [--json]
   change comments [--change <Id>]                             list review threads - resolved/outdated marked (§13.4.1) [--json]
   change resolve <comment-id> [--undo] [--change <Id>]        resolve/reopen a review thread (§13.4.1) [--json]
@@ -339,6 +342,16 @@ func cmdProjectList(args []string) error {
 	return tw.Flush()
 }
 
+// addWorkspaceFlag registers -w/--workspace on a verb that operates on a
+// local checkout: the workspace's registered materialization becomes the
+// working directory (resolveWorkspaceDir, materializations.go), so the
+// verb runs from anywhere - no cd into the worktree.
+func addWorkspaceFlag(fs *flag.FlagSet) *string {
+	w := fs.String("workspace", "", "workspace name[@branch] - run against its local materialization instead of the current directory (§12.7)")
+	fs.StringVar(w, "w", "", "shorthand for --workspace")
+	return w
+}
+
 func cmdChange(args []string) error {
 	valid := map[string]bool{"create": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "describe": true, "automerge": true, "rerun-check": true, "comment": true, "comments": true, "resolve": true, "request-review": true}
 	if len(args) < 1 || !valid[args[0]] {
@@ -375,6 +388,7 @@ func cmdChange(args []string) error {
 
 	fs := flag.NewFlagSet("change push", flag.ExitOnError)
 	repoDir := fs.String("repo", ".", "path to the local repo")
+	ws := addWorkspaceFlag(fs)
 	remote := fs.String("remote", "origin", "git remote to push to")
 	trunk := fs.String("trunk", "main", "trunk ref name")
 	noSync := fs.Bool("no-sync", false, "push as-is even when the base is stale (skip the automatic rebase onto the trunk tip)")
@@ -383,8 +397,12 @@ func cmdChange(args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
+	wd, err := resolveWorkspaceDir(*ws, *repoDir)
+	if err != nil {
+		return err
+	}
 
-	changeID, err := pushChange(*repoDir, *remote, *trunk, !*noSync, !*noSnapshot)
+	changeID, err := pushChange(wd, *remote, *trunk, !*noSync, !*noSnapshot)
 	if err != nil {
 		return err
 	}
@@ -404,11 +422,16 @@ func cmdChangeCreate(args []string) error {
 	fs := flag.NewFlagSet("change create", flag.ExitOnError)
 	msg := fs.String("m", "", "change message (required)")
 	dir := fs.String("dir", ".", "repository directory")
+	ws := addWorkspaceFlag(fs)
 	jsonOut := fs.Bool("json", false, "emit {change_id} as JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	id, err := CreateChange(*dir, *msg)
+	wd, err := resolveWorkspaceDir(*ws, *dir)
+	if err != nil {
+		return err
+	}
+	id, err := CreateChange(wd, *msg)
 	if err != nil {
 		return err
 	}
@@ -425,14 +448,18 @@ func cmdChangeRequirements(args []string) error {
 	token := fs.String("token", "", "deploy token")
 	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
 	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
+	ws := addWorkspaceFlag(fs)
 	jsonOut := fs.Bool("json", false, "emit the merge requirements as JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	wd, err := resolveWorkspaceDir(*ws, *dir)
+	if err != nil {
+		return err
+	}
 	id := *changeID
 	if id == "" {
-		var err error
-		if id, err = headChangeID(*dir); err != nil {
+		if id, err = headChangeID(wd); err != nil {
 			return err
 		}
 	}
@@ -558,6 +585,7 @@ func cmdChangeLand(args []string) error {
 	changeID := fs.String("change", "", "Change-Id to land")
 	force := fs.Bool("force", false, "admin override (docs/design.md 13.5): bypass owner/check gates and revalidation; audited as landed_forced")
 	repoDir := fs.String("repo", ".", "local checkout used by --sync to rebase and re-push on requires_revalidation")
+	ws := addWorkspaceFlag(fs)
 	remote := fs.String("remote", "origin", "git remote --sync pushes to")
 	trunk := fs.String("trunk", "main", "trunk ref name")
 	sync := fs.Bool("sync", true, "on requires_revalidation, run the 13.5 recovery loop here: sync onto trunk, re-push, wait for checks, retry")
@@ -569,6 +597,10 @@ func cmdChangeLand(args []string) error {
 	if *changeID == "" {
 		return fmt.Errorf("change land: --change is required")
 	}
+	wd, err := resolveWorkspaceDir(*ws, *repoDir)
+	if err != nil {
+		return err
+	}
 	cred, err := resolveCredential(*runkodURL, *token)
 	if err != nil {
 		return err
@@ -576,8 +608,8 @@ func cmdChangeLand(args []string) error {
 	// The recovery loop needs a checkout to rebase; without one (or with
 	// --force, which bypasses revalidation anyway) land is a single shot.
 	var outcome land.Outcome
-	if _, gitErr := runGit(*repoDir, "rev-parse", "--git-dir"); *sync && !*force && gitErr == nil {
-		outcome, err = LandWithSync(context.Background(), http.DefaultClient, cred, *changeID, *repoDir, *remote, *trunk, *syncTimeout, os.Stderr)
+	if _, gitErr := runGit(wd, "rev-parse", "--git-dir"); *sync && !*force && gitErr == nil {
+		outcome, err = LandWithSync(context.Background(), http.DefaultClient, cred, *changeID, wd, *remote, *trunk, *syncTimeout, os.Stderr)
 	} else {
 		outcome, err = LandChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *changeID, *force)
 	}
@@ -710,6 +742,7 @@ func cmdChangeDescribe(args []string) error {
 	token := fs.String("token", "", "deploy token")
 	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
 	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
+	ws := addWorkspaceFlag(fs)
 	description := fs.String("description", "", "what the change does and why (§8.6)")
 	testPlan := fs.String("test-plan", "", "how the change was verified (§8.6)")
 	jsonOut := fs.Bool("json", false, "emit the updated change as JSON")
@@ -731,10 +764,13 @@ func cmdChangeDescribe(args []string) error {
 	if descPtr == nil && planPtr == nil {
 		return fmt.Errorf("change describe: provide --description and/or --test-plan")
 	}
+	wd, err := resolveWorkspaceDir(*ws, *dir)
+	if err != nil {
+		return err
+	}
 	id := *changeID
 	if id == "" {
-		var err error
-		if id, err = headChangeID(*dir); err != nil {
+		if id, err = headChangeID(wd); err != nil {
 			return err
 		}
 	}
@@ -1090,12 +1126,17 @@ func cmdWorkspace(args []string) error {
 	case "snapshot":
 		fs := flag.NewFlagSet("workspace snapshot", flag.ExitOnError)
 		dir := fs.String("dir", ".", "workspace worktree directory")
+		ws := addWorkspaceFlag(fs)
 		msg := fs.String("m", "", "snapshot message")
 		jsonOut := fs.Bool("json", false, "emit {ref} as JSON")
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		ref, err := WorkspaceSnapshot(*dir, *msg)
+		wd, err := resolveWorkspaceDir(*ws, *dir)
+		if err != nil {
+			return err
+		}
+		ref, err := WorkspaceSnapshot(wd, *msg)
 		if err != nil {
 			return err
 		}
@@ -1108,17 +1149,23 @@ func cmdWorkspace(args []string) error {
 	case "watch":
 		fs := flag.NewFlagSet("workspace watch", flag.ExitOnError)
 		dir := fs.String("dir", ".", "workspace worktree directory")
+		ws := addWorkspaceFlag(fs)
 		interval := fs.Duration("interval", 15*time.Second, "check-and-push cadence while dirty")
 		once := fs.Bool("once", false, "one check-and-push tick, then exit (tests, CI)")
 		jsonOut := fs.Bool("json", false, "NDJSON: one {ref, sha} line per pushed snapshot")
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		return WorkspaceWatch(WatchOptions{Dir: *dir, Interval: *interval, Once: *once, JSON: *jsonOut})
+		wd, err := resolveWorkspaceDir(*ws, *dir)
+		if err != nil {
+			return err
+		}
+		return WorkspaceWatch(WatchOptions{Dir: wd, Interval: *interval, Once: *once, JSON: *jsonOut})
 
 	case "branch":
 		fs := flag.NewFlagSet("workspace branch", flag.ExitOnError)
 		dir := fs.String("dir", ".", "workspace worktree directory")
+		ws := addWorkspaceFlag(fs)
 		jsonOut := fs.Bool("json", false, "emit {ref} as JSON")
 		// id-first parsing, same trap and same fix as attach above.
 		var name string
@@ -1132,9 +1179,13 @@ func cmdWorkspace(args []string) error {
 			name = fs.Arg(0)
 		}
 		if name == "" {
-			return usageError("usage: runko workspace branch <name> [--dir .]")
+			return usageError("usage: runko workspace branch <name> [--dir . | -w <ws>]")
 		}
-		ref, err := WorkspaceBranch(*dir, name)
+		wd, err := resolveWorkspaceDir(*ws, *dir)
+		if err != nil {
+			return err
+		}
+		ref, err := WorkspaceBranch(wd, name)
 		if err != nil {
 			return err
 		}
@@ -1149,15 +1200,20 @@ func cmdWorkspace(args []string) error {
 		runkodURL := fs.String("runkod-url", "", "runkod base URL")
 		token := fs.String("token", "", "deploy token")
 		dir := fs.String("dir", ".", "workspace worktree directory")
+		ws := addWorkspaceFlag(fs)
 		jsonOut := fs.Bool("json", false, "emit {base_revision} as JSON")
 		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		wd, err := resolveWorkspaceDir(*ws, *dir)
+		if err != nil {
 			return err
 		}
 		cred, err := resolveCredential(*runkodURL, *token)
 		if err != nil {
 			return err
 		}
-		newBase, err := WorkspaceUpdateBase(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), *dir)
+		newBase, err := WorkspaceUpdateBase(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), wd)
 		if err != nil {
 			return err
 		}

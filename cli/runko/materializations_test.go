@@ -110,3 +110,55 @@ func TestWorkspacePathLookup(t *testing.T) {
 		t.Fatalf("expected not_materialized, got %T: %v", err, err)
 	}
 }
+
+// TestResolveWorkspaceDirRunsVerbsFromAnywhere pins the §12.7 transparency
+// contract: -w/--workspace resolves a workspace's registered
+// materialization, so checkout verbs run from ANY cwd - the repo root
+// included - without cd'ing into the worktree. name@branch narrows to
+// that branch's row, -w plus an explicit --dir is a refused
+// contradiction, and an unmaterialized name gets the attach suggestion.
+func TestResolveWorkspaceDirRunsVerbsFromAnywhere(t *testing.T) {
+	srv, _ := startWorkspaceServer(t)
+	_, dir, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"anywhere-ws", "alice", []string{"checkout-api"}, nil, MaterializeOptions{})
+	if err != nil {
+		t.Fatalf("WorkspaceCreate: %v", err)
+	}
+	t.Chdir(t.TempDir()) // an unrelated cwd: nothing here is a checkout
+
+	got, err := resolveWorkspaceDir("anywhere-ws", ".")
+	if err != nil || got != dir {
+		t.Fatalf("resolveWorkspaceDir = %q, %v; want %q", got, err, dir)
+	}
+
+	// The whole verb through the flag wiring: change create -w from the
+	// unrelated cwd commits IN the workspace's worktree.
+	writeFile(t, dir, "commerce/checkout/anywhere.txt", "hi\n")
+	if err := cmdChangeCreate([]string{"-m", "from anywhere", "-w", "anywhere-ws"}); err != nil {
+		t.Fatalf("change create -w from an unrelated cwd: %v", err)
+	}
+	if subject := mustGit(t, dir, "log", "-1", "--format=%s"); subject != "from anywhere" {
+		t.Fatalf("the commit landed somewhere else: HEAD subject = %q", subject)
+	}
+
+	// @branch narrows to that branch's materialization row.
+	branchDir := t.TempDir()
+	if err := recordMaterialization(Materialization{Workspace: "anywhere-ws", Branch: "fix", Path: branchDir}); err != nil {
+		t.Fatalf("recordMaterialization: %v", err)
+	}
+	if got, err := resolveWorkspaceDir("anywhere-ws@fix", "."); err != nil || got != branchDir {
+		t.Fatalf("resolveWorkspaceDir @branch = %q, %v; want %q", got, err, branchDir)
+	}
+	var ce *clierr.Error
+	if _, err := resolveWorkspaceDir("anywhere-ws@nope", "."); !errors.As(err, &ce) || ce.Code != "not_materialized" {
+		t.Fatalf("unknown branch: expected not_materialized, got %v", err)
+	}
+
+	// Contradiction and miss are structured refusals.
+	if _, err := resolveWorkspaceDir("anywhere-ws", "/somewhere/else"); !errors.As(err, &ce) || ce.Code != "workspace_and_dir" {
+		t.Fatalf("-w with --dir: expected workspace_and_dir, got %v", err)
+	}
+	if _, err := resolveWorkspaceDir("ghost", "."); !errors.As(err, &ce) || ce.Code != "not_materialized" {
+		t.Fatalf("expected not_materialized, got %v", err)
+	}
+}

@@ -68,7 +68,7 @@ schemas are.
 | `runko workspace create` | `WorkspaceInfo` (`ID`, `Owner`, `BaseRevision`, `ProjectAffinity`, `WriteAllowlist`, `SnapshotRef`, `Status`, `SparsePatterns`, `RepoPath`, `TrunkRef`) + `Dir` (where the worktree landed - callers may have passed no `--dir`) - needs a live runkod, see §12.3/§28.3 stage 12b. Placement is §12.7: with no `--dir`/`--clone-dir` the worktree and shared store land under `$RUNKO_WORKSPACE_HOME` (default `~/runko-ws`) in a `<host>/<org>/<repo>/{.store,<workspace>}` layout; materializing inside another git checkout is refused (`workspace_nested_checkout`, pre-flighted for explicit paths BEFORE the registration POST; `--force-nested` overrides). The store is credential-neutral: its remote URL never embeds a secret - raw git asks the stamped `runko auth git-credential` helper, runko's own verbs inject per-invocation auth; a pre-§12.7 store is neutralized on the next create/attach through it. Create also runs a bounded auto-gc on the store and prefers RECYCLING a reclaimable worktree (rebind: move + cone rewrite + `checkout -B` + `clean -fd` without `-x`, so ignored caches survive; a `recycled <path>` note goes to stderr). `--by` defaults to the stored login's principal (§6.10) - only a bare deploy token still needs the flag. `--new-path <dir>` (repeatable, 2026-07-16 - the greenfield bootstrap) grants the workspace affinity + cone coverage for a project that does NOT exist at trunk yet, so the change that creates it has a workspace to be born in; legal with zero `--project` flags, joins `WriteAllowlist`/`SparsePatterns` exactly like a resolved project path; structured refusals: `invalid_new_path` (unclean/absolute/`..`/root - the repo root is `--project repo`), `project_exists_at_path` (already indexed - use `--project <name>`). Materialization installs BOTH client hooks into the shared store (the §6.9 verb nudge and the Change-Id commit-msg hook; an existing commit-msg hook is never overwritten). Human mode ends with the §12.6 streaming next-commands (`workspace watch`, `agent hooks --install`) plus §6.9's three-command loop (§6.10); never in `--json`. `--jj` (2026-07-16, §12.7) materializes a STANDALONE jj colocated checkout instead of a worktree off the store: full clone (jj cannot colocate inside a git worktree or lazy-fetch promisor blobs; `--clone-dir` is refused, `jj_no_shared_store`), `jj git init --colocate`, the §7.4 Change-Id trailer template, the cone mirrored via `jj sparse` (repo-root files enumerated for cone-mode parity), @ parked on base via a `ws/<id>/head` anchor branch, `runko.*` bound in plain config scope; needs the jj binary (`jj_not_found`) |
 | `runko workspace list` | `[]WorkspaceInfo` - needs a live runkod. The human table ends with a `local:` column when this machine's §12.7 registry has surviving materializations for a row (first path, `(+n)` for more) |
 | `runko workspace attach` | `WorkspaceInfo` + `Dir` - needs a live runkod. §12.7 placement/neutrality/auto-gc as on create (branch attaches default to `<workspace>@<branch>` under the managed home; attach never recycles - restore-from-snapshot is already the cheap path). Human mode ends with the §12.6 streaming next-commands; never in `--json`. `--jj` restores as a standalone jj colocated checkout (as on create; @ parks on the branch's snapshot tip) |
-| `runko workspace path` | the materialization directory on stdout (`{"workspace","branch","path"}` with `--json`) - scripting glue: `cd $(runko workspace path <name>)`. No name: the current checkout answers for itself (`not_a_workspace` outside one); with a name: the registry's freshest surviving row (`not_materialized` when none) - local only |
+| `runko workspace path` | the materialization directory on stdout (`{"workspace","branch","path"}` with `--json`) - scripting glue: `cd $(runko workspace path <name>)`. No name: the current checkout answers for itself (`not_a_workspace` outside one); with a name (`<name[@branch]>` - `@branch` narrows to that branch's row): the registry's freshest surviving row (`not_materialized` when none) - local only |
 | `runko workspace gc` | `[]GCCandidate` (`Materialization` fields + `Reclaim`, `Reason`, `SizeBytes`) - §12.7 reclamation. Plan-only by default (human mode prints reclaim/keep + sizes + reasons and a summary); `--apply` removes each reclaimable worktree, prunes its store's worktree metadata, and drops the registry row. Reclaimable ⇔ server-closed ∧ working tree == the snapshot ref's tree ∧ HEAD under the snapshot ref (watch-parked dirty worktrees evaluate correctly; a never-snapshotted worktree must be clean at its base) - everything doubtful is a fail-closed keep with the reason named, including an unreachable server. `--idle <dur>` extends to open-but-synced workspaces; `--scan <store>` (repeatable) first adopts a store's runko-bound worktrees into the registry (the pre-§12.7 migration path). Needs a live runkod |
 | `runko change automerge` | `{"ChangeKey", "Automerge", "AutomergeBy", ...}` - arm the when-ready land (§13.5): the server lands the change automatically once checks + approvals go green, attributed to the armer; survives amends (gates reset and re-gate). `--disable` disarms. Only open changes arm (`invalid_state` otherwise) - needs a live runkod |
 | `runko agent create` | `AgentIdentity` incl. `token` - shown exactly ONCE; mints an ephemeral task identity (`agent-<task>-<suffix>`, default TTL 8h, cap 168h). An agent credential is refused (`agents_cannot_mint`) - the harness or a human mints. Human mode ends with the §12.6 streaming next-commands incl. the exact env exports; never in `--json`. Needs a live runkod |
@@ -119,6 +119,29 @@ already real for this surface.
 
 Commands not listed here (`runko auth` - stubbed, needs a live control
 plane not built in this environment) have no output contract yet.
+
+## Workspace-addressable checkout verbs (`-w`/`--workspace`, §12.7)
+
+The worktree is transparent: every verb that operates on a local checkout
+accepts `-w`/`--workspace <name[@branch]>` and resolves the workspace's
+registered materialization (the §12.7 registry, the same lookup as
+`workspace path`) as its working directory - so the verb runs from
+anywhere, the repo root included, with no `cd` into the worktree. The
+verbs: `change create`, `change push`, `change land` (the `--sync`
+recovery checkout), `change requirements`/`describe`/`comment`/
+`comments`/`resolve`/`request-review` (the HEAD-default lookup), and
+`workspace snapshot`/`watch`/`branch`/`sync`.
+
+Resolution contract: `-w` absent falls through to `--dir`/`--repo` (the
+historical stand-inside-it default, unchanged); `@branch` narrows to that
+branch's materialization, else the workspace's freshest surviving row
+wins; rows whose path is gone never match. Structured refusals: `-w` plus
+an explicit `--dir`/`--repo` is `workspace_and_dir` (a contradiction -
+pick one); a workspace with no local materialization is
+`not_materialized`, suggesting `workspace attach` (with `--branch` when
+`@branch` was asked) and `workspace list`, whose `local:` column shows
+what is on this machine. A successful resolution refreshes the row's
+`last_used_at` (the `workspace gc --idle` signal).
 
 ## Single-contract rule with MCP (§8.3)
 
