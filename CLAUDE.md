@@ -63,12 +63,17 @@ web UI, and the measured docker-compose eval loop.
 
 **The centralized spec is retired (2026-07-16). Each project's README.md
 is its spec surface** — what it owns, decided constraints, contract
-surfaces, checks, and a dated **Decisions** section where new decisions
-are recorded in the same change that implements them (repo-wide decisions
-go in the root README.md; `docs/README.md` documents the model).
-`docs/design.md` is frozen in place as the historical record — the `§`
-citations in package headers, commit messages, and older docs resolve
-there as rationale; never edit it or cite it for new work.
+surfaces, checks, and a dated **Decisions** section. **READMEs change
+only on major architectural shifts** (a decided constraint changes, a
+contract surface appears/disappears, a prior decision is reversed) — an
+ordinary change touches NO README: its record is its change description
+(+ `docs/cli-contract.md` when a command's behavior changes). Decisions
+sections are not changelogs; per-change entries recreate central-file
+contention across concurrent agents (repo-wide shifts: root README.md;
+`docs/README.md` documents the model). `docs/design.md` is frozen in
+place as the historical record — the `§` citations in package headers,
+commit messages, and older docs resolve there as rationale; never edit
+it or cite it for new work.
 
 History — do not re-derive it: decision-by-decision history through
 2026-07-16 in `docs/design.md`'s (closed) changelog table and thereafter
@@ -178,7 +183,7 @@ Git-in-Go library (matching real upstream Git behavior is mandated).
 
 ## Working rules (still in force)
 
-- **Doc-before-code**: new contract surfaces get their schema under `docs/spec/` before implementation; every decision is recorded as a dated entry in the owning project's README.md **in the same change that implements it** (repo-wide: the root README.md). design.md and its changelog are closed.
+- **Doc-before-code**: new contract surfaces get their schema under `docs/spec/` before implementation. READMEs record **major architectural shifts only**, as a dated Decisions entry in the owning project's README in the same change (repo-wide: the root README.md) — an ordinary change touches no README; its record is its change description. design.md and its changelog are closed.
 - **Never hand-edit generated code** (`internal/dbgen`, `runkod/proto/gen`, `web/src/gen`) — regenerate.
 - **Test against real git/Postgres/binaries, never mocks**: `internal/gitfixture` for repos, `internal/dbtest` for Postgres (skips without a DSN), scripted fake binaries for engines (bazel/gitleaks/zoekt pattern), compiled-binary e2e tests for the daemon and CLIs. Verify bazel-graph-sensitive changes with `bazel test`, not just `go test`.
 - **One Change per session focus**; don't refactor packages two hops away. No mid-session dependency additions.

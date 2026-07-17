@@ -37,8 +37,13 @@ surface; rationale decided before 2026-07-16 lives in the frozen
 
 ## Decisions
 
-New decisions land here as dated entries; the record through
-2026-07-16 is [`docs/design.md`](../docs/design.md)'s frozen changelog.
+**Major architectural shifts only** — a decided constraint changes, a
+contract surface appears or disappears, a prior decision is reversed.
+Routine work (features, fixes, flags) is recorded by its change
+description, never here (see [`docs/README.md`](../docs/README.md)).
+Repo-wide shifts: the root [`README.md`](../README.md); the record
+through 2026-07-16 is [`docs/design.md`](../docs/design.md)'s frozen
+changelog.
 
 - **2026-07-16** — this README becomes the project's living spec;
   `docs/design.md` is retired and frozen (see [`docs/README.md`](../docs/README.md)).

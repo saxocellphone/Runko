@@ -176,9 +176,11 @@ code changes go through review on the Runko instance.
 ## Decisions (repo-wide)
 
 Decisions scoped to a single project are recorded in that project's
-`README.md`; entries here are the ones that cross project boundaries.
-The record through 2026-07-16 is [`docs/design.md`](docs/design.md)'s
-frozen changelog.
+`README.md`; entries here are the ones that cross project boundaries —
+and, like there, **only major architectural shifts**: routine work is
+recorded by its change description, not README edits (see
+[`docs/README.md`](docs/README.md)). The record through 2026-07-16 is
+[`docs/design.md`](docs/design.md)'s frozen changelog.
 
 - **2026-07-16** — the centralized spec is retired: `docs/design.md` is
   frozen as the historical record and each project's `README.md`
