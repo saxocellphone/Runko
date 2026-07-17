@@ -31,11 +31,14 @@ single violet accent, light + dark themes.
 - **Projects / project detail / workspaces / code search** — thinner reads
   over the corresponding services (the workspaces page derives per-branch
   stacks with the same grouping the inbox uses).
-- **Org support** — sidebar org switcher (rebases the Connect transport
-  onto `/o/<org>/`), org-scoped sign-in, `/settings` (description,
-  org-required checks, member management), and an operator-only Admin
-  page (org estate, archive lifecycle, create-org). Public orgs render
-  read-only without a session under GitHub-style `/<org>` URLs.
+- **Org support** — orgs are navigated by their own GitHub-style
+  `/<org>` URLs (the app binds to the URL's org and rebases the Connect
+  transport onto `/o/<org>/`; there is deliberately no org drop-down —
+  operators included, 2026-07-17), org-scoped sign-in that lands inside
+  the org that authenticated, `/settings` (description, org-required
+  checks, member management), and an operator-only Admin page (org
+  estate, archive lifecycle, create-org). Public orgs render read-only
+  without a session under the same `/<org>` URLs.
 
 ## Transport: real vs. demo
 

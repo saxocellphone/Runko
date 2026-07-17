@@ -2,18 +2,12 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   authUser,
-  createOrg,
-  currentOrg,
-  fetchOrgs,
   onDemoRoute,
-  pathOrg,
   probeSearchAvailable,
   publicBrowse,
   signedIn,
   signOut,
-  switchOrg,
   usingDemoData,
-  type OrgInfo,
 } from "../api/client";
 
 const nav = [
@@ -50,7 +44,6 @@ export function Layout() {
             <BrandMark />
             Runko
           </div>
-          {!usingDemoData && signedIn && !pathOrg && <OrgSwitcher />}
           <div className="topbar-actions">
             {onDemoRoute ? (
               <div className="demo-badge" title="Playground — sample data, in-browser">
@@ -133,58 +126,14 @@ export function Layout() {
   );
 }
 
-// OrgSwitcher: pick which org this browser works in (multi-org,
-// runkod/orghub.go - each org owns its own repo, mounted at /o/<name>/).
-// "" = the shared default org at the root mount. Switching reloads so
-// every Connect client rebinds its transport base.
-function OrgSwitcher() {
-  const [orgs, setOrgs] = useState<OrgInfo[]>([]);
-  useEffect(() => {
-    void fetchOrgs().then(setOrgs);
-  }, []);
-
-  // Stale selection (org gone / membership revoked): keep it visible so
-  // the user can switch away rather than being stuck. Sessions are
-  // org-scoped: the listing is exactly this account's memberships.
-  const known = orgs.some((o) => o.name === currentOrg);
-
-  // One org and you're in it: nothing to switch, no selector (org
-  // creation lives on the sign-up form). It appears when a second
-  // membership does.
-  if (orgs.length === 0 || (orgs.length === 1 && known)) return null;
-
-  const onChange = async (value: string) => {
-    if (value === "__new__") {
-      const name = window.prompt("New org name (lowercase letters, digits, dashes):");
-      if (!name) return;
-      try {
-        const created = await createOrg(name.trim());
-        switchOrg(created.name);
-      } catch (err) {
-        window.alert(err instanceof Error ? err.message : String(err));
-      }
-      return;
-    }
-    switchOrg(value);
-  };
-
-  return (
-    <select
-      className="org-select"
-      aria-label="Organization"
-      value={currentOrg}
-      onChange={(e) => void onChange(e.target.value)}
-    >
-      {orgs.map((o) => (
-        <option key={o.name} value={o.name}>
-          {o.name}
-        </option>
-      ))}
-      {!known && currentOrg && <option value={currentOrg}>{currentOrg} (unavailable?)</option>}
-      <option value="__new__">＋ New org…</option>
-    </select>
-  );
-}
+// The org drop-down switcher is gone (2026-07-17, user direction:
+// "even the operator should get the same treatment as everyone else"):
+// orgs are navigated by their own /<org> URLs, GitHub-style - the app
+// binds to the URL's org (client.ts pathOrg/currentOrg), sign-in lands
+// inside the org that authenticated (lib/orgsession.ts), and org
+// creation lives on the sign-up form and the CLI. Operator-wide org
+// administration is its own operator-only surface, not a topbar
+// affordance.
 
 function BrandMark() {
   return (
