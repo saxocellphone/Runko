@@ -1,0 +1,375 @@
+/* Runko deployment admin - the same design tokens as the main web app
+   (web/src/styles/global.css), trimmed to what this panel uses. Light +
+   dark via [data-theme] on <html> (set before first paint in main.tsx,
+   sharing the main app's stored choice). */
+
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f2f2f4;
+  --border: #e4e4e8;
+  --border-strong: #cfcfd6;
+  --text: #1a1a1f;
+  --text-2: #64646e;
+  --text-3: #97979f;
+  --accent: #6e56cf;
+  --accent-strong: #5b46b4;
+  --green: #1a7f37;
+  --green-soft: #e0f2e5;
+  --red: #cf222e;
+  --red-soft: #fbe9ea;
+  --amber: #9a6700;
+  --amber-soft: #f8eeda;
+  --shadow: 0 1px 2px rgba(20, 20, 30, 0.05);
+  --font: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+:root[data-theme="dark"] {
+  --bg: #131316;
+  --surface: #1b1b20;
+  --surface-2: #232329;
+  --border: #2c2c34;
+  --border-strong: #40404a;
+  --text: #ededf2;
+  --text-2: #9b9ba7;
+  --text-3: #6b6b77;
+  --accent: #9b8afb;
+  --accent-strong: #b2a5fc;
+  --green: #3fb950;
+  --green-soft: #16281c;
+  --red: #f47067;
+  --red-soft: #31201f;
+  --amber: #d29922;
+  --amber-soft: #2c2416;
+  --shadow: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13.5px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+/* ---------------------------------------------------------- shell */
+
+.adm {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.adm-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.adm-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 650;
+  font-size: 14.5px;
+}
+
+.adm-brand-sub {
+  color: var(--text-2);
+  font-weight: 450;
+}
+
+.adm-health {
+  display: flex;
+  gap: 6px;
+}
+
+.adm-header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.adm-user {
+  color: var(--text-2);
+}
+
+.adm-main {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+.page-header {
+  margin-bottom: 18px;
+}
+
+.page-title {
+  margin: 0 0 4px;
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.page-sub {
+  margin: 0;
+  color: var(--text-2);
+}
+
+/* ------------------------------------------------------ components */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .btn-primary {
+  color: #131316;
+}
+
+.btn-danger {
+  color: var(--red);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--red-soft);
+}
+
+.btn-sm {
+  padding: 3px 9px;
+  font-size: 12.5px;
+}
+
+.chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.chip-green {
+  background: var(--green-soft);
+  border-color: transparent;
+  color: var(--green);
+}
+
+.chip-red {
+  background: var(--red-soft);
+  border-color: transparent;
+  color: var(--red);
+}
+
+.chip-amber {
+  background: var(--amber-soft);
+  border-color: transparent;
+  color: var(--amber);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  text-align: left;
+  font-weight: 550;
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+input {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 6px 9px;
+}
+
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+/* ---------------------------------------------------------- estate */
+
+.adm-archived {
+  opacity: 0.62;
+}
+
+.adm-chip {
+  margin-left: 7px;
+}
+
+.adm-desc {
+  color: var(--text-2);
+}
+
+.adm-create {
+  padding: 14px;
+}
+
+.adm-h2 {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.adm-create-form {
+  display: flex;
+  gap: 8px;
+}
+
+.adm-create-form input {
+  flex: 1;
+  max-width: 340px;
+}
+
+.adm-loading {
+  color: var(--text-2);
+  margin-bottom: 12px;
+}
+
+.adm-notice {
+  background: var(--green-soft);
+  color: var(--green);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+/* --------------------------------------------------------- sign-in */
+
+.login-wrap {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: 360px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-sub {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.login-endpoint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.login-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.login-hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.login-error {
+  background: var(--red-soft);
+  color: var(--red);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.login-card .login-error {
+  margin-bottom: 0;
+}
+
+.login-submit {
+  margin-top: 4px;
+}
