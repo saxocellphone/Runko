@@ -1,0 +1,14 @@
+schema: project/v1
+name: webadmin
+type: app
+language: ts
+# The deployment admin panel - its own app, pod, and operator sign-in
+# flow against the dedicated /api/admin surface (webadmin/README.md).
+# Plain fetch, no proto types: no dependency edges, so the affected
+# closure never drags it into Go or proto landings.
+# The command runs from the repo root (the §14.9 executor contract gives
+# checks no working-directory of their own), so it scopes itself.
+ci:
+  checks:
+    - name: webadmin-check
+      command: cd webadmin && npm ci && npm run check

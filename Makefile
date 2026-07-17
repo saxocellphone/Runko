@@ -1,4 +1,4 @@
-.PHONY: check fmt vet test build check-db check-race check-web check-bazel check-bazel-test check-bazel-race check-bazel-db check-docs
+.PHONY: check fmt vet test build check-db check-race check-web check-webadmin check-bazel check-bazel-test check-bazel-race check-bazel-db check-docs
 
 check: fmt vet test
 
@@ -55,6 +55,9 @@ check-docs:
 # loop (§28.2 rule 3); CI runs this as its own job.
 check-web:
 	cd web && npm install --no-audit --no-fund && npm run check
+
+check-webadmin:
+	cd webadmin && npm install --no-audit --no-fund && npm run check
 
 # Bazel graph health (docs/migration-findings.md, §14.5.4 dogfood): the
 # graph must build, gazelle must not drift, and the rdeps recipe must work
