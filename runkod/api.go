@@ -343,6 +343,9 @@ func (s *Server) Handler() (http.Handler, error) {
 	// Project deletion - create's dual (§13.1): the CLI's server-calling
 	// verb; the same core the Connect surface uses (deleteproject.go).
 	mux.HandleFunc("POST /api/projects/{name}/delete", s.requireAuth(s.handleDeleteProject))
+	// Governance bootstrap for an ownerless org (§6.10 retrofit) - opens
+	// the self-landable root-OWNERS change (bootstraporg.go).
+	mux.HandleFunc("POST /api/org/bootstrap", s.requireAuth(s.handleBootstrapOrg))
 	mux.HandleFunc("POST /api/projects/{name}/releases", s.requireAuth(s.handleCreateRelease))
 	mux.HandleFunc("GET /api/projects/{name}/releases", s.requireReadAuth(s.handleListReleases))
 	mux.HandleFunc("GET /api/affected", s.requireReadAuth(s.handleAffectedByPaths))
@@ -1121,7 +1124,7 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	if lane == nil && !s.AllowUnpolicedLand && len(req.RequiredChecks) == 0 && len(req.RequiredOwners) == 0 {
 		req.Mergeable = false
 		req.Blockers = append(req.Blockers,
-			"no merge policy resolves for this change: its touched paths require no checks (no ci.checks, no org global checks) and no owner approvals - landing unpoliced changes is refused outside the eval profile (start runkod with --insecure-allow-unpoliced-land to override, or declare owners/ci.checks in PROJECT.yaml)")
+			"no merge policy resolves for this change: its touched paths require no checks (no ci.checks, no org global checks) and no owner approvals - landing unpoliced changes is refused outside the eval profile (an ownerless org seeds its governance with `runko org bootstrap`; otherwise declare owners/ci.checks in PROJECT.yaml, or start runkod with --insecure-allow-unpoliced-land)")
 	}
 
 	// Agent changes must carry a description before they land (§8.7 gate on

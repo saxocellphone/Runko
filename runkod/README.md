@@ -95,3 +95,21 @@ changelog.
   rotation. This adds runkod's first `dependencies:` edge to
   `runkogithubapp` (admin-lane ops change, alongside that project's
   manifest).
+- **2026-07-16** — **`org bootstrap`: the genesis retrofit**
+  (`bootstraporg.go`, from the 2026-07-16 dogfood review's top finding:
+  a pre-genesis solo org is unlandable — no owners means every land is
+  refused as unpoliced, *including the OWNERS change that would fix it*,
+  and the only documented exit was a server restart flag). `POST
+  /api/org/bootstrap` (CLI: `runko org bootstrap`) opens a
+  server-authored Change (the `deleteproject.go` mechanics) adding root
+  OWNERS naming the caller plus the root `repo` manifest when none
+  exists — content single-sourced from `genesisFiles`. No new gate
+  semantics: owners already resolve from the change's own head tree
+  (`computeAffected` indexes at head) and a human owner-author
+  self-satisfies by uploader consent, so the one change is landable by
+  its caller while staying ordinary reviewable history. An unborn trunk
+  is genesis-seeded directly (org-creation standing). Humans only;
+  org-admins only where org roles exist (store-backed accounts under a
+  directory); refused once any owners resolve (`already_governed`). The
+  unpoliced-land blocker now names the verb — discoverability at the
+  exact moment the deadlock bites.

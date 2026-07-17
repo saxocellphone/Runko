@@ -139,6 +139,7 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   org create --name <org>                                     new org owning its own repo at /o/<org>/, genesis-seeded and ready to work in (§6.10, §7.1) [--json]
   org list                                                    orgs you can reach (role + git URL) [--json]
   org add-member --org <org> --name <account> [--role member|admin|releaser]   grant an account access [--json]
+  org bootstrap                                               ownerless org? open the self-landable root-OWNERS change naming you (§6.10 retrofit; unborn trunk seeds genesis directly) [--json]
   release create --project <p> [--version x.y.z]              cut an immutable release: server-minted tag + changelog from landed changes (§14.10.3) [--json]
   release list --project <p>                                  the project's releases, newest first [--json]
   change create -m <msg> [--dir .]                            commit WIP as one Change (with its Change-Id) [--json]
