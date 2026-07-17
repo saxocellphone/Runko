@@ -320,9 +320,13 @@ func (s *Server) Handler() (http.Handler, error) {
 	// Unauthenticated by design: liveness/readiness probes and metrics
 	// scrapers (compose healthcheck, k8s, Prometheus) cannot carry the
 	// deploy token, and none of these leak repository content (§9.4's
-	// stage-14 conventions: /healthz + /readyz + /metrics).
-	mux.HandleFunc("GET /healthz", s.handleHealthz)
-	mux.HandleFunc("GET /readyz", s.handleReadyz)
+	// stage-14 conventions: /healthz + /readyz + /metrics). The two
+	// probes carry public CORS: the admin panel (webadmin/) renders
+	// control-plane health from its own origin in the dev loop, and a
+	// wildcard origin on an unauthenticated liveness bit gives nothing
+	// away.
+	mux.HandleFunc("/healthz", publicCORS(http.MethodGet, s.handleHealthz))
+	mux.HandleFunc("/readyz", publicCORS(http.MethodGet, s.handleReadyz))
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 
 	mux.HandleFunc("POST /internal/pre-receive", s.handlePreReceive)

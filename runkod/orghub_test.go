@@ -581,7 +581,7 @@ func TestAdminPanelAndOrgArchive(t *testing.T) {
 	if status != http.StatusForbidden || body["Code"] != "operator_only" {
 		t.Fatalf("store account on admin surface: %d %v", status, body)
 	}
-	status, body = hubDo(t, srv, "POST", "/api/orgs/acme/archive", "alice", "alicepw123", "", nil)
+	status, body = hubDo(t, srv, "POST", "/api/admin/orgs/acme/archive", "alice", "alicepw123", "", nil)
 	if status != http.StatusForbidden {
 		t.Fatalf("store account archiving: %d %v", status, body)
 	}
@@ -598,8 +598,13 @@ func TestAdminPanelAndOrgArchive(t *testing.T) {
 
 	// Archive: surface closes with 410 for EVERYONE, selector listings
 	// hide it, admin listing still shows it (flagged).
-	if status, _ = hubDo(t, srv, "POST", "/api/orgs/acme/archive", "", "", "sekret", nil); status != http.StatusOK {
+	if status, _ = hubDo(t, srv, "POST", "/api/admin/orgs/acme/archive", "", "", "sekret", nil); status != http.StatusOK {
 		t.Fatalf("archive: %d", status)
+	}
+	// The archive lifecycle lives on the admin prefix ONLY - the old
+	// org-scoped path is gone, not aliased.
+	if status, _ = hubDo(t, srv, "POST", "/api/orgs/acme/unarchive", "", "", "sekret", nil); status == http.StatusOK {
+		t.Fatalf("legacy /api/orgs/{org}/unarchive should not exist anymore")
 	}
 	status, body = hubDo(t, srv, "GET", "/o/acme/api/changes", "alice", "alicepw123", "", nil)
 	if status != http.StatusGone || body["Code"] != "org_archived" {
@@ -638,7 +643,7 @@ func TestAdminPanelAndOrgArchive(t *testing.T) {
 	}
 
 	// Unarchive restores routing in-place.
-	if status, _ = hubDo(t, srv, "POST", "/api/orgs/acme/unarchive", "", "", "sekret", nil); status != http.StatusOK {
+	if status, _ = hubDo(t, srv, "POST", "/api/admin/orgs/acme/unarchive", "", "", "sekret", nil); status != http.StatusOK {
 		t.Fatalf("unarchive: %d", status)
 	}
 	if status, _ = hubDo(t, srv, "GET", "/o/acme/api/changes", "alice", "alicepw123", "", nil); status != http.StatusOK {
@@ -646,20 +651,61 @@ func TestAdminPanelAndOrgArchive(t *testing.T) {
 	}
 
 	// The default org is immovable.
-	status, body = hubDo(t, srv, "POST", "/api/orgs/defaultorg/archive", "", "", "sekret", nil)
+	status, body = hubDo(t, srv, "POST", "/api/admin/orgs/defaultorg/archive", "", "", "sekret", nil)
 	if status != http.StatusBadRequest || body["Code"] != "default_org_immutable" {
 		t.Fatalf("default org archive: %d %v", status, body)
 	}
+}
 
-	// whoami tells the web who gets the panel: operator for the deploy
-	// token, not for a store account.
-	status, body = hubDo(t, srv, "GET", "/api/whoami", "", "", "sekret", nil)
-	if status != http.StatusOK || body["operator"] != true {
-		t.Fatalf("deploy-token whoami should be operator: %d %v", status, body)
+// TestAdminWhoamiAndOperatorOrgCreate covers the admin panel's DEDICATED
+// sign-in flow (GET /api/admin/whoami - webadmin/ never rides the
+// org-scoped login) and operator org creation on the admin surface,
+// which --allow-org-create does not gate: the flag scopes signup
+// accounts, and the operator is whoever would flip it.
+func TestAdminWhoamiAndOperatorOrgCreate(t *testing.T) {
+	// allowCreate=false: self-service creation is OFF for this hub.
+	srv, _ := newTestHub(t, false, Principal{Name: "op", Token: "op-secret-1"})
+	hubSignup(t, srv, "alice", "alicepw123")
+
+	// The deploy token and a flag-config principal sign in; the check
+	// names the caller so the panel can show who's holding the wheel.
+	status, body := hubDo(t, srv, "GET", "/api/admin/whoami", "", "", "sekret", nil)
+	if status != http.StatusOK || body["operator"] != true || body["anonymous"] != true {
+		t.Fatalf("deploy-token admin whoami: %d %v", status, body)
 	}
-	status, body = hubDo(t, srv, "GET", "/api/whoami", "alice", "alicepw123", "", nil)
-	if status != http.StatusOK || body["operator"] != false {
-		t.Fatalf("store-account whoami should not be operator: %d %v", status, body)
+	status, body = hubDo(t, srv, "GET", "/api/admin/whoami", "op", "op-secret-1", "", nil)
+	if status != http.StatusOK || body["name"] != "op" || body["anonymous"] != false {
+		t.Fatalf("operator-principal admin whoami: %d %v", status, body)
+	}
+
+	// A signup account - even a future org admin - is 403, and a wrong
+	// credential is 401: the panel can tell the two apart.
+	status, body = hubDo(t, srv, "GET", "/api/admin/whoami", "alice", "alicepw123", "", nil)
+	if status != http.StatusForbidden || body["Code"] != "operator_only" {
+		t.Fatalf("store account on admin whoami: %d %v", status, body)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/api/admin/whoami", "op", "wrong-password", "", nil); status != http.StatusUnauthorized {
+		t.Fatalf("bad credential on admin whoami: %d", status)
+	}
+
+	// Self-service creation is off (403 for accounts), but the operator
+	// creates on the admin surface regardless.
+	status, body = hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"})
+	if status != http.StatusForbidden || body["Code"] != "org_create_disabled" {
+		t.Fatalf("self-service create should be disabled: %d %v", status, body)
+	}
+	status, body = hubDo(t, srv, "POST", "/api/admin/orgs", "op", "op-secret-1", "", map[string]string{"name": "acme"})
+	if status != http.StatusCreated || body["role"] != "operator" {
+		t.Fatalf("operator create via admin surface: %d %v", status, body)
+	}
+	if status, _ = hubDo(t, srv, "GET", "/o/acme/api/changes", "op", "op-secret-1", "", nil); status != http.StatusOK {
+		t.Fatalf("created org should serve its creator: %d", status)
+	}
+
+	// A signup account cannot use the admin creation path either.
+	status, body = hubDo(t, srv, "POST", "/api/admin/orgs", "alice", "alicepw123", "", map[string]string{"name": "other"})
+	if status != http.StatusForbidden || body["Code"] != "operator_only" {
+		t.Fatalf("store account on admin create: %d %v", status, body)
 	}
 }
 

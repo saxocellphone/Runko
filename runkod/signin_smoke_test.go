@@ -381,14 +381,14 @@ func TestSigninEdgeRefusalsAreStructured(t *testing.T) {
 	if status, _ := signupOrg(t, srv, "erin", "erinpw1234", "arch", "create"); status != http.StatusCreated {
 		t.Fatalf("erin signup failed")
 	}
-	if status, _ := hubDo(t, srv, "POST", "/api/orgs/arch/archive", "", "", "sekret", nil); status != http.StatusOK {
+	if status, _ := hubDo(t, srv, "POST", "/api/admin/orgs/arch/archive", "", "", "sekret", nil); status != http.StatusOK {
 		t.Fatalf("archive failed")
 	}
 	status, body := hubDo(t, srv, "GET", "/o/arch/api/whoami", "erin", "erinpw1234", "", nil)
 	if status != http.StatusGone || body["Code"] != "org_archived" {
 		t.Fatalf("archived org sign-in: %d %v, want 410 org_archived", status, body)
 	}
-	if status, _ := hubDo(t, srv, "POST", "/api/orgs/arch/unarchive", "", "", "sekret", nil); status != http.StatusOK {
+	if status, _ := hubDo(t, srv, "POST", "/api/admin/orgs/arch/unarchive", "", "", "sekret", nil); status != http.StatusOK {
 		t.Fatalf("unarchive failed")
 	}
 	if status, _ := hubDo(t, srv, "GET", "/o/arch/api/whoami", "erin", "erinpw1234", "", nil); status != http.StatusOK {
