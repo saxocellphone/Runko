@@ -107,6 +107,7 @@ go_test(
         "orghub_test.go",
         "origin_test.go",
         "outbox_test.go",
+        "ownershiptouch_test.go",
         "pgstore_pg_test.go",
         "policy_gate_test.go",
         "prereceive_test.go",

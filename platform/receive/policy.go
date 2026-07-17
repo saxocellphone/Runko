@@ -46,13 +46,28 @@ func DefaultAgentPolicy() AgentPolicy {
 // PushSummary is what EvaluatePolicy needs to know about an incoming push,
 // gathered before secret scanning or Change creation.
 type PushSummary struct {
-	ChangedFiles        []string
-	DiffBytes           int64
-	WorkspaceAffinity   []string // project-relative path roots this workspace may write; empty = no affinity configured
+	ChangedFiles      []string
+	DiffBytes         int64
+	WorkspaceAffinity []string // project-relative path roots this workspace may write; empty = no affinity configured
+	// ModifiesOwners means ownership of EXISTING code changes: an OWNERS
+	// or PROJECT.yaml that existed at the push's base, a brand-new OWNERS
+	// file anywhere (§7.3's nearest-file rule re-resolves existing paths),
+	// or a new manifest atop existing content (a nested-project carve-out
+	// reassigns its subtree by longest prefix). A new manifest on virgin
+	// paths is NOT this - that is IsProjectCreate, gated separately: the
+	// old any-manifest-path reading made CanCreateProjects dead on
+	// arrival, since every scaffold carries a manifest (2026-07-16
+	// dogfood review, finding 2).
 	ModifiesOwners      bool
 	EnabledCapabilities []string
 	IsLandRequest       bool
 	IsProjectCreate     bool
+	// Author is the pushing principal's name; NewProjectOwners are the
+	// owners: refs declared by manifests this push CREATES. Together they
+	// feed the self-grant gate: an agent may scaffold a project, never as
+	// its own owner (§8.7's no-self-approval, applied at birth).
+	Author           string
+	NewProjectOwners []string
 }
 
 // PolicyViolation mirrors the shape of
@@ -129,6 +144,19 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 			Code:    "project_create_denied",
 			Message: "this agent policy does not allow creating projects",
 		})
+	}
+
+	if summary.IsProjectCreate && summary.Author != "" {
+		for _, o := range summary.NewProjectOwners {
+			if o == summary.Author {
+				v = append(v, PolicyViolation{
+					Code:       "owner_self_grant",
+					Message:    fmt.Sprintf("the new project's owners name the pushing agent (%s) - an agent never grants itself ownership (§8.7)", o),
+					Suggestion: "name your minting human in owners:, or leave owners empty to inherit (§7.3)",
+				})
+				break
+			}
+		}
 	}
 
 	if summary.IsLandRequest && !policy.CanLandChanges {

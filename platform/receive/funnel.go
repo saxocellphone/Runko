@@ -30,6 +30,11 @@ type PushRequest struct {
 	EnabledCapabilities []string
 	IsLandRequest       bool
 	IsProjectCreate     bool
+	// Author + NewProjectOwners feed the owner self-grant gate
+	// (EvaluatePolicy): who pushed, and the owners: refs declared by
+	// manifests this push creates.
+	Author           string
+	NewProjectOwners []string
 
 	// ChangeIDSeed is seed material (e.g. tree SHA + author + timestamp) for
 	// a fresh Change-Id if CommitMessage doesn't already carry one.
@@ -90,6 +95,8 @@ func Decide(req PushRequest, scanner SecretScanner) Decision {
 			EnabledCapabilities: req.EnabledCapabilities,
 			IsLandRequest:       req.IsLandRequest,
 			IsProjectCreate:     req.IsProjectCreate,
+			Author:              req.Author,
+			NewProjectOwners:    req.NewProjectOwners,
 		})
 		if len(violations) > 0 {
 			return Decision{Accepted: false, PolicyViolations: violations}
