@@ -1,5 +1,14 @@
 # Migration findings → requirements for `monorepo import` (§18.3)
 
+> **RETIRED 2026-07-16 — ledger closed at finding #50.** The migration
+> this file tracked is done: the repo self-hosts, and dogfooding is the
+> ordinary state, not an event worth a separate ledger. New findings
+> live where the fix lives — the change description of the change that
+> addresses them — and a finding that changes a decided constraint gets
+> a dated Decisions entry in the owning project's `README.md` (see
+> [`docs/README.md`](README.md)). This file stays frozen so `#N`
+> citations in commits, code comments, and docs keep resolving.
+
 This repo is migrating onto its own product in two phases: a Bazel migration
 (the §14.5.4 golden path, dogfooded) and a self-host cutover (this repo's
 source hosted on a prod runkod org, GitHub demoted to mirror + CI runner).

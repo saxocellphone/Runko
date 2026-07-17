@@ -49,7 +49,7 @@ remote is named `github` and is the OUTBOUND MIRROR — **never push to it**
   rollout).
 - Default-deny is ON (no unpoliced lands). The `operator` principal (admin)
   exists for force-land/mirror-unfreeze; agents can never force.
-- The migration record lives in `docs/migration-findings.md`.
+- The migration record is `docs/migration-findings.md` — frozen 2026-07-16, ledger closed at #50. A new finding is recorded in the change description of the change that fixes it; never append to the ledger.
 
 ## Repository status
 
@@ -78,8 +78,9 @@ it or cite it for new work.
 History — do not re-derive it: decision-by-decision history through
 2026-07-16 in `docs/design.md`'s (closed) changelog table and thereafter
 in the per-project Decisions sections; the per-stage engineering record
-in `docs/implementation-log.md`; self-hosting findings (ongoing) in
-`docs/migration-findings.md`.
+in `docs/implementation-log.md`; self-hosting findings #1–#50 in
+`docs/migration-findings.md` (frozen 2026-07-16 — new findings live in
+change descriptions).
 
 The decided constraints are still decided — read the owning project's
 README (and the frozen § it cites, for rationale) before editing;
@@ -209,5 +210,5 @@ Current truth: the owning project's README. Frozen rationale: design.md §s.
 | Outbound mirror contract | docs/mirror.md |
 | Compose eval definition of done | docs/smoke-plan.md |
 | Implementation history (stages, what tests caught) | docs/implementation-log.md |
-| Self-hosting findings (numbered, ongoing) | docs/migration-findings.md |
+| Self-hosting findings #1–#50 (frozen 2026-07-16; new findings: change descriptions) | docs/migration-findings.md |
 | Decision history through 2026-07-16 | design.md §25 (closed); since then: per-project README Decisions sections |
