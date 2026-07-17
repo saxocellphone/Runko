@@ -63,6 +63,7 @@ var Commands = []Command{
 	{"runko", "release list --project <p> --runkod-url <url> --token <t> [--json]", "the project's releases, newest first (§14.10.3) - needs a live runkod", "[]ReleaseInfo"},
 	{"runko", "agents-md [--out AGENTS.md] [--json]", "regenerate this file AND the agent skill (.claude/skills/runko/SKILL.md) from the CLI's own command inventory (§8.8)", `{"path","skill_path"}`},
 	{"runko", "self-update [--check] [--repo owner/name] [--json]", "replace this binary with the rolling cli-latest GitHub release build (§17.1) - checksum-verified, atomic swap; --check only reports; `update` is an alias", "UpdateOutcome"},
+	{"runko", "version [--json]", "which binary is this: vcs revision + build time + toolchain from the Go build stamp (doctor reprints it first); report this when behavior differs from the docs", "BuildIdentity"},
 	{"runko-ci", "affected --base <rev> [--head HEAD] [--engine bazel]", "compute the affected project set for a base..head range (§13.3)", "affected.Result (always JSON)"},
 	{"runko-ci", "checks --base <rev> [--head HEAD]", "resolve the affected closure's manifest-declared ci.checks for a CI executor (§14.9)", `{"run_everything","checks":[{"project","name","command"}]} (always JSON)`},
 	{"runko-ci", "checkout --remote <url> --dest <dir> --rev <rev> [--json]", "partial-clone + sparse-checkout a rev for CI (§14.4.4)", `{"rev","dest"}`},

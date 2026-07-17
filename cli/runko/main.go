@@ -78,6 +78,8 @@ func main() {
 		err = cmdRelease(os.Args[2:])
 	case "self-update", "update": // update: the verb people type first
 		err = cmdSelfUpdate(os.Args[2:])
+	case "version", "-v", "--version":
+		err = cmdVersion(os.Args[2:])
 	case "-h", "--help", "help":
 		printUsage()
 		return
@@ -106,6 +108,7 @@ commands (operate on the local repo only):
   change push                     push HEAD to refs/for/<trunk> for review (§11.5) [--json]
   agents-md                       (re)generate AGENTS.md + the agent skill (.claude/skills/runko/) teaching this CLI to agents (§8.8) [--json]
   self-update [--check]           replace this binary with the rolling cli-latest GitHub release build, checksum-verified (§17.1) [--json]
+  version                         which binary is this: vcs revision + build time + toolchain, from the Go build stamp [--json]
 
 commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   project list --runkod-url <url> --token <t>                 list projects indexed at trunk (§10.3) [--json]

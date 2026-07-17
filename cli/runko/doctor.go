@@ -112,6 +112,10 @@ type DoctorReport struct {
 	// them. Machine state, not repo state; reported so the cheat sheet
 	// can point at the chore verb without a network call.
 	TrackedMaterializations int
+	// CLI is this binary's own build identity (version.go) - reported so
+	// "which runko bit us" is answerable from any doctor paste (2026-07-16
+	// dogfood review: version drift had no verb).
+	CLI BuildIdentity
 }
 
 // RunDoctor inspects repoDir and returns a DoctorReport. It never fails hard
@@ -132,7 +136,7 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 		}
 	}
 
-	report := DoctorReport{RepoDir: repoDir, TrunkRef: trunkRef}
+	report := DoctorReport{RepoDir: repoDir, TrunkRef: trunkRef, CLI: buildIdentity()}
 
 	hooksDir, err := hooksDirectory(repoDir)
 	if err != nil {
@@ -293,6 +297,7 @@ func InstallVerbNudgeHook(repoDir string) (installed bool, err error) {
 // for: the three commands that matter, plus what needs fixing.
 func PrintCheatSheet(w io.Writer, report DoctorReport) {
 	fmt.Fprintln(w, "runko doctor")
+	fmt.Fprintf(w, "  runko cli:       %s\n", report.CLI)
 	switch {
 	case report.GitVersionError != "":
 		fmt.Fprintf(w, "  git version:     could not detect (%s)\n", report.GitVersionError)
