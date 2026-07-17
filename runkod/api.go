@@ -343,6 +343,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/changes/{key}/affected", s.requireReadAuth(s.handleGetAffected))
 	mux.HandleFunc("GET /api/changes/{key}/merge-requirements", s.requireReadAuth(s.handleGetMergeRequirements))
 	mux.HandleFunc("POST /api/changes/{key}/checks", s.requireAuth(s.handlePostCheck))
+	mux.HandleFunc("POST /api/deploys/{sha}/images", s.requireAuth(s.handlePostDeployImage))
 	mux.HandleFunc("POST /api/changes/{key}/approve", s.requireAuth(s.handleApproveChange))
 	mux.HandleFunc("POST /api/changes/{key}/automerge", s.requireAuth(s.handleSetAutomerge))
 	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
@@ -1518,6 +1519,83 @@ func (s *Server) handlePostCheck(w http.ResponseWriter, r *http.Request) {
 	// land evaluates now, not at the next sweep tick.
 	s.KickAutomerge()
 	w.WriteHeader(http.StatusCreated)
+}
+
+// deployImageReport mirrors cli/runko-ci's ImageReport (and
+// docs/spec/webhooks/image-report.schema.json) - the POST
+// /api/deploys/{sha}/images body report-image round-trips against.
+type deployImageReport struct {
+	Image    string `json:"image"`
+	ImageRef string `json:"image_ref"`
+	Digest   string `json:"digest"`
+	RunURL   string `json:"run_url"`
+	Reporter string `json:"reporter"`
+}
+
+// handlePostDeployImage records one built image's digest against a landed
+// commit's deploy record (§14.10 inverted CD trigger). When the report
+// completes the record's expected image set, it emits deploy.images_ready -
+// the runko-deployer pins the digests into the GitOps repo and Argo CD rolls.
+// A report for a sha with no open record is 404: the expected set is only
+// known at land (an unaffected/docs-only land opens no record).
+func (s *Server) handlePostDeployImage(w http.ResponseWriter, r *http.Request) {
+	sha := r.PathValue("sha")
+	var report deployImageReport
+	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+		http.Error(w, fmt.Sprintf("decode image report: %v", err), http.StatusBadRequest)
+		return
+	}
+	if report.Image == "" || report.Digest == "" {
+		http.Error(w, "image and digest are required", http.StatusBadRequest)
+		return
+	}
+	rec, ok, nowReady, err := s.Store.RecordDeployImage(r.Context(), sha, DeployImageRow{
+		Image: report.Image, ImageRef: report.ImageRef, Digest: report.Digest, RunURL: report.RunURL,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "no deploy record for this commit (it landed nothing deployable, or was not landed here)", http.StatusNotFound)
+		return
+	}
+	if nowReady {
+		s.enqueueDeployImagesReadyWebhook(r.Context(), rec)
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+// enqueueDeployImagesReadyWebhook emits deploy.images_ready once a landed
+// commit's every affected image has reported its digest (§14.10). Best-effort
+// like the other webhook enqueues: the record is already durably ready, so a
+// failed enqueue must not fail the report request (the outbox owns retries).
+func (s *Server) enqueueDeployImagesReadyWebhook(ctx context.Context, rec DeployRecord) {
+	images := make([]checks.DeployImage, 0, len(rec.Reported))
+	for _, img := range rec.Reported {
+		images = append(images, checks.DeployImage{Image: img.Image, ImageRef: img.ImageRef, Digest: img.Digest})
+	}
+	hook := checks.DeployImagesReadyWebhook{
+		SpecVersion: "1",
+		DeliveryID:  rec.TrunkSHA + "@images_ready",
+		Type:        "deploy.images_ready",
+		OccurredAt:  s.clock(),
+		OrgID:       s.SettingsOrg,
+		Deploy: checks.DeployImages{
+			TrunkSHA:   rec.TrunkSHA,
+			ChangeKey:  rec.ChangeKey,
+			Images:     images,
+			Provenance: rec.Provenance,
+		},
+	}
+	payload, err := json.Marshal(hook)
+	if err != nil {
+		log.Printf("runkod: %s: marshal deploy.images_ready webhook: %v", rec.TrunkSHA, err)
+		return
+	}
+	if _, err := s.Store.EnqueueWebhook(ctx, hook.Type, payload); err != nil {
+		log.Printf("runkod: %s: enqueue deploy.images_ready webhook: %v", rec.TrunkSHA, err)
+	}
 }
 
 // handleLandChange implements POST .../land (§13.5, §28.3 stage 11b): the

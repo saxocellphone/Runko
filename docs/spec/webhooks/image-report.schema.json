@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runko.dev/schema/webhooks/image-report/v1.json",
+  "title": "Runko image report (POST /api/deploys/{sha}/images) v1",
+  "description": "Body of `runko-ci report-image` (§14.10 inverted CD trigger): the post-land image-build workflow POSTs one of these per image it built to record its digest against the landed commit's deploy record. Bearer (deploy-token) authenticated; the POST is an idempotent upsert keyed (trunk sha, image), so retrying a report that died in a single-replica 503 window is safe (migration-findings #33). When the report completes the record's expected image set, runkod emits deploy.images_ready.",
+  "type": "object",
+  "required": ["image", "digest"],
+  "additionalProperties": false,
+  "properties": {
+    "image": {
+      "type": "string",
+      "description": "Logical image name / kustomize images: key, e.g. runkod|web|webadmin."
+    },
+    "image_ref": {
+      "type": "string",
+      "description": "Full pushed reference sans digest, e.g. ghcr.io/saxocellphone/runko/runkod - reported so the deployer pins image_ref@digest and stays registry-agnostic."
+    },
+    "digest": {
+      "type": "string",
+      "description": "e.g. sha256:... - the immutable reference the deployment serves."
+    },
+    "run_url": {
+      "type": "string",
+      "description": "Deep link to the CI run that built the image (provenance)."
+    },
+    "reporter": {
+      "type": "string",
+      "description": "Reporter id, e.g. github-actions (audit attribution)."
+    }
+  }
+}
