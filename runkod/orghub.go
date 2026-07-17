@@ -247,15 +247,23 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	mux.Handle("/api/orgs/{org}/settings", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodGet: h.handleGetOrgSettings, http.MethodPut: h.handlePutOrgSettings,
 	})))
-	// Deployment admin surface (operator-only): the whole org estate,
-	// archived included, plus the archive lifecycle (finding #19).
-	mux.Handle("/api/admin/orgs", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
-		http.MethodGet: h.handleAdminOrgs,
+	// Deployment admin surface (operator-only), ALL of it under
+	// /api/admin/: its own sign-in check (whoami), the org estate
+	// archived included, operator org creation, and the archive
+	// lifecycle (finding #19). The admin panel (webadmin/) is a separate
+	// app with its own sign-in flow - it talks to exactly this prefix
+	// and never rides the org-scoped surface, so nothing here keys on
+	// org membership or the normal login's stored session.
+	mux.Handle("/api/admin/whoami", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
+		http.MethodGet: h.handleAdminWhoami,
 	})))
-	mux.Handle("/api/orgs/{org}/archive", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
+	mux.Handle("/api/admin/orgs", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
+		http.MethodGet: h.handleAdminOrgs, http.MethodPost: h.handleAdminCreateOrg,
+	})))
+	mux.Handle("/api/admin/orgs/{org}/archive", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodPost: h.archiveHandler(true),
 	})))
-	mux.Handle("/api/orgs/{org}/unarchive", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
+	mux.Handle("/api/admin/orgs/{org}/unarchive", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodPost: h.archiveHandler(false),
 	})))
 	// Sign-up at the hub level supersedes the default server's own
@@ -434,7 +442,7 @@ func (h *OrgHub) routeOrg(w http.ResponseWriter, r *http.Request, defaultHandler
 		writeAPIError(w, typedErr(http.StatusGone, clierr.Error{
 			Code: "org_archived", Field: "org",
 			Message:    fmt.Sprintf("org %q is archived - its repo is kept, its surface is closed", name),
-			Suggestion: "an operator can restore it: POST /api/orgs/" + name + "/unarchive",
+			Suggestion: "an operator can restore it: POST /api/admin/orgs/" + name + "/unarchive",
 		}))
 		return
 	}
@@ -1132,6 +1140,53 @@ func (h *OrgHub) requireOperator(w http.ResponseWriter, r *http.Request) (caller
 		return c, false
 	}
 	return c, true
+}
+
+// handleAdminWhoami is the admin panel's dedicated sign-in check: one
+// round trip that both validates the credential and answers operator-
+// ness. Operators are server-global, so unlike the org-scoped
+// /o/<org>/api/whoami there is no org in this flow at all. 401 = wrong
+// credential; 403 = valid but not an operator; 200 = in.
+func (h *OrgHub) handleAdminWhoami(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.requireOperator(w, r)
+	if !ok {
+		return
+	}
+	name, anonymous := "", true
+	if c.principal != nil {
+		name, anonymous = c.principal.Name, false
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": name, "anonymous": anonymous, "operator": true})
+}
+
+// handleAdminCreateOrg is org creation on the admin surface. Unlike the
+// self-service POST /api/orgs it is NOT gated by --allow-org-create:
+// that flag scopes what signup accounts may do, and the operator is
+// whoever would flip it. No credential cloning either - operators are
+// config principals (never stored), membership-exempt everywhere.
+func (h *OrgHub) handleAdminCreateOrg(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.requireOperator(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "bad_request", Message: "body must be JSON: {name}",
+		}))
+		return
+	}
+	creator := ""
+	if c.principal != nil {
+		creator = c.principal.Name
+	}
+	if apiErr := h.createOrg(r.Context(), body.Name, creator, true); apiErr != nil {
+		writeAPIError(w, apiErr)
+		return
+	}
+	writeJSON(w, http.StatusCreated, h.orgInfoFor(body.Name, "operator"))
 }
 
 type adminOrgRow struct {
