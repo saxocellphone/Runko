@@ -251,9 +251,15 @@ func cmdProject(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The RESOLVED path (empty --path derives from the name, plan.go) -
+	// reporting the raw flag printed "path": "" for the common case.
+	outPath := intent.Path
+	if outPath == "" {
+		outPath = intent.Name
+	}
 	if *jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(map[string]string{
-			"name": intent.Name, "path": intent.Path, "rev": rev, "change_id": changeID,
+			"name": intent.Name, "path": outPath, "rev": rev, "change_id": changeID,
 		})
 	}
 	fmt.Printf("created project %s at %s (Change-Id: %s)\n", intent.Name, rev, changeID)

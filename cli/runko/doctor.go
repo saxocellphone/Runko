@@ -116,6 +116,13 @@ type DoctorReport struct {
 	// "which runko bit us" is answerable from any doctor paste (2026-07-16
 	// dogfood review: version drift had no verb).
 	CLI BuildIdentity
+	// AmbientToken: RUNKO_TOKEN is set in this environment. It OVERRIDES
+	// the stored login for git/network operations (gitauth.go's headless
+	// fallback order), so a signed-in human's pushes silently authenticate
+	// as the token - authored_by comes back empty/wrong and uploader
+	// consent never fires (found by the onboarding journey suite,
+	// 2026-07-17). The cheat-sheet warns loudly.
+	AmbientToken bool
 }
 
 // RunDoctor inspects repoDir and returns a DoctorReport. It never fails hard
@@ -136,7 +143,8 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 		}
 	}
 
-	report := DoctorReport{RepoDir: repoDir, TrunkRef: trunkRef, CLI: buildIdentity()}
+	report := DoctorReport{RepoDir: repoDir, TrunkRef: trunkRef, CLI: buildIdentity(),
+		AmbientToken: os.Getenv("RUNKO_TOKEN") != ""}
 
 	hooksDir, err := hooksDirectory(repoDir)
 	if err != nil {
@@ -212,20 +220,22 @@ func redactURLPassword(remote string) string {
 }
 
 func hooksDirectory(repoDir string) (string, error) {
-	if custom, err := runGit(repoDir, "config", "--get", "core.hooksPath"); err == nil && custom != "" {
-		if filepath.IsAbs(custom) {
-			return custom, nil
-		}
-		return filepath.Join(repoDir, custom), nil
-	}
-	gitDir, err := runGit(repoDir, "rev-parse", "--git-dir")
+	// `git rev-parse --git-path hooks` is the one canonical answer: it
+	// honors core.hooksPath AND resolves a worktree's hooks to the shared
+	// common dir - git runs hooks from $GIT_COMMON_DIR/hooks; the
+	// per-worktree gitdir has no hooks/ at all. The old by-hand resolution
+	// (--git-dir + "/hooks") named a directory git never consults inside a
+	// materialized worktree, so doctor reported a fully wired checkout as
+	// unhooked - and --install-hook would have written where git never
+	// looks (found by the onboarding journey suite, 2026-07-17).
+	p, err := runGit(repoDir, "rev-parse", "--git-path", "hooks")
 	if err != nil {
 		return "", err
 	}
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(repoDir, gitDir)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(repoDir, p)
 	}
-	return filepath.Join(gitDir, "hooks"), nil
+	return p, nil
 }
 
 func hookContains(path, marker string) bool {
@@ -298,6 +308,10 @@ func InstallVerbNudgeHook(repoDir string) (installed bool, err error) {
 func PrintCheatSheet(w io.Writer, report DoctorReport) {
 	fmt.Fprintln(w, "runko doctor")
 	fmt.Fprintf(w, "  runko cli:       %s\n", report.CLI)
+	if report.AmbientToken {
+		fmt.Fprintln(w, "  WARNING:         RUNKO_TOKEN is set - it overrides your stored login for git/network operations,")
+		fmt.Fprintln(w, "                   so pushes are attributed to the token, not you. Unset it unless this shell is a headless hook.")
+	}
 	switch {
 	case report.GitVersionError != "":
 		fmt.Fprintf(w, "  git version:     could not detect (%s)\n", report.GitVersionError)

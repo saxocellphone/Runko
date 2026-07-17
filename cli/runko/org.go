@@ -19,6 +19,19 @@ import (
 	"strings"
 )
 
+// hubBase strips a stored credential's /o/<org> mount suffix: the org
+// verbs talk to the HUB (host root), but after signup/org-create the
+// stored login deliberately points at the org mount - naively appending
+// /api/orgs produced /o/<org>/api/orgs, a 404, the moment onboarding
+// completed (found by the onboarding journey suite, 2026-07-17).
+func hubBase(credURL string) string {
+	u := strings.TrimSuffix(credURL, "/")
+	if i := strings.LastIndex(u, "/o/"); i >= 0 && !strings.Contains(u[i+3:], "/") {
+		return u[:i]
+	}
+	return u
+}
+
 // OrgInfo mirrors runkod's orgInfo wire shape.
 type OrgInfo struct {
 	Name    string `json:"name"`
@@ -31,7 +44,7 @@ type OrgInfo struct {
 func CreateOrg(ctx context.Context, client *http.Client, cred Credential, name string) (OrgInfo, error) {
 	var info OrgInfo
 	err := apiJSON(ctx, client, http.MethodPost,
-		strings.TrimSuffix(cred.URL, "/")+"/api/orgs", cred.AuthHeader(),
+		hubBase(cred.URL)+"/api/orgs", cred.AuthHeader(),
 		map[string]string{"name": name}, &info)
 	return info, err
 }
@@ -41,7 +54,7 @@ func ListOrgs(ctx context.Context, client *http.Client, cred Credential) ([]OrgI
 		Orgs []OrgInfo `json:"orgs"`
 	}
 	err := apiJSON(ctx, client, http.MethodGet,
-		strings.TrimSuffix(cred.URL, "/")+"/api/orgs", cred.AuthHeader(), nil, &out)
+		hubBase(cred.URL)+"/api/orgs", cred.AuthHeader(), nil, &out)
 	return out.Orgs, err
 }
 
@@ -51,7 +64,7 @@ func AddOrgMember(ctx context.Context, client *http.Client, cred Credential, org
 		body["role"] = role
 	}
 	return apiJSON(ctx, client, http.MethodPost,
-		strings.TrimSuffix(cred.URL, "/")+"/api/orgs/"+url.PathEscape(org)+"/members",
+		hubBase(cred.URL)+"/api/orgs/"+url.PathEscape(org)+"/members",
 		cred.AuthHeader(), body, nil)
 }
 
@@ -100,7 +113,7 @@ func cmdOrg(args []string) error {
 		if err != nil {
 			return err
 		}
-		base := strings.TrimSuffix(cred.URL, "/")
+		base := hubBase(cred.URL)
 		// Rebind the stored login to the new org (§6.10): creating an org
 		// means working in it next, and the hub cloned the creating
 		// account's credential into it (per-org accounts), so the stored

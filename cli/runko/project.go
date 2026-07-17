@@ -91,6 +91,17 @@ func CreateProject(repoDir string, intent project.Intent) (rev, changeID string,
 		return "", "", fmt.Errorf("advance %s: %w", headRef, err)
 	}
 
+	// A sparse checkout materializes only cone members: without adding the
+	// new project's path first, create COMMITS the files and the working
+	// tree then shows nothing - a first project appearing to vanish the
+	// moment it is created (found by the onboarding journey suite,
+	// 2026-07-17: a `--project repo` workspace's cone holds only root
+	// files). On a non-sparse checkout the add fails ("no sparse-checkout
+	// to add to") and is correctly a no-op.
+	if plan.Path != "" {
+		_, _ = runGit(repoDir, "sparse-checkout", "add", plan.Path)
+	}
+
 	// CommitOverlay only writes Git objects and moves the ref - it never
 	// touches the working tree or index (internal/gitstore), so bring both
 	// in sync with the new commit.
