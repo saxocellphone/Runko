@@ -19,3 +19,43 @@ export function postSignInPath(pathOrg: string, org: string): string | null {
   if (!pathOrg || pathOrg === org) return null;
   return `/${org}`;
 }
+
+// The app's own root routes that render ONE org's content. When the URL
+// doesn't name an org, they fall back to the stored selection (currentOrg)
+// - so the page shows an org the address bar never names. The rest
+// (login, signup, admin, demo, landing, ...) are account- or
+// deployment-global and legitimately live at the bare root.
+const orgScopedRootRoutes = new Set([
+  "",
+  "changes",
+  "browse",
+  "projects",
+  "workspaces",
+  "search",
+  "settings",
+  "graph",
+]);
+
+/** Canonical org-scoped location for a bare-root URL, or `null` to leave it
+ * be. A signed-in browser sitting on a bare-root org-scoped path (/browse,
+ * /changes, /) is really viewing its stored org, but the URL doesn't say
+ * which - confusing and unshareable. Rewrite it to the GitHub-style
+ * /<org>/... form so the address bar always names the org. Returns `null`
+ * when the URL already names an org (`pathOrg` set), when no org is known,
+ * when the browser isn't signed in (anonymous/public browsing has its own
+ * /<org> redirect in App's AnonGate), or when the path is a global route. */
+export function canonicalOrgPath(opts: {
+  pathOrg: string;
+  currentOrg: string;
+  signedIn: boolean;
+  pathname: string;
+  search: string;
+  hash: string;
+}): string | null {
+  const { pathOrg, currentOrg, signedIn, pathname, search, hash } = opts;
+  if (!signedIn || pathOrg || !currentOrg) return null;
+  const seg = pathname.split("/")[1] ?? "";
+  if (!orgScopedRootRoutes.has(seg)) return null;
+  const rest = pathname === "/" ? "" : pathname;
+  return `/${currentOrg}${rest}${search}${hash}`;
+}
