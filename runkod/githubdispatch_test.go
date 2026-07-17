@@ -128,8 +128,10 @@ func TestGithubDispatchSkipsUninterestingAndUnwired(t *testing.T) {
 	g, store, _, calls, _ := dispatcherFixture(t)
 	ctx := context.Background()
 
-	// change.landed never triggers CI; it must succeed as a no-op.
-	if _, err := store.EnqueueWebhook(ctx, "change.landed", dispatchEnvelope(t, "change.landed", "d2")); err != nil {
+	// change.commented never triggers CI or a build; it must succeed as a
+	// no-op. (change.landed DOES dispatch now - the image build - see
+	// TestGithubImageBuildDispatchOnLand.)
+	if _, err := store.EnqueueWebhook(ctx, "change.commented", dispatchEnvelope(t, "change.commented", "d2")); err != nil {
 		t.Fatalf("EnqueueWebhook: %v", err)
 	}
 	worker := &OutboxWorker{Store: store, GithubDispatch: g}
@@ -137,7 +139,7 @@ func TestGithubDispatchSkipsUninterestingAndUnwired(t *testing.T) {
 		t.Fatalf("RunOnce: n=%d err=%v", n, err)
 	}
 	if calls.Load() != 0 {
-		t.Fatalf("change.landed must not dispatch, got %d calls", calls.Load())
+		t.Fatalf("change.commented must not dispatch, got %d calls", calls.Load())
 	}
 
 	// An org with no wiring: delivered as a no-op, never retried.
@@ -155,6 +157,47 @@ func TestGithubDispatchSkipsUninterestingAndUnwired(t *testing.T) {
 	}
 	if due, _ := store.ListDueWebhookDeliveries(ctx, time.Now().Add(time.Hour)); len(due) != 0 {
 		t.Fatalf("no-op deliveries must be marked delivered: %+v", due)
+	}
+}
+
+// TestGithubImageBuildDispatchOnLand: a landed change dispatches the
+// post-land image build (runko-image-build) - the "Runko is the trigger"
+// CD seam. The payload carries the landed commit; the workflow computes the
+// affected image set itself and reports digests back via report-image.
+func TestGithubImageBuildDispatchOnLand(t *testing.T) {
+	g, store, _, calls, lastReq := dispatcherFixture(t)
+	ctx := context.Background()
+	if _, err := store.EnqueueWebhook(ctx, "change.landed", dispatchEnvelope(t, "change.landed", "d7")); err != nil {
+		t.Fatalf("EnqueueWebhook: %v", err)
+	}
+	worker := &OutboxWorker{Store: store, GithubDispatch: g}
+	if n, err := worker.RunOnce(ctx); err != nil || n != 1 {
+		t.Fatalf("RunOnce: n=%d err=%v", n, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("change.landed must dispatch the image build, got %d calls", calls.Load())
+	}
+	got := lastReq.Load().(map[string]string)
+	if got["auth"] != "Bearer ghs_minted" {
+		t.Fatalf("dispatch auth: %q", got["auth"])
+	}
+	var body struct {
+		EventType     string `json:"event_type"`
+		ClientPayload struct {
+			ChangeID   string `json:"change_id"`
+			HeadSHA    string `json:"head_sha"`
+			BaseSHA    string `json:"base_sha"`
+			Trigger    string `json:"trigger"`
+			DeliveryID string `json:"delivery_id"`
+		} `json:"client_payload"`
+	}
+	if err := json.Unmarshal([]byte(got["body"]), &body); err != nil {
+		t.Fatalf("dispatch body: %v", err)
+	}
+	cp := body.ClientPayload
+	if body.EventType != "runko-image-build" || cp.ChangeID != "Iabc" || cp.HeadSHA != "head" ||
+		cp.BaseSHA != "base" || cp.Trigger != "change.landed" || cp.DeliveryID != "d7" {
+		t.Fatalf("image-build dispatch payload (the workflow's wire contract): %+v", body)
 	}
 }
 
