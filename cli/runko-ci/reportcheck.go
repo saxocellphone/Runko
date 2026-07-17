@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -45,42 +44,5 @@ func ReportCheck(ctx context.Context, client *http.Client, checksURL, token stri
 	if err != nil {
 		return fmt.Errorf("marshal check run: %w", err)
 	}
-
-	var lastErr error
-	for attempt := 0; attempt < reportCheckAttempts; attempt++ {
-		if attempt > 0 {
-			delay := reportCheckBackoff << (attempt - 1)
-			fmt.Printf("runko-ci: report-check attempt %d/%d failed (%v); retrying in %s\n", attempt, reportCheckAttempts, lastErr, delay)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(delay):
-			}
-		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, checksURL, bytes.NewReader(payload))
-		if err != nil {
-			return fmt.Errorf("build request: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		resp, err := client.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("post check run: %w", err)
-			continue
-		}
-		resp.Body.Close()
-
-		switch {
-		case resp.StatusCode >= 200 && resp.StatusCode < 300:
-			return nil
-		case resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests:
-			lastErr = fmt.Errorf("checks endpoint returned %d", resp.StatusCode)
-			continue
-		default:
-			return fmt.Errorf("checks endpoint returned %d", resp.StatusCode)
-		}
-	}
-	return lastErr
+	return postReport(ctx, client, checksURL, token, payload, reportCheckAttempts, reportCheckBackoff, "report-check")
 }
