@@ -70,6 +70,7 @@ go_test(
         "land_test.go",
         "main_test.go",
         "materializations_test.go",
+        "org_test.go",
         "project_test.go",
         "sync_test.go",
         "update_test.go",
