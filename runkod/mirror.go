@@ -32,8 +32,14 @@ const mirrorRemoteName = "mirror"
 // MirrorWorker debounces outbound syncs (the ZoektIndexWorker pattern) and
 // reconciles periodically so restarts and missed triggers self-heal (the
 // OutboxWorker pattern). Trigger is nil-safe: a daemon with no mirror
-// configured calls it unconditionally.
+// configured calls it unconditionally. The Remote is swappable at runtime
+// (SetRemote) so `runko github connect` can arm an idle worker without a
+// daemon restart (2026-07-16) - a worker with no Remote
+// ticks and does nothing.
 type MirrorWorker struct {
+	// Remote is the boot-time target (flag config); read it through
+	// remote() everywhere - SetRemote may replace it while the daemon
+	// serves.
 	Remote   *mirror.Remote
 	Store    Store
 	TrunkRef string
@@ -56,9 +62,28 @@ type MirrorWorker struct {
 	lastSyncAt time.Time
 }
 
+// SetRemote swaps the mirror target while the daemon serves - the
+// `github connect` wiring. An in-flight sync finishes against the remote
+// it started with (syncMu serializes syncs, not this pointer).
+func (w *MirrorWorker) SetRemote(r *mirror.Remote) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.Remote = r
+}
+
+// remote is the mu-guarded read every sync and handler goes through.
+func (w *MirrorWorker) remote() *mirror.Remote {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.Remote
+}
+
 // Trigger schedules (or reschedules) a sync.
 func (w *MirrorWorker) Trigger() {
-	if w == nil || w.Remote == nil {
+	if w == nil || w.remote() == nil {
 		return
 	}
 	w.mu.Lock()
@@ -75,9 +100,10 @@ func (w *MirrorWorker) Trigger() {
 	})
 }
 
-// Run is the reconcile loop; returns when ctx is done.
+// Run is the reconcile loop; returns when ctx is done. It runs even with
+// no Remote configured - SetRemote may arm the worker later.
 func (w *MirrorWorker) Run(ctx context.Context) {
-	if w == nil || w.Remote == nil || w.Interval <= 0 {
+	if w == nil || w.Interval <= 0 {
 		return
 	}
 	ticker := time.NewTicker(w.Interval)
@@ -99,6 +125,10 @@ func (w *MirrorWorker) Run(ctx context.Context) {
 // is remembered for /api/mirror/status but later namespaces still run - a
 // frozen trunk must not stop change-ref backup, and vice versa.
 func (w *MirrorWorker) SyncOnce(ctx context.Context) error {
+	remote := w.remote()
+	if remote == nil {
+		return nil // unarmed worker - `github connect` may arm it later
+	}
 	w.syncMu.Lock()
 	defer w.syncMu.Unlock()
 	var firstErr error
@@ -108,9 +138,9 @@ func (w *MirrorWorker) SyncOnce(ctx context.Context) error {
 		}
 	}
 
-	record(w.syncTrunk(ctx))
-	record(w.syncNamespace(ctx, "refs/tags/*", "refs/tags/*:refs/tags/*"))
-	record(w.syncNamespace(ctx, "refs/changes/*", "+refs/changes/*:refs/changes/*"))
+	record(w.syncTrunk(ctx, remote))
+	record(w.syncNamespace(ctx, remote, "refs/tags/*", "refs/tags/*:refs/tags/*"))
+	record(w.syncNamespace(ctx, remote, "refs/changes/*", "+refs/changes/*:refs/changes/*"))
 
 	w.mu.Lock()
 	w.lastErr = firstErr
@@ -122,9 +152,9 @@ func (w *MirrorWorker) SyncOnce(ctx context.Context) error {
 // syncTrunk is the leased half (§18.6.1): the push succeeds only if the
 // mirror's trunk still points where our cursor says we left it. Anything
 // else is a foreign write - freeze, never overwrite (§18.6.4).
-func (w *MirrorWorker) syncTrunk(ctx context.Context) error {
+func (w *MirrorWorker) syncTrunk(ctx context.Context, remote *mirror.Remote) error {
 	trunk := "refs/heads/" + w.TrunkRef
-	localTip, err := gitRevParse(w.Remote.RepoDir, trunk)
+	localTip, err := gitRevParse(remote.RepoDir, trunk)
 	if err != nil {
 		return nil // unborn trunk - nothing to mirror yet
 	}
@@ -140,7 +170,7 @@ func (w *MirrorWorker) syncTrunk(ctx context.Context) error {
 		return nil // current
 	}
 
-	remoteSHA, err := w.Remote.LsRemote(trunk)
+	remoteSHA, err := remote.LsRemote(trunk)
 	if err != nil {
 		return fmt.Errorf("mirror: ls-remote: %w", err)
 	}
@@ -157,7 +187,7 @@ func (w *MirrorWorker) syncTrunk(ctx context.Context) error {
 		return fmt.Errorf("mirror: %s diverged (mirror at %.12s, expected %.12s) - frozen; unfreeze via POST /api/mirror/unfreeze after review", trunk, remoteSHA, expected)
 	}
 	if remoteSHA != localTip {
-		if err := w.Remote.PushWithLease(trunk, remoteSHA); err != nil {
+		if err := remote.PushWithLease(trunk, remoteSHA); err != nil {
 			// Lost the lease between ls-remote and push: same verdict.
 			if freezeErr := w.Store.FreezeMirrorCursor(ctx, mirrorRemoteName, trunk); freezeErr != nil {
 				return freezeErr
@@ -172,7 +202,7 @@ func (w *MirrorWorker) syncTrunk(ctx context.Context) error {
 // a status heartbeat (wildcards have no single SHA to lease on; the change
 // namespace is server-owned on both sides, tags are append-only by
 // convention and a rejected tag rewrite surfaces as the recorded error).
-func (w *MirrorWorker) syncNamespace(ctx context.Context, name, refspec string) error {
+func (w *MirrorWorker) syncNamespace(ctx context.Context, remote *mirror.Remote, name, refspec string) error {
 	// Self-heal dangling refs first (found live, a full CI outage): a
 	// stable change ref can end up pointing at an object the repo never
 	// kept - the pre-receive hook writes refs while objects are still in
@@ -183,21 +213,21 @@ func (w *MirrorWorker) syncNamespace(ctx context.Context, name, refspec string) 
 	// recreates it), so deleting it - loudly - is strictly better than
 	// letting it poison the namespace.
 	namespace := strings.TrimSuffix(name, "/*")
-	if out, err := gitOutput(w.Remote.RepoDir, "for-each-ref", "--format=%(refname) %(objectname)", namespace); err == nil {
+	if out, err := gitOutput(remote.RepoDir, "for-each-ref", "--format=%(refname) %(objectname)", namespace); err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 			ref, obj, ok := strings.Cut(line, " ")
 			if !ok {
 				continue
 			}
-			if err := gitRun(w.Remote.RepoDir, "cat-file", "-e", obj); err != nil {
+			if err := gitRun(remote.RepoDir, "cat-file", "-e", obj); err != nil {
 				log.Printf("runkod: mirror: %s points at missing object %.12s (aborted push's quarantine?) - deleting the dangling ref; a re-push recreates it", ref, obj)
-				if delErr := gitRun(w.Remote.RepoDir, "update-ref", "-d", ref); delErr != nil {
+				if delErr := gitRun(remote.RepoDir, "update-ref", "-d", ref); delErr != nil {
 					log.Printf("runkod: mirror: could not delete dangling %s: %v", ref, delErr)
 				}
 			}
 		}
 	}
-	if err := w.Remote.PushRefspecs(refspec); err != nil {
+	if err := remote.PushRefspecs(refspec); err != nil {
 		return fmt.Errorf("mirror: push %s: %w", name, err)
 	}
 	return w.Store.UpsertMirrorCursor(ctx, mirrorRemoteName, name, "")
@@ -223,7 +253,8 @@ type mirrorStatus struct {
 }
 
 func (s *Server) handleMirrorStatus(w http.ResponseWriter, r *http.Request) {
-	if s.Mirror == nil || s.Mirror.Remote == nil {
+	remote := s.Mirror.remote()
+	if remote == nil {
 		writeJSON(w, http.StatusOK, mirrorStatus{Configured: false})
 		return
 	}
@@ -235,7 +266,7 @@ func (s *Server) handleMirrorStatus(w http.ResponseWriter, r *http.Request) {
 	s.Mirror.mu.Lock()
 	lastErr, lastAt := s.Mirror.lastErr, s.Mirror.lastSyncAt
 	s.Mirror.mu.Unlock()
-	status := mirrorStatus{Configured: true, RemoteURL: s.Mirror.Remote.URL, Cursors: cursors, LastSyncAt: lastAt}
+	status := mirrorStatus{Configured: true, RemoteURL: remote.URL, Cursors: cursors, LastSyncAt: lastAt}
 	if lastErr != nil {
 		status.LastError = lastErr.Error()
 	}
@@ -248,7 +279,8 @@ func (s *Server) handleMirrorStatus(w http.ResponseWriter, r *http.Request) {
 // - both tips, so the admin sees what they just sanctioned overwriting.
 // Gated like force-land: admins and the deploy token; agents never.
 func (s *Server) handleMirrorUnfreeze(w http.ResponseWriter, r *http.Request) {
-	if s.Mirror == nil || s.Mirror.Remote == nil {
+	remote := s.Mirror.remote()
+	if remote == nil {
 		http.Error(w, "no mirror configured", http.StatusNotFound)
 		return
 	}
@@ -268,7 +300,7 @@ func (s *Server) handleMirrorUnfreeze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	remoteSHA, err := s.Mirror.Remote.LsRemote(body.Ref)
+	remoteSHA, err := remote.LsRemote(body.Ref)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("ls-remote: %v", err), http.StatusBadGateway)
 		return

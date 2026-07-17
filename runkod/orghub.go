@@ -92,6 +92,12 @@ type OrgRecord struct {
 // before multi-org made the org a first-class row.
 type OrgSettings struct {
 	Description string `json:"description,omitempty"`
+	// GithubMirrorRepo is the org's GitHub mirror in "owner/name" form,
+	// owned by POST /api/github/connect (2026-07-16, runkod/README.md):
+	// the daemon-level GitHub App mints its push credentials, and the
+	// wiring survives restarts through this field. The settings PUT
+	// carries it forward untouched - the settings page never edits it.
+	GithubMirrorRepo string `json:"github_mirror_repo,omitempty"`
 	// GlobalRequiredChecks are required on EVERY change in this org
 	// (§14.9), merged with the daemon-level --global-required-checks.
 	GlobalRequiredChecks []string `json:"global_required_checks,omitempty"`
@@ -965,6 +971,12 @@ func (h *OrgHub) handlePutOrgSettings(w http.ResponseWriter, r *http.Request) {
 			}))
 			return
 		}
+	}
+	// github_mirror_repo is connect-owned (POST /api/github/connect):
+	// the PUT replaces settings wholesale, so carry the wiring forward
+	// or every settings-page save would silently disconnect the mirror.
+	if existing, err := h.Directory.GetOrgSettings(r.Context(), orgName); err == nil {
+		settings.GithubMirrorRepo = existing.GithubMirrorRepo
 	}
 	if err := h.Directory.UpdateOrgSettings(r.Context(), orgName, settings); err != nil {
 		writeAPIError(w, internalErr(err))
