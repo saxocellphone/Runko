@@ -463,13 +463,13 @@ func (o MaterializeOptions) resolve(runkodURL, repoPath, wsName, branch string) 
 
 // WorkspaceCreate registers the workspace and materializes its worktree.
 // The returned dir is where it landed (callers may have passed none).
-func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token, name, owner string, projects []string, opts MaterializeOptions) (WorkspaceInfo, string, error) {
+func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token, name, owner string, projects, newPaths []string, opts MaterializeOptions) (WorkspaceInfo, string, error) {
 	if err := opts.preflight(); err != nil {
 		return WorkspaceInfo{}, "", err
 	}
 	var info WorkspaceInfo
 	err := apiJSON(ctx, client, http.MethodPost, strings.TrimSuffix(runkodURL, "/")+"/api/workspaces", token,
-		map[string]interface{}{"name": name, "owner": owner, "projects": projects}, &info)
+		map[string]interface{}{"name": name, "owner": owner, "projects": projects, "new_paths": newPaths}, &info)
 	if err != nil {
 		return WorkspaceInfo{}, "", err
 	}

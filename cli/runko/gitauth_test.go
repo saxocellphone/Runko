@@ -57,7 +57,7 @@ func TestStoreRemoteIsCredentialNeutral(t *testing.T) {
 	wsDir := filepath.Join(root, "neutral-ws")
 
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"neutral-ws", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
+		"neutral-ws", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: wsDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 
@@ -95,7 +95,7 @@ func TestPreS127StoreIsNeutralizedOnReuse(t *testing.T) {
 	root := t.TempDir()
 	cloneDir := filepath.Join(root, "legacy-store")
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"legacy-a", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "legacy-a")}); err != nil {
+		"legacy-a", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "legacy-a")}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 
@@ -109,7 +109,7 @@ func TestPreS127StoreIsNeutralizedOnReuse(t *testing.T) {
 	mustGit(t, cloneDir, "config", "--unset", "credential.helper")
 
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"legacy-b", "bob", []string{"money-lib"}, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "legacy-b")}); err != nil {
+		"legacy-b", "bob", []string{"money-lib"}, nil, MaterializeOptions{CloneDir: cloneDir, Dir: filepath.Join(root, "legacy-b")}); err != nil {
 		t.Fatalf("WorkspaceCreate over the legacy store: %v", err)
 	}
 	remote := mustGit(t, cloneDir, "config", "remote.origin.url")

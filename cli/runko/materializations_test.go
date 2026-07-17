@@ -26,7 +26,7 @@ func TestWorkspaceCreateDefaultsToManagedHome(t *testing.T) {
 	t.Chdir(cwd)
 
 	info, dir, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"managed-ws", "alice", []string{"checkout-api"}, MaterializeOptions{})
+		"managed-ws", "alice", []string{"checkout-api"}, nil, MaterializeOptions{})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate with managed defaults: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestWorkspaceCreateRefusesNestedCheckout(t *testing.T) {
 	mustGit(t, host, "add", "-A")
 
 	_, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"nested-ws", "alice", []string{"checkout-api"},
+		"nested-ws", "alice", []string{"checkout-api"}, nil,
 		MaterializeOptions{CloneDir: filepath.Join(t.TempDir(), "store"), Dir: filepath.Join(host, "nested-ws")})
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "workspace_nested_checkout" {
@@ -80,7 +80,7 @@ func TestWorkspaceCreateRefusesNestedCheckout(t *testing.T) {
 	}
 
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"nested-ws", "alice", []string{"checkout-api"},
+		"nested-ws", "alice", []string{"checkout-api"}, nil,
 		MaterializeOptions{CloneDir: filepath.Join(t.TempDir(), "store"), Dir: filepath.Join(host, "nested-ws"), ForceNested: true}); err != nil {
 		t.Fatalf("--force-nested should override the guard: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestWorkspaceCreateRefusesNestedCheckout(t *testing.T) {
 func TestWorkspacePathLookup(t *testing.T) {
 	srv, _ := startWorkspaceServer(t)
 	_, dir, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"path-ws", "alice", []string{"checkout-api"}, MaterializeOptions{})
+		"path-ws", "alice", []string{"checkout-api"}, nil, MaterializeOptions{})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}

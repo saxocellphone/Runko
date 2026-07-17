@@ -115,7 +115,7 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   change abandon --change <id> --runkod-url <url> --token <t>   abandon an open change (§7.4) [--json]
   change automerge --change <id> [--disable]                arm the when-ready land: the server lands it once checks+approvals go green [--json]
   change rerun-check --change <id> --name <check> --runkod-url <url> --token <t>   request a check re-run (§14.4.2) [--json]
-  workspace create --name <n> --project <p>... [--by <who>] [--jj]   worktree + sparse cone + registry row (§12.3; --by defaults to the stored login; --jj: standalone jj colocated checkout) [--json]
+  workspace create --name <n> --project <p>... [--new-path <dir>...] [--by <who>] [--jj]   worktree + sparse cone + registry row (§12.3; --new-path: affinity for a project not on trunk yet; --by defaults to the stored login; --jj: standalone jj colocated checkout) [--json]
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
   workspace attach <id> --runkod-url <url> --token <t> [--branch <b>] [--jj]   restore a workspace branch from its snapshot ref [--json]
   workspace delete <id> --runkod-url <url> --token <t>       delete the registry row + snapshot refs (refused while it has open changes) [--json]
@@ -841,6 +841,8 @@ func cmdWorkspace(args []string) error {
 		jjClient := fs.Bool("jj", false, "standalone jj colocated checkout (jj + .git side by side, Change-Ids from jj change ids) instead of a worktree off the shared store")
 		var projects stringSliceFlag
 		fs.Var(&projects, "project", "project affinity (repeatable)")
+		var newPaths stringSliceFlag
+		fs.Var(&newPaths, "new-path", "path root for a project NOT on trunk yet (repeatable) - the greenfield bootstrap: the cone + write affinity cover it so the change that creates the project can be pushed from here")
 		jsonOut := fs.Bool("json", false, "emit the workspace (+ Dir) as JSON")
 		if err := fs.Parse(rest); err != nil {
 			return err
@@ -855,10 +857,10 @@ func cmdWorkspace(args []string) error {
 		if *by == "" {
 			*by = cred.Name
 		}
-		if *name == "" || *by == "" || len(projects) == 0 {
-			return fmt.Errorf("workspace create: --name and at least one --project are required (and --by, when signed in with a bare token)")
+		if *name == "" || *by == "" || len(projects)+len(newPaths) == 0 {
+			return fmt.Errorf("workspace create: --name and at least one --project (or --new-path) are required (and --by, when signed in with a bare token)")
 		}
-		info, wsDir, err := WorkspaceCreate(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), *name, *by, projects,
+		info, wsDir, err := WorkspaceCreate(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), *name, *by, projects, newPaths,
 			MaterializeOptions{CloneDir: *cloneDir, Dir: *dir, ForceNested: *forceNested, JJ: *jjClient})
 		if err != nil {
 			return err

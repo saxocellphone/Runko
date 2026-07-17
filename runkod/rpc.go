@@ -863,7 +863,9 @@ func (r *rpcServer) DeleteProject(ctx context.Context, req *connect.Request[runk
 // ---- WorkspaceService ----
 
 func (r *rpcServer) CreateWorkspace(ctx context.Context, req *connect.Request[runkov1.CreateWorkspaceRequest]) (*connect.Response[runkov1.CreateWorkspaceResponse], error) {
-	ws, apiErr := r.s.createWorkspaceCore(ctx, req.Msg.Name, req.Msg.Owner, req.Msg.Projects)
+	// The RPC surface has no new-paths field yet - the greenfield bootstrap
+	// is CLI/REST-first (web picks it up when the proto grows the field).
+	ws, apiErr := r.s.createWorkspaceCore(ctx, req.Msg.Name, req.Msg.Owner, req.Msg.Projects, nil)
 	if apiErr != nil {
 		return nil, connectErr(apiErr)
 	}

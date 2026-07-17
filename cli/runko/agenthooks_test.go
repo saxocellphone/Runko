@@ -159,7 +159,7 @@ func TestInstalledSettingsNeverRideIntoSnapshots(t *testing.T) {
 	wsDir := filepath.Join(root, "hooked")
 
 	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
-		"hooked", "alice", []string{"checkout-api"}, MaterializeOptions{CloneDir: filepath.Join(root, "mono"), Dir: wsDir}); err != nil {
+		"hooked", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: filepath.Join(root, "mono"), Dir: wsDir}); err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
 	if _, installed, via, err := InstallAgentHooks(wsDir); err != nil || !installed || via != "info/exclude" {

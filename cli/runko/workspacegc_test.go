@@ -20,7 +20,7 @@ func TestWorkspaceGCReclaimsClosedSyncedWorktree(t *testing.T) {
 	ctx := context.Background()
 
 	_, dir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"gc-done", "alice", []string{"checkout-api"}, MaterializeOptions{})
+		"gc-done", "alice", []string{"checkout-api"}, nil, MaterializeOptions{})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestWorkspaceGCWatchParkedDirtyIsReclaimable(t *testing.T) {
 	ctx := context.Background()
 
 	_, dir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"gc-parked", "alice", []string{"checkout-api"}, MaterializeOptions{})
+		"gc-parked", "alice", []string{"checkout-api"}, nil, MaterializeOptions{})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestWorkspaceGCFailClosedSkips(t *testing.T) {
 	mk := func(name string) string {
 		t.Helper()
 		_, dir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-			name, "alice", []string{"checkout-api"}, MaterializeOptions{})
+			name, "alice", []string{"checkout-api"}, nil, MaterializeOptions{})
 		if err != nil {
 			t.Fatalf("WorkspaceCreate %s: %v", name, err)
 		}
@@ -160,7 +160,7 @@ func TestWorkspaceGCIdleSweepsOpenSynced(t *testing.T) {
 	ctx := context.Background()
 
 	_, dir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"gc-idle", "alice", []string{"checkout-api"}, MaterializeOptions{})
+		"gc-idle", "alice", []string{"checkout-api"}, nil, MaterializeOptions{})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestWorkspaceGCScanAdoptsLegacyWorktrees(t *testing.T) {
 	storeDir := filepath.Join(root, "legacy-store")
 
 	_, dir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"legacy-ws", "alice", []string{"checkout-api"},
+		"legacy-ws", "alice", []string{"checkout-api"}, nil,
 		MaterializeOptions{CloneDir: storeDir, Dir: filepath.Join(root, "legacy-ws")})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
@@ -228,7 +228,7 @@ func TestWorkspaceCreateRecyclesClosedWorktree(t *testing.T) {
 	ctx := context.Background()
 
 	_, oldDir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"rec-old", "alice", []string{"checkout-api"}, MaterializeOptions{})
+		"rec-old", "alice", []string{"checkout-api"}, nil, MaterializeOptions{})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate rec-old: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestWorkspaceCreateRecyclesClosedWorktree(t *testing.T) {
 	}
 
 	_, newDir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"rec-new", "alice", []string{"money-lib"}, MaterializeOptions{})
+		"rec-new", "alice", []string{"money-lib"}, nil, MaterializeOptions{})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate rec-new: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestWorkspaceGCScanNeutralizesDeadCredentialStore(t *testing.T) {
 	storeDir := filepath.Join(root, "dead-cred-store")
 
 	_, dir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
-		"dead-cred-ws", "alice", []string{"checkout-api"},
+		"dead-cred-ws", "alice", []string{"checkout-api"}, nil,
 		MaterializeOptions{CloneDir: storeDir, Dir: filepath.Join(root, "dead-cred-ws")})
 	if err != nil {
 		t.Fatalf("WorkspaceCreate: %v", err)
