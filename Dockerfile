@@ -14,7 +14,8 @@ RUN CGO_ENABLED=0 go build -o /out/runkod ./runkod/cmd/runkod \
     && CGO_ENABLED=0 go build -o /out/runko-ci ./cli/runko-ci \
     && CGO_ENABLED=0 go build -o /out/runko-bridge ./runkod/cmd/runko-bridge \
     && CGO_ENABLED=0 go build -o /out/runko-watchdog ./watchdog \
-    && CGO_ENABLED=0 go build -o /out/runko-mailer ./mailer
+    && CGO_ENABLED=0 go build -o /out/runko-mailer ./mailer \
+    && CGO_ENABLED=0 go build -o /out/runko-deployer ./runkod/cmd/runko-deployer
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/zricethezav/gitleaks/v8@v8.21.2
 # zoekt-git-index: lets the daemon's ZoektIndexWorker (§28.3 stage 11)
 # index trunk on advance. Pinned to the SAME zoekt build the k8s
@@ -28,7 +29,7 @@ FROM alpine:3.21
 # Server.Handler() refuses to start without it (smart-HTTP is the only
 # write path). wget (busybox) backs the compose healthcheck.
 RUN apk add --no-cache git git-daemon ca-certificates
-COPY --from=build /out/runkod /out/runko /out/runko-ci /out/runko-bridge /out/runko-watchdog /out/runko-mailer /out/gitleaks /out/zoekt-git-index /usr/local/bin/
+COPY --from=build /out/runkod /out/runko /out/runko-ci /out/runko-bridge /out/runko-watchdog /out/runko-mailer /out/runko-deployer /out/gitleaks /out/zoekt-git-index /usr/local/bin/
 # The daemon makes commits during land (rebase) - give the process a git
 # identity so machine-generated commits never fail on a bare container.
 RUN git config --system user.name "runkod" && git config --system user.email "runkod@localhost" \
