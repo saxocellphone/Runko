@@ -148,8 +148,22 @@ func cmdServe(args []string) error {
 			}
 		}
 	}
-	if *repoDir == "" {
-		return fmt.Errorf("serve: --repo-dir is required")
+	// ORG-LESS MODE (2026-07-17, the default-org retirement): no
+	// --repo-dir means no root-mounted org at all - the hub serves only
+	// the global surfaces at the root and every org lives at /o/<name>/.
+	// The flags that ride the default org's repo are contradictions
+	// there, refused loudly instead of silently ignored.
+	orgless := *repoDir == ""
+	if orgless {
+		if *orgsDir == "" {
+			return fmt.Errorf("serve: --orgs-dir is required without --repo-dir (org-less mode has no repo to place it beside)")
+		}
+		if *mirrorRemote != "" {
+			return fmt.Errorf("serve: --mirror-remote mirrors the default org's repo - in org-less mode use --org-mirror 'org=<name>;remote=<url>' (or `runko github connect`) per org")
+		}
+		if *zoektIndexDir != "" {
+			return fmt.Errorf("serve: --zoekt-index-dir indexes the default org's repo, which org-less mode does not have - drop it (per-org indexing is a recorded follow-up)")
+		}
 	}
 	if *token == "" {
 		return fmt.Errorf("serve: --token is required")
@@ -178,8 +192,10 @@ func cmdServe(args []string) error {
 		scanner = runkod.GitleaksScanner{Bin: *gitleaksBin}
 	}
 
-	if err := runkod.EnsureBareRepo(*repoDir, *trunk); err != nil {
-		return fmt.Errorf("serve: %w", err)
+	if !orgless {
+		if err := runkod.EnsureBareRepo(*repoDir, *trunk); err != nil {
+			return fmt.Errorf("serve: %w", err)
+		}
 	}
 
 	ln, err := net.Listen("tcp", *addr)
@@ -192,20 +208,36 @@ func cmdServe(args []string) error {
 	}
 	selfURL := fmt.Sprintf("http://127.0.0.1:%s", port)
 
-	if err := runkod.InstallPreReceiveHook(*repoDir, selfURL, *token); err != nil {
-		return fmt.Errorf("serve: %w", err)
+	if !orgless {
+		if err := runkod.InstallPreReceiveHook(*repoDir, selfURL, *token); err != nil {
+			return fmt.Errorf("serve: %w", err)
+		}
 	}
 
-	defaultOrgName := strings.TrimSuffix(runkod.RepoMountName(*repoDir), ".git")
+	defaultOrgName := ""
+	if !orgless {
+		defaultOrgName = strings.TrimSuffix(runkod.RepoMountName(*repoDir), ".git")
+	}
 	var store runkod.Store
 	var pgDefault *runkod.PostgresStore
 	if *databaseURL != "" {
-		pg, err := runkod.BootstrapPostgresStore(context.Background(), *databaseURL, defaultOrgName, *trunk)
-		if err != nil {
-			return fmt.Errorf("serve: %w", err)
+		if orgless {
+			// Schema + a GLOBAL store: accounts/orgs/memberships only, no
+			// bootstrap org row - the hub's own surfaces (orghub.go).
+			pool, err := runkod.OpenPostgresPool(context.Background(), *databaseURL)
+			if err != nil {
+				return fmt.Errorf("serve: %w", err)
+			}
+			pgDefault = runkod.NewHubPostgresStore(pool)
+			store = pgDefault
+		} else {
+			pg, err := runkod.BootstrapPostgresStore(context.Background(), *databaseURL, defaultOrgName, *trunk)
+			if err != nil {
+				return fmt.Errorf("serve: %w", err)
+			}
+			store = pg
+			pgDefault = pg
 		}
-		store = pg
-		pgDefault = pg
 		fmt.Println("runkod: using Postgres-backed storage (durable across restarts)")
 		if *allowUnpoliced {
 			fmt.Fprintln(os.Stderr, "runkod: WARNING --insecure-allow-unpoliced-land is set - changes resolving NO merge policy (no required checks, no owners) will land ungated. Declare owners/ci.checks or --global-required-checks instead in production (§28.3 stage 11c).")
@@ -291,35 +323,47 @@ func cmdServe(args []string) error {
 	// (2026-07-16, runkod/README.md) - unarmed without config, so an
 	// idle worker is a no-op ticker. Boot precedence for the remote:
 	// explicit flag config wins; else stored github wiring (restored
-	// below, once the directory exists); else unarmed.
-	mirrorWorker := &runkod.MirrorWorker{
-		Store:    store,
-		TrunkRef: *trunk,
-		Debounce: 3 * time.Second,
-		Interval: time.Minute,
-	}
-	if *mirrorRemote != "" {
-		remote := &mirror.Remote{RepoDir: *repoDir, URL: *mirrorRemote, Username: *mirrorUsername, Token: *mirrorToken,
-			TokenSource: mirrorTokenSource(ghApp, *mirrorRemote, *mirrorToken)}
-		if remote.TokenSource != nil {
-			fmt.Printf("runkod: mirror %s authenticates via GitHub App %s\n", *mirrorRemote, *githubAppID)
+	// below, once the directory exists); else unarmed. Org-less: no root
+	// repo, no root mirror worker - each org's own (NewOrgServer) is the
+	// whole mirror story.
+	var mirrorWorker *runkod.MirrorWorker
+	if !orgless {
+		mirrorWorker = &runkod.MirrorWorker{
+			Store:    store,
+			TrunkRef: *trunk,
+			Debounce: 3 * time.Second,
+			Interval: time.Minute,
 		}
-		mirrorWorker.Remote = remote
+		if *mirrorRemote != "" {
+			remote := &mirror.Remote{RepoDir: *repoDir, URL: *mirrorRemote, Username: *mirrorUsername, Token: *mirrorToken,
+				TokenSource: mirrorTokenSource(ghApp, *mirrorRemote, *mirrorToken)}
+			if remote.TokenSource != nil {
+				fmt.Printf("runkod: mirror %s authenticates via GitHub App %s\n", *mirrorRemote, *githubAppID)
+			}
+			mirrorWorker.Remote = remote
+		}
 	}
 
 	events := runkod.NewEventBus()
-	processor := &runkod.Processor{
-		RepoDir: *repoDir, TrunkRef: *trunk, Scanner: scanner, Store: store,
-		RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
-		ZoektIndexWorker:         indexWorker,
-		Mirror:                   mirrorWorker,
-		Principals:               principals,
-		BotLanes:                 botLanes,
-		OrgName:                  defaultOrgName,
-		RequireChangeWorkspace:   !*allowWorkspaceless,
-		Events:                   events,
-		Revalidation:             revalidationScope,
-		GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
+	// Org-less mode has no root repo: no Processor (nothing receives at
+	// the root), and the Server below is AUTH-ONLY - its Handler is never
+	// built (orghub.go serves the root), it exists to carry the account
+	// store, signup config, and credential resolution the hub rides.
+	var processor *runkod.Processor
+	if !orgless {
+		processor = &runkod.Processor{
+			RepoDir: *repoDir, TrunkRef: *trunk, Scanner: scanner, Store: store,
+			RootInvalidationPatterns: splitNonEmpty(*rootInvalidation),
+			ZoektIndexWorker:         indexWorker,
+			Mirror:                   mirrorWorker,
+			Principals:               principals,
+			BotLanes:                 botLanes,
+			OrgName:                  defaultOrgName,
+			RequireChangeWorkspace:   !*allowWorkspaceless,
+			Events:                   events,
+			Revalidation:             revalidationScope,
+			GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
+		}
 	}
 	server := &runkod.Server{
 		RepoDir: *repoDir, TrunkRef: *trunk, Store: store, Processor: processor, Token: *token, Searcher: searcher,
@@ -341,8 +385,11 @@ func cmdServe(args []string) error {
 
 	// Automerge (§13.5 "when ready"): always on - the worker only ever
 	// acts on changes someone explicitly ARMED, so an unused worker is an
-	// idle ticker.
-	go runkod.NewAutomergeWorker(server, 30*time.Second).Run(ctx)
+	// idle ticker. Org-less: each org server runs its own (below); the
+	// auth-only root has no changes to land.
+	if !orgless {
+		go runkod.NewAutomergeWorker(server, 30*time.Second).Run(ctx)
+	}
 
 	// Multi-org (§7.1, runkod/orghub.go): the root-mounted repo above is
 	// the default org; hub-created orgs each own a repo under --orgs-dir,
@@ -363,8 +410,10 @@ func cmdServe(args []string) error {
 	server.Directory = directory
 	server.SettingsOrg = defaultOrgName
 	server.OrgName = defaultOrgName
-	server.GithubRemote = githubRemoteFor(*repoDir)
-	restoreGithubWiring(ctx, directory, defaultOrgName, mirrorWorker, githubRemoteFor(*repoDir), *mirrorRemote != "")
+	if !orgless {
+		server.GithubRemote = githubRemoteFor(*repoDir)
+		restoreGithubWiring(ctx, directory, defaultOrgName, mirrorWorker, githubRemoteFor(*repoDir), *mirrorRemote != "")
+	}
 	hub := &runkod.OrgHub{
 		Default:        server,
 		DefaultOrgName: defaultOrgName,
@@ -488,7 +537,9 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
-	if *webhookURL != "" || ghApp != nil {
+	// The root outbox drains the DEFAULT org's events; org-less, there
+	// is no root org and every org's outbox starts in StartOrgWorkers.
+	if (*webhookURL != "" || ghApp != nil) && !orgless {
 		worker := &runkod.OutboxWorker{Store: store, URL: *webhookURL, Secret: []byte(*webhookSecret),
 			GithubDispatch: newGithubDispatcher(defaultOrgName)}
 		go worker.Run(ctx, 5*time.Second)
@@ -496,13 +547,19 @@ func cmdServe(args []string) error {
 	if indexWorker != nil {
 		indexWorker.Trigger() // index whatever trunk already holds at startup, not just future advances
 	}
-	go mirrorWorker.Run(ctx) // reconcile loop; restarts and missed triggers self-heal (ticks even unarmed)
-	mirrorWorker.Trigger()   // nil-safe; syncs whatever exists at startup
+	if mirrorWorker != nil {
+		go mirrorWorker.Run(ctx) // reconcile loop; restarts and missed triggers self-heal (ticks even unarmed)
+		mirrorWorker.Trigger()   // nil-safe; syncs whatever exists at startup
+	}
 	if *mirrorRemote != "" {
 		fmt.Printf("runkod: mirroring to %s (trunk leased, tags, change refs; workspace snapshots never)\n", *mirrorRemote)
 	}
 
-	fmt.Printf("runkod: serving %s at %s (clone: %s/%s)\n", *repoDir, selfURL, selfURL, runkod.RepoMountName(*repoDir))
+	if orgless {
+		fmt.Printf("runkod: serving ORG-LESS at %s - no root-mounted org; every org lives at %s/o/<name>/ (repos under %s)\n", selfURL, selfURL, *orgsDir)
+	} else {
+		fmt.Printf("runkod: serving %s at %s (clone: %s/%s)\n", *repoDir, selfURL, selfURL, runkod.RepoMountName(*repoDir))
+	}
 
 	// Ops floor (§28.3 stage 12c-④): SIGINT/SIGTERM drain in-flight
 	// requests (bounded - a hung push must not block shutdown forever)

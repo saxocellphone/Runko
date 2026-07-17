@@ -205,10 +205,24 @@ func (h *OrgHub) repoDirFor(orgName string) string {
 
 // Handler wraps the default server's full handler with the org router
 // and the hub's own org APIs.
+//
+// ORG-LESS MODE (2026-07-17, the default-org retirement): when
+// DefaultOrgName is "", there is no root-mounted org at all - h.Default
+// is an AUTH-ONLY Server (accounts, signup config, credential
+// resolution; no repo, no Processor) whose Handler() is never built.
+// The hub then serves the global surfaces plus its own ops floor
+// (healthz/readyz/metrics) at the root, and every org - the first one
+// included - lives at /o/<name>/. The historical mode (a repo-dir'd
+// default org served at the root) is unchanged when DefaultOrgName is
+// set.
 func (h *OrgHub) Handler() (http.Handler, error) {
-	defaultHandler, err := h.Default.Handler()
-	if err != nil {
-		return nil, err
+	var defaultHandler http.Handler
+	if h.DefaultOrgName != "" {
+		dh, err := h.Default.Handler()
+		if err != nil {
+			return nil, err
+		}
+		defaultHandler = dh
 	}
 	mux := http.NewServeMux()
 	// rpcMiddleware (not requireAuth) so the browser's CORS preflight
@@ -275,8 +289,60 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	mux.HandleFunc("/o/{org}/", func(w http.ResponseWriter, r *http.Request) {
 		h.routeOrg(w, r, defaultHandler)
 	})
-	mux.Handle("/", defaultHandler)
+	if defaultHandler != nil {
+		mux.Handle("/", defaultHandler)
+		return mux, nil
+	}
+	// Org-less root: the ops floor the default handler used to provide
+	// (probes are unauthenticated by design and carry public CORS so the
+	// admin panel's health strip works from any origin, api.go's
+	// reasoning), the default server's unauthenticated intake routes
+	// that only exist on its handler, and a structured 404 for
+	// everything else - the root is nobody's org.
+	mux.HandleFunc("/healthz", publicCORS(http.MethodGet, h.handleHubHealthz))
+	mux.HandleFunc("/readyz", publicCORS(http.MethodGet, h.handleHubReadyz))
+	mux.HandleFunc("GET /metrics", h.handleHubMetrics)
+	mux.HandleFunc("/api/invite-requests", publicCORS(http.MethodPost, h.Default.handleCreateInviteRequest))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
+			Code: "no_default_org", Field: "path",
+			Message:    "this control plane has no root-mounted org - every org lives at /o/<name>/",
+			Suggestion: "GET /api/orgs lists orgs; point clients at <host>/o/<org> (e.g. runko auth login --runkod-url <host>/o/<org>)",
+		}))
+	})
 	return mux, nil
+}
+
+// handleHubHealthz is the org-less ops floor: 200 when the hub process
+// is serving. Liveness only, mirroring the default server's contract
+// (api.go) minus the repo stat - an org-less hub has no root repo.
+func (h *OrgHub) handleHubHealthz(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleHubReadyz adds the dependency probe: the account/directory store
+// must answer (Postgres in a durable deployment).
+func (h *OrgHub) handleHubReadyz(w http.ResponseWriter, r *http.Request) {
+	if err := h.Default.Store.Ping(r.Context()); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "unavailable", "reason": fmt.Sprintf("store: %v", err),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleHubMetrics is the org-less exposition: process-level gauges only
+// (open-changes counts are org-scoped and live on each org's own
+// /o/<name>/metrics... which does not exist; per-org metrics are a
+// follow-up when something needs them).
+func (h *OrgHub) handleHubMetrics(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	n := len(h.orgs)
+	h.mu.Unlock()
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	fmt.Fprintf(w, "# HELP runkod_up Whether the daemon is serving.\n# TYPE runkod_up gauge\nrunkod_up 1\n")
+	fmt.Fprintf(w, "# HELP runkod_orgs_mounted Orgs currently mounted at /o/<name>/.\n# TYPE runkod_orgs_mounted gauge\nrunkod_orgs_mounted %d\n", n)
 }
 
 // handleSignup is the org-aware sign-up: every account arrives INTO an
@@ -302,10 +368,14 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Org = strings.TrimSpace(req.Org)
 	if req.Org == "" {
+		suggestion := `{"org": "<name>", "org_mode": "create"|"join"}`
+		if h.DefaultOrgName != "" {
+			suggestion += fmt.Sprintf(" - the shared org %q is always joinable", h.DefaultOrgName)
+		}
 		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
 			Code: "missing_org", Field: "org",
 			Message:    "an account belongs to an org: name one to create or join",
-			Suggestion: fmt.Sprintf(`{"org": "<name>", "org_mode": "create"|"join"} - the shared org %q is always joinable`, h.DefaultOrgName),
+			Suggestion: suggestion,
 		}))
 		return
 	}
