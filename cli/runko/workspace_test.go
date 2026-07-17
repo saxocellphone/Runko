@@ -118,6 +118,32 @@ func writeFile(t *testing.T, root, rel, content string) {
 // CLI level: create materializes only the cone; snapshot makes WIP durable
 // on refs/workspaces/<id>/head (amending, not stacking); deleting the whole
 // directory loses nothing - attach restores the WIP from the snapshot ref.
+// TestWorkspaceCreateStampsTransportAndIdentity covers FIX #1 (push-transport
+// hardening) and FIX #3 (authoring identity binding): a fresh worktree
+// carries http.postBuffer/http.version so the first push behind a proxy does
+// not fail opaquely, and runko.owner so authoring resolves the right identity
+// without XDG juggling.
+func TestWorkspaceCreateStampsTransportAndIdentity(t *testing.T) {
+	srv, _ := startWorkspaceServer(t)
+	root := t.TempDir()
+	wsDir := filepath.Join(root, "payments-fix")
+
+	if _, _, err := WorkspaceCreate(context.Background(), http.DefaultClient, srv.URL, "sekret",
+		"payments-fix", "alice", []string{"checkout-api"}, nil, MaterializeOptions{CloneDir: filepath.Join(root, "mono"), Dir: wsDir}); err != nil {
+		t.Fatalf("WorkspaceCreate: %v", err)
+	}
+	for _, tc := range []struct{ key, want string }{
+		{"http.postBuffer", "524288000"},
+		{"http.version", "HTTP/1.1"},
+		{"runko.owner", "alice"}, // bearer token -> falls back to the registry owner
+	} {
+		got := mustGit(t, wsDir, "config", tc.key)
+		if got != tc.want {
+			t.Errorf("git config %s in the worktree = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+}
+
 func TestWorkspaceCreateSnapshotAttachRoundTrip(t *testing.T) {
 	srv, bare := startWorkspaceServer(t)
 	root := t.TempDir()

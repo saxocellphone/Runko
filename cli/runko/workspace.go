@@ -211,14 +211,58 @@ func installWorkspaceHooks(cloneDir string) error {
 	return nil
 }
 
+// Push-transport hardening stamped into every materialized checkout (FIX
+// #1). The prod control plane sits behind Cloudflare, where git's default
+// chunked pack upload over HTTP/2 gets a bare "HTTP 400 ... unexpected
+// disconnect while reading sideband packet": a large postBuffer forces a
+// single Content-Length'd POST, and pinning HTTP/1.1 avoids the h2 framing
+// that trips the proxy. Without these the FIRST push from any fresh worktree
+// failed opaquely - the very papercut this stamping removes.
+const (
+	pushPostBuffer  = "524288000" // 500 MiB - larger than any realistic pack
+	pushHTTPVersion = "HTTP/1.1"
+)
+
+// stampCheckoutConfig writes a materialized checkout's runko.* bindings, the
+// push-transport hardening above, and (when known) the authoring identity.
+// worktreeScoped selects `git config --worktree` for worktree-mode checkouts
+// off the shared store (extensions.worktreeConfig is on there) versus plain
+// --local for a standalone --jj clone, which has no worktree config and whose
+// readers all do plain lookups. owner ("" skips it) binds the identity that
+// authors here (§8.7) so the authoring hook and worktree verbs resolve it
+// with a plain `git config runko.owner` - no XDG_CONFIG_HOME juggling.
+func stampCheckoutConfig(dir string, worktreeScoped bool, info WorkspaceInfo, wsBranch, owner string) error {
+	cfg := map[string]string{
+		"runko.workspace": info.ID,
+		"runko.trunk":     info.TrunkRef,
+		"runko.branch":    wsBranch,
+		"http.postBuffer": pushPostBuffer,
+		"http.version":    pushHTTPVersion,
+	}
+	if owner != "" {
+		cfg["runko.owner"] = owner
+	}
+	base := []string{"config"}
+	if worktreeScoped {
+		base = append(base, "--worktree")
+	}
+	for k, v := range cfg {
+		if _, err := runGit(dir, append(append([]string{}, base...), k, v)...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // materializeWorktree adds a worktree for the workspace at dir, checked out
 // at startPoint under the workspace's sparse cone, and stamps the worktree
-// config so snapshot/update-base know which workspace they're in.
+// config so snapshot/update-base know which workspace they're in. owner is
+// the identity that will author here (§8.7); "" leaves runko.owner unset.
 // authEnv rides every subprocess: in a blobless clone, sparse-checkout and
 // checkout LAZILY FETCH blobs from the promisor remote - any of them is a
 // network call needing the calling verb's credential (found live: the
 // daemon e2e's checkout 401ed with only the obvious fetch/push covered).
-func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, wsBranch string, authEnv []string) error {
+func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, wsBranch, owner string, authEnv []string) error {
 	// A previously-deleted workspace directory leaves stale worktree
 	// metadata behind; prune first so attach-after-laptop-loss just works.
 	if _, err := runGit(cloneDir, "worktree", "prune"); err != nil {
@@ -252,16 +296,7 @@ func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, w
 	if _, err := runGitEnv(dir, authEnv, "checkout"); err != nil {
 		return fmt.Errorf("checkout: %w", err)
 	}
-	for k, v := range map[string]string{
-		"runko.workspace": info.ID,
-		"runko.trunk":     info.TrunkRef,
-		"runko.branch":    wsBranch,
-	} {
-		if _, err := runGit(dir, "config", "--worktree", k, v); err != nil {
-			return err
-		}
-	}
-	return nil
+	return stampCheckoutConfig(dir, true, info, wsBranch, owner)
 }
 
 // cloneJJCheckout lays down the standalone FULL clone a --jj workspace
@@ -305,7 +340,7 @@ func cloneJJCheckout(remoteURL, dir string, authEnv []string) error {
 // empty @ on startPoint, and the runko.* binding in PLAIN config scope - a
 // standalone clone has no worktree config, and every reader (push
 // provenance, watch, sync) does plain lookups.
-func finishJJCheckout(dir string, info WorkspaceInfo, startPoint, wsBranch string) error {
+func finishJJCheckout(dir string, info WorkspaceInfo, startPoint, wsBranch, owner string) error {
 	// The snapshot line gets a real local branch (the worktree-mode naming):
 	// jj imports branches as bookmarks, and that import is what makes a
 	// non-branch commit - an attach's snapshot tip, fetched from
@@ -342,16 +377,7 @@ func finishJJCheckout(dir string, info WorkspaceInfo, startPoint, wsBranch strin
 	if _, err := runJJ(dir, "new", startPoint); err != nil {
 		return fmt.Errorf("start the working copy at %s: %w", short(startPoint), err)
 	}
-	for k, v := range map[string]string{
-		"runko.workspace": info.ID,
-		"runko.trunk":     info.TrunkRef,
-		"runko.branch":    wsBranch,
-	} {
-		if _, err := runGit(dir, "config", k, v); err != nil {
-			return err
-		}
-	}
-	return nil
+	return stampCheckoutConfig(dir, false, info, wsBranch, owner)
 }
 
 // jjSparsePatterns translates the workspace cone into jj prefix patterns.
@@ -482,11 +508,12 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 		return WorkspaceInfo{}, "", err
 	}
 	authEnv := gitAuthConfigEnv(runkodURL, token)
+	authIdent := authoringIdentity(token, info.Owner)
 	if opts.JJ {
 		if err := cloneJJCheckout(remoteURL, dir, authEnv); err != nil {
 			return WorkspaceInfo{}, "", err
 		}
-		if err := finishJJCheckout(dir, info, info.BaseRevision, "head"); err != nil {
+		if err := finishJJCheckout(dir, info, info.BaseRevision, "head", authIdent); err != nil {
 			return WorkspaceInfo{}, "", err
 		}
 		_ = recordMaterialization(Materialization{
@@ -503,7 +530,7 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 	// are the expensive bytes a fresh worktree would pay to rebuild.
 	materialized := false
 	if cand := autoGCAndRecycle(ctx, client, runkodURL, token, cloneDir, true); cand != nil {
-		switch err := rebindWorktree(cloneDir, *cand, dir, info, info.BaseRevision, "head", authEnv); {
+		switch err := rebindWorktree(cloneDir, *cand, dir, info, info.BaseRevision, "head", authIdent, authEnv); {
 		case err == nil:
 			fmt.Fprintf(os.Stderr, "recycled %s (ignored caches preserved)\n", cand.Path)
 			materialized = true
@@ -514,7 +541,7 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 		}
 	}
 	if !materialized {
-		if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision, "head", authEnv); err != nil {
+		if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision, "head", authIdent, authEnv); err != nil {
 			return WorkspaceInfo{}, "", err
 		}
 	}
@@ -554,6 +581,7 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 		return WorkspaceInfo{}, "", err
 	}
 	authEnv := gitAuthConfigEnv(runkodURL, token)
+	authIdent := authoringIdentity(token, info.Owner)
 	if opts.JJ {
 		if err := cloneJJCheckout(remoteURL, dir, authEnv); err != nil {
 			return WorkspaceInfo{}, "", err
@@ -567,7 +595,7 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 				startPoint = sha
 			}
 		}
-		if err := finishJJCheckout(dir, info, startPoint, branch); err != nil {
+		if err := finishJJCheckout(dir, info, startPoint, branch, authIdent); err != nil {
 			return WorkspaceInfo{}, "", err
 		}
 		_ = recordMaterialization(Materialization{
@@ -591,7 +619,7 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 			startPoint = sha
 		}
 	}
-	if err := materializeWorktree(cloneDir, dir, info, startPoint, branch, authEnv); err != nil {
+	if err := materializeWorktree(cloneDir, dir, info, startPoint, branch, authIdent, authEnv); err != nil {
 		return WorkspaceInfo{}, "", err
 	}
 	_ = recordMaterialization(Materialization{
@@ -791,6 +819,20 @@ func short(sha string) string {
 		return sha[:12]
 	}
 	return sha
+}
+
+// authoringIdentity resolves the principal name that pushes from this
+// checkout authenticate as, given the credential the creating verb held
+// (§8.7, FIX #3). A named credential (Basic name:secret) authenticates AS
+// that name - the identity the authoring hook and attribution care about;
+// the anonymous deploy token (Basic runko:...) is not a person, so fall back
+// to the registry owner for it. Bound as runko.owner so the whole
+// create->author loop needs no XDG_CONFIG_HOME juggling.
+func authoringIdentity(token, registryOwner string) string {
+	if user, _ := gitUserPass(token); user != "" && user != "runko" {
+		return user
+	}
+	return registryOwner
 }
 
 // asClierr is errors.As sugar for the doubled-pointer dance.

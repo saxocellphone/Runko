@@ -353,13 +353,15 @@ func addWorkspaceFlag(fs *flag.FlagSet) *string {
 }
 
 func cmdChange(args []string) error {
-	valid := map[string]bool{"create": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "describe": true, "automerge": true, "rerun-check": true, "comment": true, "comments": true, "resolve": true, "request-review": true}
+	valid := map[string]bool{"create": true, "amend": true, "push": true, "requirements": true, "land": true, "approve": true, "list": true, "abandon": true, "describe": true, "automerge": true, "rerun-check": true, "comment": true, "comments": true, "resolve": true, "request-review": true}
 	if len(args) < 1 || !valid[args[0]] {
-		return usageError("usage: runko change create|push|requirements|land|approve|list|abandon|describe|automerge|rerun-check|comment|comments|resolve|request-review ... (see docs/cli-contract.md)")
+		return usageError("usage: runko change create|amend|push|requirements|land|approve|list|abandon|describe|automerge|rerun-check|comment|comments|resolve|request-review ... (see docs/cli-contract.md)")
 	}
 	switch args[0] {
 	case "create":
 		return cmdChangeCreate(args[1:])
+	case "amend":
+		return cmdChangeAmend(args[1:])
 	case "requirements":
 		return cmdChangeRequirements(args[1:])
 	case "land":
@@ -423,6 +425,7 @@ func cmdChangeCreate(args []string) error {
 	msg := fs.String("m", "", "change message (required)")
 	dir := fs.String("dir", ".", "repository directory")
 	ws := addWorkspaceFlag(fs)
+	allowLarge := fs.Bool("allow-large", false, "commit large/executable untracked files anyway (they are refused by default as suspected build artifacts, §12.2)")
 	jsonOut := fs.Bool("json", false, "emit {change_id} as JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -431,14 +434,47 @@ func cmdChangeCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	id, err := CreateChange(wd, *msg)
+	id, err := CreateChange(wd, *msg, *allowLarge)
 	if err != nil {
 		return err
 	}
 	if *jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(map[string]string{"change_id": id})
 	}
-	fmt.Printf("created change %s\n  -> runko change push   # submit it for review\n", id)
+	// Nudge the two remaining steps of the submit loop. The description is a
+	// SEPARATE control-plane field (§8.6, never derived from the commit
+	// message) that RequireDescription gates agent lands on - surfacing it
+	// here means an agent sets it up front instead of discovering the blocker
+	// only at `change requirements` (FIX #6).
+	fmt.Printf("created change %s\n  -> runko change describe --description \"WHAT changed and WHY\"   # agent changes must, before landing (§8.7)\n  -> runko change push                                       # submit it for review\n", id)
+	return nil
+}
+
+// cmdChangeAmend implements `runko change amend` (FIX #6): fold the working
+// tree into HEAD's existing Change with the Runko-identity fallback, so
+// agents stop dropping to a raw `git commit --amend` that fails without a
+// configured git author.
+func cmdChangeAmend(args []string) error {
+	fs := flag.NewFlagSet("change amend", flag.ExitOnError)
+	msg := fs.String("m", "", "new change message (default: keep HEAD's, just fold in the working tree)")
+	dir := fs.String("dir", ".", "repository directory")
+	ws := addWorkspaceFlag(fs)
+	jsonOut := fs.Bool("json", false, "emit {change_id} as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	wd, err := resolveWorkspaceDir(*ws, *dir)
+	if err != nil {
+		return err
+	}
+	id, err := AmendChange(wd, *msg)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"change_id": id})
+	}
+	fmt.Printf("amended change %s\n  -> runko change push   # re-submit the updated change\n", id)
 	return nil
 }
 
@@ -885,6 +921,7 @@ func cmdWorkspace(args []string) error {
 		token := fs.String("token", "", "deploy token")
 		name := fs.String("name", "", "workspace name (also the snapshot-ref segment)")
 		by := fs.String("by", "", "who owns this workspace (default: the stored login's principal)")
+		as := fs.String("as", "", "authenticate as this named principal using --token as its password (Basic, not stored) - the no-XDG agent form: mint a token with `runko agent create`, then --by agent-x --as agent-x --token <tok>")
 		cloneDir := fs.String("clone-dir", "", "shared blobless clone directory (default: the managed home's .store, §12.7)")
 		dir := fs.String("dir", "", "worktree directory (default: under the managed home, ~/runko-ws)")
 		forceNested := fs.Bool("force-nested", false, "materialize inside another git checkout anyway")
@@ -900,6 +937,21 @@ func cmdWorkspace(args []string) error {
 		cred, err := resolveCredential(*runkodURL, *token)
 		if err != nil {
 			return err
+		}
+		// --as authenticates this one command as a named principal (typically
+		// the agent) without storing or clobbering a credential (FIX #3): admin
+		// mints the token, then `workspace create --by agent-x --as agent-x
+		// --token <tok>` registers AND materializes as the agent. No
+		// XDG_CONFIG_HOME, no separate `auth login`.
+		if *as != "" {
+			if *token == "" {
+				return &clierr.Error{
+					Code: "missing_token", Field: "token",
+					Message:    "--as needs --token (the principal's password)",
+					Suggestion: "pass the token `runko agent create --task <slug>` printed, e.g. --as agent-<slug>-xxxx --token <tok>",
+				}
+			}
+			cred = Credential{URL: cred.URL, Name: *as, Secret: *token}
 		}
 		// The stored login already says who you are (§6.10): --by stays an
 		// override, not a toll. Only the anonymous deploy token has no name

@@ -22,7 +22,7 @@ import (
 // Deliberately no auto-push: `runko change push` is the explicit "submit
 // for review" step (§11.5), and splitting them keeps plain-git parity
 // (commit locally offline, push when ready).
-func CreateChange(repoDir, message string) (changeID string, err error) {
+func CreateChange(repoDir, message string, allowLarge bool) (changeID string, err error) {
 	if message == "" {
 		return "", &clierr.Error{
 			Code: "missing_message", Field: "m",
@@ -65,6 +65,28 @@ func CreateChange(repoDir, message string) (changeID string, err error) {
 	}
 	if addErr != nil {
 		return "", fmt.Errorf("stage changes: %w", addErr)
+	}
+	// Build-artifact guard (FIX #4): `change create` stages the WHOLE tree, so
+	// a stray `go build` output binary at the repo root (executable, multi-MB,
+	// binary) rode into the commit silently - a 7.5MB junk blob plus phantom
+	// size + affinity violations at push. Refuse when a NEWLY-added file looks
+	// like an artifact, naming each; --allow-large is the escape hatch for an
+	// intentional large/binary asset. Only added files are inspected - an
+	// already-tracked file is the reviewer's call, not this heuristic's.
+	if !allowLarge {
+		suspects, err := suspectArtifacts(repoDir)
+		if err != nil {
+			return "", err
+		}
+		if len(suspects) > 0 {
+			return "", &clierr.Error{
+				Code:       "suspect_artifact",
+				Field:      "repo",
+				Message:    "these newly-added files look like build artifacts, not source:\n" + strings.Join(suspects, "\n"),
+				Suggestion: "remove them or add them to .gitignore (build output never belongs in a change); if the addition is intentional, re-run with --allow-large",
+				DocURL:     "docs/design.md#122-durability-snapshot-refs",
+			}
+		}
 	}
 	staged, err := runGit(repoDir, "diff", "--cached", "--name-only")
 	if err != nil {
@@ -112,6 +134,117 @@ func CreateChange(repoDir, message string) (changeID string, err error) {
 	}
 	if _, err := runGit(repoDir, commitArgs...); err != nil {
 		return "", fmt.Errorf("commit: %w", err)
+	}
+	return id, nil
+}
+
+// suspectArtifactThreshold: a newly-added file at or above this size is
+// flagged whatever its type - normal source/docs rarely reach it, and a
+// checked-in blob this big deserves a second look. A compiled binary
+// (executable AND binary content) is flagged at ANY size, which is what
+// actually caught the stray `go build` output.
+const suspectArtifactThreshold = 5 << 20 // 5 MiB
+
+// suspectArtifacts returns "<path> (<reason>)" for each newly-added STAGED
+// file that looks like a build artifact rather than source (FIX #4). It runs
+// on the index after `add -A`, so it sees exactly what the commit would
+// capture. Cheap: one numstat pass names the added+binary files, then a
+// size/mode probe per candidate (added files in a normal change are few).
+func suspectArtifacts(repoDir string) ([]string, error) {
+	// -z: NUL-separated records "added\tdeleted\tpath", no path quoting;
+	// binary files report added/deleted as "-". --diff-filter=A: only files
+	// this change introduces (a modified tracked file is not our concern).
+	out, err := runGit(repoDir, "diff", "--cached", "--numstat", "-z", "--no-renames", "--diff-filter=A")
+	if err != nil {
+		return nil, err
+	}
+	var suspects []string
+	for _, rec := range strings.Split(out, "\x00") {
+		if rec == "" {
+			continue
+		}
+		fields := strings.SplitN(rec, "\t", 3)
+		if len(fields) < 3 {
+			continue
+		}
+		binary := fields[0] == "-"
+		path := fields[2]
+
+		var size int64
+		if s, err := runGit(repoDir, "cat-file", "-s", ":"+path); err == nil {
+			fmt.Sscan(strings.TrimSpace(s), &size)
+		}
+		executable := false
+		if st, err := runGit(repoDir, "ls-files", "--stage", "--", path); err == nil {
+			executable = strings.HasPrefix(st, "100755")
+		}
+
+		switch {
+		case size >= suspectArtifactThreshold:
+			suspects = append(suspects, fmt.Sprintf("  %s (%.1f MiB)", path, float64(size)/(1<<20)))
+		case executable && binary:
+			suspects = append(suspects, fmt.Sprintf("  %s (executable binary)", path))
+		}
+	}
+	return suspects, nil
+}
+
+// AmendChange folds the working tree into HEAD's existing Change (FIX #6):
+// the native verb for what agents otherwise did with a raw `git commit
+// --amend`, which fails on a checkout with no configured git author identity
+// (fresh VM, agent container). It re-stages the tree with the same
+// sparse-cone guard as create, amends with the §7.5 Runko-identity fallback,
+// and PRESERVES the Change-Id trailer so the change keeps its identity across
+// the amend. message == "" keeps HEAD's message (just folds in the WIP); a
+// new message carries the same Change-Id forward. jj checkouts are refused -
+// mid-stack rework there is `jj squash`/`jj describe`, and amending behind
+// jj's back is exactly what the push guard rejects.
+func AmendChange(repoDir, message string) (changeID string, err error) {
+	if _, err := runGit(repoDir, "rev-parse", "--git-dir"); err != nil {
+		return "", &clierr.Error{
+			Code: "not_a_repo", Field: "repo",
+			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
+			Suggestion: "run inside a runko workspace worktree",
+		}
+	}
+	if isJJWorkspace(repoDir) {
+		return "", &clierr.Error{
+			Code: "jj_amend_unsupported", Field: "repo",
+			Message:    "this is a jj colocated checkout - amending behind jj's back would mint a fresh Change identity",
+			Suggestion: "rework in place with `jj squash` (fold @ into its parent) or reword with `jj describe`",
+		}
+	}
+	id, err := headChangeID(repoDir)
+	if err != nil {
+		return "", err
+	}
+	if _, err := runGit(repoDir, "add", "-A"); err != nil {
+		return "", fmt.Errorf("stage changes: %w", err)
+	}
+	if skipped, err := runGit(repoDir, "ls-files", "--others", "--exclude-standard"); err == nil && skipped != "" {
+		return "", &clierr.Error{
+			Code:       "outside_sparse_cone",
+			Field:      "repo",
+			Message:    "these files are outside this workspace's sparse cone and cannot be part of the change: " + strings.Join(strings.Split(skipped, "\n"), ", "),
+			Suggestion: "widen the cone first (`git sparse-checkout add <dir>`), or move the files under a materialized project",
+		}
+	}
+
+	args := []string{"commit", "--amend"}
+	if message == "" {
+		args = append(args, "--no-edit")
+	} else {
+		// Carry the existing Change-Id forward: a new -m message has none, so
+		// re-append HEAD's so the change keeps its identity (§7.4).
+		args = append(args, "-m", message+"\n\nChange-Id: "+id)
+	}
+	// Same no-identity fallback as create/snapshot (§7.5): amending must work
+	// on a machine with no git identity configured.
+	if email, _ := runGit(repoDir, "config", "user.email"); email == "" {
+		args = append([]string{"-c", "user.name=Runko", "-c", "user.email=runko@localhost"}, args...)
+	}
+	if _, err := runGit(repoDir, args...); err != nil {
+		return "", fmt.Errorf("amend: %w", err)
 	}
 	return id, nil
 }

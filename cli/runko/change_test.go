@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -224,7 +226,7 @@ func TestCreateChangeIDsAreGloballyUnique(t *testing.T) {
 		repo.Commit("initial")
 		repo.WriteFile("main.go", "package main\n")
 
-		id, err := CreateChange(repo.Dir, "identical message")
+		id, err := CreateChange(repo.Dir, "identical message", false)
 		if err != nil {
 			t.Fatalf("CreateChange %d: %v", i, err)
 		}
@@ -332,12 +334,99 @@ func TestCreateChangeRefusesSparseSkippedFiles(t *testing.T) {
 	repo.WriteFile("proj/keep.txt", "edited in cone\n")
 	repo.WriteFile("orphan-dir/README.md", "outside the cone\n")
 
-	_, err := CreateChange(repo.Dir, "edit both sides")
+	_, err := CreateChange(repo.Dir, "edit both sides", false)
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "outside_sparse_cone" {
 		t.Fatalf("want outside_sparse_cone, got %v", err)
 	}
 	if !strings.Contains(ce.Message, "orphan-dir/README.md") {
 		t.Fatalf("error must name the skipped file, got %q", ce.Message)
+	}
+}
+
+// TestCreateChangeRefusesBuildArtifact (FIX #4): a stray `go build` output
+// binary at the repo root - executable + binary content - must be refused by
+// name, not swept into the whole-tree commit; --allow-large is the escape.
+func TestCreateChangeRefusesBuildArtifact(t *testing.T) {
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("proj/keep.go", "package proj\n")
+	repo.Commit("initial")
+
+	// The artifact: executable bit + binary content (a NUL byte), repo root.
+	if err := os.WriteFile(filepath.Join(repo.Dir, "runko"), []byte("\x7fELF\x00\x00binary"), 0o755); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+	repo.WriteFile("proj/keep.go", "package proj // real edit\n")
+
+	_, err := CreateChange(repo.Dir, "add a feature", false)
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "suspect_artifact" {
+		t.Fatalf("want suspect_artifact, got %v", err)
+	}
+	if !strings.Contains(ce.Message, "runko") || !strings.Contains(ce.Message, "executable binary") {
+		t.Fatalf("error must name the artifact and why, got %q", ce.Message)
+	}
+
+	// --allow-large lets an intentional addition through.
+	if _, err := CreateChange(repo.Dir, "add a feature", true); err != nil {
+		t.Fatalf("allowLarge should permit the commit: %v", err)
+	}
+}
+
+// TestAmendChangeFoldsWorkKeepsChangeID (FIX #6): amend folds the working
+// tree into HEAD's existing Change, preserving its Change-Id, and works with
+// NO configured git author (the identity fallback raw `git commit --amend`
+// lacked).
+func TestAmendChangeFoldsWorkKeepsChangeID(t *testing.T) {
+	repo := gitfixture.New(t) // no configureIdentity: exercise the no-git-author path
+	repo.WriteFile("proj/a.go", "package proj\n")
+	repo.Commit("seed")
+	seed := mustGit(t, repo.Dir, "rev-parse", "HEAD")
+
+	repo.WriteFile("proj/a.go", "package proj // feature edit\n")
+	id, err := CreateChange(repo.Dir, "feature", false)
+	if err != nil {
+		t.Fatalf("CreateChange: %v", err)
+	}
+
+	repo.WriteFile("proj/b.go", "package proj // folded in\n")
+	got, err := AmendChange(repo.Dir, "")
+	if err != nil {
+		t.Fatalf("AmendChange: %v", err)
+	}
+	if got != id {
+		t.Fatalf("amend must keep the Change-Id: %s -> %s", id, got)
+	}
+	if n := mustGit(t, repo.Dir, "rev-list", "--count", seed+"..HEAD"); n != "1" {
+		t.Fatalf("want exactly 1 commit above seed after amend (folded, not stacked), got %s", n)
+	}
+	if out := mustGit(t, repo.Dir, "show", "--stat", "HEAD"); !strings.Contains(out, "b.go") {
+		t.Fatalf("amended commit missing the folded file:\n%s", out)
+	}
+	if msg := mustGit(t, repo.Dir, "log", "-1", "--format=%B"); !strings.Contains(msg, id) {
+		t.Fatalf("Change-Id trailer not preserved:\n%s", msg)
+	}
+}
+
+// TestTransportRejectionMapsProxyFailure (FIX #2): the opaque Cloudflare
+// chunked-pack failure becomes a structured error carrying the postBuffer
+// remedy, while a daemon POLICY rejection and an auth failure pass through.
+func TestTransportRejectionMapsProxyFailure(t *testing.T) {
+	proxy := errors.New("push to refs/for/main: git push: exit status 1: error: RPC failed; HTTP 400 curl 22 The requested URL returned error: 400\nsend-pack: unexpected disconnect while reading sideband packet\nfatal: the remote end hung up unexpectedly")
+	ce := transportRejection(proxy)
+	if ce == nil || ce.Code != "push_transport_failed" {
+		t.Fatalf("want push_transport_failed, got %v", ce)
+	}
+	if !strings.Contains(ce.Suggestion, "postBuffer") {
+		t.Fatalf("suggestion must carry the postBuffer remedy: %q", ce.Suggestion)
+	}
+
+	policy := errors.New("git push: exit status 1: remote: change I123 is outside this workspace's affinity {cli}\nremote: error: hook declined to update refs/for/main")
+	if got := transportRejection(policy); got != nil {
+		t.Fatalf("a daemon policy rejection must pass through, not map to transport: %+v", got)
+	}
+	if got := transportRejection(errors.New("fatal: Authentication failed for 'https://...': HTTP 401")); got != nil {
+		t.Fatalf("an auth failure must not get the postBuffer remedy: %+v", got)
 	}
 }

@@ -191,9 +191,71 @@ func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (cha
 	}
 	args = append(args, remote, "+"+source+":refs/for/"+trunk)
 	if _, err := runGitNet(repoDir, args...); err != nil {
+		if te := transportRejection(err); te != nil {
+			return "", te
+		}
 		return "", fmt.Errorf("push to refs/for/%s: %w", trunk, err)
 	}
 	return id, nil
+}
+
+// transportRejection maps a raw git push TRANSPORT failure to the structured
+// §6.5 error shape (FIX #2). The prod control plane sits behind Cloudflare,
+// where git's chunked pack upload gets a bare "error: RPC failed; HTTP 400 ...
+// unexpected disconnect while reading sideband packet / the remote end hung
+// up unexpectedly" - a broken pipe at the HTTP layer, opaque and defeating
+// the structured-error contract. It is DISTINCT from a daemon POLICY
+// rejection, which arrives as "remote: <message>" lines with the pack POST
+// itself succeeding; those must pass through untouched, so this only fires on
+// the transport signatures and returns nil otherwise (the caller keeps the
+// original error, daemon message intact).
+func transportRejection(err error) *clierr.Error {
+	s := err.Error()
+	// Auth failures (401/403/407) are transport too but need a different
+	// remedy - leave them to the raw error rather than misattributing them to
+	// the pack buffer.
+	if strings.Contains(s, "HTTP 401") || strings.Contains(s, "HTTP 403") || strings.Contains(s, "HTTP 407") || strings.Contains(s, "Authentication failed") {
+		return nil
+	}
+	transport := false
+	for _, sig := range []string{
+		"RPC failed",
+		"unexpected disconnect while reading sideband packet",
+		"the remote end hung up unexpectedly",
+		"HTTP 400",
+		"HTTP 5", // 5xx
+		"curl 22",
+		"curl 55",
+		"curl 56",
+		"early EOF",
+	} {
+		if strings.Contains(s, sig) {
+			transport = true
+			break
+		}
+	}
+	if !transport {
+		return nil
+	}
+	return &clierr.Error{
+		Code:       "push_transport_failed",
+		Field:      "remote",
+		Message:    "the push to the control plane failed at the HTTP transport layer, not on policy (a proxy dropped the pack upload): " + firstNonEmptyLine(s),
+		Suggestion: "raise git's HTTP post buffer and pin HTTP/1.1, then retry `runko change push`: `git config http.postBuffer 524288000 && git config http.version HTTP/1.1` (a fresh `runko workspace create` now stamps both for you)",
+		DocURL:     "docs/design.md#1411-smart-http",
+	}
+}
+
+// firstNonEmptyLine trims the git error to its first meaningful line so the
+// structured message stays a one-liner (git's own multi-line RPC dump lands
+// in --verbose, not the §6.5 message).
+func firstNonEmptyLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return t
+		}
+	}
+	return strings.TrimSpace(s)
 }
 
 // lsRemoteTrunk asks the remote for its trunk tip ("" when the remote has
