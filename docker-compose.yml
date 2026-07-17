@@ -59,6 +59,12 @@ services:
       # (§12.2, 2026-07-09): the §16.4 loop must work from a bare clone
       # before any workspace exists. Production leaves this unset.
       RUNKO_ALLOW_WORKSPACELESS_CHANGES: ${RUNKO_ALLOW_WORKSPACELESS_CHANGES:-true}
+      # Self-service onboarding (§6.10, §15.1): both default OFF; the
+      # onboarding journey suite (scripts/compose-onboarding.sh) enables
+      # them for its own stack. Org repos land under gitdata's orgs/
+      # (--orgs-dir default: beside --repo-dir).
+      RUNKO_ALLOW_SIGNUP: ${RUNKO_ALLOW_SIGNUP:-}
+      RUNKO_ALLOW_ORG_CREATE: ${RUNKO_ALLOW_ORG_CREATE:-}
     ports:
       - "${RUNKO_PORT:-8080}:8080"
     volumes:

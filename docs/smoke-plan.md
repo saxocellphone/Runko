@@ -1,6 +1,6 @@
 # Compose smoke-test plan (§16.4, §28.3 stage 14+)
 
-Two scripts, deliberately separate:
+Three scripts, deliberately separate:
 
 - **`scripts/compose-smoke.sh` — the frozen, timed claim.** The §16.4
   measured loop (`compose up → create → change → land → edit → change →
@@ -11,6 +11,12 @@ Two scripts, deliberately separate:
   after the smoke in the same CI job (image layers warm, so its own
   `compose up` is cheap), against a fresh stack + fresh volumes so
   neither script contaminates the other.
+- **`scripts/compose-onboarding.sh` — the onboarding journey.** Not an
+  invariant list but a replayed user session (§6.10): a new human with
+  nothing but the CLI and a host URL gets from zero to landed changes,
+  then brings an agent along. Own stack, fresh volumes, signup +
+  org-create enabled (`RUNKO_ALLOW_SIGNUP`/`RUNKO_ALLOW_ORG_CREATE`) —
+  the O-rows below. Runs last in the same CI job.
 
 Selection rule: a scenario earns a compose slot only when the *full real
 transport* changes what is being tested — real `git push` through
@@ -120,3 +126,62 @@ default server (`signup_test.go`), org lifecycle + isolation
 (`orghub_test.go`), agent TTL/revocation (`agentprincipal_test.go`),
 credentials over the git transport (`TestSignupCredentialWorksOverGit`,
 compose E1).
+
+## Onboarding journey (§6.10): `compose-onboarding.sh`
+
+Born from the 2026-07-16 dogfood review: every step below is something
+a real first-time operator did (or could not do). The journey uses the
+CLI exactly as the docs teach it — stored logins, managed workspace
+homes, no raw tokens after first contact — which is precisely the
+surface the other suites never touch over the wire. Auth handler
+behavior stays in the Go sign-in matrix above (selection rule); this
+suite asserts *journeys* and the CLI's structured-refusal text.
+
+Persona hygiene: each actor (val the founder, worker, the agent) gets
+its own `XDG_CONFIG_HOME` and `RUNKO_WORKSPACE_HOME`, because stored
+credentials and materializations are part of what is being tested.
+
+### Journey rows (every step must succeed)
+
+| # | Step | Proves |
+|---|------|--------|
+| O1 | `auth signup --name val --org acme --create` → `auth status`, `org list` | First contact is one command; signup IS login, credential stored against `/o/acme`, creator is admin |
+| O2 | Clone the org git URL with the signup credential; assert genesis tree: `OWNERS` names val, `AGENTS.md`, `CONTRIBUTING.md`, `.claude/skills/runko/SKILL.md`, root `PROJECT.yaml` | Org born usable (§6.10 genesis) over real smart-HTTP |
+| O3 | `workspace create --name onboard --project repo` (no `--by`, no URL flags) → `doctor --json` inside it | Managed-home materialization arrives fully wired: both client hooks, `CLI` build identity, workspace binding |
+| O4 | `project create --lang ts --api rest --build-engine vite` (Change-Id born in, §6.10) → `change push` → `requirements` → `change land` | The day-one solo land: genesis OWNERS + uploader consent make the creator's own change mergeable with zero other principals |
+| O5 | Edit → `change create` → `push` → `land` | The steady-state loop through the org mount + stored login |
+| O6 | `workspace create --new-path services/checkout` (zero `--project`) → `project create --path services/checkout` → push → land | Greenfield bootstrap: affinity for a project before it exists at trunk |
+| O7 | `agent create --task greet` → agent login → agent workspace (`--project hello --new-path services/agentproj`) → edit → push → describe (after the requirements blocker) → `automerge` → val approves → poll until landed | The full agent lifecycle: RequireDescription gate, human approval as the only remaining gate, automerge firing on green |
+| O8 | Agent `workspace sync` after O7's land, then a new-manifest push naming val as owner → accepted → `change abandon` | Modify-vs-create classification's allow half + sync + abandon hygiene |
+
+### Refusal rows (structured text, exact fragments)
+
+| # | Scenario | Expected fragment |
+|---|----------|-------------------|
+| R-O1 | Agent edits an existing `PROJECT.yaml` | `does not allow modifying owners` |
+| R-O2 | Agent's new manifest names the agent itself in `owners:` | `grants itself ownership` |
+| R-O3 | Agent runs `project delete` / `org create` | `human product action` / agent refusal |
+| R-O4 | val's login pointed at an org that has a *different* `val` or none (`/o/bare`) | `not a member` — 403 shape, never a wrong-password 401 |
+| R-O5 | `workspace create --new-path ../escape` / `--new-path <existing-project-path>` | `not a clean repo-relative directory path` / `is already project` |
+| R-O6 | Landing in a born-but-ownerless org (deploy-token-created, trunk force-landed) | unpoliced blocker that **names `runko org bootstrap`** |
+| R-O7 | `org bootstrap` as the anonymous deploy token / as a non-admin member / re-run once governed | `has no name to record` / `org admins only` / `owners already resolve` |
+| R-O8 | Duplicate `org create acme` | `already exists` |
+| R-O9 | `workspace delete` while a change is open, then after abandon | refusal first, success after |
+
+### The bare-org retrofit chain (R-O6/R-O7 in sequence)
+
+The deploy token creates org `bare` (anonymous ⇒ no genesis), a
+project with no owners is pushed and **force-landed** by the operator
+(the only way a born-ownerless trunk can exist post-genesis — exactly
+the shape every pre-genesis org is stuck in), and then:
+ordinary land refused (blocker names the verb) → bootstrap as anonymous
+refused → `worker` signs up `--join`, bootstrap refused (`not_org_admin`)
+→ operator promotes worker to admin → bootstrap opens the OWNERS change
+→ worker lands it alone (head-tree owners + uploader consent) → an
+ordinary change lands after. One chain, the whole escape hatch.
+
+### Deliberately not here
+
+`self-update` (needs GitHub, not the stack), the auth matrix
+(Go suite above), secret scan / direct push / revalidation (E2/E4/E7),
+MCP (E11). The suite asserts no timings (rule 3).
