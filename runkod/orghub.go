@@ -438,6 +438,28 @@ func (h *OrgHub) routeOrg(w http.ResponseWriter, r *http.Request, defaultHandler
 	h.mu.Lock()
 	isArchived := h.archived[name]
 	h.mu.Unlock()
+	// These two early answers short-circuit BEFORE any org server's
+	// CORS-setting middleware, so they must speak CORS themselves: the
+	// login page asks /o/<org>/api/whoami cross-origin in the dev loop
+	// with an Authorization header, which means a PREFLIGHT first - an
+	// OPTIONS answered 404 (or any answer without the allow headers)
+	// makes the browser report the whole exchange as an opaque "Failed
+	// to fetch" instead of the mapped "no org named…" (found by
+	// web/scripts/signin-smoke.mjs E3). Mirror rpcMiddleware's preflight
+	// exactly, then let the real request read the structured refusal.
+	// Discloses nothing new: the same answers are already readable
+	// same-origin and from every non-browser client.
+	if isArchived || target == nil {
+		h2 := w.Header()
+		h2.Set("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodOptions {
+			h2.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			h2.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Connect-Protocol-Version, Connect-Timeout-Ms")
+			h2.Set("Access-Control-Max-Age", "7200")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
 	if isArchived {
 		writeAPIError(w, typedErr(http.StatusGone, clierr.Error{
 			Code: "org_archived", Field: "org",
