@@ -25,6 +25,7 @@ import (
 	"github.com/saxocellphone/runko/platform/core"
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/land"
+	"github.com/saxocellphone/runko/platform/mirror"
 	"github.com/saxocellphone/runko/platform/search"
 )
 
@@ -88,10 +89,19 @@ type Server struct {
 	// slice so API-side attribution and receive-side enforcement agree on
 	// who exists.
 	Principals []Principal
-	// Mirror is the outbound mirror worker (§18.6 M1, mirror.go); nil when
-	// no --mirror-remote is configured. Provider-agnostic by construction:
-	// any smart-HTTPS git host, or any git URL at all without token auth.
+	// Mirror is the outbound mirror worker (§18.6 M1, mirror.go). Since
+	// `github connect` (2026-07-16) every server gets
+	// one - unarmed (nil Remote) until flag config, a stored
+	// github_mirror_repo, or the connect endpoint arms it. Provider-
+	// agnostic by construction: any smart-HTTPS git host, or any git URL
+	// at all without token auth.
 	Mirror *MirrorWorker
+	// GithubRemote builds a mirror remote for "owner/name" on the
+	// deployment's GitHub host, credentialed by the daemon-level GitHub
+	// App (github.go). nil when the daemon holds no App credentials -
+	// POST /api/github/connect then answers a structured
+	// github_app_not_configured.
+	GithubRemote func(repoPath string) *mirror.Remote
 	// OrgName + Directory are set on org-scoped servers built by an
 	// OrgHub (orghub.go). When OrgName is non-empty, store-backed
 	// accounts must be members of that org to authenticate here at all
@@ -319,6 +329,7 @@ func (s *Server) Handler() (http.Handler, error) {
 
 	mux.HandleFunc("GET /api/mirror/status", s.requireAuth(s.handleMirrorStatus))
 	mux.HandleFunc("POST /api/mirror/unfreeze", s.requireAuth(s.handleMirrorUnfreeze))
+	mux.HandleFunc("POST /api/github/connect", s.requireAuth(s.handleGithubConnect))
 	mux.HandleFunc("GET /api/changes", s.requireReadAuth(s.handleListChanges))
 	mux.HandleFunc("GET /api/changes/{key}", s.requireReadAuth(s.handleGetChange))
 	mux.HandleFunc("POST /api/changes/{key}/abandon", s.requireAuth(s.handleAbandonChange))

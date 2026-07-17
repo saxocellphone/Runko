@@ -21,8 +21,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -264,20 +266,45 @@ func cmdServe(args []string) error {
 		}
 	}
 
-	var mirrorWorker *runkod.MirrorWorker
+	// githubRemoteFor builds the connect endpoint's remotes: "owner/name"
+	// on the App's GitHub host, pushed with minted installation tokens.
+	// nil when the daemon holds no App credentials - the endpoint then
+	// answers a structured github_app_not_configured.
+	githubHost := "github.com"
+	if u, err := url.Parse(*githubAPI); err == nil && u.Host != "" && u.Host != "api.github.com" {
+		githubHost = u.Host
+	}
+	githubRemoteFor := func(repoDir string) func(string) *mirror.Remote {
+		if ghApp == nil {
+			return nil
+		}
+		return func(repoPath string) *mirror.Remote {
+			return &mirror.Remote{
+				RepoDir:     repoDir,
+				URL:         "https://" + githubHost + "/" + repoPath + ".git",
+				TokenSource: ghApp.TokenSource(repoPath),
+			}
+		}
+	}
+
+	// Every server gets a mirror worker since `github connect`
+	// (2026-07-16, runkod/README.md) - unarmed without config, so an
+	// idle worker is a no-op ticker. Boot precedence for the remote:
+	// explicit flag config wins; else stored github wiring (restored
+	// below, once the directory exists); else unarmed.
+	mirrorWorker := &runkod.MirrorWorker{
+		Store:    store,
+		TrunkRef: *trunk,
+		Debounce: 3 * time.Second,
+		Interval: time.Minute,
+	}
 	if *mirrorRemote != "" {
 		remote := &mirror.Remote{RepoDir: *repoDir, URL: *mirrorRemote, Username: *mirrorUsername, Token: *mirrorToken,
 			TokenSource: mirrorTokenSource(ghApp, *mirrorRemote, *mirrorToken)}
 		if remote.TokenSource != nil {
 			fmt.Printf("runkod: mirror %s authenticates via GitHub App %s\n", *mirrorRemote, *githubAppID)
 		}
-		mirrorWorker = &runkod.MirrorWorker{
-			Remote:   remote,
-			Store:    store,
-			TrunkRef: *trunk,
-			Debounce: 3 * time.Second,
-			Interval: time.Minute,
-		}
+		mirrorWorker.Remote = remote
 	}
 
 	events := runkod.NewEventBus()
@@ -336,6 +363,8 @@ func cmdServe(args []string) error {
 	server.Directory = directory
 	server.SettingsOrg = defaultOrgName
 	server.OrgName = defaultOrgName
+	server.GithubRemote = githubRemoteFor(*repoDir)
+	restoreGithubWiring(ctx, directory, defaultOrgName, mirrorWorker, githubRemoteFor(*repoDir), *mirrorRemote != "")
 	hub := &runkod.OrgHub{
 		Default:        server,
 		DefaultOrgName: defaultOrgName,
@@ -365,29 +394,34 @@ func cmdServe(args []string) error {
 				GlobalRequiredChecks:     splitNonEmpty(*globalChecks),
 			}
 			// Per-org mirror (§18.6 M1, was default-org-only in v1 -
-			// docs/migration-findings.md #12): an --org-mirror entry naming
-			// this org gets its own MirrorWorker over the org's repo and
-			// org-scoped Store (cursors live per org). Setting it on the
-			// Server lights up /o/<org>/api/mirror/status|unfreeze; the
-			// worker starts in StartOrgWorkers. Per-org zoekt stays
-			// default-org-only; search answers structured not-configured.
-			var orgMirror *runkod.MirrorWorker
+			// docs/migration-findings.md #12): every org now gets a
+			// worker (unarmed without config - `github connect` can arm
+			// it live). An --org-mirror entry naming this org arms it at
+			// boot and wins over stored github wiring; a stored
+			// github_mirror_repo (settings) arms it otherwise. Setting it
+			// on the Server lights up /o/<org>/api/mirror/status|unfreeze
+			// and /api/github/connect; the worker starts in
+			// StartOrgWorkers. Per-org zoekt stays default-org-only;
+			// search answers structured not-configured.
+			orgMirror := &runkod.MirrorWorker{
+				Store:    orgStore,
+				TrunkRef: *trunk,
+				Debounce: 3 * time.Second,
+				Interval: time.Minute,
+			}
+			flagConfigured := false
 			for _, cfg := range orgMirrors {
 				if cfg.Org != orgName {
 					continue
 				}
-				orgMirror = &runkod.MirrorWorker{
-					Remote: &mirror.Remote{RepoDir: orgRepoDir, URL: cfg.Remote, Username: cfg.Username, Token: cfg.Token,
-						TokenSource: mirrorTokenSource(ghApp, cfg.Remote, cfg.Token)},
-					Store:    orgStore,
-					TrunkRef: *trunk,
-					Debounce: 3 * time.Second,
-					Interval: time.Minute,
-				}
-				proc.Mirror = orgMirror
-				orgMirrorWorkers.Store(orgName, orgMirror)
+				orgMirror.Remote = &mirror.Remote{RepoDir: orgRepoDir, URL: cfg.Remote, Username: cfg.Username, Token: cfg.Token,
+					TokenSource: mirrorTokenSource(ghApp, cfg.Remote, cfg.Token)}
+				flagConfigured = true
 				break
 			}
+			restoreGithubWiring(ctx, directory, orgName, orgMirror, githubRemoteFor(orgRepoDir), flagConfigured)
+			proc.Mirror = orgMirror
+			orgMirrorWorkers.Store(orgName, orgMirror)
 			orgServer := &runkod.Server{
 				RepoDir: orgRepoDir, TrunkRef: *trunk, Store: orgStore, Processor: proc, Token: *token,
 				Events:                   orgEvents,
@@ -400,6 +434,9 @@ func cmdServe(args []string) error {
 				Mirror:                   orgMirror,
 				LandIdentity:             landID,
 				Revalidation:             revalidationScope,
+				Directory:                directory,
+				SettingsOrg:              orgName,
+				GithubRemote:             githubRemoteFor(orgRepoDir),
 			}
 			// Each org gets its own when-ready land worker, same as the
 			// root server's (NewOrgServer is called once per org - the
@@ -408,18 +445,16 @@ func cmdServe(args []string) error {
 			return orgServer, nil
 		},
 	}
-	if *webhookURL != "" || len(orgMirrors) > 0 {
-		hub.StartOrgWorkers = func(ctx context.Context, orgName string, orgStore runkod.Store) {
-			if *webhookURL != "" {
-				worker := &runkod.OutboxWorker{Store: orgStore, URL: *webhookURL, Secret: []byte(*webhookSecret)}
-				go worker.Run(ctx, 5*time.Second)
-			}
-			if w, ok := orgMirrorWorkers.Load(orgName); ok {
-				worker := w.(*runkod.MirrorWorker)
-				go worker.Run(ctx)
-				worker.Trigger() // sync whatever the org repo already holds
-				fmt.Printf("runkod: org %s mirroring (trunk leased, tags, change refs; workspace snapshots never)\n", orgName)
-			}
+	hub.StartOrgWorkers = func(ctx context.Context, orgName string, orgStore runkod.Store) {
+		if *webhookURL != "" {
+			worker := &runkod.OutboxWorker{Store: orgStore, URL: *webhookURL, Secret: []byte(*webhookSecret)}
+			go worker.Run(ctx, 5*time.Second)
+		}
+		if w, ok := orgMirrorWorkers.Load(orgName); ok {
+			worker := w.(*runkod.MirrorWorker)
+			go worker.Run(ctx) // ticks even unarmed - `github connect` may arm it live
+			worker.Trigger()   // nil-safe; syncs whatever the org repo already holds
+			fmt.Printf("runkod: org %s mirror worker up (trunk leased, tags, change refs; workspace snapshots never)\n", orgName)
 		}
 	}
 	if loaded, err := hub.LoadExisting(ctx); err != nil {
@@ -442,9 +477,9 @@ func cmdServe(args []string) error {
 	if indexWorker != nil {
 		indexWorker.Trigger() // index whatever trunk already holds at startup, not just future advances
 	}
-	if mirrorWorker != nil {
-		go mirrorWorker.Run(ctx) // reconcile loop; restarts and missed triggers self-heal
-		mirrorWorker.Trigger()   // sync whatever exists at startup
+	go mirrorWorker.Run(ctx) // reconcile loop; restarts and missed triggers self-heal (ticks even unarmed)
+	mirrorWorker.Trigger()   // nil-safe; syncs whatever exists at startup
+	if *mirrorRemote != "" {
 		fmt.Printf("runkod: mirroring to %s (trunk leased, tags, change refs; workspace snapshots never)\n", *mirrorRemote)
 	}
 
@@ -618,6 +653,26 @@ func splitPipe(v string) []string {
 		}
 	}
 	return out
+}
+
+// restoreGithubWiring re-arms an org's stored `github connect` wiring at
+// boot (settings.github_mirror_repo). Explicit flag config wins; stored
+// wiring without App credentials stays dormant, loudly - the operator
+// removed the App key, not the org's intent.
+func restoreGithubWiring(ctx context.Context, dir runkod.Directory, orgName string, worker *runkod.MirrorWorker, newRemote func(string) *mirror.Remote, flagConfigured bool) {
+	if flagConfigured {
+		return
+	}
+	settings, err := dir.GetOrgSettings(ctx, orgName)
+	if err != nil || settings.GithubMirrorRepo == "" {
+		return
+	}
+	if newRemote == nil {
+		log.Printf("runkod: org %s has github wiring to %s but the daemon holds no GitHub App credentials - mirror stays unarmed (--github-app-id/--github-app-key-file)", orgName, settings.GithubMirrorRepo)
+		return
+	}
+	worker.SetRemote(newRemote(settings.GithubMirrorRepo))
+	fmt.Printf("runkod: org %s github wiring restored - mirroring to %s via the GitHub App\n", orgName, settings.GithubMirrorRepo)
 }
 
 // mirrorTokenSource wires GitHub App installation tokens (2026-07-16,
