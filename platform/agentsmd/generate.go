@@ -60,6 +60,8 @@ var Commands = []Command{
 	{"runko", "org list [--json]", "orgs your credential can reach (role + git URL) - needs a live runkod", "[]OrgInfo"},
 	{"runko", "org add-member --org <org> --name <account> [--role member] [--json]", "grant an account org access (org admins/operators) - needs a live runkod", `{"org","name","role"}`},
 	{"runko", "org bootstrap [--json]", "ownerless org (nothing can land under default-deny)? opens the self-landable root-OWNERS change naming the caller (§6.10 retrofit) - humans/org admins only, agents suggest it to a human", `{"seeded_genesis","change_id","title"}`},
+	{"runko", "github connect --repo <owner/name> [--json]", "wire the org to a GitHub repo in one call: the server verifies its GitHub App can push (repo reachable, App installed, token minted), persists the wiring in org settings, and arms the mirror live (2026-07-16) - org admins/operators; agents are refused", "GithubConnectResult"},
+	{"runko", "github status [--json]", "the org's outbound mirror state: target URL, per-ref cursors, freezes, last error - needs a live runkod", "MirrorStatus"},
 	{"runko", "release create --project <p> [--version x.y.z] --runkod-url <url> --token <t> [--json]", "cut an immutable release (§14.10.3): server-minted annotated tag + changelog derived from landed changes since the previous release - needs a live runkod", "ReleaseInfo"},
 	{"runko", "release list --project <p> --runkod-url <url> --token <t> [--json]", "the project's releases, newest first (§14.10.3) - needs a live runkod", "[]ReleaseInfo"},
 	{"runko", "agents-md [--out AGENTS.md] [--json]", "regenerate this file AND the agent skill (.claude/skills/runko/SKILL.md) from the CLI's own command inventory (§8.8)", `{"path","skill_path"}`},

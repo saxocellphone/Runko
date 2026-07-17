@@ -74,6 +74,8 @@ func main() {
 		err = cmdAuth(os.Args[2:])
 	case "org":
 		err = cmdOrg(os.Args[2:])
+	case "github":
+		err = cmdGithub(os.Args[2:])
 	case "release":
 		err = cmdRelease(os.Args[2:])
 	case "self-update", "update": // update: the verb people type first
@@ -140,6 +142,8 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   org list                                                    orgs you can reach (role + git URL) [--json]
   org add-member --org <org> --name <account> [--role member|admin|releaser]   grant an account access [--json]
   org bootstrap                                               ownerless org? open the self-landable root-OWNERS change naming you (§6.10 retrofit; unborn trunk seeds genesis directly) [--json]
+  github connect --repo <owner/name>                          wire this org to a GitHub repo: verify the App, persist, arm the mirror - one command (2026-07-16) [--json]
+  github status                                                the org's mirror state: target, cursors, freezes [--json]
   release create --project <p> [--version x.y.z]              cut an immutable release: server-minted tag + changelog from landed changes (§14.10.3) [--json]
   release list --project <p>                                  the project's releases, newest first [--json]
   change create -m <msg> [--dir .]                            commit WIP as one Change (with its Change-Id) [--json]
