@@ -148,6 +148,42 @@ func TestPushChangeNoSyncPushesStaleBaseAsIs(t *testing.T) {
 	}
 }
 
+// A conflicting auto-sync must not block the submit (2026-07-17):
+// conflicts gate LANDING (the land engine refuses a conflicting rebase
+// server-side, §13.5), not review or CI. The push warns on stderr, keeps
+// the stale base, and leaves the tree clean.
+func TestPushChangePushesStaleBaseOnSyncConflict(t *testing.T) {
+	repo, remote, newTip := syncFixture(t, true)
+
+	var warnings strings.Builder
+	oldWarn := warnWriter
+	warnWriter = &warnings
+	defer func() { warnWriter = oldWarn }()
+
+	if _, err := PushChange(repo.Dir, "origin", "main"); err != nil {
+		t.Fatalf("PushChange with a conflicting stale base: %v", err)
+	}
+
+	head, _ := runGit(repo.Dir, "rev-parse", "HEAD")
+	pushed, err := runGit(remote, "rev-parse", "refs/for/main")
+	if err != nil || pushed != head {
+		t.Fatalf("expected refs/for/main = local HEAD %s, got %s (%v)", head, pushed, err)
+	}
+	// The conflicting rebase was NOT applied: the pushed head still sits
+	// on the stale base.
+	if _, err := runGit(repo.Dir, "merge-base", "--is-ancestor", newTip, head); err == nil {
+		t.Fatalf("expected the push to keep the stale base, but HEAD contains the new trunk tip")
+	}
+	// §6.6: never a half-rebased tree.
+	if status, _ := runGit(repo.Dir, "status", "--porcelain"); status != "" {
+		t.Fatalf("expected a clean tree after the push, got:\n%s", status)
+	}
+	w := warnings.String()
+	if !strings.Contains(w, "shared.txt") || !strings.Contains(w, "stale base") {
+		t.Fatalf("expected a warning naming the conflicted file and the stale-base push, got: %q", w)
+	}
+}
+
 // LandWithSync drives the whole §13.5 recovery loop: a first land that
 // 409s requires_revalidation triggers sync + re-push + a requirements
 // poll, then the retry lands. The daemon is an httptest script; the git

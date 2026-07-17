@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -36,7 +37,11 @@ func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
 // pushChange with autoSync=true rebases a stale base onto the remote
 // trunk tip BEFORE pushing (2026-07-10, the sync feature): a stale base
 // only postpones the same rebase to the §13.5 revalidation loop, with a
-// round of checks wasted in between. --no-sync opts out.
+// round of checks wasted in between. --no-sync opts out. A CONFLICTING
+// sync no longer blocks the submit (2026-07-17): conflicts gate LANDING
+// (the land engine refuses a conflicting rebase server-side), not review
+// or CI - so the checkout is restored, a warning names the files, and
+// the stale base is pushed.
 //
 // autoSnapshot=true is §12.6's promised auto-snapshot on change push: a
 // workspace-bound checkout parks its snapshot ref at the submitted state
@@ -46,8 +51,18 @@ func PushChange(repoDir, remote, trunk string) (changeID string, err error) {
 // false: it re-submits server-known state, there is nothing new to save.
 func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (changeID string, err error) {
 	if autoSync && staleBase(repoDir, remote, trunk) {
-		if _, err := SyncToTrunk(repoDir, remote, trunk); err != nil {
-			return "", err
+		if _, err := syncToTrunk(repoDir, remote, trunk, true); err != nil {
+			var ce *clierr.Error
+			if !errors.As(err, &ce) || ce.Code != "sync_conflict" {
+				return "", err
+			}
+			// syncToTrunk(restoreOnConflict) has put the checkout back to
+			// its pre-sync state, so the stale base is intact and safe to
+			// submit - review and checks start now instead of after the
+			// resolution.
+			fmt.Fprintf(warnWriter,
+				"warning: %s\n         pushing the stale base anyway - the change can collect review and checks but will NOT land until the conflict is resolved (%s)\n",
+				ce.Message, ce.Suggestion)
 		}
 	}
 	if _, err := runGit(repoDir, "rev-parse", "--git-dir"); err != nil {

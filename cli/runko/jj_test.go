@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/saxocellphone/runko/internal/clierr"
+	"github.com/saxocellphone/runko/internal/gitfixture"
 	"github.com/saxocellphone/runko/platform/receive"
 	"github.com/saxocellphone/runko/runkod"
 )
@@ -118,6 +119,84 @@ func TestPushChangeFromColocatedJJWorkspace(t *testing.T) {
 	msg, _ := runGit(dir, "log", "-1", "--format=%B", tip)
 	if trailerID, ok := receive.ParseChangeID(msg); !ok || trailerID != id {
 		t.Fatalf("reported id %q vs tip trailer %q (ok=%v)", id, trailerID, ok)
+	}
+}
+
+// The jj half of the push-anyway rule (2026-07-17): a conflicting
+// auto-sync rolls the repo back to the pre-sync operation - jj records
+// conflicts in-tree, and those markers must never reach the pushed
+// commit - then the stale base is submitted with a warning. Conflicts
+// gate landing, not review.
+func TestPushChangeJJConflictingSyncRollsBackAndPushes(t *testing.T) {
+	requireJJ(t)
+	remote := newBareRemote(t)
+	dir := newColocatedJJRepo(t)
+	if err := SetupJJChangeIDs(dir); err != nil {
+		t.Fatalf("SetupJJChangeIDs: %v", err)
+	}
+	// A NAMED remote, as workspace attach configures in production: the
+	// sync's `git fetch origin main` then updates refs/remotes/origin/main,
+	// which jj imports - a bare URL leaves the tip in FETCH_HEAD only,
+	// invisible to jj.
+	if _, err := runGit(dir, "remote", "add", "origin", remote); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+
+	jjCommitFile(t, dir, "shared.txt", "base\n", "initial")
+	seed, err := runJJ(dir, "log", "--no-graph", "-r", "@-", "-T", "commit_id")
+	if err != nil {
+		t.Fatalf("resolve seed commit: %v", err)
+	}
+	if _, err := runGit(dir, "push", "origin", seed+":refs/heads/main"); err != nil {
+		t.Fatalf("seed trunk: %v", err)
+	}
+
+	// Local work touches shared.txt...
+	jjCommitFile(t, dir, "shared.txt", "local line\n", "local work")
+
+	// ...and trunk advances behind our back with a conflicting edit.
+	other := gitfixture.New(t)
+	configureIdentity(t, other.Dir)
+	other.Run("remote add origin " + remote)
+	if _, err := runGit(other.Dir, "fetch", "-q", "origin", "main"); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if _, err := runGit(other.Dir, "reset", "-q", "--hard", "FETCH_HEAD"); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	other.WriteFile("shared.txt", "trunk line\n")
+	other.Commit("trunk advances")
+	if _, err := runGit(other.Dir, "push", "-q", "origin", "main"); err != nil {
+		t.Fatalf("advance remote main: %v", err)
+	}
+
+	var warnings strings.Builder
+	oldWarn := warnWriter
+	warnWriter = &warnings
+	defer func() { warnWriter = oldWarn }()
+
+	if _, err := PushChange(dir, "origin", "main"); err != nil {
+		t.Fatalf("PushChange with a conflicting stale base: %v", err)
+	}
+
+	tip, err := runJJ(dir, "log", "--no-graph", "-r", "@-", "-T", "commit_id")
+	if err != nil {
+		t.Fatalf("resolve tip: %v", err)
+	}
+	pushed, err := runGit(remote, "rev-parse", "refs/for/main")
+	if err != nil || pushed != tip {
+		t.Fatalf("magic ref: want the stale-base jj tip %s, got %s (%v)", tip, pushed, err)
+	}
+	// The rollback left no jj conflicts, and the pushed tree carries no
+	// conflict markers.
+	if out, _ := runJJ(dir, "log", "--no-graph", "-r", "conflicts() & mutable()", "-T", `change_id.short() ++ " "`); strings.TrimSpace(out) != "" {
+		t.Fatalf("expected the conflicting rebase rolled back, but conflicts remain in: %s", out)
+	}
+	if blob, _ := runGit(dir, "show", pushed+":shared.txt"); strings.Contains(blob, "<<<<<<<") {
+		t.Fatalf("pushed commit carries conflict markers:\n%s", blob)
+	}
+	if w := warnings.String(); !strings.Contains(w, "stale base") {
+		t.Fatalf("expected a stale-base warning, got: %q", w)
 	}
 }
 
