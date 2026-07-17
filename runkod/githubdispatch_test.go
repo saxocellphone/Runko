@@ -198,3 +198,31 @@ func TestGithubDispatchAfterURLDelivery(t *testing.T) {
 		t.Fatalf("both targets must fire: url=%d dispatch=%d", urlHits.Load(), calls.Load())
 	}
 }
+
+// TestGithubDispatchRunsEvenWhenURLDeliveryFails: native dispatch must not
+// depend on the legacy webhook URL succeeding - a dead consumer at the URL
+// can never stall CI dispatch (2026-07-17). The row still stays due for
+// retry because the URL delivery failed.
+func TestGithubDispatchRunsEvenWhenURLDeliveryFails(t *testing.T) {
+	g, store, _, calls, _ := dispatcherFixture(t)
+	deadURL := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "consumer gone", http.StatusBadGateway)
+	}))
+	defer deadURL.Close()
+
+	ctx := context.Background()
+	if _, err := store.EnqueueWebhook(ctx, "change.updated", dispatchEnvelope(t, "change.updated", "d6")); err != nil {
+		t.Fatalf("EnqueueWebhook: %v", err)
+	}
+	worker := &OutboxWorker{Store: store, URL: deadURL.URL, Secret: []byte("shh"), GithubDispatch: g}
+	if n, err := worker.RunOnce(ctx); err != nil || n != 1 {
+		t.Fatalf("RunOnce: n=%d err=%v", n, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("native dispatch must fire despite the URL failure, got %d dispatches", calls.Load())
+	}
+	// The failed URL delivery still drives a retry.
+	if due, _ := store.ListDueWebhookDeliveries(ctx, time.Now().Add(time.Hour)); len(due) != 1 {
+		t.Fatalf("a failed URL delivery must keep the row due for retry, got %+v", due)
+	}
+}
