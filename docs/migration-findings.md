@@ -695,3 +695,5 @@ future org imports bootstrap via the operator principal's force-land
   (see #25 - force-land wasn't needed because unpoliced lands are on).
   Mirror adopt/freeze rehearsal deferred to R6 (needs `--org-mirror`
   deployed); the semantics are e2e-tested in TestEndToEndDaemonOrgs.
+
+<!-- native Mode C dispatch verification 2026-07-17T18:24:59Z -->
