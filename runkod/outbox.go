@@ -11,7 +11,10 @@ import (
 // OutboxWorker delivers due webhook deliveries (§14.4.1) to one configured
 // target URL - the "one daemon = one monorepo/org" scope this stage
 // documents (doc.go): a real multi-tenant deployment would resolve the
-// target per-org from webhook subscription config, not built yet.
+// target per-org from webhook subscription config, not built yet. Since
+// 2026-07-17 it additionally performs the native Mode C GitHub dispatch
+// (githubdispatch.go) when GithubDispatch is set - URL-less deployments
+// with App credentials run the worker for dispatch alone.
 type OutboxWorker struct {
 	Store      Store
 	Client     *http.Client
@@ -20,6 +23,13 @@ type OutboxWorker struct {
 	BackoffMin time.Duration
 	BackoffMax time.Duration
 	Now        func() time.Time
+	// GithubDispatch, when set, natively dispatches CI-triggering
+	// envelopes to the org's connected GitHub repo - the runko-bridge
+	// shim folded in. Runs after the URL delivery: both must succeed
+	// for the row to be marked delivered, and a retry re-drives both
+	// (receivers dedupe by delivery_id; GitHub by the workflow's
+	// concurrency group).
+	GithubDispatch *GithubDispatcher
 }
 
 // RunOnce polls for due deliveries and attempts each exactly once,
@@ -33,12 +43,27 @@ func (w *OutboxWorker) RunOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	for _, d := range due {
-		attempt := checks.Deliver(ctx, w.client(), w.URL, d.Payload, w.Secret)
+		attempt := w.attempt(ctx, d.Payload)
 		if err := w.Store.RecordDeliveryResult(ctx, d.ID, attempt, w.backoffMin(), w.backoffMax(), now); err != nil {
 			return len(due), err
 		}
 	}
 	return len(due), nil
+}
+
+// attempt performs one delivery's full fan-out: the signed URL POST when
+// a URL is configured, then the native GitHub dispatch when wired.
+func (w *OutboxWorker) attempt(ctx context.Context, payload []byte) checks.DeliveryAttempt {
+	if w.URL != "" {
+		attempt := checks.Deliver(ctx, w.client(), w.URL, payload, w.Secret)
+		if !attempt.Success || w.GithubDispatch == nil {
+			return attempt
+		}
+	}
+	if w.GithubDispatch != nil {
+		return w.GithubDispatch.Deliver(ctx, payload)
+	}
+	return checks.DeliveryAttempt{Success: true}
 }
 
 // Run polls RunOnce every interval until ctx is done - the long-running
