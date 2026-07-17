@@ -576,3 +576,97 @@ func TestSameNameDifferentOrgs(t *testing.T) {
 		t.Fatalf("the other casey on org-c: want 403, got %d", status)
 	}
 }
+
+// TestSameNameSamePasswordAcrossOrgs is the prod-observed edge
+// (2026-07-16): one human reuses the SAME name+password combo in several
+// orgs. Per-org accounts make these distinct account rows with
+// coincidentally-equal credentials, so every surface must resolve the row
+// for the org IN THE URL - never "any row this credential verifies
+// against". The distinguishable bit is the org role: casey is org-x's
+// admin but org-y's member, so a leaked resolution shows up as the wrong
+// admin flag even though the name matches.
+func TestSameNameSamePasswordAcrossOrgs(t *testing.T) {
+	fx := newSigninHub(t)
+	srv := fx.srv
+	const pw = "one-pw-everywhere"
+
+	// casey founds org-x (admin), then joins org-y (member) - same combo.
+	if status, _ := signupOrg(t, srv, "casey", pw, "org-x", "create"); status != http.StatusCreated {
+		t.Fatalf("casey@org-x signup failed")
+	}
+	if status, _ := signupOrg(t, srv, "riley", "riley-pw", "org-y", "create"); status != http.StatusCreated {
+		t.Fatalf("riley@org-y signup failed")
+	}
+	if status, body := signupOrg(t, srv, "casey", pw, "org-y", "join"); status != http.StatusCreated {
+		t.Fatalf("casey@org-y join with the same combo must work: %d %v", status, body)
+	}
+	// A third org casey has no account in.
+	if status, _ := signupOrg(t, srv, "quinn", "quinn-pw", "org-z", "create"); status != http.StatusCreated {
+		t.Fatalf("quinn@org-z signup failed")
+	}
+
+	whoami := func(org string) (int, map[string]any) {
+		return hubDo(t, srv, "GET", "/o/"+org+"/api/whoami", "casey", pw, "", nil)
+	}
+	// The org in the URL picks the account row: same combo, different
+	// role per org - admin must follow the ORG, not the first row the
+	// password happens to verify against.
+	if status, who := whoami("org-x"); status != http.StatusOK || who["name"] != "casey" || who["admin"] != true {
+		t.Fatalf("casey on org-x must be org-x's admin casey: %d %v", status, who)
+	}
+	if status, who := whoami("org-y"); status != http.StatusOK || who["name"] != "casey" || who["admin"] == true {
+		t.Fatalf("casey on org-y must be org-y's MEMBER casey (admin=false): %d %v", status, who)
+	}
+	// An org where no casey exists: the combo verifying elsewhere makes
+	// this "wrong org" (403), never a sign-in and never "wrong password".
+	if status, _ := whoami("org-z"); status != http.StatusForbidden {
+		t.Fatalf("casey on org-z: want 403 not_org_member, got %d", status)
+	}
+
+	// The hub selector must list BOTH orgs: the ambiguous credential
+	// proves both same-named accounts, and dropping either strands that
+	// org's session (this is what the web org switcher renders).
+	status, body := hubDo(t, srv, "GET", "/api/orgs", "casey", pw, "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("selector: %d", status)
+	}
+	roles := map[string]string{}
+	for _, o := range body["orgs"].([]any) {
+		row := o.(map[string]any)
+		roles[row["name"].(string)] = row["role"].(string)
+	}
+	if roles["org-x"] != "admin" || roles["org-y"] != "member" || len(roles) != 2 {
+		t.Fatalf("selector must list exactly org-x(admin)+org-y(member), got %v", roles)
+	}
+
+	// Git transport, same rule (requireGitAuth rides callerForBasic): the
+	// combo reaches its own orgs' repos and answers 403 - not 401, not a
+	// cross-org grant - where casey has no account.
+	gitRefs := func(org string) int {
+		status, _ := hubDo(t, srv, "GET", "/o/"+org+"/repo.git/info/refs?service=git-upload-pack", "casey", pw, "", nil)
+		return status
+	}
+	if got := gitRefs("org-x"); got != http.StatusOK {
+		t.Fatalf("git on org-x: want 200, got %d", got)
+	}
+	if got := gitRefs("org-y"); got != http.StatusOK {
+		t.Fatalf("git on org-y: want 200, got %d", got)
+	}
+	if got := gitRefs("org-z"); got != http.StatusForbidden {
+		t.Fatalf("git on org-z: want 403, got %d", got)
+	}
+
+	// Signup keeps its finding-#44 idempotence per org: re-signup with
+	// the matching combo is a benign rejoin preserving the ORG'S OWN
+	// role (org-x: admin), and a wrong password stays name_taken - the
+	// same combo existing in org-y must not make org-x's row "match".
+	if status, body := signupOrg(t, srv, "casey", pw, "org-x", "join"); status != http.StatusCreated || body["org"].(map[string]any)["role"] != "admin" {
+		t.Fatalf("rejoin of casey@org-x must preserve admin: %d %v", status, body)
+	}
+	if status, body := signupOrg(t, srv, "casey", pw, "org-y", "join"); status != http.StatusCreated || body["org"].(map[string]any)["role"] != "member" {
+		t.Fatalf("rejoin of casey@org-y must stay member: %d %v", status, body)
+	}
+	if status, body := signupOrg(t, srv, "casey", "not-caseys-pw", "org-x", "join"); status != http.StatusConflict || body["Code"] != "name_taken" {
+		t.Fatalf("re-signup under a wrong password: %d %v", status, body)
+	}
+}
