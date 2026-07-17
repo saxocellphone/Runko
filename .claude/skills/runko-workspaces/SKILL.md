@@ -100,6 +100,45 @@ branch` refuses (a parallel line = a second checkout via
 (jj's own fetch fails SILENTLY on URL-embedded basic auth); sync is
 `runko workspace sync` as everywhere (jj-aware rebase).
 
+## Worktree setup & gotchas
+
+- **Transport is stamped for you.** `workspace create`/`attach` write
+  `http.postBuffer=524288000` and `http.version=HTTP/1.1` into the
+  worktree, so the first push behind Cloudflare no longer dies with a
+  bare `HTTP 400 ... unexpected disconnect while reading sideband
+  packet`. If you DO hit it (a checkout made before this), that is
+  TRANSPORT not policy - `runko change push` now says so and names the
+  one-line remedy (`git config http.postBuffer 524288000 &&
+  git config http.version HTTP/1.1`); re-run.
+- **Identity is bound to the worktree - no XDG juggling.** `workspace
+  create` stamps `runko.owner`, and the no-`XDG_CONFIG_HOME` agent form
+  is one command: `runko workspace create --by agent-x --as agent-x
+  --token <tok>` (admin mints the token with `runko agent create`; `--as`
+  authenticates AS the agent for this command without storing or
+  clobbering a login). Authoring inside the worktree then resolves that
+  identity by itself.
+- **Never build binaries into the worktree.** `go build` with no `-o`
+  drops a multi-MB executable at the repo root, and `change create`
+  stages the WHOLE tree - that is how a 7.5MB junk blob (plus phantom
+  size + affinity errors) once rode into a change. `change create` now
+  REFUSES large/executable untracked files by name; remove or
+  `.gitignore` them, and build to a scratch dir: `go build -o /tmp/x
+  ./...` (or just `go vet ./...`). `--allow-large` is the escape hatch
+  for an intentional binary asset.
+- **Affinity is by PROJECT NAME, not directory.** `runko project list`
+  names them: `cli/runko-ci` is project `cli`; a repo-root file like
+  `runko-ci` belongs to the ROOT project (`repo`), not a `runko-ci`
+  directory. The affinity rejection now spells out the path, where it
+  maps, and the current affinity set.
+- **Guarding `$GIT_COMMON_DIR/info/exclude`? ANCHOR with a leading `/`.**
+  An unanchored `runko-ci` line also excludes the `cli/runko-ci/`
+  directory and silently drops new source from the commit; write
+  `/runko-ci` to mean the root file only.
+- **Reword/extend a change with `runko change amend`**, not raw
+  `git commit --amend` (which fails on a checkout with no configured git
+  author): it folds the working tree into HEAD's Change, keeps the
+  Change-Id, and carries the Runko identity fallback.
+
 ## The loop
 
 1. Edit. **Stream as you work**: start `runko workspace watch &` once
