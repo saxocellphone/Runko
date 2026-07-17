@@ -26,6 +26,7 @@ type PushRequest struct {
 	Principal     Principal
 
 	WorkspaceAffinity   []string
+	AffinityProjects    []string // project names behind WorkspaceAffinity, for the rejection message (FIX #5)
 	ModifiesOwners      bool
 	EnabledCapabilities []string
 	IsLandRequest       bool
@@ -91,6 +92,7 @@ func Decide(req PushRequest, scanner SecretScanner) Decision {
 			ChangedFiles:        req.ChangedPaths,
 			DiffBytes:           req.DiffBytes,
 			WorkspaceAffinity:   req.WorkspaceAffinity,
+			AffinityProjects:    req.AffinityProjects,
 			ModifiesOwners:      req.ModifiesOwners,
 			EnabledCapabilities: req.EnabledCapabilities,
 			IsLandRequest:       req.IsLandRequest,

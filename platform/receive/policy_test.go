@@ -1,6 +1,9 @@
 package receive
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func violationCodes(v []PolicyViolation) map[string]bool {
 	out := make(map[string]bool, len(v))
@@ -36,6 +39,45 @@ func TestEvaluatePolicySatisfied(t *testing.T) {
 // claims), so a workspace with root affinity carries [""] as its write
 // allowlist - which the prefix arithmetic could never match (no path
 // starts with "/"), write-blocking every agent granted root affinity.
+// TestAffinityRejectionNamesPathAndSet (FIX #5): the old bare "%s is outside
+// this workspace's project affinity" read as a directory even when it named a
+// repo-root FILE (`runko-ci` looked like the `cli/runko-ci/` dir). The
+// message now marks the path as a repo-root file and lists the affinity set
+// by project name.
+func TestAffinityRejectionNamesPathAndSet(t *testing.T) {
+	v := EvaluatePolicy(AgentPolicy{RequireWorkspaceAffinity: true}, PushSummary{
+		ChangedFiles:      []string{"runko-ci"},
+		WorkspaceAffinity: []string{"cli", "docs", "platform", "runkod"},
+		AffinityProjects:  []string{"cli", "docs", "platform", "runkod"},
+	})
+	if len(v) != 1 || v[0].Code != "path_outside_affinity" {
+		t.Fatalf("want one path_outside_affinity, got %+v", v)
+	}
+	for _, want := range []string{`"runko-ci"`, "repo-root file", "{cli, docs, platform, runkod}"} {
+		if !strings.Contains(v[0].Message, want) {
+			t.Errorf("message %q missing %q", v[0].Message, want)
+		}
+	}
+	// A path under a directory outside affinity names the directory.
+	v = EvaluatePolicy(AgentPolicy{RequireWorkspaceAffinity: true}, PushSummary{
+		ChangedFiles:      []string{"security/keys.txt"},
+		WorkspaceAffinity: []string{"cli"},
+		AffinityProjects:  []string{"cli"},
+	})
+	if len(v) != 1 || !strings.Contains(v[0].Message, `under directory "security/"`) {
+		t.Fatalf("want the directory named, got %+v", v)
+	}
+	// With no project names supplied, the set falls back to the path roots
+	// (root project's "" rendered as <repo root>).
+	v = EvaluatePolicy(AgentPolicy{RequireWorkspaceAffinity: true}, PushSummary{
+		ChangedFiles:      []string{"cli/x.go"},
+		WorkspaceAffinity: []string{"docs"},
+	})
+	if len(v) != 1 || !strings.Contains(v[0].Message, "{docs}") {
+		t.Fatalf("want path-root fallback set, got %+v", v)
+	}
+}
+
 func TestEvaluatePolicyRootAffinityGrantsWholeTree(t *testing.T) {
 	policy := DefaultAgentPolicy()
 	summary := PushSummary{

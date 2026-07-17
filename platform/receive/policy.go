@@ -2,6 +2,7 @@ package receive
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/saxocellphone/runko/platform/affected"
 )
@@ -49,6 +50,11 @@ type PushSummary struct {
 	ChangedFiles      []string
 	DiffBytes         int64
 	WorkspaceAffinity []string // project-relative path roots this workspace may write; empty = no affinity configured
+	// AffinityProjects are the PROJECT NAMES behind WorkspaceAffinity (the
+	// workspace's project_affinity, parallel to the path roots). Optional -
+	// when set, an affinity rejection names the set the way a human granted
+	// it, since affinity is declared by project name, not path (FIX #5).
+	AffinityProjects []string
 	// ModifiesOwners means ownership of EXISTING code changes: an OWNERS
 	// or PROJECT.yaml that existed at the push's base, a brand-new OWNERS
 	// file anywhere (§7.3's nearest-file rule re-resolves existing paths),
@@ -96,12 +102,17 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 	}
 
 	if len(summary.WorkspaceAffinity) > 0 {
+		set := affinitySetLabel(summary)
 		for _, f := range summary.ChangedFiles {
 			if !withinAffinity(f, summary.WorkspaceAffinity) {
 				v = append(v, PolicyViolation{
-					Code:       "path_outside_affinity",
-					Message:    fmt.Sprintf("%s is outside this workspace's project affinity", f),
-					Suggestion: "expand workspace affinity or open a new workspace for this path",
+					Code: "path_outside_affinity",
+					// Name the path AS a path and say where it maps, so a
+					// repo-root file (e.g. `runko-ci`) is not misread as the
+					// same-named directory (e.g. `cli/runko-ci/`) - the
+					// ambiguity the old bare "%s is outside..." caused (FIX #5).
+					Message:    fmt.Sprintf("%s is outside this workspace's affinity %s", describePathLocation(f), set),
+					Suggestion: "add the owning project to this workspace's affinity (`runko workspace create --project <name>`) or open a new workspace for it; affinity is by PROJECT NAME (`runko project list`), not directory - a repo-root file belongs to the root project",
 				})
 			}
 		}
@@ -181,6 +192,35 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 	}
 
 	return v
+}
+
+// describePathLocation names a changed path AS a path and says where in the
+// tree it lives, so the affinity message can't be misread as a same-named
+// directory (FIX #5): a repo-root file `runko-ci` is called out as exactly
+// that, not confused with `cli/runko-ci/`.
+func describePathLocation(p string) string {
+	if i := strings.IndexByte(p, '/'); i >= 0 {
+		return fmt.Sprintf("path %q (under directory %q)", p, p[:i+1])
+	}
+	return fmt.Sprintf("repo-root file %q", p)
+}
+
+// affinitySetLabel renders the workspace's affinity as a brace set for the
+// rejection. Prefers the PROJECT NAMES (how a human granted it); falls back
+// to the path roots, rendering the root project's "" as <repo root>.
+func affinitySetLabel(summary PushSummary) string {
+	items := summary.AffinityProjects
+	if len(items) == 0 {
+		items = make([]string, 0, len(summary.WorkspaceAffinity))
+		for _, r := range summary.WorkspaceAffinity {
+			if r == "" {
+				items = append(items, "<repo root>")
+			} else {
+				items = append(items, r)
+			}
+		}
+	}
+	return "{" + strings.Join(items, ", ") + "}"
 }
 
 func withinAffinity(changedPath string, affinity []string) bool {
