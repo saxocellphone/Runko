@@ -51,7 +51,8 @@ that declares no registered workspace origin. The model:
 | `runko auth status` | who the stored credential resolves to - needs a live runkod | `text` |
 | `runko auth logout` | forget the stored credential | `text` |
 | `runko auth git-credential <action>` | git's credential-helper protocol (workspace stores stamp it, §12.7): answers `get` from the INVOKING principal's stored login, own host only - called by git, not humans | `credential key=value lines` |
-| `runko change create [--dir .] [--json] -m <msg>` | commit ALL working-tree changes as one Change with its Change-Id (§7.4); push separately | `{"change_id"}` |
+| `runko change create [--dir .] [--allow-large] [--json] -m <msg>` | commit ALL working-tree changes as one Change with its Change-Id (§7.4); push separately. Refuses large/executable untracked files as suspected build artifacts unless --allow-large | `{"change_id"}` |
+| `runko change amend [--dir .] [-m <msg>] [--json]` | fold the working tree into HEAD's existing Change (keeps its Change-Id) - the native `git commit --amend`, with the identity fallback so it works with no configured git author | `{"change_id"}` |
 | `runko change requirements [--change <Id>] [--dir .] [--json]` | the §13.5 gates for a Change (default: HEAD's Change-Id) - needs a live runkod | `checks.MergeRequirements` |
 | `runko change comment --change <id> -m <text> [--file <p> --line <n> --side head] [--reply-to <id>] [--json]` | anchored review comment bound to the current head (§13.4.1) - agents comment, never approve - needs a live runkod | `CommentInfo` |
 | `runko change comments [--change <Id>] [--dir .] [--json]` | list review threads, resolved/outdated marked (§13.4.1) - needs a live runkod | `{"comments":[CommentInfo],"next_page_token"}` |
@@ -76,10 +77,14 @@ that declares no registered workspace origin. The model:
 | `runko org create --name <org> [--no-switch] [--json]` | new org at /o/<org>/, genesis-seeded and ready to work in; rebinds the stored login to it unless --no-switch (§6.10, §7.1) - humans/operators only, agents are refused (§8.7) | `OrgInfo` |
 | `runko org list [--json]` | orgs your credential can reach (role + git URL) - needs a live runkod | `[]OrgInfo` |
 | `runko org add-member --org <org> --name <account> [--role member] [--json]` | grant an account org access (org admins/operators) - needs a live runkod | `{"org","name","role"}` |
+| `runko org bootstrap [--json]` | ownerless org (nothing can land under default-deny)? opens the self-landable root-OWNERS change naming the caller (§6.10 retrofit) - humans/org admins only, agents suggest it to a human | `{"seeded_genesis","change_id","title"}` |
+| `runko github connect --repo <owner/name> [--json]` | wire the org to a GitHub repo in one call: the server verifies its GitHub App can push (repo reachable, App installed, token minted), persists the wiring in org settings, and arms the mirror AND native CI dispatch live (2026-07-16/17) - org admins/operators; agents are refused | `GithubConnectResult` |
+| `runko github status [--json]` | the org's outbound mirror state: target URL, per-ref cursors, freezes, last error - needs a live runkod | `MirrorStatus` |
 | `runko release create --project <p> [--version x.y.z] --runkod-url <url> --token <t> [--json]` | cut an immutable release (§14.10.3): server-minted annotated tag + changelog derived from landed changes since the previous release - needs a live runkod | `ReleaseInfo` |
 | `runko release list --project <p> --runkod-url <url> --token <t> [--json]` | the project's releases, newest first (§14.10.3) - needs a live runkod | `[]ReleaseInfo` |
 | `runko agents-md [--out AGENTS.md] [--json]` | regenerate this file AND the agent skill (.claude/skills/runko/SKILL.md) from the CLI's own command inventory (§8.8) | `{"path","skill_path"}` |
 | `runko self-update [--check] [--repo owner/name] [--json]` | replace this binary with the rolling cli-latest GitHub release build (§17.1) - checksum-verified, atomic swap; --check only reports; `update` is an alias | `UpdateOutcome` |
+| `runko version [--json]` | which binary is this: vcs revision + build time + toolchain from the Go build stamp (doctor reprints it first); report this when behavior differs from the docs | `BuildIdentity` |
 | `runko-ci affected --base <rev> [--head HEAD] [--engine bazel]` | compute the affected project set for a base..head range (§13.3) | `affected.Result (always JSON)` |
 | `runko-ci checks --base <rev> [--head HEAD]` | resolve the affected closure's manifest-declared ci.checks for a CI executor (§14.9) | `{"run_everything","checks":[{"project","name","command"}]} (always JSON)` |
 | `runko-ci checkout --remote <url> --dest <dir> --rev <rev> [--json]` | partial-clone + sparse-checkout a rev for CI (§14.4.4) | `{"rev","dest"}` |
