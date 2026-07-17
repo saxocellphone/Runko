@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runko.dev/schema/webhooks/deploy-images-ready/v1.json",
+  "title": "Runko deploy.images_ready webhook v1",
+  "description": "Emitted once every affected image for a landed trunk commit has reported its built digest (via runko-ci report-image). This is the inverted CD trigger: GitHub only builds and reports, Runko rolls. The runko-deployer consumes this to pin the digest-referenced images into the GitOps repo and let Argo CD roll. Standalone shape, not the change-event envelope: it is keyed by the landed trunk sha, not a change. Same process requirements as webhook-envelope.schema.json: HMAC-signed, retried with backoff, dead-letter visible, consumers idempotent on delivery_id. `spec_version` is additive-only within a major version.",
+  "type": "object",
+  "required": ["spec_version", "delivery_id", "type", "occurred_at", "org_id", "monorepo_id", "deploy"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": { "const": "1" },
+    "delivery_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique per delivery attempt series; stable across retries of the same logical delivery."
+    },
+    "type": { "const": "deploy.images_ready" },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "org_id": { "type": "string" },
+    "monorepo_id": { "type": "string" },
+    "deploy": {
+      "type": "object",
+      "required": ["trunk_sha", "images"],
+      "additionalProperties": false,
+      "properties": {
+        "trunk_sha": {
+          "type": "string",
+          "description": "The landed trunk commit these images were built from - the deploy record's key."
+        },
+        "change_key": {
+          "type": "string",
+          "description": "The Change whose land produced this deploy (provenance)."
+        },
+        "images": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Every affected image for trunk_sha, each with the digest to deploy. The deployer pins them in one GitOps commit so Argo CD rolls once (single-replica Recreate; migration-findings #33).",
+          "items": {
+            "type": "object",
+            "required": ["image", "digest"],
+            "additionalProperties": false,
+            "properties": {
+              "image": {
+                "type": "string",
+                "description": "Logical image name / kustomize images: key, e.g. runkod|web|webadmin."
+              },
+              "image_ref": {
+                "type": "string",
+                "description": "Full pushed reference sans digest, e.g. ghcr.io/saxocellphone/runko/runkod - reported so the deployer is registry-agnostic and nothing hardcodes ghcr.io."
+              },
+              "digest": {
+                "type": "string",
+                "description": "e.g. sha256:... - the immutable reference the deployment actually serves."
+              }
+            }
+          }
+        },
+        "provenance": {
+          "type": "string",
+          "description": "Deep link to the CI run(s) that built the images."
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "spec_version": "1",
+      "delivery_id": "0b6c9c4e-1f3a-4c5e-9b2a-7d8e6f5a4b3c",
+      "type": "deploy.images_ready",
+      "occurred_at": "2026-07-17T18:00:00Z",
+      "org_id": "org_runko",
+      "monorepo_id": "mono_1",
+      "deploy": {
+        "trunk_sha": "540cf3600287f09141b414f0cb30c9830069b1b8",
+        "change_key": "Ia6f2b6ff",
+        "images": [
+          {
+            "image": "runkod",
+            "image_ref": "ghcr.io/saxocellphone/runko/runkod",
+            "digest": "sha256:aaaa"
+          },
+          {
+            "image": "web",
+            "image_ref": "ghcr.io/saxocellphone/runko/web",
+            "digest": "sha256:bbbb"
+          }
+        ],
+        "provenance": "https://github.com/saxocellphone/runko/actions/runs/123"
+      }
+    }
+  ]
+}
