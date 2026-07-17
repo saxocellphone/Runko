@@ -648,6 +648,10 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 			log.Printf("runkod: change %s landed via bot lane %q", key, lane.Name)
 		}
 		s.enqueueLandedWebhook(ctx, change, outcome.LandedSHA)
+		// §14.10 inverted CD trigger: record the images this land affects so
+		// the post-land build's report-image calls have a record to complete
+		// (which, once complete, emits deploy.images_ready -> the rollout).
+		s.openDeployRecordForLand(ctx, change, outcome.LandedSHA)
 		if change.OriginWorkspace != "" {
 			// §12.6 timeline - before maybeCloseAgentWorkspace, so a
 			// single-use workspace's closed event follows its landed one.
