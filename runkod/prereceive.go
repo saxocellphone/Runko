@@ -394,6 +394,7 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		req.Author = author
 		if originWS != "" && author != "" && originWorkspace.Owner == author {
 			req.WorkspaceAffinity = originWorkspace.WriteAllowlist
+			req.AffinityProjects = originWorkspace.ProjectAffinity
 		}
 	}
 	decision := receive.Decide(req, p.Scanner)
@@ -801,6 +802,7 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 			ChangedFiles:      changedPaths,
 			DiffBytes:         totalContentBytes(files),
 			WorkspaceAffinity: ws.WriteAllowlist,
+			AffinityProjects:  ws.ProjectAffinity,
 			ModifiesOwners:    modifies,
 			IsProjectCreate:   creates,
 			NewProjectOwners:  newOwners,
