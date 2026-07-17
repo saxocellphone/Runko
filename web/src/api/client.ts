@@ -274,19 +274,10 @@ export async function removeOrgMember(org: string, name: string): Promise<void> 
   if (!res.ok) await throwStructured(res, "removing member failed");
 }
 
-/** Switch this browser to another of YOUR orgs and rebind every client's
- * transport. Sessions are always org-scoped; the transport runs through
- * /o/<org>/ for every org, the default one included. On a /<org>-shaped
- * URL the path org overrides the stored one at load (currentOrg above),
- * so switching navigates to the target org's own URL instead of
- * reloading in place - a bare reload under another org's URL silently
- * kept the old binding (see lib/orgsession.ts). */
-export function switchOrg(name: string): void {
-  window.localStorage.setItem("runko-org", name);
-  const dest = postSignInPath(pathOrg, name);
-  if (dest) window.location.href = dest;
-  else window.location.reload();
-}
+// (The org drop-down's switchOrg() is gone, 2026-07-17: orgs are
+// navigated by their own /<org> URLs - GitHub-style - and sign-in lands
+// inside the org that authenticated. See lib/orgsession.ts. The admin
+// org-estate APIs left with the admin panel - the webadmin project.)
 
 const transport = usingDemoData
   ? createFakeTransport()
