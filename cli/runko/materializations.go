@@ -189,10 +189,11 @@ func managedPaths(runkodURL, repoPath, wsName, branch string) (store, dir string
 	return filepath.Join(base, ".store"), filepath.Join(base, leaf), nil
 }
 
-// workspacePathLookup answers `runko workspace path [<name>]`: scripting
-// glue so "go to my workspace" is cd $(runko workspace path fix-x). With
-// no name, the current checkout answers for itself (no registry needed);
-// with one, the registry's freshest surviving row for that workspace wins.
+// workspacePathLookup answers `runko workspace path [<name[@branch]>]`:
+// scripting glue so "go to my workspace" is cd $(runko workspace path
+// fix-x). With no name, the current checkout answers for itself (no
+// registry needed); with one, the registry's freshest surviving row for
+// that workspace (narrowed to @branch when given) wins.
 func workspacePathLookup(name string) (Materialization, error) {
 	if name == "" {
 		id, err := runGit(".", "config", "runko.workspace")
@@ -213,6 +214,15 @@ func workspacePathLookup(name string) (Materialization, error) {
 		}
 		return Materialization{Workspace: id, Branch: branch, Path: top}, nil
 	}
+	ws, branch, _ := strings.Cut(name, "@")
+	return materializationFor(ws, branch)
+}
+
+// materializationFor finds the registry's freshest SURVIVING row for a
+// workspace; branch "" means any branch. Rows whose path is gone (rm -rf
+// without gc) never match - the registry is a cache, the worktrees are
+// truth.
+func materializationFor(name, branch string) (Materialization, error) {
 	rows, err := loadMaterializations()
 	if err != nil {
 		return Materialization{}, err
@@ -220,7 +230,7 @@ func workspacePathLookup(name string) (Materialization, error) {
 	var best *Materialization
 	for i := range rows {
 		r := &rows[i]
-		if r.Workspace != name {
+		if r.Workspace != name || (branch != "" && r.Branch != branch) {
 			continue
 		}
 		if _, err := os.Stat(r.Path); err != nil {
@@ -231,13 +241,45 @@ func workspacePathLookup(name string) (Materialization, error) {
 		}
 	}
 	if best == nil {
+		what := name
+		attach := "runko workspace attach " + name
+		if branch != "" {
+			what = name + "@" + branch
+			attach += " --branch " + branch
+		}
 		return Materialization{}, &clierr.Error{
 			Code: "not_materialized", Field: "workspace",
-			Message:    fmt.Sprintf("workspace %q has no materialization on this machine", name),
-			Suggestion: "restore it with `runko workspace attach " + name + "`",
+			Message:    fmt.Sprintf("workspace %q has no materialization on this machine", what),
+			Suggestion: "restore it with `" + attach + "`, or `runko workspace list` to see what's local",
 		}
 	}
 	return *best, nil
+}
+
+// resolveWorkspaceDir makes the worktree transparent (§12.7): -w names a
+// workspace (optionally name@branch) and the registry answers where it
+// lives on this machine, so checkout verbs run from anywhere - the repo
+// root included - without cd'ing into the materialization. An empty
+// workspace falls through to dir, the historical stand-inside-it default;
+// naming both is a contradiction and refused.
+func resolveWorkspaceDir(workspace, dir string) (string, error) {
+	if workspace == "" {
+		return dir, nil
+	}
+	if dir != "" && dir != "." {
+		return "", &clierr.Error{
+			Code: "workspace_and_dir", Field: "workspace",
+			Message:    "-w/--workspace and --dir/--repo both name a checkout - pick one",
+			Suggestion: "drop --dir; -w resolves the workspace's own materialization from the registry",
+		}
+	}
+	ws, branch, _ := strings.Cut(workspace, "@")
+	m, err := materializationFor(ws, branch)
+	if err != nil {
+		return "", err
+	}
+	touchMaterialization(m.Path)
+	return m.Path, nil
 }
 
 // localPathsByWorkspace maps workspace id -> surviving materialization
