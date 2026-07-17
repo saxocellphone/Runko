@@ -40,6 +40,8 @@ func main() {
 		err = cmdReportCheck(os.Args[2:])
 	case "report-image":
 		err = cmdReportImage(os.Args[2:])
+	case "test-impacted":
+		err = cmdTestImpacted(os.Args[2:])
 	case "-h", "--help", "help":
 		printUsage()
 		return
@@ -64,6 +66,7 @@ commands:
   checkout       partial-clone + sparse-checkout a rev for CI [--json]
   report-check   POST a CheckRun result to the platform's Checks API [--json]
   report-image   POST a built image's digest to the platform's deploy API (post-land CD) [--json]
+  test-impacted  run a manifest check's bazel tests scoped to the snapshot-diff-impacted targets (fail-closed to the full universe)
 
 exit codes: 0 success, 1 command failed, 2 usage error (docs/cli-contract.md)`)
 }

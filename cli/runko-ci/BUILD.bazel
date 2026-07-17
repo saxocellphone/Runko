@@ -10,6 +10,7 @@ go_library(
         "main.go",
         "reportcheck.go",
         "reportimage.go",
+        "testimpacted.go",
     ],
     importpath = "github.com/saxocellphone/runko/cli/runko-ci",
     visibility = ["//visibility:private"],
@@ -41,6 +42,7 @@ go_test(
         "reportimage_test.go",
         "runwhen_test.go",
         "snapshot_test.go",
+        "testimpacted_test.go",
     ],
     embed = [":runko-ci_lib"],
     deps = [
