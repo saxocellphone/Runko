@@ -154,14 +154,14 @@ func TestChangeCreateAndHeadChangeID(t *testing.T) {
 	mustGit(t, dir, "init", "-q", "-b", "main")
 
 	// Empty tree: structured refusal.
-	_, err := CreateChange(dir, "first change")
+	_, err := CreateChange(dir, "first change", false)
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "nothing_to_commit" {
 		t.Fatalf("want nothing_to_commit, got %v", err)
 	}
 
 	writeFile(t, dir, "svc/main.go", "package main\n")
-	id, err := CreateChange(dir, "first change")
+	id, err := CreateChange(dir, "first change", false)
 	if err != nil {
 		t.Fatalf("CreateChange: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestChangeCreateAndHeadChangeID(t *testing.T) {
 
 	// A second create stacks: a new commit, a NEW Change identity.
 	writeFile(t, dir, "svc/handler.go", "package main // handler\n")
-	id2, err := CreateChange(dir, "second change")
+	id2, err := CreateChange(dir, "second change", false)
 	if err != nil {
 		t.Fatalf("second CreateChange: %v", err)
 	}

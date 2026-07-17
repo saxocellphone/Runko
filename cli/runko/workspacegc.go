@@ -290,7 +290,7 @@ func autoGCAndRecycle(ctx context.Context, client *http.Client, runkodURL, token
 // (node_modules, build dirs: the bytes that actually dominate a
 // materialization) survive. Workspace N+1 costs a checkout delta, not
 // clone + dependency install (§12.7).
-func rebindWorktree(store string, old Materialization, dir string, info WorkspaceInfo, startPoint, wsBranch string, authEnv []string) error {
+func rebindWorktree(store string, old Materialization, dir string, info WorkspaceInfo, startPoint, wsBranch, owner string, authEnv []string) error {
 	if old.Path != dir {
 		if _, err := runGit(store, "worktree", "move", old.Path, dir); err != nil {
 			return fmt.Errorf("%w: %v", errRecycleUnavailable, err)
@@ -312,14 +312,8 @@ func rebindWorktree(store string, old Materialization, dir string, info Workspac
 	if _, err := runGit(dir, "clean", "-fdq"); err != nil {
 		return fmt.Errorf("clean residue: %w", err)
 	}
-	for k, v := range map[string]string{
-		"runko.workspace": info.ID,
-		"runko.trunk":     info.TrunkRef,
-		"runko.branch":    wsBranch,
-	} {
-		if _, err := runGit(dir, "config", "--worktree", k, v); err != nil {
-			return err
-		}
+	if err := stampCheckoutConfig(dir, true, info, wsBranch, owner); err != nil {
+		return err
 	}
 	_ = dropMaterialization(old.Path)
 	return nil

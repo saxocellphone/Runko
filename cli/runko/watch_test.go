@@ -218,7 +218,7 @@ func TestChangePushAutoSnapshots(t *testing.T) {
 	// EnsureBareRepo sets this in production).
 	mustGit(t, bare, "config", "receive.advertisePushOptions", "true")
 	writeFile(t, work, "feature.txt", "v1\n")
-	if _, err := CreateChange(work, "add a feature"); err != nil {
+	if _, err := CreateChange(work, "add a feature", false); err != nil {
 		t.Fatalf("CreateChange: %v", err)
 	}
 	head := mustGit(t, work, "rev-parse", "HEAD")
@@ -233,7 +233,7 @@ func TestChangePushAutoSnapshots(t *testing.T) {
 	// --no-snapshot's plumbing: a fresh commit pushed with autoSnapshot
 	// false must NOT move the snapshot ref.
 	writeFile(t, work, "feature.txt", "v2\n")
-	if _, err := CreateChange(work, "second feature"); err != nil {
+	if _, err := CreateChange(work, "second feature", false); err != nil {
 		t.Fatalf("CreateChange: %v", err)
 	}
 	if _, err := pushChange(work, "origin", "main", false, false); err != nil {
