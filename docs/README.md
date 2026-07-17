@@ -3,16 +3,27 @@
 Repo-wide documents: the contract artifacts tests consume, the
 histories, and the frozen design spec. Since 2026-07-16 there is **no
 centralized living spec** — each project's `README.md` is its spec
-surface, and new decisions are recorded there as dated entries (root
-`README.md` for repo-wide decisions).
+surface (root `README.md` for what crosses project boundaries).
 
 ## The documentation model
 
 - **Per-project truth**: `<project>/README.md` states what the project
   owns, its decided constraints, contract surfaces, and checks — and
-  carries a dated **Decisions** section that replaces the old central
-  changelog. Write the entry in the same change that implements the
-  decision.
+  carries a dated **Decisions** section.
+- **Decisions sections are NOT changelogs** (cadence corrected
+  2026-07-16, same day the model landed: agents were appending an entry
+  per change, and concurrent stacks serializing on the same README made
+  changes unlandable — recreating exactly the central-file contention
+  the retirement deleted). An entry is warranted **only for a major
+  architectural shift**: a decided constraint changes, a contract
+  surface appears or disappears, a prior decision is reversed, a
+  project is born or dissolved. Routine work — features, fixes, flags,
+  papercuts — is recorded by its change description and, where it
+  alters a command's behavior, `cli-contract.md`; it must not touch any
+  README. When an entry *is* warranted, it lands in the same change
+  that implements the shift. README body text follows the same bar:
+  update it when what it *states* stops being true, not to narrate
+  activity.
 - **[`design.md`](design.md) is FROZEN** (retired as the living spec,
   2026-07-16). It remains the historical record: `§` citations in
   package headers, commit messages, and older docs resolve against it,
@@ -53,3 +64,8 @@ surface, and new decisions are recorded there as dated entries (root
   design.md frozen in place so `§` citations stay resolvable; the
   histories (`implementation-log.md`, `migration-findings.md`) are
   unaffected.
+- **2026-07-16** — Decisions cadence corrected (user direction: "we
+  shouldn't update the README every time there's a change — only on
+  major architectural shifts"): entries are reserved for shifts as
+  defined above; per-change entries pruned from the READMEs that had
+  accumulated them.

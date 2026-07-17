@@ -54,30 +54,13 @@ CLI input set (`.github/workflows/release-images.yml`).
 
 ## Decisions
 
-New decisions land here as dated entries; the record through
-2026-07-16 is [`docs/design.md`](../docs/design.md)'s frozen changelog.
+**Major architectural shifts only** — a decided constraint changes, a
+contract surface appears or disappears, a prior decision is reversed.
+Routine work (features, fixes, flags) is recorded by its change
+description and `docs/cli-contract.md`, never here (see
+[`docs/README.md`](../docs/README.md)). Repo-wide shifts: the root
+[`README.md`](../README.md); the record through 2026-07-16 is
+[`docs/design.md`](../docs/design.md)'s frozen changelog.
 
 - **2026-07-16** — this README becomes the project's living spec;
   `docs/design.md` is retired and frozen (see [`docs/README.md`](../docs/README.md)).
-- **2026-07-16** — **`project create` commits are born with their
-  Change-Id** (2026-07-16 dogfood review papercut: create advanced the
-  branch with a trailer-less commit, so the Change identity only
-  appeared when a later amend added one — stacks could carry an
-  identity-less intermediate step). Same minting as `change create`
-  (entropy-seeded `receive.EnsureChangeID`); the verb now returns and
-  prints the id, and `--json` gains `change_id`.
-- **2026-07-16** — **`runko version` + doctor's first line: the binary
-  identifies itself** (2026-07-16 dogfood review: "no runko version -
-  hard to report which CLI bit us"). Identity comes entirely from the
-  Go toolchain's VCS build stamp (`runtime/debug.ReadBuildInfo`) - no
-  ldflags in any build system: checkout builds carry
-  `vcs.revision/time/modified` (the `cli-latest` release job is a plain
-  `actions/checkout` + `go build`, so the shipped binary stamps the
-  landed SHA), `go install m@v` builds the module version, anything
-  else says `unstamped` - including builds from workspace worktrees off
-  a shared store, whose gitfile the Go vcs reader silently declines
-  (verified live; the unstamped answer is still an answer). `runko doctor` reprints the
-  same `BuildIdentity` as its first line so a doctor paste always
-  answers the "which binary" question. Deliberately NOT stamped into
-  `agents-md` output: the generated teaching is tree content, and a
-  per-build version line would churn it on every regenerate.

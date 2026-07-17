@@ -71,8 +71,13 @@ the webhook → GitHub `repository_dispatch` shim for self-hosted CI
 
 ## Decisions
 
-New decisions land here as dated entries; the record through
-2026-07-16 is [`docs/design.md`](../docs/design.md)'s frozen changelog.
+**Major architectural shifts only** — a decided constraint changes, a
+contract surface appears or disappears, a prior decision is reversed.
+Routine work (features, fixes, flags) is recorded by its change
+description, never here (see [`docs/README.md`](../docs/README.md)).
+Repo-wide shifts: the root [`README.md`](../README.md); the record
+through 2026-07-16 is [`docs/design.md`](../docs/design.md)'s frozen
+changelog.
 
 - **2026-07-16** — this README becomes the project's living spec;
   `docs/design.md` is retired and frozen (see [`docs/README.md`](../docs/README.md)).
@@ -90,18 +95,3 @@ New decisions land here as dated entries; the record through
   rotation. This adds runkod's first `dependencies:` edge to
   `runkogithubapp` (admin-lane ops change, alongside that project's
   manifest).
-- **2026-07-16** — **`workspace create --new-path`: the greenfield
-  bootstrap** (2026-07-16 dogfood review, finding 3). A workspace could
-  only name projects indexed at trunk, but the push that puts a new
-  project ON trunk needs a workspace whose affinity covers its path
-  first — the workaround was borrowing another project's workspace and
-  hand-widening cones. `new_paths` on POST /api/workspaces (CLI:
-  repeatable `--new-path <dir>`) admits clean repo-relative directory
-  roots into `WriteAllowlist`/`SparsePatterns` exactly like resolved
-  project paths; a workspace with only new paths is legal. Guard rails
-  are the existing ones — affinity is scoping, not ACL: the manifest
-  push still classifies as project create (`CanCreateProjects`,
-  `owner_self_grant`), and owners still gate landing. Already-indexed
-  paths are refused (`project_exists_at_path` — spell those
-  `--project`, keeping cones index-derived); the RPC surface passes
-  nil until the proto grows the field.
