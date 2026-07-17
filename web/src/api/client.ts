@@ -18,6 +18,7 @@ import { RepoService } from "../gen/runko/v1/repo_pb";
 import { SearchService } from "../gen/runko/v1/search_pb";
 import { WorkspaceService } from "../gen/runko/v1/workspaces_pb";
 import { createFakeTransport } from "./fake/transport";
+import { postSignInPath } from "../lib/orgsession";
 
 const rawBaseUrl: string | undefined = import.meta.env.VITE_RUNKO_URL;
 
@@ -307,12 +308,18 @@ export async function setOrgArchived(org: string, archived: boolean): Promise<vo
   if (!res.ok) await throwStructured(res, "changing archive state failed");
 }
 
-/** Switch this browser to another of YOUR orgs and reload so every client
- * rebinds its transport. Sessions are always org-scoped; the transport
- * runs through /o/<org>/ for every org, the default one included. */
+/** Switch this browser to another of YOUR orgs and rebind every client's
+ * transport. Sessions are always org-scoped; the transport runs through
+ * /o/<org>/ for every org, the default one included. On a /<org>-shaped
+ * URL the path org overrides the stored one at load (currentOrg above),
+ * so switching navigates to the target org's own URL instead of
+ * reloading in place - a bare reload under another org's URL silently
+ * kept the old binding (see lib/orgsession.ts). */
 export function switchOrg(name: string): void {
   window.localStorage.setItem("runko-org", name);
-  window.location.reload();
+  const dest = postSignInPath(pathOrg, name);
+  if (dest) window.location.href = dest;
+  else window.location.reload();
 }
 
 const transport = usingDemoData
@@ -343,7 +350,14 @@ export async function signIn(name: string, password: string, org: string): Promi
   window.localStorage.setItem("runko-basic", basic);
   window.localStorage.setItem("runko-org", org);
   window.localStorage.setItem("runko-operator", who.operator ? "1" : "0");
-  window.location.reload();
+  // Land INSIDE the org that authenticated. A bare reload under another
+  // org's /<org> URL rebinds to THAT org instead (the path org wins at
+  // load), and with per-org accounts sharing a name+password combo the
+  // credential verifies there too - a silent sign-in as a different
+  // account (prod-observed 2026-07-16; lib/orgsession.ts).
+  const dest = postSignInPath(pathOrg, org);
+  if (dest) window.location.href = dest;
+  else window.location.reload();
 }
 
 /** Whether this control plane offers self-service sign-up (§15.1),

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import {
   backendUrl,
   fetchAuthConfig,
+  pathOrg,
   requestInvite,
   signIn,
   signUp,
@@ -38,9 +39,11 @@ export function LoginPage() {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  // Sessions are org-scoped (2026-07-09): you sign in TO an org. Prefill
-  // the last one this browser used.
-  const [org, setOrg] = useState(() => window.localStorage.getItem("runko-org") ?? "");
+  // Sessions are org-scoped (2026-07-09): you sign in TO an org. Signing
+  // in from inside an org's own /<org> URL means THAT org (anything else
+  // invites the cross-org rebind lib/orgsession.ts documents); elsewhere,
+  // prefill the last org this browser used.
+  const [org, setOrg] = useState(() => pathOrg || window.localStorage.getItem("runko-org") || "");
   const [orgMode, setOrgMode] = useState<"create" | "join">("create");
   // Invite-request mode's own fields; `website` is the honeypot (rendered
   // off-screen, humans leave it empty).
