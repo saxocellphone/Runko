@@ -31,6 +31,15 @@ import (
 // daemon are one product surface.
 const githubDispatchEventType = "runko-change"
 
+// githubImageBuildEventType is the repository_dispatch event_type the
+// post-land image-build workflow subscribes to (types: [runko-image-build]).
+// This is the "Runko is the trigger" CD seam: a land dispatches the build
+// instead of GitHub self-starting on the mirror push (release-images sheds
+// its `on: push`). The build pushes images to GHCR and reports each digest
+// back via `runko-ci report-image`; runkod gathers them and drives the
+// rollout - GitHub only builds and reports.
+const githubImageBuildEventType = "runko-image-build"
+
 // GithubDispatcher turns webhook envelopes into repository_dispatch
 // calls for one org. Zero value is unusable; cmd/runkod wires it only
 // when the deployment holds GitHub App credentials.
@@ -63,9 +72,27 @@ type dispatchPayload struct {
 	AffectedProjects []string `json:"affected_projects"`
 }
 
-// Deliver attempts one dispatch for one outbox payload. Envelope types
-// CI never runs on, and orgs with no GitHub wiring, succeed as no-ops -
-// the outbox marks them delivered instead of retrying forever.
+// imageBuildPayload is the runko-image-build client_payload. The post-land
+// build workflow needs only which landed commit to build: it computes the
+// affected image set itself (runko-ci affected over head^..head, exactly as
+// the mirror-push workflow did over before..after), so the daemon names no
+// images here and the workflow stays a generic executor (§14.9.1). BaseSHA
+// is the change's base - an over-approximate fallback; the workflow prefers
+// head^ (the prior trunk tip) for a tight single-land delta.
+type imageBuildPayload struct {
+	ChangeID   string `json:"change_id"`
+	HeadSHA    string `json:"head_sha"`
+	BaseSHA    string `json:"base_sha"`
+	Trigger    string `json:"trigger"`
+	DeliveryID string `json:"delivery_id"`
+}
+
+// Deliver attempts one dispatch for one outbox payload. change.updated and
+// change.check_rerun_requested drive the pre-land check workflow
+// (runko-change); change.landed drives the post-land image build
+// (runko-image-build) - the CD trigger. Every other envelope type, and
+// orgs with no GitHub wiring, succeed as no-ops so the outbox marks them
+// delivered instead of retrying forever.
 func (g *GithubDispatcher) Deliver(ctx context.Context, payload []byte) checks.DeliveryAttempt {
 	var env checks.WebhookEnvelope
 	if err := json.Unmarshal(payload, &env); err != nil {
@@ -73,9 +100,43 @@ func (g *GithubDispatcher) Deliver(ctx context.Context, payload []byte) checks.D
 		// not a transient - don't burn retries on it.
 		return checks.DeliveryAttempt{Success: true, Err: nil}
 	}
-	if env.Type != "change.updated" && env.Type != "change.check_rerun_requested" {
+	switch env.Type {
+	case "change.updated", "change.check_rerun_requested":
+		dp := dispatchPayload{
+			ChangeID:   env.Change.ID,
+			HeadSHA:    env.Change.HeadSHA,
+			BaseSHA:    env.Change.BaseSHA,
+			GitRef:     env.Change.GitRef,
+			Trigger:    env.Type,
+			DeliveryID: env.DeliveryID,
+		}
+		if env.Rerun != nil {
+			dp.RerunCheck = env.Rerun.CheckName
+		}
+		if env.Affected != nil {
+			for _, p := range env.Affected.Projects {
+				dp.AffectedProjects = append(dp.AffectedProjects, p.Name)
+			}
+		}
+		return g.dispatch(ctx, githubDispatchEventType, dp)
+	case "change.landed":
+		return g.dispatch(ctx, githubImageBuildEventType, imageBuildPayload{
+			ChangeID:   env.Change.ID,
+			HeadSHA:    env.Change.HeadSHA,
+			BaseSHA:    env.Change.BaseSHA,
+			Trigger:    env.Type,
+			DeliveryID: env.DeliveryID,
+		})
+	default:
 		return checks.DeliveryAttempt{Success: true}
 	}
+}
+
+// dispatch resolves the org's GitHub wiring, mints an installation token,
+// and POSTs one repository_dispatch of eventType carrying clientPayload. An
+// org with no GitHub wiring is a delivered no-op (never retried); a GitHub
+// non-204 rides the outbox backoff.
+func (g *GithubDispatcher) dispatch(ctx context.Context, eventType string, clientPayload any) checks.DeliveryAttempt {
 	settings, err := g.Directory.GetOrgSettings(ctx, g.OrgName)
 	if err != nil {
 		return checks.DeliveryAttempt{Err: fmt.Errorf("github dispatch: org settings: %w", err)}
@@ -89,23 +150,7 @@ func (g *GithubDispatcher) Deliver(ctx context.Context, payload []byte) checks.D
 		return checks.DeliveryAttempt{Err: fmt.Errorf("github dispatch: mint token: %w", err)}
 	}
 
-	dp := dispatchPayload{
-		ChangeID:   env.Change.ID,
-		HeadSHA:    env.Change.HeadSHA,
-		BaseSHA:    env.Change.BaseSHA,
-		GitRef:     env.Change.GitRef,
-		Trigger:    env.Type,
-		DeliveryID: env.DeliveryID,
-	}
-	if env.Rerun != nil {
-		dp.RerunCheck = env.Rerun.CheckName
-	}
-	if env.Affected != nil {
-		for _, p := range env.Affected.Projects {
-			dp.AffectedProjects = append(dp.AffectedProjects, p.Name)
-		}
-	}
-	body, err := json.Marshal(map[string]any{"event_type": githubDispatchEventType, "client_payload": dp})
+	body, err := json.Marshal(map[string]any{"event_type": eventType, "client_payload": clientPayload})
 	if err != nil {
 		return checks.DeliveryAttempt{Err: fmt.Errorf("github dispatch: marshal: %w", err)}
 	}
