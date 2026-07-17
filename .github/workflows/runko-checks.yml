@@ -143,7 +143,9 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            webadmin/package-lock.json
       - name: install jj + ensure psql (runner contract)
         run: |
           command -v jj >/dev/null || curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.43.0/jj-v0.43.0-x86_64-unknown-linux-musl.tar.gz | sudo tar -xz -C /usr/local/bin ./jj

@@ -42,6 +42,7 @@ jobs:
     outputs:
       runkod: ${{ steps.affected.outputs.runkod }}
       web: ${{ steps.affected.outputs.web }}
+      webadmin: ${{ steps.affected.outputs.webadmin }}
       cli: ${{ steps.affected.outputs.cli }}
     steps:
       - uses: actions/checkout@v4
@@ -57,15 +58,15 @@ jobs:
           # First push to a branch, a forced push, or an unknown base: build
           # everything. github.event.before is all-zeros in those cases.
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; echo "cli=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; echo "webadmin=true" >> "$GITHUB_OUTPUT"; echo "cli=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           AFF=$(go run "$RUNKO_CI_PKG" affected --base "$BEFORE" --head '${{ github.sha }}')
           echo "$AFF"
           if [ "$(echo "$AFF" | jq -r '.RunEverything')" = "true" ]; then
-            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; echo "cli=true" >> "$GITHUB_OUTPUT"; exit 0
+            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; echo "webadmin=true" >> "$GITHUB_OUTPUT"; echo "cli=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           NAMES=$(echo "$AFF" | jq -r '[.Projects[].Name] | join(" ")')
-          runkod=false; web=false; cli=false
+          runkod=false; web=false; webadmin=false; cli=false
           for n in $NAMES; do
             case "$n" in
               runkod|platform|internal|db|proto|watchdog|mailer) runkod=true ;;
@@ -74,11 +75,15 @@ jobs:
               web|proto) web=true ;;
             esac
             case "$n" in
+              webadmin) webadmin=true ;;
+            esac
+            case "$n" in
               cli|platform|internal|db) cli=true ;;
             esac
           done
           echo "runkod=$runkod" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "webadmin=$webadmin" >> "$GITHUB_OUTPUT"
           echo "cli=$cli" >> "$GITHUB_OUTPUT"
 
   images:
@@ -103,6 +108,15 @@ jobs:
             build_args: |
               VITE_RUNKO_URL=/
             needed: ${{ needs.scope.outputs.web }}
+          - name: webadmin
+            context: webadmin
+            dockerfile: webadmin/Dockerfile
+            # Same-origin live, like web: the ingress routes /admin to
+            # this image and /api to runkod. Same rule: no tokens at
+            # build time, operator credentials are per-browser.
+            build_args: |
+              VITE_RUNKO_URL=/
+            needed: ${{ needs.scope.outputs.webadmin }}
     steps:
       - if: matrix.needed != 'true'
         run: echo "::notice::${{ matrix.name }} image unaffected by this landing - skipping rebuild"
