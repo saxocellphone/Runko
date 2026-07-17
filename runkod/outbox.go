@@ -52,18 +52,26 @@ func (w *OutboxWorker) RunOnce(ctx context.Context) (int, error) {
 }
 
 // attempt performs one delivery's full fan-out: the signed URL POST when
-// a URL is configured, then the native GitHub dispatch when wired.
+// a URL is configured, AND the native GitHub dispatch when wired. The two
+// targets are independent - native dispatch runs even when the URL
+// delivery fails, so a dead legacy webhook consumer can never stall CI
+// dispatch (the 2026-07-17 retirement of runko-bridge left native as the
+// only path; this makes that robustness a property, not a deploy-order
+// accident). The row succeeds only when every configured target did, so a
+// failing target still drives the outbox retry.
 func (w *OutboxWorker) attempt(ctx context.Context, payload []byte) checks.DeliveryAttempt {
+	result := checks.DeliveryAttempt{Success: true}
 	if w.URL != "" {
-		attempt := checks.Deliver(ctx, w.client(), w.URL, payload, w.Secret)
-		if !attempt.Success || w.GithubDispatch == nil {
-			return attempt
-		}
+		result = checks.Deliver(ctx, w.client(), w.URL, payload, w.Secret)
 	}
 	if w.GithubDispatch != nil {
-		return w.GithubDispatch.Deliver(ctx, payload)
+		// A dispatch failure takes precedence for retry, but the dispatch
+		// is always attempted regardless of the URL delivery's outcome.
+		if dispatch := w.GithubDispatch.Deliver(ctx, payload); !dispatch.Success {
+			return dispatch
+		}
 	}
-	return checks.DeliveryAttempt{Success: true}
+	return result
 }
 
 // Run polls RunOnce every interval until ctx is done - the long-running
