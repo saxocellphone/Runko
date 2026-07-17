@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { postSignInPath } from "./orgsession";
+import { canonicalOrgPath, postSignInPath } from "./orgsession";
 
 // The prod repro (2026-07-16): casey has accounts named "casey" with the
 // SAME password in org-x and org-y. Browsing org-y's public pages
@@ -25,5 +25,49 @@ describe("postSignInPath", () => {
     // switchOrg("org-c") from /org-b/browse: without navigation the
     // reload stays bound to org-b and the switch silently no-ops.
     expect(postSignInPath("org-b", "org-c")).toBe("/org-c");
+  });
+});
+
+// The reported bug (2026-07-17): visiting /browse shows "the code of the
+// last org I visited" under a URL that names no org. Signed in, the bare
+// root resolves currentOrg from the stored selection; canonicalOrgPath
+// rewrites the URL so it always names that org.
+describe("canonicalOrgPath", () => {
+  const base = { pathOrg: "", currentOrg: "acme", signedIn: true, search: "", hash: "" };
+
+  it("names the org on a bare org-scoped route", () => {
+    expect(canonicalOrgPath({ ...base, pathname: "/browse" })).toBe("/acme/browse");
+  });
+
+  it("names the org on the bare root", () => {
+    expect(canonicalOrgPath({ ...base, pathname: "/" })).toBe("/acme");
+  });
+
+  it("preserves deep paths, query, and hash", () => {
+    expect(
+      canonicalOrgPath({
+        ...base,
+        pathname: "/changes/I123",
+        search: "?tab=diff",
+        hash: "#c4",
+      }),
+    ).toBe("/acme/changes/I123?tab=diff#c4");
+  });
+
+  it("leaves already-org-scoped URLs alone (no double prefix, no loop)", () => {
+    expect(canonicalOrgPath({ ...base, pathOrg: "acme", pathname: "/browse" })).toBeNull();
+  });
+
+  it("leaves account-/deployment-global routes at the bare root", () => {
+    expect(canonicalOrgPath({ ...base, pathname: "/login" })).toBeNull();
+    expect(canonicalOrgPath({ ...base, pathname: "/admin" })).toBeNull();
+  });
+
+  it("does nothing without a signed-in session (AnonGate owns public browsing)", () => {
+    expect(canonicalOrgPath({ ...base, signedIn: false, pathname: "/browse" })).toBeNull();
+  });
+
+  it("does nothing when no org is known", () => {
+    expect(canonicalOrgPath({ ...base, currentOrg: "", pathname: "/browse" })).toBeNull();
   });
 });
