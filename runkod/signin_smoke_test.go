@@ -670,3 +670,62 @@ func TestSameNameSamePasswordAcrossOrgs(t *testing.T) {
 		t.Fatalf("re-signup under a wrong password: %d %v", status, body)
 	}
 }
+
+// TestOrgRouteRefusalsCarryCORS: the org router's own early answers
+// (unknown_org 404, org_archived 410) short-circuit before any org
+// server's CORS middleware - without the header a cross-origin login
+// page (the Vite dev loop) sees an opaque "Failed to fetch" instead of
+// the mapped "no org named…" message. Found by the browser-driven
+// sign-in suite (web/scripts/signin-smoke.mjs E3).
+func TestOrgRouteRefusalsCarryCORS(t *testing.T) {
+	fx := newSigninHub(t)
+	srv := fx.srv
+
+	get := func(path string) *http.Response {
+		resp, err := srv.Client().Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+
+	if resp := get("/o/org-nope/api/whoami"); resp.StatusCode != http.StatusNotFound ||
+		resp.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("unknown org: want 404 with CORS, got %d %q",
+			resp.StatusCode, resp.Header.Get("Access-Control-Allow-Origin"))
+	}
+
+	// The browser's PREFLIGHT (whoami carries Authorization, a non-simple
+	// header) must succeed even for an unknown org - an OPTIONS answered
+	// 404 turns the whole exchange into an opaque "Failed to fetch".
+	preflight, err := http.NewRequest(http.MethodOptions, srv.URL+"/o/org-nope/api/whoami", nil)
+	if err != nil {
+		t.Fatalf("build preflight: %v", err)
+	}
+	preflight.Header.Set("Origin", "http://localhost:5193")
+	preflight.Header.Set("Access-Control-Request-Method", "GET")
+	preflight.Header.Set("Access-Control-Request-Headers", "authorization")
+	presp, err := srv.Client().Do(preflight)
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	presp.Body.Close()
+	if presp.StatusCode != http.StatusNoContent ||
+		!strings.Contains(presp.Header.Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Fatalf("unknown-org preflight: want 204 allowing Authorization, got %d %q",
+			presp.StatusCode, presp.Header.Get("Access-Control-Allow-Headers"))
+	}
+
+	if status, _ := signupOrg(t, srv, "arch", "archpw123", "org-arch", "create"); status != http.StatusCreated {
+		t.Fatalf("org-arch signup failed")
+	}
+	if status, body := hubDo(t, srv, "POST", "/api/admin/orgs/org-arch/archive", "", "", "sekret", nil); status != http.StatusOK {
+		t.Fatalf("archive org-arch: %d %v", status, body)
+	}
+	if resp := get("/o/org-arch/api/whoami"); resp.StatusCode != http.StatusGone ||
+		resp.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("archived org: want 410 with CORS, got %d %q",
+			resp.StatusCode, resp.Header.Get("Access-Control-Allow-Origin"))
+	}
+}
