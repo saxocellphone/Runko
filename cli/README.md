@@ -59,3 +59,10 @@ New decisions land here as dated entries; the record through
 
 - **2026-07-16** — this README becomes the project's living spec;
   `docs/design.md` is retired and frozen (see [`docs/README.md`](../docs/README.md)).
+- **2026-07-16** — **`project create` commits are born with their
+  Change-Id** (2026-07-16 dogfood review papercut: create advanced the
+  branch with a trailer-less commit, so the Change identity only
+  appeared when a later amend added one — stacks could carry an
+  identity-less intermediate step). Same minting as `change create`
+  (entropy-seeded `receive.EnsureChangeID`); the verb now returns and
+  prints the id, and `--json` gains `change_id`.

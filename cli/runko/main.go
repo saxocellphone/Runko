@@ -239,16 +239,16 @@ func cmdProject(args []string) error {
 		API:          *api,
 	}
 
-	rev, err := CreateProject(*repoDir, intent)
+	rev, changeID, err := CreateProject(*repoDir, intent)
 	if err != nil {
 		return err
 	}
 	if *jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(map[string]string{
-			"name": intent.Name, "path": intent.Path, "rev": rev,
+			"name": intent.Name, "path": intent.Path, "rev": rev, "change_id": changeID,
 		})
 	}
-	fmt.Printf("created project %s at %s\n", intent.Name, rev)
+	fmt.Printf("created project %s at %s (Change-Id: %s)\n", intent.Name, rev, changeID)
 	return nil
 }
 

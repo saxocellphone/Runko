@@ -18,7 +18,7 @@ func TestCreateProjectWritesFilesAndAdvancesCurrentBranch(t *testing.T) {
 	repo.WriteFile("README.md", "# monorepo\n")
 	before := repo.Commit("initial")
 
-	rev, err := CreateProject(repo.Dir, project.Intent{
+	rev, _, err := CreateProject(repo.Dir, project.Intent{
 		Name: "checkout-api", Type: "service", API: "none", Owners: []string{"group:commerce-eng"},
 	})
 	if err != nil {
@@ -52,6 +52,45 @@ func TestCreateProjectWritesFilesAndAdvancesCurrentBranch(t *testing.T) {
 	}
 }
 
+// TestCreateProjectStampsChangeID: the create commit is born with its
+// Change-Id trailer, same as `change create` (2026-07-16 dogfood review
+// papercut: a trailer-less create commit had no identity until a later
+// amend, so stacks could carry an identity-less intermediate step).
+func TestCreateProjectStampsChangeID(t *testing.T) {
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "# monorepo\n")
+	repo.Commit("initial")
+
+	_, changeID, err := CreateProject(repo.Dir, project.Intent{
+		Name: "checkout-api", Type: "service", API: "none",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if !strings.HasPrefix(changeID, "I") || len(changeID) != 41 {
+		t.Fatalf("returned change id %q is not a Change-Id", changeID)
+	}
+	msg, err := runGit(repo.Dir, "log", "-1", "--format=%B")
+	if err != nil {
+		t.Fatalf("read commit message: %v", err)
+	}
+	if !strings.Contains(msg, "Change-Id: "+changeID) {
+		t.Fatalf("commit message lacks the Change-Id trailer:\n%s", msg)
+	}
+
+	// A second create in the same repo must mint a DIFFERENT identity.
+	_, secondID, err := CreateProject(repo.Dir, project.Intent{
+		Name: "cart-api", Type: "service", API: "none",
+	})
+	if err != nil {
+		t.Fatalf("second CreateProject: %v", err)
+	}
+	if secondID == changeID {
+		t.Fatal("two creates minted the same Change-Id")
+	}
+}
+
 // TestCreateProjectOnEmptyRepoCreatesFirstCommit exercises §6.7's "Empty
 // monorepo: single CTA Create your first project" bar for real: a freshly
 // `git init`'d repo with zero commits (gitfixture.New does not commit) must
@@ -61,7 +100,7 @@ func TestCreateProjectOnEmptyRepoCreatesFirstCommit(t *testing.T) {
 	repo := gitfixture.New(t)
 	configureIdentity(t, repo.Dir)
 
-	rev, err := CreateProject(repo.Dir, project.Intent{
+	rev, _, err := CreateProject(repo.Dir, project.Intent{
 		Name: "checkout-api", Type: "service", API: "none", Owners: []string{"group:commerce-eng"},
 	})
 	if err != nil {
@@ -98,7 +137,7 @@ func TestCreateProjectOnEmptyRepoCreatesFirstCommit(t *testing.T) {
 func TestCreateProjectOnNonRepoDirReturnsStructuredError(t *testing.T) {
 	dir := t.TempDir() // not a git repo at all
 
-	_, err := CreateProject(dir, project.Intent{Name: "checkout-api", Type: "service", API: "none"})
+	_, _, err := CreateProject(dir, project.Intent{Name: "checkout-api", Type: "service", API: "none"})
 	if err == nil {
 		t.Fatalf("expected an error for a non-repo directory")
 	}
@@ -120,7 +159,7 @@ func TestCreateProjectOnDetachedHeadReturnsStructuredError(t *testing.T) {
 		t.Fatalf("checkout --detach: %v", err)
 	}
 
-	_, err := CreateProject(repo.Dir, project.Intent{Name: "checkout-api", Type: "service", API: "none"})
+	_, _, err := CreateProject(repo.Dir, project.Intent{Name: "checkout-api", Type: "service", API: "none"})
 	if err == nil {
 		t.Fatalf("expected an error in detached HEAD")
 	}
@@ -144,7 +183,7 @@ func TestCreateProjectWithBuildCapabilityWritesBuildFile(t *testing.T) {
 	repo.WriteFile("README.md", "# monorepo\n")
 	repo.Commit("initial")
 
-	_, err := CreateProject(repo.Dir, project.Intent{
+	_, _, err := CreateProject(repo.Dir, project.Intent{
 		Name: "checkout-api", Type: "service", API: "none", Path: "commerce/checkout",
 		Capabilities: []string{"build"},
 	})
@@ -168,7 +207,7 @@ func TestCreateProjectRejectsInvalidIntent(t *testing.T) {
 	repo.WriteFile("README.md", "# monorepo\n")
 	repo.Commit("initial")
 
-	if _, err := CreateProject(repo.Dir, project.Intent{Name: "Not Valid!", Type: "service", API: "none"}); err == nil {
+	if _, _, err := CreateProject(repo.Dir, project.Intent{Name: "Not Valid!", Type: "service", API: "none"}); err == nil {
 		t.Fatalf("expected an invalid project name to be rejected")
 	}
 }
@@ -184,11 +223,11 @@ func TestCreateProjectRefusesDuplicateName(t *testing.T) {
 	repo.Commit("initial")
 
 	intent := project.Intent{Name: "checkout-api", Type: "service", API: "none", Owners: []string{"group:commerce-eng"}}
-	if _, err := CreateProject(repo.Dir, intent); err != nil {
+	if _, _, err := CreateProject(repo.Dir, intent); err != nil {
 		t.Fatalf("first CreateProject: %v", err)
 	}
 
-	_, err := CreateProject(repo.Dir, intent)
+	_, _, err := CreateProject(repo.Dir, intent)
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "already_exists" {
 		t.Fatalf("want already_exists, got %v", err)
@@ -207,7 +246,7 @@ func TestCreateProjectWithLangWritesLanguageSkeleton(t *testing.T) {
 	repo.WriteFile("README.md", "# monorepo\n")
 	repo.Commit("initial")
 
-	if _, err := CreateProject(repo.Dir, project.Intent{
+	if _, _, err := CreateProject(repo.Dir, project.Intent{
 		Name: "billing-worker", Type: "job", Language: "python",
 	}); err != nil {
 		t.Fatalf("CreateProject: %v", err)
@@ -234,7 +273,7 @@ func TestCreateProjectUnsupportedLangRequiresNoTemplate(t *testing.T) {
 	repo.WriteFile("README.md", "# monorepo\n")
 	repo.Commit("initial")
 
-	_, err := CreateProject(repo.Dir, project.Intent{
+	_, _, err := CreateProject(repo.Dir, project.Intent{
 		Name: "exotic-svc", Type: "service", API: "none", Language: "haskell",
 	})
 	var ce *clierr.Error
@@ -245,7 +284,7 @@ func TestCreateProjectUnsupportedLangRequiresNoTemplate(t *testing.T) {
 		t.Fatalf("expected the suggestion to name --no-template, got: %q", ce.Suggestion)
 	}
 
-	if _, err := CreateProject(repo.Dir, project.Intent{
+	if _, _, err := CreateProject(repo.Dir, project.Intent{
 		Name: "exotic-svc", Type: "service", API: "none", Language: "haskell", NoTemplate: true,
 	}); err != nil {
 		t.Fatalf("CreateProject with NoTemplate: %v", err)

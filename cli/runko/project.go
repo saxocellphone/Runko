@@ -1,13 +1,17 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/platform/core"
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/project"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // CreateProject implements `runko project create` locally (§10.1, §17.1):
@@ -15,7 +19,7 @@ import (
 // is checked out - never trunk directly (§7.4: trunk is closed to direct
 // push). Landing the result happens later via `runko change push` and
 // review, same as any other Change.
-func CreateProject(repoDir string, intent project.Intent) (rev string, err error) {
+func CreateProject(repoDir string, intent project.Intent) (rev, changeID string, err error) {
 	store := gitstore.New(repoDir)
 	templates := project.DefaultTemplates()
 
@@ -29,12 +33,12 @@ func CreateProject(repoDir string, intent project.Intent) (rev string, err error
 		if len(errs) > 1 {
 			msg = fmt.Sprintf("%s (and %d more)", msg, len(errs)-1)
 		}
-		return "", &clierr.Error{Code: e.Code, Field: e.Field, Message: msg, Suggestion: e.Suggestion}
+		return "", "", &clierr.Error{Code: e.Code, Field: e.Field, Message: msg, Suggestion: e.Suggestion}
 	}
 
 	base, err := resolveBaseOrEmpty(repoDir, store)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Same duplicate guard the daemon's create-project flow has
@@ -44,11 +48,11 @@ func CreateProject(repoDir string, intent project.Intent) (rev string, err error
 	if base != "" {
 		existing, err := index.Scan(store, base, nil)
 		if err != nil {
-			return "", fmt.Errorf("scan existing projects: %w", err)
+			return "", "", fmt.Errorf("scan existing projects: %w", err)
 		}
 		for _, p := range existing {
 			if p.Name == plan.EffectiveManifest.Name || p.Path == plan.Path {
-				return "", &clierr.Error{
+				return "", "", &clierr.Error{
 					Code:       "already_exists",
 					Field:      "name",
 					Message:    fmt.Sprintf("project %s already exists at %s", p.Name, p.Path),
@@ -58,29 +62,43 @@ func CreateProject(repoDir string, intent project.Intent) (rev string, err error
 		}
 	}
 
+	// Bake the Change-Id in from birth, exactly as `change create` does
+	// (changecreate.go; 2026-07-16 dogfood review papercut: create advanced
+	// the branch with a trailer-less commit, so the Change identity only
+	// appeared when a later amend added one - easy to push a stack with a
+	// stray identity-less step). Entropy in the seed for changecreate.go's
+	// reason: two clones at the same tip creating the same project name
+	// must not collide on one identity.
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", "", fmt.Errorf("generate change id nonce: %w", err)
+	}
+	seed := strings.Join([]string{string(base), plan.Path, hex.EncodeToString(nonce)}, "|")
+	changeID, msgWithID := receive.EnsureChangeID(fmt.Sprintf("Create project %s", intent.Name), seed)
+
 	newRev, err := project.Apply(store, base, plan, core.CommitMeta{
-		Message: fmt.Sprintf("Create project %s", intent.Name),
+		Message: msgWithID,
 	})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	headRef, err := runGit(repoDir, "symbolic-ref", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("resolve current branch (are you in detached HEAD?): %w", err)
+		return "", "", fmt.Errorf("resolve current branch (are you in detached HEAD?): %w", err)
 	}
 	if err := store.UpdateRef(headRef, newRev, &base); err != nil {
-		return "", fmt.Errorf("advance %s: %w", headRef, err)
+		return "", "", fmt.Errorf("advance %s: %w", headRef, err)
 	}
 
 	// CommitOverlay only writes Git objects and moves the ref - it never
 	// touches the working tree or index (internal/gitstore), so bring both
 	// in sync with the new commit.
 	if _, err := runGit(repoDir, "reset", "--hard", string(newRev)); err != nil {
-		return "", fmt.Errorf("sync working tree to %s: %w", newRev, err)
+		return "", "", fmt.Errorf("sync working tree to %s: %w", newRev, err)
 	}
 
-	return string(newRev), nil
+	return string(newRev), changeID, nil
 }
 
 // resolveBaseOrEmpty resolves repoDir's HEAD to build the new project commit
