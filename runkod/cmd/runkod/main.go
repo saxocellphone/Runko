@@ -445,9 +445,27 @@ func cmdServe(args []string) error {
 			return orgServer, nil
 		},
 	}
+	// Native Mode C dispatch (2026-07-17, runkod/README.md): with App
+	// credentials the outbox itself dispatches repository_dispatch to
+	// each org's connected repo - the per-org runko-bridge deployment
+	// is retired for App-credentialed setups. The worker runs whenever
+	// EITHER target exists; the dispatcher resolves the org's wiring
+	// per delivery, so `github connect` mid-flight needs no restart.
+	newGithubDispatcher := func(orgName string) *runkod.GithubDispatcher {
+		if ghApp == nil {
+			return nil
+		}
+		return &runkod.GithubDispatcher{
+			Directory: directory,
+			OrgName:   orgName,
+			Token:     ghApp.Token,
+			APIBase:   *githubAPI,
+		}
+	}
 	hub.StartOrgWorkers = func(ctx context.Context, orgName string, orgStore runkod.Store) {
-		if *webhookURL != "" {
-			worker := &runkod.OutboxWorker{Store: orgStore, URL: *webhookURL, Secret: []byte(*webhookSecret)}
+		if *webhookURL != "" || ghApp != nil {
+			worker := &runkod.OutboxWorker{Store: orgStore, URL: *webhookURL, Secret: []byte(*webhookSecret),
+				GithubDispatch: newGithubDispatcher(orgName)}
 			go worker.Run(ctx, 5*time.Second)
 		}
 		if w, ok := orgMirrorWorkers.Load(orgName); ok {
@@ -470,8 +488,9 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
-	if *webhookURL != "" {
-		worker := &runkod.OutboxWorker{Store: store, URL: *webhookURL, Secret: []byte(*webhookSecret)}
+	if *webhookURL != "" || ghApp != nil {
+		worker := &runkod.OutboxWorker{Store: store, URL: *webhookURL, Secret: []byte(*webhookSecret),
+			GithubDispatch: newGithubDispatcher(defaultOrgName)}
 		go worker.Run(ctx, 5*time.Second)
 	}
 	if indexWorker != nil {

@@ -7,6 +7,12 @@
 // (docs/migration-findings.md #14: this is the productization seam §18.3's
 // CI shadow period needs).
 //
+// DEPRECATED for App-credentialed deployments (2026-07-17,
+// runkod/README.md): runkod's outbox now dispatches natively when the
+// daemon holds GitHub App credentials and the org is wired via
+// `runko github connect` - no bridge deployment needed. This shim
+// remains for PAT-only setups.
+//
 // GitHub auth is either a PAT (--github-token) or, preferred since
 // 2026-07-16 (runkod/README.md), a GitHub App (--github-app-id +
 // --github-app-key-file): every bridge instance shares the one App

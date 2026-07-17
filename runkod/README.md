@@ -95,3 +95,16 @@ changelog.
   rotation. This adds runkod's first `dependencies:` edge to
   `runkogithubapp` (admin-lane ops change, alongside that project's
   manifest).
+- **2026-07-17** — **Native Mode C dispatch: the bridge seam retires for
+  App-credentialed deployments** (`githubdispatch.go`). The outbox
+  worker itself turns `change.updated` / `change.check_rerun_requested`
+  envelopes into `repository_dispatch` calls minted with the
+  deployment's GitHub App, resolving each org's target from the same
+  `github_mirror_repo` settings wiring `runko github connect` writes -
+  so one command now wires mirror AND CI dispatch, and the per-org
+  `runko-bridge` deployment (plus its webhook hop and HMAC secret) is
+  no longer needed. Delivery rides the outbox contract unchanged (one
+  attempt per due row, backoff, dead-letter; duplicates deduped by the
+  workflow's concurrency group). The bridge binary stays in-tree as the
+  shim for PAT-only deployments; the `client_payload` shape is
+  byte-compatible, so `runko-checks.yml` never notices the swap.
