@@ -221,10 +221,22 @@ async function throwStructured(res: Response, fallback: string): Promise<never> 
 
 export interface OrgSettings {
   description?: string;
+  /** The org's GitHub mirror ("owner/name"), owned by POST
+   * /api/github/connect — the settings PUT carries it forward untouched,
+   * so it is display-only on the settings page. */
+  github_mirror_repo?: string;
   global_required_checks?: string[];
+  /** §13.5 revalidation tier (conflict-only | affected-intersection |
+   * always); "" defers to the daemon flag, then conflict-only. */
+  revalidation_policy?: string;
   /** §15.2 public_read: anonymous read-only access (git upload-pack, the
    * GET allowlist, read RPCs, and the read-only web UI at /<org>). */
   public_read?: boolean;
+  /** §13.4.1: unresolved review threads become a merge blocker. */
+  require_resolved_threads?: boolean;
+  /** §14.10.3: gate refs/tags/* writes to org admins, releasers,
+   * tag-scoped bot lanes, and the operator. */
+  enforce_tag_policy?: boolean;
 }
 
 export interface OrgMember {

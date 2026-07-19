@@ -14,17 +14,24 @@ import {
 } from "../api/client";
 import { EmptyState, Spinner } from "../components/ui";
 
-// Org settings (multi-org, runkod/orghub.go): description + org-required
-// checks (enforced at the §13.5 merge gate, merged with daemon flag
-// config) + member management. Reads are open to members (and to every
-// credential on the shared default org); writes need an org admin or an
-// operator - the server enforces this, the UI just mirrors it.
+// Org settings (multi-org, runkod/orghub.go): every field of the
+// OrgSettings blob - description, visibility, merge policy (org-required
+// checks, §13.5 revalidation tier, require-resolved-threads), the
+// §14.10.3 tag policy - plus member management. github_mirror_repo is
+// display-only (owned by the GitHub connect flow). Reads are open to
+// members (and to every credential on the shared default org); writes
+// need an org admin or an operator - the server enforces this, the UI
+// just mirrors it.
 export function OrgSettingsPage() {
   const [info, setInfo] = useState<OrgInfo | null>(null);
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [description, setDescription] = useState("");
   const [checksText, setChecksText] = useState("");
   const [publicRead, setPublicRead] = useState(false);
+  const [revalidation, setRevalidation] = useState("");
+  const [requireResolvedThreads, setRequireResolvedThreads] = useState(false);
+  const [enforceTagPolicy, setEnforceTagPolicy] = useState(false);
+  const [mirrorRepo, setMirrorRepo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +54,10 @@ export function OrgSettingsPage() {
       setDescription(settings.description ?? "");
       setChecksText((settings.global_required_checks ?? []).join(", "));
       setPublicRead(!!settings.public_read);
+      setRevalidation(settings.revalidation_policy ?? "");
+      setRequireResolvedThreads(!!settings.require_resolved_threads);
+      setEnforceTagPolicy(!!settings.enforce_tag_policy);
+      setMirrorRepo(settings.github_mirror_repo ?? "");
       setMembers(mem);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -93,7 +104,10 @@ export function OrgSettingsPage() {
             .split(",")
             .map((s) => s.trim())
             .filter(Boolean),
+          revalidation_policy: revalidation,
           public_read: publicRead,
+          require_resolved_threads: requireResolvedThreads,
+          enforce_tag_policy: enforceTagPolicy,
         }),
       "Settings saved.",
     );
@@ -133,6 +147,12 @@ export function OrgSettingsPage() {
                 <code className="settings-code">
                   {new URL(info.api_base.replace(/^\//, ""), window.location.origin + "/").toString()}
                 </code>
+              </div>
+            )}
+            {mirrorRepo && (
+              <div className="settings-row">
+                <span className="settings-label">GitHub mirror</span>
+                <code className="settings-code">{mirrorRepo}</code>
               </div>
             )}
             <label className="settings-label" htmlFor="org-desc">
@@ -190,6 +210,60 @@ export function OrgSettingsPage() {
               Required on <strong>every</strong> change in this org, on top of each project's own{" "}
               <code>ci.checks</code>. Takes effect immediately at the merge gate.
             </p>
+            <label className="settings-label" htmlFor="org-revalidation">
+              Revalidation policy
+            </label>
+            <select
+              id="org-revalidation"
+              className="settings-select"
+              value={revalidation}
+              disabled={!isAdmin}
+              onChange={(e) => setRevalidation(e.target.value)}
+            >
+              <option value="">server default (conflict-only)</option>
+              <option value="conflict-only">conflict-only</option>
+              <option value="affected-intersection">affected-intersection</option>
+              <option value="always">always</option>
+            </select>
+            <p className="settings-hint">
+              What a green change must re-run when trunk has moved under it:{" "}
+              <code>conflict-only</code> lands any clean rebase with zero re-runs,{" "}
+              <code>affected-intersection</code> re-runs checks only when trunk's movement
+              overlaps the change's affected projects, <code>always</code> re-runs everything
+              on every rebase.
+            </p>
+            <label className="settings-label" htmlFor="org-threads">
+              <input
+                id="org-threads"
+                type="checkbox"
+                checked={requireResolvedThreads}
+                disabled={!isAdmin}
+                onChange={(e) => setRequireResolvedThreads(e.target.checked)}
+              />{" "}
+              Require resolved review threads
+            </label>
+            <p className="settings-hint">
+              Unresolved review threads block landing, on top of owner approvals and checks.
+            </p>
+          </section>
+
+          <section className="card settings-card">
+            <h2 className="settings-h2">Tags &amp; releases</h2>
+            <label className="settings-label" htmlFor="org-tag-policy">
+              <input
+                id="org-tag-policy"
+                type="checkbox"
+                checked={enforceTagPolicy}
+                disabled={!isAdmin}
+                onChange={(e) => setEnforceTagPolicy(e.target.checked)}
+              />{" "}
+              Enforce tag policy
+            </label>
+            <p className="settings-hint">
+              Restricts <code>refs/tags/*</code> pushes to org admins, releasers, tag-scoped
+              bot lanes, and the operator; off, anyone who can push can tag. Grant the{" "}
+              <code>releaser</code> role below for release rights without admin rights.
+            </p>
             {isAdmin && (
               <button className="btn btn-primary" onClick={() => void saveSettings()}>
                 Save settings
@@ -236,6 +310,7 @@ export function OrgSettingsPage() {
                             }
                           >
                             <option value="member">member</option>
+                            <option value="releaser">releaser</option>
                             <option value="admin">admin</option>
                           </select>
                         ) : (
@@ -285,6 +360,7 @@ export function OrgSettingsPage() {
                   onChange={(e) => setNewRole(e.target.value)}
                 >
                   <option value="member">member</option>
+                  <option value="releaser">releaser</option>
                   <option value="admin">admin</option>
                 </select>
                 <button className="btn btn-primary" type="submit">
