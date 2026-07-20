@@ -120,6 +120,15 @@
   .pain .card { border-top: 2px solid var(--warn); }
   .pain .card h3 { font-size: 15.5px; }
 
+  /* Getting started: numbered steps beside one continuous terminal. */
+  .steps { list-style: none; counter-reset: step; padding: 0; }
+  .steps li { counter-increment: step; position: relative; padding: 0 0 20px 46px; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: -1px; width: 30px; height: 30px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+  .steps li + li::after { content: ""; position: absolute; left: 14px; top: -16px; height: 12px; width: 2px; background: var(--border); }
+  .steps h3 { font-size: 15.5px; margin-bottom: 3px; }
+  .steps p { font-size: 14px; color: var(--text-2); }
+  .steps code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border-radius: 5px; padding: 1px 6px; color: var(--text); }
+
   .honest { background: var(--surface-2); border-radius: 14px; padding: clamp(22px, 4vw, 32px); }
   .honest h2 { font-size: 22px; }
   .honest ul { margin: 14px 0 0 1.2em; color: var(--text-2); font-size: 14.5px; }
@@ -198,6 +207,7 @@
         <a href="#agents">Agents</a>
         <a href="#landing">Landing</a>
         <a href="#selfhost">Self-host</a>
+        <a href="#get-started">Get started</a>
         <a href="/runko" title="Runko's own source, hosted on this instance — browse without an account">Source</a>
         <a href="https://github.com/saxocellphone/Runko">GitHub</a>
       </span>
@@ -215,6 +225,7 @@
           <a href="#agents">Agents</a>
           <a href="#landing">Landing</a>
           <a href="#selfhost">Self-host</a>
+          <a href="#get-started">Get started</a>
           <hr>
           <a href="/runko">Source</a>
           <a href="https://github.com/saxocellphone/Runko">GitHub</a>
@@ -384,6 +395,51 @@
           <li><b>Postgres is a rebuildable index.</b> Burn it down and re-derive everything from the tree.</li>
           <li><b>Apache-2.0.</b> One binary + Postgres via <code>docker compose up</code>; Kubernetes if you feel fancy.</li>
         </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="get-started">
+    <div class="wrap">
+      <p class="eyebrow">$ runko auth signup</p>
+      <h2>Getting started</h2>
+      <p class="sectionsub">From nothing to a landed change in five steps — the last one repeats forever. The same journey is replayed end-to-end in CI, refusals included, so it can't rot.</p>
+      <div class="split">
+        <ol class="steps">
+          <li>
+            <h3>Kick the tires without installing anything</h3>
+            <p>The <a href="/demo/" title="Runs entirely in your browser on sample data">playground</a> runs the full UI on sample data in your browser, and <a href="/runko">this instance's own source</a> is browsable with no account. Want in here? <a href="/changes?invite=1">Request an invite</a>.</p>
+          </li>
+          <li>
+            <h3>Bring up a control plane</h3>
+            <p>One binary + Postgres: <code>docker compose up</code> and the daemon answers at <code>localhost:8080</code>. Prebuilt CLIs ship for Linux, macOS, and Windows on <a href="https://github.com/saxocellphone/Runko/releases/tag/cli-latest">every CLI-affecting landing</a>.</p>
+          </li>
+          <li>
+            <h3>Sign up — signup is login</h3>
+            <p>One command creates your account and your org, and stores the credential. The org is genesis-seeded — a root manifest, <code>OWNERS</code> naming you, <code>AGENTS.md</code> — born usable, never unborn.</p>
+          </li>
+          <li>
+            <h3>Land on day one</h3>
+            <p>Make a workspace, generate a project, push the change it opens, land it — by its author alone, before any extra policy exists. When something refuses, the refusal names the command that fixes it.</p>
+          </li>
+          <li>
+            <h3>Tighten as you grow</h3>
+            <p>Add owners, required checks, and agents when you're ready — every rule lives in the tree, so changing policy is itself a reviewed change.</p>
+          </li>
+        </ol>
+<pre class="terminal"><span class="g">$</span> docker compose up
+  <span class="c"># a working control plane in ~2 minutes</span>
+<span class="g">$</span> runko auth signup <span class="v">--runkod-url</span> http://localhost:8080 \
+    <span class="v">--name</span> val <span class="v">--org</span> acme <span class="v">--create</span>
+  <span class="c"># account + org created; signup is login</span>
+<span class="g">$</span> runko workspace create <span class="v">--name</span> day-one <span class="v">--project</span> repo
+  materialized repo/  <span class="c"># your slice, ms not minutes</span>
+<span class="g">$</span> runko project create <span class="v">--name</span> hello \
+    <span class="v">--type</span> service <span class="v">--api</span> rest
+  <span class="c"># scaffold generated, opened as change I5b3c…d7</span>
+<span class="g">$</span> runko change push
+<span class="g">$</span> runko change land
+  <span class="c"># landed — day one, no copy-paste, nothing skipped</span></pre>
       </div>
     </div>
   </section>
