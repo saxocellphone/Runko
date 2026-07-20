@@ -27,6 +27,54 @@ constraints, and a dated Decisions section; the original design spec,
 [`docs/design.md`](docs/design.md), is frozen as the historical record
 (see [`docs/README.md`](docs/README.md) for the documentation model).
 
+## Getting started
+
+The zero-cost look first: the
+[playground](https://runko.victornazzaro.com/demo/) runs the full UI on
+sample data entirely in your browser, and the
+[public instance](https://runko.victornazzaro.com/runko) is browsable
+read-only with no account (joining it is invite-only — "Request an
+invite" on its landing page).
+
+To onboard onto an instance of your own, the whole journey is a control
+plane plus one CLI:
+
+```bash
+# 1. A control plane (runkod + Postgres) at http://localhost:8080
+git clone https://github.com/saxocellphone/Runko.git && cd Runko
+RUNKO_ALLOW_SIGNUP=true RUNKO_ALLOW_ORG_CREATE=true docker compose up
+
+# 2. The CLI — or grab a prebuilt binary (see Installing below)
+go install github.com/saxocellphone/runko/cli/runko@latest
+
+# 3. Sign up: one command creates your account, your org, and your stored
+#    login (signup IS login; it prompts for a password)
+runko auth signup --runkod-url http://localhost:8080 --name val --org acme --create
+
+# 4. A workspace: your slice of the repo, from one shared clone
+runko workspace create --name day-one --project repo
+#    …then cd into the directory it prints
+
+# 5. Your first project — generated, opened as a change, landed by you alone
+runko project create --name hello --type service --api rest
+runko change push          # -> review; checks scoped to what changed
+runko change land          # rebase-lands once the gates are green
+
+# 6. The steady-state loop, forever after
+$EDITOR hello/main.go
+runko change create -m "hello: describe the edit"
+runko change push && runko change land
+```
+
+A signup-created org is genesis-seeded — a root manifest, `OWNERS`
+naming you, `AGENTS.md` — so day-one work lands by its author alone,
+and policy tightens as you add owners, required checks, and agents.
+Without the signup flags, `docker compose up` boots the eval profile
+instead: two users, `alice` and `bob`, with review enforced between
+them (see [Running your own](#running-your-own)). This exact journey,
+including every refusal along the way, is replayed in CI by
+`scripts/compose-onboarding.sh`.
+
 ## How changes land here
 
 There are no direct pushes to `main` and no merged PRs, anywhere. A change
