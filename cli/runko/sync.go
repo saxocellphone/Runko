@@ -16,6 +16,18 @@ import (
 // its tip. Returns the trunk tip synced onto. A no-op sync (already
 // based on the tip) is fine and returns the tip.
 func SyncToTrunk(dir, remote, trunk string) (string, error) {
+	return syncToTrunk(dir, remote, trunk, false)
+}
+
+// syncToTrunk with restoreOnConflict=true guarantees a conflicting sync
+// leaves the checkout exactly as it found it, so the caller can carry on
+// with the stale base (`change push`'s push-anyway path): the plain-git
+// rebase is always aborted (§6.6), and the jj path - which otherwise
+// keeps conflicts recorded in-tree for jj-native resolution - rolls back
+// to the pre-sync operation. A sync_conflict error is only returned once
+// that rollback has succeeded; a failed rollback is a plain error so no
+// caller mistakes the tree for clean.
+func syncToTrunk(dir, remote, trunk string, restoreOnConflict bool) (string, error) {
 	if _, err := runGitNet(dir, "fetch", remote, trunk); err != nil {
 		return "", fmt.Errorf("sync: fetch %s %s: %w", remote, trunk, err)
 	}
@@ -25,6 +37,14 @@ func SyncToTrunk(dir, remote, trunk string) (string, error) {
 	}
 
 	if isJJWorkspace(dir) {
+		var preSyncOp string
+		if restoreOnConflict {
+			op, err := runJJ(dir, "op", "log", "-n", "1", "--no-graph", "-T", "id")
+			if err != nil {
+				return "", fmt.Errorf("sync: record the pre-sync jj operation: %w", err)
+			}
+			preSyncOp = strings.TrimSpace(op)
+		}
 		// git did the transport above (jj's own fetch fails silently on
 		// URL-embedded basic auth); any jj command auto-imports the refs.
 		// jj rebase moves the whole line containing the working copy and
@@ -37,10 +57,17 @@ func SyncToTrunk(dir, remote, trunk string) (string, error) {
 		// conflict markers.
 		out, _ := runJJ(dir, "log", "--no-graph", "-r", "conflicts() & mutable()", "-T", `change_id.short() ++ " "`)
 		if ids := strings.TrimSpace(out); ids != "" {
+			suggestion := "resolve in the working copy (`jj status` names the paths), then sync again"
+			if restoreOnConflict {
+				if _, err := runJJ(dir, "op", "restore", preSyncOp); err != nil {
+					return "", fmt.Errorf("sync: rebase onto %s left conflicts in %s and rolling back to the pre-sync operation failed: %w", short(tip), ids, err)
+				}
+				suggestion = "rerun `jj rebase -d " + short(tip) + "`, resolve the conflicts it records, then push again"
+			}
 			return "", &clierr.Error{
 				Code: "sync_conflict", Field: "workspace",
 				Message:    fmt.Sprintf("syncing onto trunk tip %s left conflicts in: %s", short(tip), ids),
-				Suggestion: "resolve in the working copy (`jj status` names the paths), then sync again",
+				Suggestion: suggestion,
 			}
 		}
 		return tip, nil
@@ -60,16 +87,23 @@ func SyncToTrunk(dir, remote, trunk string) (string, error) {
 	}
 	if _, rebaseErr := runGit(dir, rebaseArgs...); rebaseErr != nil {
 		conflicts, _ := runGit(dir, "diff", "--name-only", "--diff-filter=U")
-		runGit(dir, "rebase", "--abort")
+		_, abortErr := runGit(dir, "rebase", "--abort")
 		if conflicts == "" {
 			// Not a content conflict - surface the real failure, never a
 			// misleading "conflicts in:" with an empty list.
 			return "", fmt.Errorf("sync: rebase onto %s: %w", short(tip), rebaseErr)
 		}
+		suggestion := "resolve by hand: git rebase " + short(tip) + ", fix conflicts, then sync again"
+		if restoreOnConflict {
+			if abortErr != nil {
+				return "", fmt.Errorf("sync: rebase onto %s conflicted and the abort failed: %w", short(tip), abortErr)
+			}
+			suggestion = "resolve by hand: git rebase " + short(tip) + ", fix conflicts, then push again"
+		}
 		return "", &clierr.Error{
 			Code: "sync_conflict", Field: "workspace",
 			Message:    fmt.Sprintf("syncing onto trunk tip %s conflicts in: %s", short(tip), strings.ReplaceAll(conflicts, "\n", ", ")),
-			Suggestion: "resolve by hand: git rebase " + short(tip) + ", fix conflicts, then sync again",
+			Suggestion: suggestion,
 		}
 	}
 	return tip, nil
