@@ -1329,7 +1329,7 @@ func (s *PostgresStore) RecordDeliveryResult(ctx context.Context, id string, res
 // (a request precedes any account), unlike the per-org webhook rows.
 func inviteRequestFromRow(r *dbgen.InviteRequest) InviteRequest {
 	out := InviteRequest{
-		ID: r.ID.String(), Name: r.Name, Email: r.Email, Message: r.Message,
+		ID: r.ID.String(), Kind: string(r.Kind), Name: r.Name, Email: r.Email, Message: r.Message,
 		Status: string(r.Status), Attempt: int(r.Attempt),
 		NextAttemptAt: r.NextAttemptAt.Time, CreatedAt: r.CreatedAt.Time,
 	}
@@ -1339,9 +1339,9 @@ func inviteRequestFromRow(r *dbgen.InviteRequest) InviteRequest {
 	return out
 }
 
-func (s *PostgresStore) CreateInviteRequest(ctx context.Context, name, email, message string) (InviteRequest, bool, error) {
+func (s *PostgresStore) CreateInviteRequest(ctx context.Context, kind, name, email, message string) (InviteRequest, bool, error) {
 	row, err := s.Queries.CreateInviteRequest(ctx, s.Pool, dbgen.CreateInviteRequestParams{
-		Name: name, Email: email, Message: message,
+		Kind: dbgen.InviteRequestKind(kind), Name: name, Email: email, Message: message,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		// ON CONFLICT DO NOTHING against the live-email partial unique

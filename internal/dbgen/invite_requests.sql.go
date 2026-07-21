@@ -25,15 +25,16 @@ func (q *Queries) CountLiveInviteRequests(ctx context.Context, db DBTX) (int64, 
 
 const createInviteRequest = `-- name: CreateInviteRequest :one
 
-INSERT INTO invite_requests (name, email, message) VALUES ($1, $2, $3)
-ON CONFLICT (lower(email)) WHERE status IN ('pending', 'failed') DO NOTHING
-RETURNING id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at
+INSERT INTO invite_requests (kind, name, email, message) VALUES ($1, $2, $3, $4)
+ON CONFLICT (kind, lower(email)) WHERE status IN ('pending', 'failed') DO NOTHING
+RETURNING id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at, kind
 `
 
 type CreateInviteRequestParams struct {
-	Name    string `json:"name"`
-	Email   string `json:"email"`
-	Message string `json:"message"`
+	Kind    InviteRequestKind `json:"kind"`
+	Name    string            `json:"name"`
+	Email   string            `json:"email"`
+	Message string            `json:"message"`
 }
 
 // Invite requests (§15.1, decided 2026-07-13): deployment-wide rows (no
@@ -41,7 +42,12 @@ type CreateInviteRequestParams struct {
 // lifecycle. The mailer service drains the due feed over REST; backoff
 // and dead-lettering are computed server-side (runkod/invite.go).
 func (q *Queries) CreateInviteRequest(ctx context.Context, db DBTX, arg CreateInviteRequestParams) (*InviteRequest, error) {
-	row := db.QueryRow(ctx, createInviteRequest, arg.Name, arg.Email, arg.Message)
+	row := db.QueryRow(ctx, createInviteRequest,
+		arg.Kind,
+		arg.Name,
+		arg.Email,
+		arg.Message,
+	)
 	var i InviteRequest
 	err := row.Scan(
 		&i.ID,
@@ -54,12 +60,13 @@ func (q *Queries) CreateInviteRequest(ctx context.Context, db DBTX, arg CreateIn
 		&i.LastError,
 		&i.CreatedAt,
 		&i.SentAt,
+		&i.Kind,
 	)
 	return &i, err
 }
 
 const getInviteRequest = `-- name: GetInviteRequest :one
-SELECT id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at FROM invite_requests WHERE id = $1
+SELECT id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at, kind FROM invite_requests WHERE id = $1
 `
 
 func (q *Queries) GetInviteRequest(ctx context.Context, db DBTX, id uuid.UUID) (*InviteRequest, error) {
@@ -76,12 +83,13 @@ func (q *Queries) GetInviteRequest(ctx context.Context, db DBTX, id uuid.UUID) (
 		&i.LastError,
 		&i.CreatedAt,
 		&i.SentAt,
+		&i.Kind,
 	)
 	return &i, err
 }
 
 const listDueInviteRequests = `-- name: ListDueInviteRequests :many
-SELECT id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at FROM invite_requests
+SELECT id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at, kind FROM invite_requests
 WHERE status IN ('pending', 'failed') AND next_attempt_at <= now()
 ORDER BY next_attempt_at
 LIMIT $1
@@ -107,6 +115,7 @@ func (q *Queries) ListDueInviteRequests(ctx context.Context, db DBTX, limit int3
 			&i.LastError,
 			&i.CreatedAt,
 			&i.SentAt,
+			&i.Kind,
 		); err != nil {
 			return nil, err
 		}
@@ -121,7 +130,7 @@ func (q *Queries) ListDueInviteRequests(ctx context.Context, db DBTX, limit int3
 const markInviteRequestFailed = `-- name: MarkInviteRequestFailed :one
 UPDATE invite_requests
 SET status = $2, attempt = attempt + 1, next_attempt_at = $3, last_error = $4
-WHERE id = $1 RETURNING id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at
+WHERE id = $1 RETURNING id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at, kind
 `
 
 type MarkInviteRequestFailedParams struct {
@@ -150,12 +159,13 @@ func (q *Queries) MarkInviteRequestFailed(ctx context.Context, db DBTX, arg Mark
 		&i.LastError,
 		&i.CreatedAt,
 		&i.SentAt,
+		&i.Kind,
 	)
 	return &i, err
 }
 
 const markInviteRequestSent = `-- name: MarkInviteRequestSent :one
-UPDATE invite_requests SET status = 'sent', sent_at = now() WHERE id = $1 RETURNING id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at
+UPDATE invite_requests SET status = 'sent', sent_at = now() WHERE id = $1 RETURNING id, name, email, message, status, attempt, next_attempt_at, last_error, created_at, sent_at, kind
 `
 
 func (q *Queries) MarkInviteRequestSent(ctx context.Context, db DBTX, id uuid.UUID) (*InviteRequest, error) {
@@ -172,6 +182,7 @@ func (q *Queries) MarkInviteRequestSent(ctx context.Context, db DBTX, id uuid.UU
 		&i.LastError,
 		&i.CreatedAt,
 		&i.SentAt,
+		&i.Kind,
 	)
 	return &i, err
 }

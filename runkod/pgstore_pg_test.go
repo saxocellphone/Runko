@@ -606,7 +606,7 @@ func TestPostgresStorePrincipalRoundTrip(t *testing.T) {
 	if _, err := NewOrgPostgresStore(ctx, store.Pool, "valtown", "main"); err != nil {
 		t.Fatalf("NewOrgPostgresStore: %v", err)
 	}
-	// Email is optional (0022): "" stores NULL and reads back as "".
+	// Email is optional (0023): "" stores NULL and reads back as "".
 	if err := store.CreatePrincipal(ctx, "valtown", "val", "other-hash", ""); err != nil {
 		t.Fatalf("same name in another org must be allowed: %v", err)
 	}
@@ -1109,7 +1109,7 @@ func TestPostgresInviteRequests(t *testing.T) {
 	store := newTestPostgresStore(t)
 	ctx := context.Background()
 
-	req, created, err := store.CreateInviteRequest(ctx, "Ada", "ada@example.com", "hello")
+	req, created, err := store.CreateInviteRequest(ctx, kindInvite, "Ada", "ada@example.com", "hello")
 	if err != nil || !created {
 		t.Fatalf("CreateInviteRequest: %v created=%v", err, created)
 	}
@@ -1119,8 +1119,17 @@ func TestPostgresInviteRequests(t *testing.T) {
 	// Case-insensitive duplicate while the first row is live: no new row,
 	// created=false, no error (ON CONFLICT DO NOTHING on the partial
 	// unique index).
-	if _, created, err := store.CreateInviteRequest(ctx, "Also Ada", "ADA@example.com", ""); err != nil || created {
+	if _, created, err := store.CreateInviteRequest(ctx, kindInvite, "Also Ada", "ADA@example.com", ""); err != nil || created {
 		t.Fatalf("duplicate live email: %v created=%v", err, created)
+	}
+	// Dedupe is per kind: the same address may hold a live contact
+	// message beside its live invite request (0023).
+	contact, created, err := store.CreateInviteRequest(ctx, kindContact, "Ada", "ada@example.com", "how do I self-host?")
+	if err != nil || !created || contact.Kind != kindContact {
+		t.Fatalf("contact beside invite: %v created=%v %+v", err, created, contact)
+	}
+	if _, err := store.RecordInviteSendResult(ctx, contact.ID, "", time.Minute, time.Hour, time.Now()); err != nil {
+		t.Fatalf("drain contact row: %v", err)
 	}
 	if n, err := store.CountLiveInviteRequests(ctx); err != nil || n != 1 {
 		t.Fatalf("CountLiveInviteRequests: %v n=%d", err, n)
@@ -1147,12 +1156,12 @@ func TestPostgresInviteRequests(t *testing.T) {
 		t.Fatalf("sent ack: %v %+v", err, sent)
 	}
 	// The address is free again once nothing live holds it.
-	if _, created, err := store.CreateInviteRequest(ctx, "Ada again", "ada@example.com", ""); err != nil || !created {
+	if _, created, err := store.CreateInviteRequest(ctx, kindInvite, "Ada again", "ada@example.com", ""); err != nil || !created {
 		t.Fatalf("re-request after sent: %v created=%v", err, created)
 	}
 
 	// Dead-letter at the shared attempt cap.
-	dl, _, err := store.CreateInviteRequest(ctx, "Grace", "grace@example.com", "")
+	dl, _, err := store.CreateInviteRequest(ctx, kindInvite, "Grace", "grace@example.com", "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

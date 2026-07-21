@@ -22,6 +22,12 @@ import (
 	"github.com/saxocellphone/runko/internal/clierr"
 )
 
+// Intake kinds: what the stored row (and the operator's email) is about.
+const (
+	kindInvite  = "invite"
+	kindContact = "contact"
+)
+
 const (
 	maxInviteName    = 120
 	maxInviteMessage = 2000
@@ -51,12 +57,22 @@ type inviteRequestBody struct {
 	Website string `json:"website"`
 }
 
-// inviteRequestCore validates and stores one intake submission; the REST
-// handler decodes over this (the signup.go pattern). A "" return means
-// answer the idempotent 202; the honeypot and duplicate-email paths
-// deliberately return success without storing.
-func (s *Server) inviteRequestCore(ctx context.Context, req inviteRequestBody, ip string) *apiError {
+// inviteRequestCore validates and stores one intake submission of either
+// kind; the REST handlers decode over this (the signup.go pattern). A nil
+// return means answer the idempotent 202; the honeypot and
+// duplicate-email paths deliberately return success without storing.
+// Both kinds share one switch (AllowInviteRequests): each is a public
+// form whose submissions land in the same operator mailbox, so a
+// deployment that can answer one can answer the other.
+func (s *Server) inviteRequestCore(ctx context.Context, kind string, req inviteRequestBody, ip string) *apiError {
 	if !s.AllowInviteRequests {
+		if kind == kindContact {
+			return typedErr(http.StatusForbidden, clierr.Error{
+				Code: "contact_disabled", Field: "contact",
+				Message:    "this control plane does not take contact messages",
+				Suggestion: "reach whoever runs this Runko another way",
+			})
+		}
 		return typedErr(http.StatusForbidden, clierr.Error{
 			Code: "invite_requests_disabled", Field: "invite",
 			Message:    "this control plane does not take invite requests",
@@ -91,6 +107,15 @@ func (s *Server) inviteRequestCore(ctx context.Context, req inviteRequestBody, i
 			Suggestion: "a sentence or two is plenty",
 		})
 	}
+	// An invite ask is self-explanatory with no message; a contact
+	// message IS its message.
+	if kind == kindContact && strings.TrimSpace(req.Message) == "" {
+		return typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "empty_message", Field: "message",
+			Message:    "a contact message needs a message",
+			Suggestion: "say what you want the operator to read",
+		})
+	}
 	rateLimited := typedErr(http.StatusTooManyRequests, clierr.Error{
 		Code: "rate_limited", Field: "invite",
 		Message:    "too many invite requests right now",
@@ -104,11 +129,12 @@ func (s *Server) inviteRequestCore(ctx context.Context, req inviteRequestBody, i
 	} else if live >= inviteBacklogCap {
 		return rateLimited
 	}
-	if _, _, err := s.Store.CreateInviteRequest(ctx, name, email, req.Message); err != nil {
+	if _, _, err := s.Store.CreateInviteRequest(ctx, kind, name, email, req.Message); err != nil {
 		return internalErr(err)
 	}
-	// created=false (a live request already holds this email) is the same
-	// 202 as created=true: the endpoint never becomes an address oracle.
+	// created=false (a live request of this kind already holds this email)
+	// is the same 202 as created=true: the endpoint never becomes an
+	// address oracle.
 	return nil
 }
 
@@ -117,14 +143,25 @@ func hasControlChars(s string) bool {
 }
 
 func (s *Server) handleCreateInviteRequest(w http.ResponseWriter, r *http.Request) {
+	s.handleIntake(w, r, kindInvite, "body must be JSON: {name, email, message?}")
+}
+
+// handleCreateContactMessage is the landing page's contact form
+// (POST /api/contact): the same intake and outbox as invite requests,
+// stored as kind=contact so the mailer subject says what it is.
+func (s *Server) handleCreateContactMessage(w http.ResponseWriter, r *http.Request) {
+	s.handleIntake(w, r, kindContact, "body must be JSON: {name, email, message}")
+}
+
+func (s *Server) handleIntake(w http.ResponseWriter, r *http.Request, kind, bodyShape string) {
 	var req inviteRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
-			Code: "bad_request", Message: "body must be JSON: {name, email, message?}",
+			Code: "bad_request", Message: bodyShape,
 		}))
 		return
 	}
-	if apiErr := s.inviteRequestCore(r.Context(), req, clientIP(r)); apiErr != nil {
+	if apiErr := s.inviteRequestCore(r.Context(), kind, req, clientIP(r)); apiErr != nil {
 		writeAPIError(w, apiErr)
 		return
 	}

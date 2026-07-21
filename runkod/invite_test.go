@@ -39,14 +39,24 @@ func newInviteServer(t *testing.T, allow bool) (*httptest.Server, *MemStore) {
 // postInvite posts one intake body from the given (X-Forwarded-For) ip.
 func postInvite(t *testing.T, srv *httptest.Server, ip, body string) (int, map[string]any) {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/invite-requests", strings.NewReader(body))
+	return postIntake(t, srv, "/api/invite-requests", ip, body)
+}
+
+func postContact(t *testing.T, srv *httptest.Server, ip, body string) (int, map[string]any) {
+	t.Helper()
+	return postIntake(t, srv, "/api/contact", ip, body)
+}
+
+func postIntake(t *testing.T, srv *httptest.Server, path, ip, body string) (int, map[string]any) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if ip != "" {
 		req.Header.Set("X-Forwarded-For", ip)
 	}
 	resp, err := srv.Client().Do(req)
 	if err != nil {
-		t.Fatalf("POST /api/invite-requests: %v", err)
+		t.Fatalf("POST %s: %v", path, err)
 	}
 	defer resp.Body.Close()
 	var decoded map[string]any
@@ -272,7 +282,7 @@ func TestInviteRequestRetryLifecycle(t *testing.T) {
 	store.Now = func() time.Time { return base }
 	ctx := context.Background()
 
-	req, created, err := store.CreateInviteRequest(ctx, "Ada", "ada@example.com", "hi")
+	req, created, err := store.CreateInviteRequest(ctx, kindInvite, "Ada", "ada@example.com", "hi")
 	if err != nil || !created {
 		t.Fatalf("create: %v created=%v", err, created)
 	}
@@ -309,12 +319,63 @@ func TestInviteRequestRetryLifecycle(t *testing.T) {
 	}
 
 	// A fresh row acked with no error is sent, immediately out of the feed.
-	req2, _, _ := store.CreateInviteRequest(ctx, "Grace", "grace@example.com", "")
+	req2, _, _ := store.CreateInviteRequest(ctx, kindInvite, "Grace", "grace@example.com", "")
 	got, err := store.RecordInviteSendResult(ctx, req2.ID, "", inviteBackoffBase, inviteBackoffMax, base)
 	if err != nil || got.Status != "sent" {
 		t.Fatalf("sent ack: %v %+v", err, got)
 	}
 	if due, _ := store.ListDueInviteRequests(ctx, base.Add(time.Hour)); len(due) != 0 {
 		t.Fatalf("sent row still due: %v", due)
+	}
+}
+
+// The contact intake (POST /api/contact, 2026-07-20): the landing page's
+// contact form rides the invite outbox as kind=contact - same gate, same
+// honeypot, its own dedupe scope, and a required message.
+func TestContactIntake(t *testing.T) {
+	srv, _ := newInviteServer(t, false)
+	code, body := postContact(t, srv, "", `{"name":"Ada","email":"ada@example.com","message":"hello"}`)
+	if code != http.StatusForbidden || errCode(body) != "contact_disabled" {
+		t.Fatalf("disabled contact intake: %d %v", code, body)
+	}
+
+	srv, _ = newInviteServer(t, true)
+	// A contact message with nothing to say is refused; an invite ask
+	// without one stays fine.
+	code, body = postContact(t, srv, "", `{"name":"Ada","email":"ada@example.com","message":"  "}`)
+	if code != http.StatusBadRequest || errCode(body) != "empty_message" {
+		t.Fatalf("empty contact message: %d %v", code, body)
+	}
+	if code, _ := postInvite(t, srv, "", `{"name":"Ada","email":"ada@example.com"}`); code != http.StatusAccepted {
+		t.Fatalf("invite ask without message: want 202, got %d", code)
+	}
+
+	// The same address can hold a live contact message NEXT TO its live
+	// invite request; a second contact message collapses (per-kind dedupe).
+	for i := 0; i < 2; i++ {
+		code, body = postContact(t, srv, "", `{"name":"Ada","email":"ada@example.com","message":"how do I self-host?"}`)
+		if code != http.StatusAccepted {
+			t.Fatalf("contact intake %d: %d %v", i, code, body)
+		}
+	}
+	reqs := dueRequests(t, srv)
+	if len(reqs) != 2 {
+		t.Fatalf("due feed: want invite+contact for one address, got %v", reqs)
+	}
+	kinds := map[string]int{}
+	for _, r := range reqs {
+		kinds[r.Kind]++
+	}
+	if kinds["invite"] != 1 || kinds["contact"] != 1 {
+		t.Fatalf("due kinds: %v", kinds)
+	}
+
+	// The honeypot stays a silent 202 storing nothing.
+	code, _ = postContact(t, srv, "", `{"name":"Bot","email":"bot@spam.com","message":"buy things","website":"spam.example"}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("honeypot: want 202, got %d", code)
+	}
+	if reqs := dueRequests(t, srv); len(reqs) != 2 {
+		t.Fatalf("honeypot stored a row: %v", reqs)
 	}
 }

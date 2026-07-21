@@ -47,7 +47,7 @@ func (r *rpcServer) ListDue(ctx context.Context, _ *connect.Request[mailerv1.Lis
 	out := make([]*mailerv1.InviteRequest, len(reqs))
 	for i, q := range reqs {
 		out[i] = &mailerv1.InviteRequest{
-			Id: q.ID, Name: q.Name, Email: q.Email, Message: q.Message,
+			Id: q.ID, Kind: q.Kind, Name: q.Name, Email: q.Email, Message: q.Message,
 			Attempt: int32(q.Attempt), CreatedAt: timestamppb.New(q.CreatedAt),
 		}
 	}

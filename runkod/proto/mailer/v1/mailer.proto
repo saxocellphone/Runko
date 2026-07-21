@@ -31,6 +31,7 @@ message InviteRequest {
   string message = 4;
   int32 attempt = 5;
   google.protobuf.Timestamp created_at = 6;
+  string kind = 7; // "invite" | "contact"; "" (an older runkod) means invite
 }
 
 message ListDueRequest {}

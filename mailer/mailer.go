@@ -118,19 +118,30 @@ func sanitizeHeader(s string) string {
 }
 
 // buildMessage renders one RFC 5322 message. Reply-To is the requester:
-// the operator's reply carries the invite code straight back.
+// the operator's reply carries the invite code (or the answer) straight
+// back. Kind picks the framing; "" arrives from an older runkod and
+// means invite.
 func buildMessage(from, to string, req *mailerv1.InviteRequest) []byte {
+	subject, intro, outro :=
+		"[runko] Invite request from "+req.Name,
+		"A visitor asked for this deployment's invite code.",
+		"Reply to this email with the invite code to let them in."
+	if req.Kind == "contact" {
+		subject = "[runko] Contact from " + req.Name
+		intro = "A visitor sent this deployment's operator a message."
+		outro = "Reply to this email to answer them."
+	}
 	var b strings.Builder
 	write := func(line string) { b.WriteString(line + "\r\n") }
 	write("From: " + sanitizeHeader(from))
 	write("To: " + sanitizeHeader(to))
 	write("Reply-To: " + sanitizeHeader(req.Email))
-	write("Subject: " + sanitizeHeader("[runko] Invite request from "+req.Name))
+	write("Subject: " + sanitizeHeader(subject))
 	write("Date: " + time.Now().Format(time.RFC1123Z))
 	write("MIME-Version: 1.0")
 	write("Content-Type: text/plain; charset=utf-8")
 	write("")
-	write("A visitor asked for this deployment's invite code.")
+	write(intro)
 	write("")
 	// Single-line body fields get the same stripping: a multi-line name
 	// could otherwise fake the Email: line the operator replies to.
@@ -145,7 +156,7 @@ func buildMessage(from, to string, req *mailerv1.InviteRequest) []byte {
 		}
 	}
 	write("")
-	write("Reply to this email with the invite code to let them in.")
+	write(outro)
 	return []byte(b.String())
 }
 

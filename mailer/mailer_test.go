@@ -259,6 +259,31 @@ func TestPollOnceAcksFailure(t *testing.T) {
 	}
 }
 
+// A contact row (kind=contact, 2026-07-20) reframes the message for the
+// operator - subject, intro, and the reply hint - while an unset kind
+// (an older runkod) keeps the invite framing above.
+func TestBuildMessageContactKind(t *testing.T) {
+	msg := string(buildMessage("op@example.com", "owner@example.com", &mailerv1.InviteRequest{
+		Id: "inv_3", Kind: "contact", Name: "Ada Lovelace", Email: "ada@example.com",
+		Message:   "how do I self-host this?",
+		CreatedAt: timestamppb.New(time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)),
+	}))
+	for _, want := range []string{
+		"Subject: [runko] Contact from Ada Lovelace",
+		"Reply-To: ada@example.com",
+		"A visitor sent this deployment's operator a message.",
+		"how do I self-host this?",
+		"Reply to this email to answer them.",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("contact message missing %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "invite code") {
+		t.Fatalf("contact message still speaks of invite codes:\n%s", msg)
+	}
+}
+
 // Defense in depth: even if hostile input reached the mailer, header
 // fields cannot grow extra lines. (runkod refuses control characters at
 // intake; this pins the second layer.)

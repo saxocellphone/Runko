@@ -4,8 +4,8 @@
 -- and dead-lettering are computed server-side (runkod/invite.go).
 
 -- name: CreateInviteRequest :one
-INSERT INTO invite_requests (name, email, message) VALUES ($1, $2, $3)
-ON CONFLICT (lower(email)) WHERE status IN ('pending', 'failed') DO NOTHING
+INSERT INTO invite_requests (kind, name, email, message) VALUES ($1, $2, $3, $4)
+ON CONFLICT (kind, lower(email)) WHERE status IN ('pending', 'failed') DO NOTHING
 RETURNING *;
 
 -- name: ListDueInviteRequests :many

@@ -40,6 +40,7 @@ type InviteRequest struct {
 	Message       string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
 	Attempt       int32                  `protobuf:"varint,5,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Kind          string                 `protobuf:"bytes,7,opt,name=kind,proto3" json:"kind,omitempty"` // "invite" | "contact"; "" (an older runkod) means invite
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -114,6 +115,13 @@ func (x *InviteRequest) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *InviteRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
 }
 
 type ListDueRequest struct {
@@ -364,7 +372,7 @@ var File_mailer_v1_mailer_proto protoreflect.FileDescriptor
 
 const file_mailer_v1_mailer_proto_rawDesc = "" +
 	"\n" +
-	"\x16mailer/v1/mailer.proto\x12\tmailer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb8\x01\n" +
+	"\x16mailer/v1/mailer.proto\x12\tmailer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcc\x01\n" +
 	"\rInviteRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
@@ -372,7 +380,8 @@ const file_mailer_v1_mailer_proto_rawDesc = "" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x12\x18\n" +
 	"\aattempt\x18\x05 \x01(\x05R\aattempt\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x10\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x12\n" +
+	"\x04kind\x18\a \x01(\tR\x04kind\"\x10\n" +
 	"\x0eListDueRequest\"G\n" +
 	"\x0fListDueResponse\x124\n" +
 	"\brequests\x18\x01 \x03(\v2\x18.mailer.v1.InviteRequestR\brequests\"!\n" +
