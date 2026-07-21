@@ -46,7 +46,9 @@ export function ShowcaseDirector() {
   const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
   const [paused, setPaused] = useState(false);
   const [following, setFollowing] = useState(true);
-  const [speedIdx, setSpeedIdx] = useState(0);
+  // Defaults to ×2 (SPEEDS[1]): the 5-minute script at conversational
+  // pace - ×1 stays available for a slow walkthrough via the cycle.
+  const [speedIdx, setSpeedIdx] = useState(1);
   const [minimized, setMinimized] = useState(false);
   const [beatIdx, setBeatIdx] = useState(-1); // beat whose caption shows
   const [progress, setProgress] = useState(0); // 0..1 of the runtime
