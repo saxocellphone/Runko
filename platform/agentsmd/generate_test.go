@@ -142,3 +142,30 @@ func TestGenerateTeachesRawGitIsTransportOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateTeachesTheGatesThatBlockAgents: every gate below cost real
+// dogfooding time precisely because it fails LATE and silently - a missing
+// description blocks the merge long after a clean push, an approval an
+// agent can never give itself, a whole-tree commit that swept in build
+// output, a snapshot that ate the content of the next change. The
+// generated teaching earns its place by naming them before they happen;
+// this test keeps a future edit from quietly dropping one.
+func TestGenerateTeachesTheGatesThatBlockAgents(t *testing.T) {
+	got := Generate()
+	for _, want := range []string{
+		"runko change describe",          // unmergeable without it (§8.7)
+		"You cannot approve",             // agents never satisfy the owner gate
+		"affinity is fixed",              // decided at workspace create, not later
+		"commits the WHOLE working tree", // change create is not staged-only
+		"COMMITS the working tree onto",  // snapshot is not out-of-band
+		"FULL content of every file",     // size caps over-count by design
+		"refuses the ENTIRE series",      // one denied path fails the push
+		"git sparse-checkout add <dir>",  // the cone does not follow build deps
+		"forks from your CURRENT HEAD",   // parallel lines must fork at the base
+		"`runko workspace path <name>`",  // worktrees stay transparent
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected the generated teaching to contain %q", want)
+		}
+	}
+}

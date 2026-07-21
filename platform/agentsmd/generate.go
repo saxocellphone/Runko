@@ -107,20 +107,38 @@ func Generate() string {
 	b.WriteString("Changes are born in workspaces - the server refuses a refs/for push\n")
 	b.WriteString("that declares no registered workspace origin. The model:\n\n")
 	for _, line := range []string{
-		"One workspace = one WORKSTREAM (yours, long-lived). Do NOT mint one per change: `runko workspace create --name <stream> --project <p> --by <you>` once, keep using it.",
-		"One branch = one stack = one reviewable line. `head` is the default; parallel work gets `runko workspace branch <name>` - the server refuses a second unrelated stack on one branch.",
-		"Work INSIDE the workspace worktree: the sparse cone stops out-of-scope edits before the server has to, and `runko change push` stamps your origin claim automatically.",
+		"One workspace = one TASK: `runko workspace create --name <task> --project <p>` starts it, and it is done when its changes are. A task holds as many changes and branches as it needs - what it may not do is outlive itself: an agent workspace CLOSES when its last change lands or is abandoned, and further pushes into it are refused. Never attach or bind one you did not create; reuse is a dead end, not a shortcut.",
+		"Name every project you will touch at CREATE time - affinity is fixed there and no verb widens it later. Root-owned paths (AGENTS.md, Makefile, .claude/**, top-level config) belong to the ROOT project: add it too, or the push is refused whole. Widening means deleting and recreating the workspace, which only works while no change is open.",
+		"One branch = one stack = one reviewable line. `head` is the default; parallel work gets `runko workspace branch <name>` - the server refuses a second unrelated stack on one branch. That verb forks from your CURRENT HEAD, not the workspace base, so fork every planned parallel line right after `workspace create`, before you commit anything.",
+		"Run the verbs from the repo root with `-w <workspace[@branch]>` - the worktree is materialization detail, the workspace NAME is the handle (`runko workspace path <name>` prints the directory when you truly need it). Wherever you run them, `runko change push` stamps your origin claim automatically and the sparse cone stops out-of-scope edits before the server has to.",
+		"The cone holds your `--project` dirs and the root files - it does NOT expand to build dependencies, so compiling or testing across projects needs `git sparse-checkout add <dir>` first. That is safe: affinity gates the paths a push TOUCHES, never what you materialized to read.",
 		"Snapshot early and often: `runko workspace snapshot` - durable, secret-scanned WIP; a killed session loses nothing, `workspace attach` restores it. Better: keep `runko workspace watch` running in the background - it auto-snapshots out-of-band (never touches HEAD or the index) and your work stays live on the workspace page (§12.6).",
 		"Report what you are doing: `runko agent hooks --install` wires your harness's post-tool-use hook to `runko agent event --from-hook` in one command (plain `agent hooks` prints the snippet for other harnesses) and the workspace page shows your reads/edits/commands LIVE (§12.6.1). Observability only - it never gates anything; export RUNKO_RUNKOD_URL/RUNKO_TOKEN in the harness env and it just works. The server nudges a workspace's first change push that never streamed.",
 		"Work under a TASK identity, never a shared credential: if you hold a human/admin credential, demote yourself first - `runko agent create --task <slug>` - and use the returned name:token for everything (git remote and --token alike). Attribution, policy, and workspace ownership then follow the task; the credential dies by TTL on its own.",
-		"One task = one fresh workspace: start every new task with `runko workspace create`; never attach or bind a workspace you didn't create. Agent workspaces CLOSE when their last change lands or is abandoned - a push into a closed workspace is refused, so reuse is not a shortcut, it is a dead end.",
 		"Stack small changes, never one big one: one reviewable step per change - a fresh `runko change create` per step stacks naturally (`jj split` is the surgical fix for one that grew too big); a single `runko change push` pushes the whole stack. Size caps are PER CHANGE - a big change is refused where the same work as a stack passes - and smaller changes scope required checks narrower, so they land faster.",
 		"Stack only what DEPENDS: orthogonal changes go on PARALLEL workspace branches (`runko workspace branch <name>`), where they review and land independently - stacked, the upper one needlessly waits out the lower. The push output nudges you when a stacked step touches nothing its parent touches.",
 		"Submit: `runko change create -m <msg>` then `runko change push`. Stacks land BOTTOM-UP; a child is not mergeable until its parent lands.",
+		"Describe every change the moment it is pushed: `runko change describe --change <full-Change-Id> --description <what and why> --test-plan <how you verified>`. An agent-authored change without one is NOT mergeable (§8.7) - the push still succeeds, so the omission surfaces much later as a stuck gate.",
+		"You cannot approve - not your own change, not anyone else's (§8.7). Arm automerge, then TELL A HUMAN which Change-Ids need `runko change approve --owner <ref>`; that approval is the gate your work waits on, and no amount of re-pushing moves it.",
 		"Trunk moved (land says revalidate): `runko change land` already runs the recovery loop itself (sync, re-push, wait, retry); `runko workspace sync` is the manual form. Never force.",
 		"Do not poll for green: after pushing, arm `runko change automerge --change <id>` and MOVE ON - the server lands it the moment checks and approvals pass, under your name. Poll-and-land loops are the anti-pattern automerge exists to delete.",
 		"Done or dead: land it or `runko change abandon`. An abandoned change stays visible only while something still stacks on it - rebase dependents off it or reopen it by re-pushing.",
 		"Never claim a workspace you don't own or didn't work in - origin claims are validated and owner-bound, and they drive review views.",
+	} {
+		fmt.Fprintf(&b, "- %s\n", line)
+	}
+	b.WriteString("\n")
+
+	b.WriteString("## What bites agents (learned the expensive way)\n\n")
+	b.WriteString("Each of these is a real refusal or silent trap, with the fix that clears it:\n\n")
+	for _, line := range []string{
+		"`runko change create` commits the WHOLE working tree, not what you staged. Read plain `git status --porcelain -uall` (no pathspec) before every one, and keep build output out of the tree - `$(git rev-parse --git-common-dir)/info/exclude` is the branch-independent place for it. A swept-in build directory does not fail as a content error; it fails as an opaque transport error at push time.",
+		"`runko workspace snapshot` COMMITS the working tree onto your branch (only `workspace watch` is out-of-band). Never snapshot content you are about to `change create` - the content lands in a Change-Id-less commit and `change create` then reports no changes. Snapshot mid-edit for durability; `change push` snapshots for you anyway.",
+		"A rejected SNAPSHOT push is not a rejected change: read past it to the `refs/for/...` line. Auto-snapshots carry the whole workspace delta, so they can trip a size cap or a stale-base policy diff while the change push itself is fine. Syncing onto the trunk tip clears the noise.",
+		"Size caps count the FULL content of every file a change touches, not its diff. One line edited in a large file can exceed a per-change cap, and the refusal's advice is literal: split the work into a stack so the big files ride their own change.",
+		"Ownership and manifests are the human lane: an agent push that touches OWNERS or an existing PROJECT.yaml is refused - and it refuses the ENTIRE series, not just that commit. Carve those edits into their own change for a human to push, landing after the code that needs them.",
+		"Generated files are regenerated, never hand-edited, and the regeneration belongs in the SAME change as the edit that invalidated it. Split across a stack, the intermediate commit is one that never built.",
+		"Every checkout authenticates as whoever its stored credential names. Never reuse another identity's checkout or credential: the push authenticates as THEM, and the funnel then rejects your workspace claim with an ownership error that reads like a server bug.",
 	} {
 		fmt.Fprintf(&b, "- %s\n", line)
 	}
