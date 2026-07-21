@@ -55,6 +55,7 @@
   .lede + .lede { margin-top: 12px; }
   .lede strong { color: var(--text); font-weight: 600; }
   .cta { margin-top: 28px; }
+  .cta-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .cta-note { margin-top: 12px; font-size: 14px; color: var(--text-2); }
 
   .contact { margin-top: clamp(48px, 9vw, 80px); border-top: 1px solid var(--border); padding-top: clamp(32px, 6vw, 44px); }
@@ -106,8 +107,14 @@
     <p class="lede">GitHub was designed for humans pushing branches and reviewing PRs. Point a fleet of coding agents at it and everything leaks: agents miss related code in other repos, their work vanishes when a session dies, and nobody can see what ten agents are doing at once.</p>
     <p class="lede">Runko puts all your code in <strong>one repo the platform deeply understands</strong>, then rebuilds the workflow around agents. Every agent works in a <strong>server-tracked workspace</strong> you can watch, inspect, and take over. <strong>Guardrails are enforced by the server</strong>, not the prompt — policy decides which paths an agent can touch, and no agent approves its own work. And because Runko knows exactly what each change affects, <strong>CI keeps up with agent volume</strong> instead of melting under it.</p>
     <div class="cta">
-      <a class="btn primary" href="/changes?invite=1">Request an invite</a>
-      <p class="cta-note">This instance is invite-only — ask and the code arrives by email. Runko is open source and hosts its own development: <a href="/runko" title="Every change here landed through Runko's own review, ownership checks, and CI">browse this instance's own source</a>, no account needed, or try the <a href="/demo/" title="Runs entirely in your browser on sample data">playground</a> in your browser.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="/changes?invite=1">Request an invite</a>
+        <!-- The guided tour: the playground with the scripted agent run
+             auto-started (web/src/demo) - the fastest "show, don't
+             tell" this page has. -->
+        <a class="btn" href="/demo/watch" title="A guided live run in the playground — an agent fixes a bug, a human reviews, the stack lands">▶ Watch me work</a>
+      </div>
+      <p class="cta-note">This instance is invite-only — ask and the code arrives by email. Runko is open source and hosts its own development: <a href="/runko" title="Every change here landed through Runko's own review, ownership checks, and CI">browse this instance's own source</a>, no account needed, or explore the <a href="/demo/" title="Runs entirely in your browser on sample data">playground</a> at your own pace.</p>
     </div>
 
     <section class="contact" id="contact" aria-labelledby="contact-h">
