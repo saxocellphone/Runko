@@ -41,22 +41,54 @@ describe("wantsAuthPage", () => {
 // URL org overrides the stored one and the same combo verifies against
 // org-y's DIFFERENT account.
 describe("postSignInPath", () => {
+  const at = (pathname: string, search = "", hash = "") => ({ pathname, search, hash });
+
   it("re-enters the authenticated org when the URL names another org", () => {
-    expect(postSignInPath("org-y", "org-x")).toBe("/org-x");
+    expect(postSignInPath({ pathOrg: "org-y", org: "org-x", ...at("/org-y/browse") })).toBe(
+      "/org-x",
+    );
   });
 
-  it("reloads in place when the URL already names the signed-in org", () => {
-    expect(postSignInPath("org-x", "org-x")).toBeNull();
+  it("stays put when the URL already names the signed-in org", () => {
+    expect(postSignInPath({ pathOrg: "org-x", org: "org-x", ...at("/org-x/changes") })).toBe(
+      "/org-x/changes",
+    );
   });
 
-  it("reloads in place on org-less routes (/login, /changes, root)", () => {
-    expect(postSignInPath("", "org-x")).toBeNull();
+  it("stays put on org-less routes (/login, /changes, root)", () => {
+    expect(postSignInPath({ pathOrg: "", org: "org-x", ...at("/changes") })).toBe("/changes");
   });
 
   it("covers the org switcher the same way (switch while deep in another org's URL)", () => {
     // switchOrg("org-c") from /org-b/browse: without navigation the
     // reload stays bound to org-b and the switch silently no-ops.
-    expect(postSignInPath("org-b", "org-c")).toBe("/org-c");
+    expect(postSignInPath({ pathOrg: "org-b", org: "org-c", ...at("/org-b/browse") })).toBe(
+      "/org-c",
+    );
+  });
+
+  // The prod repro (2026-07-21): the landing page's Sign in CTA lands on
+  // /<org>/changes?signin=1, the credential verifies (whoami 200), and the
+  // reload re-enters a URL that still demands the auth page - so App
+  // renders the gate again, forever. Spending the flag is what ends the
+  // loop; wantsAuthPage keeps winning for everyone still arriving.
+  it("spends the auth-page request so the fresh session is not sent back to the gate", () => {
+    expect(
+      postSignInPath({ pathOrg: "runko", org: "runko", ...at("/runko/changes", "?signin=1") }),
+    ).toBe("/runko/changes");
+    expect(postSignInPath({ pathOrg: "", org: "runko", ...at("/changes", "?invite=1") })).toBe(
+      "/changes",
+    );
+  });
+
+  it("keeps the rest of the URL - other params and the hash survive", () => {
+    expect(
+      postSignInPath({
+        pathOrg: "",
+        org: "acme",
+        ...at("/changes/I123", "?signin=1&tab=diff", "#c4"),
+      }),
+    ).toBe("/changes/I123?tab=diff#c4");
   });
 });
 
