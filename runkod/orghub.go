@@ -303,6 +303,7 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	mux.HandleFunc("/readyz", publicCORS(http.MethodGet, h.handleHubReadyz))
 	mux.HandleFunc("GET /metrics", h.handleHubMetrics)
 	mux.HandleFunc("/api/invite-requests", publicCORS(http.MethodPost, h.Default.handleCreateInviteRequest))
+	mux.HandleFunc("/api/contact", publicCORS(http.MethodPost, h.Default.handleCreateContactMessage))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
 			Code: "no_default_org", Field: "path",

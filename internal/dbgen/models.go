@@ -188,6 +188,48 @@ func (ns NullCheckStatus) Value() (driver.Value, error) {
 	return string(ns.CheckStatus), nil
 }
 
+type InviteRequestKind string
+
+const (
+	InviteRequestKindInvite  InviteRequestKind = "invite"
+	InviteRequestKindContact InviteRequestKind = "contact"
+)
+
+func (e *InviteRequestKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InviteRequestKind(s)
+	case string:
+		*e = InviteRequestKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InviteRequestKind: %T", src)
+	}
+	return nil
+}
+
+type NullInviteRequestKind struct {
+	InviteRequestKind InviteRequestKind `json:"invite_request_kind"`
+	Valid             bool              `json:"valid"` // Valid is true if InviteRequestKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInviteRequestKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.InviteRequestKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InviteRequestKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInviteRequestKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InviteRequestKind), nil
+}
+
 type InviteRequestStatus string
 
 const (
@@ -550,6 +592,7 @@ type InviteRequest struct {
 	LastError     *string             `json:"last_error"`
 	CreatedAt     pgtype.Timestamptz  `json:"created_at"`
 	SentAt        pgtype.Timestamptz  `json:"sent_at"`
+	Kind          InviteRequestKind   `json:"kind"`
 }
 
 type MirrorCursor struct {

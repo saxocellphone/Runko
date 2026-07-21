@@ -404,6 +404,9 @@ func (s *Server) Handler() (http.Handler, error) {
 	// drain feed + acks are the mailer service's surface, operator-only,
 	// server-to-server (no preflight, so method-qualified patterns).
 	mux.HandleFunc("/api/invite-requests", publicCORS(http.MethodPost, s.handleCreateInviteRequest))
+	// The landing page's contact form: the same intake with kind=contact
+	// (invite.go), bound for the same operator mailbox.
+	mux.HandleFunc("/api/contact", publicCORS(http.MethodPost, s.handleCreateContactMessage))
 	// The mailer drain surface moved to Connect (InviteFeedService,
 	// runkod/proto/mailer/v1 - §13.3.1's first in-boundary contract; the
 	// operator gate lives in invitefeed.go's requireOperatorRPC). Only the

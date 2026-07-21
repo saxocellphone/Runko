@@ -236,11 +236,14 @@ type WebhookDelivery struct {
 	LastError     string
 }
 
-// InviteRequest is one "how do I get the invite code?" submission from
-// the login gate (§15.1 invite requests, decided 2026-07-13) - a
-// deployment-wide outbox row the mailer service drains and acks.
+// InviteRequest is one public-intake submission bound for the operator's
+// mailbox (§15.1 invite requests, decided 2026-07-13) - a deployment-wide
+// outbox row the mailer service drains and acks. Kind separates the login
+// gate's "how do I get the invite code?" asks from the landing page's
+// contact messages; both ride the same lifecycle.
 type InviteRequest struct {
 	ID            string
+	Kind          string // "invite" | "contact"
 	Name          string
 	Email         string
 	Message       string
@@ -481,9 +484,10 @@ type Store interface {
 	// with the webhook-outbox lifecycle; only the default (root) server
 	// registers the routes, so per-org stores never see these calls.
 	// CreateInviteRequest reports created=false (and writes nothing) when
-	// a live - pending or failed - request already holds the same email,
-	// case-insensitively: the intake answers an idempotent 202.
-	CreateInviteRequest(ctx context.Context, name, email, message string) (req InviteRequest, created bool, err error)
+	// a live - pending or failed - request of the same kind already holds
+	// the same email, case-insensitively: the intake answers an idempotent
+	// 202, and an invite ask never shadows a contact message or vice versa.
+	CreateInviteRequest(ctx context.Context, kind, name, email, message string) (req InviteRequest, created bool, err error)
 	// ListDueInviteRequests returns pending/failed rows whose
 	// next_attempt_at has passed, oldest-due first.
 	ListDueInviteRequests(ctx context.Context, now time.Time) ([]InviteRequest, error)
@@ -1415,17 +1419,17 @@ func (s *MemStore) RecordDeliveryResult(ctx context.Context, id string, result c
 	return nil
 }
 
-func (s *MemStore) CreateInviteRequest(ctx context.Context, name, email, message string) (InviteRequest, bool, error) {
+func (s *MemStore) CreateInviteRequest(ctx context.Context, kind, name, email, message string) (InviteRequest, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, r := range s.inviteReqs {
-		if (r.Status == "pending" || r.Status == "failed") && strings.EqualFold(r.Email, email) {
+		if r.Kind == kind && (r.Status == "pending" || r.Status == "failed") && strings.EqualFold(r.Email, email) {
 			return InviteRequest{}, false, nil
 		}
 	}
 	s.nextID++
 	req := &InviteRequest{
-		ID: fmt.Sprintf("inv_%d", s.nextID), Name: name, Email: email, Message: message,
+		ID: fmt.Sprintf("inv_%d", s.nextID), Kind: kind, Name: name, Email: email, Message: message,
 		Status: "pending", CreatedAt: s.now(), NextAttemptAt: s.now(),
 	}
 	s.inviteReqs[req.ID] = req
