@@ -1411,14 +1411,42 @@ func TestEndToEndDaemonOrgs(t *testing.T) {
 	// The org's own mirror (R1): the land triggered a debounced sync, so
 	// the local bare target must converge on acme's trunk tip plus the
 	// change ref - and /o/acme/api/mirror/status must report it.
-	deadline := time.Now().Add(30 * time.Second)
+	//
+	// Convergence gets TWO chances, and the deadline must cover both: the
+	// land's debounced sync, and - if that one misses a ref, as it does
+	// when a change ref still looks dangling mid-push (mirror.go deletes
+	// it and waits for a re-push) - the reconcile pass behind it. Org
+	// mirrors are wired Debounce 3s / Interval 1m (cmd/runkod/main.go), so
+	// a 30s deadline could only ever see the first: one missed sync was a
+	// GUARANTEED failure, not a slow one. It duly fired in the -race lane,
+	// where everything is wide enough to miss (2026-07-21), and blocked an
+	// unrelated change.
+	deadline := time.Now().Add(90 * time.Second)
 	for {
 		mout, _ := runGit(t, t.TempDir(), "ls-remote", orgMirrorDir)
-		if strings.Contains(mout, acmeTip) && strings.Contains(mout, "refs/heads/main") && strings.Contains(mout, "refs/changes/") {
+		haveTip := strings.Contains(mout, acmeTip)
+		haveTrunk := strings.Contains(mout, "refs/heads/main")
+		haveChange := strings.Contains(mout, "refs/changes/")
+		if haveTip && haveTrunk && haveChange {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("org mirror never converged on %s; ls-remote:\n%s", acmeTip, mout)
+			// Name the unmet condition. The old message said "never
+			// converged on <tip>" while printing an ls-remote that
+			// CONTAINED the tip - the missing piece was the change ref,
+			// and the wording sent a reader hunting the wrong problem.
+			var missing []string
+			if !haveTip {
+				missing = append(missing, "trunk tip "+acmeTip)
+			}
+			if !haveTrunk {
+				missing = append(missing, "refs/heads/main")
+			}
+			if !haveChange {
+				missing = append(missing, "any refs/changes/ ref")
+			}
+			t.Fatalf("org mirror never converged - missing %s; ls-remote:\n%s",
+				strings.Join(missing, " and "), mout)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
