@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,6 +76,7 @@ type ghStub struct {
 	staleMints map[int64]bool
 	notFound   bool // lookup answers 404 (App not installed)
 	expiresIn  time.Duration
+	mintBody   atomic.Value // string: the most recent mint request body
 	srv        *httptest.Server
 }
 
@@ -94,6 +96,8 @@ func newGHStub(t *testing.T, appID string) *ghStub {
 	mux.HandleFunc("POST /app/installations/{id}/access_tokens", func(w http.ResponseWriter, r *http.Request) {
 		verifyJWT(t, r, appID)
 		s.mints.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		s.mintBody.Store(string(body))
 		var id int64
 		json.Unmarshal([]byte(r.PathValue("id")), &id)
 		if s.staleMints[id] {
@@ -134,6 +138,28 @@ func TestTokenMintsAndCaches(t *testing.T) {
 	}
 	if stub.lookups.Load() != 1 || stub.mints.Load() != 1 {
 		t.Fatalf("a fresh hour-long token must be cached: %d lookups, %d mints", stub.lookups.Load(), stub.mints.Load())
+	}
+}
+
+// TestMintScopesTokenToRepo pins the security property multi-repo
+// installations rely on (one user account = one installation covering
+// every selected repo): the mint body narrows the token to exactly the
+// repo it was asked for, so a token minted for one repo can never write
+// a sibling repo on the same installation.
+func TestMintScopesTokenToRepo(t *testing.T) {
+	stub := newGHStub(t, "12345")
+	app := newTestApp(t, stub)
+	if _, err := app.Token(t.Context(), "acme/runko"); err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+	var got struct {
+		Repositories []string `json:"repositories"`
+	}
+	if err := json.Unmarshal([]byte(stub.mintBody.Load().(string)), &got); err != nil {
+		t.Fatalf("mint request body is not JSON: %v", err)
+	}
+	if len(got.Repositories) != 1 || got.Repositories[0] != "runko" {
+		t.Fatalf(`mint body must scope repositories to ["runko"], got %v`, got.Repositories)
 	}
 }
 

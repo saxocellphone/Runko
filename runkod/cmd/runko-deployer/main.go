@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/runkogithubapp"
 )
 
 func main() {
@@ -48,7 +49,7 @@ type deployer struct {
 	secret       []byte
 	org          string
 	repoURL      string
-	token        string
+	tokenFn      func() (string, error) // push credential: static token, or a per-push App mint ("" = anonymous)
 	branch       string
 	kustomizeDir string
 	dryRun       bool
@@ -66,6 +67,9 @@ func run(args []string) error {
 	org := fs.String("org", env("ORG", ""), "only act on deploy.images_ready for this org_id ('' = any) [RUNKO_DEPLOYER_ORG]")
 	repoURL := fs.String("repo-url", env("REPO_URL", ""), "https clone URL of the GitOps repo to pin digests into [RUNKO_DEPLOYER_REPO_URL]")
 	token := fs.String("token", env("GITHUB_TOKEN", ""), "write token for repo-url (prefer the env var) [RUNKO_DEPLOYER_GITHUB_TOKEN]")
+	appID := fs.String("github-app-id", env("GITHUB_APP_ID", ""), "GitHub App id: mint short-lived installation tokens for repo-url instead of holding a static --token (runkogithubapp/README.md) [RUNKO_DEPLOYER_GITHUB_APP_ID]")
+	appKeyFile := fs.String("github-app-key-file", env("GITHUB_APP_KEY_FILE", ""), "path to the App private key PEM (required with --github-app-id) [RUNKO_DEPLOYER_GITHUB_APP_KEY_FILE]")
+	githubAPI := fs.String("github-api", env("GITHUB_API", "https://api.github.com"), "GitHub API base for App auth; GHES: https://<host>/api/v3 [RUNKO_DEPLOYER_GITHUB_API]")
 	branch := fs.String("branch", env("BRANCH", "main"), "branch of repo-url to commit to [RUNKO_DEPLOYER_BRANCH]")
 	kustomizeDir := fs.String("kustomize-dir", env("KUSTOMIZE_DIR", "apps/monorepo-platform"), "dir under repo-url holding kustomization.yaml [RUNKO_DEPLOYER_KUSTOMIZE_DIR]")
 	dryRun := fs.Bool("dry-run", env("DRY_RUN", "") != "", "compute the pin and log the diff, but do not commit/push [RUNKO_DEPLOYER_DRY_RUN]")
@@ -78,8 +82,38 @@ func run(args []string) error {
 		}
 	}
 
+	// The push credential: App auth mints a short-lived installation token
+	// per push, scoped to repo-url alone (runkogithubapp/README.md), so no
+	// standing secret can write the deploy repo; --token stays as the
+	// static-PAT fallback, and neither leaves pushes anonymous (fine for
+	// dry-run and filesystem test remotes).
+	tokenFn := func() (string, error) { return *token, nil }
+	authMode := "static-token"
+	if *token == "" {
+		authMode = "anonymous"
+	}
+	if (*appID == "") != (*appKeyFile == "") {
+		return fmt.Errorf("--github-app-id and --github-app-key-file come together (App auth needs both)")
+	}
+	if *appID != "" {
+		keyPEM, err := os.ReadFile(*appKeyFile)
+		if err != nil {
+			return fmt.Errorf("--github-app-key-file: %w", err)
+		}
+		app, err := runkogithubapp.New(*appID, keyPEM, *githubAPI)
+		if err != nil {
+			return err
+		}
+		ownerRepo := app.RepoPath(*repoURL)
+		if ownerRepo == "" {
+			return fmt.Errorf("--github-app-id is set but --repo-url %q is not an https remote on the App's GitHub host", *repoURL)
+		}
+		tokenFn = app.TokenSource(ownerRepo)
+		authMode = "github-app:" + ownerRepo
+	}
+
 	d := &deployer{
-		secret: []byte(*secret), org: *org, repoURL: *repoURL, token: *token,
+		secret: []byte(*secret), org: *org, repoURL: *repoURL, tokenFn: tokenFn,
 		branch: *branch, kustomizeDir: *kustomizeDir, dryRun: *dryRun,
 		seen: map[string]bool{}, now: time.Now,
 	}
@@ -89,7 +123,7 @@ func run(args []string) error {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
 	})
-	fmt.Printf("runko-deployer: pinning deploy.images_ready digests into %s (%s), dir=%s, dry-run=%v\n", *repoURL, *branch, *kustomizeDir, *dryRun)
+	fmt.Printf("runko-deployer: pinning deploy.images_ready digests into %s (%s), dir=%s, auth=%s, dry-run=%v\n", *repoURL, *branch, *kustomizeDir, authMode, *dryRun)
 	srv := &http.Server{Addr: *addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	return srv.ListenAndServe()
 }
@@ -222,13 +256,23 @@ func (d *deployer) gitOut(ctx context.Context, dir string, args ...string) (stri
 }
 
 // setPushAuth points origin at an authenticated URL in the ephemeral
-// checkout's config (not argv/logs), for the push only. No token => the
-// anonymous origin stays (test remotes on the local filesystem).
+// checkout's config (not argv/logs), for the push only. The credential
+// is resolved HERE, per push: App mode mints (or serves a cached, still
+// -fresh) installation token, so a pin arriving hours after boot never
+// rides an expired one. No credential => the anonymous origin stays
+// (test remotes on the local filesystem).
 func (d *deployer) setPushAuth(ctx context.Context, dir string) error {
-	if d.token == "" || !strings.HasPrefix(d.repoURL, "https://") {
+	if !strings.HasPrefix(d.repoURL, "https://") {
 		return nil
 	}
-	authed := "https://x-access-token:" + d.token + "@" + strings.TrimPrefix(d.repoURL, "https://")
+	tok, err := d.tokenFn()
+	if err != nil {
+		return fmt.Errorf("resolve push credential: %w", err)
+	}
+	if tok == "" {
+		return nil
+	}
+	authed := "https://x-access-token:" + tok + "@" + strings.TrimPrefix(d.repoURL, "https://")
 	return d.git(ctx, dir, "remote", "set-url", "origin", authed)
 }
 

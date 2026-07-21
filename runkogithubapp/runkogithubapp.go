@@ -17,6 +17,7 @@
 package runkogithubapp
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -163,7 +164,7 @@ func (a *App) mint(ctx context.Context, ownerRepo string) (instToken, error) {
 		}
 		id, a.installs[ownerRepo] = fresh, fresh
 	}
-	t, status, err := a.createToken(ctx, id)
+	t, status, err := a.createToken(ctx, id, ownerRepo)
 	if status == http.StatusNotFound && cached {
 		delete(a.installs, ownerRepo)
 		fresh, lerr := a.lookupInstallation(ctx, ownerRepo)
@@ -171,7 +172,7 @@ func (a *App) mint(ctx context.Context, ownerRepo string) (instToken, error) {
 			return instToken{}, lerr
 		}
 		a.installs[ownerRepo] = fresh
-		t, _, err = a.createToken(ctx, fresh)
+		t, _, err = a.createToken(ctx, fresh, ownerRepo)
 	}
 	return t, err
 }
@@ -180,7 +181,7 @@ func (a *App) lookupInstallation(ctx context.Context, ownerRepo string) (int64, 
 	var out struct {
 		ID int64 `json:"id"`
 	}
-	status, err := a.call(ctx, http.MethodGet, "/repos/"+ownerRepo+"/installation", &out)
+	status, err := a.call(ctx, http.MethodGet, "/repos/"+ownerRepo+"/installation", nil, &out)
 	if err != nil {
 		return 0, fmt.Errorf("githubapp: resolve installation for %s: %w", ownerRepo, err)
 	}
@@ -193,13 +194,22 @@ func (a *App) lookupInstallation(ctx context.Context, ownerRepo string) (int64, 
 	return out.ID, nil
 }
 
-func (a *App) createToken(ctx context.Context, installationID int64) (instToken, int, error) {
+// createToken mints scoped DOWN to the one repo it was asked for: the
+// "repositories" mint body narrows the token below the installation's
+// full repo selection, so a token minted for one repo can never write a
+// sibling repo sharing the same installation (one user account = one
+// installation covering every selected repo).
+func (a *App) createToken(ctx context.Context, installationID int64, ownerRepo string) (instToken, int, error) {
 	var out struct {
 		Token     string    `json:"token"`
 		ExpiresAt time.Time `json:"expires_at"`
 	}
+	in := map[string]any{}
+	if _, name, ok := strings.Cut(ownerRepo, "/"); ok && name != "" {
+		in["repositories"] = []string{name}
+	}
 	path := fmt.Sprintf("/app/installations/%d/access_tokens", installationID)
-	status, err := a.call(ctx, http.MethodPost, path, &out)
+	status, err := a.call(ctx, http.MethodPost, path, in, &out)
 	if err != nil {
 		return instToken{}, 0, fmt.Errorf("githubapp: mint installation token: %w", err)
 	}
@@ -209,16 +219,28 @@ func (a *App) createToken(ctx context.Context, installationID int64) (instToken,
 	return instToken{value: out.Token, expiresAt: out.ExpiresAt}, status, nil
 }
 
-// call performs one JWT-authenticated App API request, decoding a 2xx
-// body into out and reporting every other status to the caller.
-func (a *App) call(ctx context.Context, method, path string, out any) (int, error) {
+// call performs one JWT-authenticated App API request (in != nil is
+// sent as a JSON body), decoding a 2xx body into out and reporting
+// every other status to the caller.
+func (a *App) call(ctx context.Context, method, path string, in, out any) (int, error) {
 	jwt, err := a.jwt()
 	if err != nil {
 		return 0, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, a.apiBase+path, nil)
+	var body io.Reader
+	if in != nil {
+		payload, err := json.Marshal(in)
+		if err != nil {
+			return 0, err
+		}
+		body = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, a.apiBase+path, body)
 	if err != nil {
 		return 0, err
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Authorization", "Bearer "+jwt)
