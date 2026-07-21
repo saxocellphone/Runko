@@ -243,20 +243,10 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.03,
-    caption: {
-      title: "A task identity, not a shared credential",
-      body: `val ran \`runko agent create --task sku-retry\` — the agent gets its own name (${AGENT}), its own token, and a TTL. Ten agents means ten identities the server can tell apart.`,
-    },
-    focus: { route: "/changes" },
-    apply: () => {},
-  },
-  {
-    at: 0.06,
     focus: { route: "/workspaces", selector: `a[href$="/workspaces/${WS_ID}"]` },
     caption: {
       title: "One task, one workspace",
-      body:
-        "The agent created workspace checkout-retry: a server-tracked slice of the monorepo scoped to commerce/checkout-api and commerce/cart. It just appeared in the registry — open it and keep watching from there.",
+      body: `The agent — a task identity val minted (${AGENT}: its own token, dead by TTL, never a shared credential) — created workspace checkout-retry: a server-tracked slice of the monorepo scoped to commerce/checkout-api and commerce/cart. It just appeared in the registry.`,
     },
     apply: (state) => {
       if (state.workspaces.has(WS_ID)) return;
