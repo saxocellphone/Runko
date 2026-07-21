@@ -2,6 +2,7 @@ import { publicBrowse } from "../api/client";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { projectTypeLabel } from "../lib/format";
+import { graphProjects, isRootProject, rootFirst } from "../lib/projects";
 import { dependencyClosure, dependentClosure } from "../lib/depgraph";
 import { DepGraph, GraphLegend, useGraphProjects } from "../components/DepGraph";
 import { EmptyState, ErrorNote, InfoTip, Spinner } from "../components/ui";
@@ -19,9 +20,11 @@ export function ProjectsPage() {
 
   const selectedProject = data?.find((p) => p.name === selected);
   const q = query.toLowerCase();
-  const filtered = data?.filter(
-    (p) => !q || p.name.toLowerCase().includes(q),
-  );
+  // Root first: it owns every path no deeper manifest claims, so it
+  // reads as the table's first row rather than one service among many.
+  const filtered = data && rootFirst(data.filter((p) => !q || p.name.toLowerCase().includes(q)));
+  // What the graph would actually draw (everything but the root).
+  const graphable = graphProjects(data ?? []);
 
   return (
     <div className="page">
@@ -47,6 +50,17 @@ export function ProjectsPage() {
 
       {data && data.length > 0 && (
         <>
+          {/* The graph half renders only when there is a graph: a freshly
+              genesis-seeded org owns just its root project, which is
+              never a node, and an empty canvas is a bordered blank box.
+              The table below still lists everything. */}
+          {graphable.length === 0 && (
+            <EmptyState>
+              No dependency graph yet — only the root project exists. Projects appear here once
+              there is one to draw.
+            </EmptyState>
+          )}
+          {graphable.length > 0 && (
           <div className="graph-toolbar">
             {selectedProject ? (
               <>
@@ -71,10 +85,13 @@ export function ProjectsPage() {
               </>
             )}
           </div>
+          )}
 
-          <section className="card graph-panel">
-            <DepGraph items={data} selected={selected} onSelect={setSelected} />
-          </section>
+          {graphable.length > 0 && (
+            <section className="card graph-panel">
+              <DepGraph items={data} selected={selected} onSelect={setSelected} />
+            </section>
+          )}
 
           <div className="toolbar" style={{ marginTop: 20 }}>
             <input
@@ -102,6 +119,14 @@ export function ProjectsPage() {
                     <tr key={p.name}>
                       <td>
                         <Link to={`/projects/${p.name}`}>{p.name}</Link>
+                        {isRootProject(p) && (
+                          <>
+                            {" "}
+                            <span className="chip" title="The repo-root project: it owns every path no deeper PROJECT.yaml claims (root glue, and the root_invalidation/prose rules), so it is not a peer of the projects below and does not appear in the graph">
+                              root
+                            </span>
+                          </>
+                        )}
                       </td>
                       <td>
                         <span className="chip">{projectTypeLabel(p.type)}</span>

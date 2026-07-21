@@ -8,11 +8,14 @@ import {
   layoutDag,
   type DepGraphInput,
 } from "../lib/depgraph";
+import { graphProjects } from "../lib/projects";
 import { useRpc, type RpcState } from "../lib/useRpc";
 
 export interface GraphProject extends DepGraphInput {
   type: ProjectType;
   owners: string[];
+  /** Folder on trunk; "" marks the repo-root project (lib/projects.ts). */
+  path: string;
 }
 
 // One fetch shape for every graph surface: summaries + per-project detail
@@ -29,6 +32,7 @@ export function useGraphProjects(): RpcState<GraphProject[]> {
           consumes: detail.dependencies?.consumes ?? [],
           type: detail.type,
           owners: detail.effectiveOwners,
+          path: detail.path,
         };
       }),
     );
@@ -50,7 +54,7 @@ export function GraphLegend() {
 // depends on it (amber, up - what re-tests when it changes). Clicking a
 // node calls onSelect; clicking the canvas clears (onSelect(undefined)).
 export function DepGraph({
-  items,
+  items: allItems,
   selected,
   onSelect,
 }: {
@@ -58,6 +62,11 @@ export function DepGraph({
   selected?: string;
   onSelect: (name: string | undefined) => void;
 }) {
+  // The root project is deliberately not a node here: it declares no
+  // dependencies and none are declared on it, so it can only render as a
+  // floating orphan beside the real DAG (lib/projects.ts). A ?focus=
+  // deep link naming it simply highlights nothing.
+  const items = useMemo(() => graphProjects(allItems), [allItems]);
   const layout = useMemo(() => layoutDag(items), [items]);
   const highlight = useMemo(() => {
     if (!selected || !items.some((p) => p.name === selected)) return undefined;

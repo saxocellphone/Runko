@@ -332,14 +332,49 @@ func cmdProjectList(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(projects)
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	for _, p := range projects {
+	for _, p := range rootProjectFirst(projects) {
 		owners := make([]string, len(p.Owners))
 		for i, o := range p.Owners {
 			owners[i] = o.Ref
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.Name, p.Type, p.Path, strings.Join(owners, ","))
+		// The root project's path column is empty, which read as a
+		// missing field rather than the fact it is: this project IS the
+		// repo root and owns every path no deeper manifest claims. Name
+		// it, and hoist the row - it is not a peer of the rest.
+		path := p.Path
+		if isRootProject(p) {
+			path = "(root)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.Name, p.Type, path, strings.Join(owners, ","))
 	}
 	return tw.Flush()
+}
+
+// isRootProject / rootProjectFirst: the repo-root project (§10.3) exists
+// so root glue - go.mod, Makefile, .github/, scripts/ - resolves a merge
+// policy instead of falling to the fail-closed unowned-path default, and
+// it carries the repo-wide root_invalidation/prose rules. Rootness is the
+// PATH, never the name (`repo` is this repo's convention, not a reserved
+// word); both spellings of the root path count, matching the daemon's own
+// rule (runkod/deleteproject.go, runkod/bootstraporg.go). JSON output is
+// deliberately untouched - this is presentation, and --json is a contract.
+func isRootProject(p index.IndexedProject) bool {
+	return p.Path == "" || p.Path == "."
+}
+
+func rootProjectFirst(projects []index.IndexedProject) []index.IndexedProject {
+	out := make([]index.IndexedProject, 0, len(projects))
+	for _, p := range projects {
+		if isRootProject(p) {
+			out = append(out, p)
+		}
+	}
+	for _, p := range projects {
+		if !isRootProject(p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // addWorkspaceFlag registers -w/--workspace on a verb that operates on a
