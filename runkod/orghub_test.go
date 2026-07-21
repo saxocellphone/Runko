@@ -9,10 +9,14 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/saxocellphone/runko/internal/gitstore"
 	"github.com/saxocellphone/runko/platform/agentsmd"
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/receive"
+
+	mailerv1 "github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1"
+	"github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1/mailerv1connect"
 )
 
 // newTestHub assembles a mem-mode hub the way cmd/runkod does: a default
@@ -947,5 +951,60 @@ func TestOrglessHub(t *testing.T) {
 	}
 	if status, _ := hubDo(t, srv, "GET", "/o/acme/api/whoami", "alice", "alicepw123", "", nil); status != http.StatusOK {
 		t.Fatalf("unarchived org should serve again")
+	}
+}
+
+// The org-less root must serve the mailer's drain surface: intake rows
+// are deployment-wide, and the prod org-less flip left runko-mailer
+// polling a root that answered "no root-mounted org" while submissions
+// piled up pending - stored, never mailed.
+func TestOrglessHubServesInviteFeed(t *testing.T) {
+	srv, hub := newOrglessTestHub(t, true)
+	hub.Default.AllowInviteRequests = true // read per-request; routes exist regardless
+
+	for path, body := range map[string]string{
+		"/api/invite-requests": `{"name":"Ada","email":"ada@example.com"}`,
+		"/api/contact":         `{"name":"Ada","email":"ada@example.com","message":"how do I join?"}`,
+	} {
+		if status, resp := hubDo(t, srv, "POST", path, "", "", "", json.RawMessage(body)); status != http.StatusAccepted {
+			t.Fatalf("POST %s: %d %v", path, status, resp)
+		}
+	}
+
+	reqs := dueRequests(t, srv)
+	if len(reqs) != 2 {
+		t.Fatalf("root due feed: want the invite and the contact row, got %v", reqs)
+	}
+	kinds := map[string]int{}
+	for _, r := range reqs {
+		kinds[r.Kind]++
+	}
+	if kinds["invite"] != 1 || kinds["contact"] != 1 {
+		t.Fatalf("due kinds at the org-less root: %v", kinds)
+	}
+
+	// The operator gate still holds at the root: anonymous is refused.
+	err := inviteFeed(t, srv, "", func(c mailerv1connect.InviteFeedServiceClient, _ connect.ClientOption) error {
+		_, err := c.ListDue(context.Background(), connect.NewRequest(&mailerv1.ListDueRequest{}))
+		return err
+	})
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("anonymous feed at root: want Unauthenticated, got %v", err)
+	}
+
+	// Acks work at the root too - the full drain loop, not just the list.
+	err = inviteFeed(t, srv, "sekret", func(c mailerv1connect.InviteFeedServiceClient, _ connect.ClientOption) error {
+		for _, r := range reqs {
+			if _, err := c.MarkSent(context.Background(), connect.NewRequest(&mailerv1.MarkSentRequest{Id: r.Id})); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("MarkSent at root: %v", err)
+	}
+	if left := dueRequests(t, srv); len(left) != 0 {
+		t.Fatalf("acked rows still due: %v", left)
 	}
 }
