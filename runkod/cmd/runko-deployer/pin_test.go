@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,4 +79,49 @@ func readFile(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// TestSetPushAuthResolvesPerPush pins the App-auth contract: the push
+// credential is resolved at push time through tokenFn (App mode mints
+// there, so a pin arriving hours after boot never rides an expired
+// token), lands only in the ephemeral checkout's remote URL, and a
+// non-https repo-url never resolves a credential at all (filesystem
+// test remotes stay anonymous).
+func TestSetPushAuthResolvesPerPush(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	mints := 0
+	d := &deployer{
+		repoURL: "https://github.com/acme/gitops.git",
+		tokenFn: func() (string, error) { mints++; return fmt.Sprintf("tok-%d", mints), nil },
+	}
+	if err := d.git(ctx, "", "init", dir); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := d.git(ctx, dir, "remote", "add", "origin", d.repoURL); err != nil {
+		t.Fatalf("remote add: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := d.setPushAuth(ctx, dir); err != nil {
+			t.Fatalf("setPushAuth %d: %v", i, err)
+		}
+		got, err := d.gitOut(ctx, dir, "remote", "get-url", "origin")
+		if err != nil {
+			t.Fatalf("get-url: %v", err)
+		}
+		want := fmt.Sprintf("https://x-access-token:tok-%d@github.com/acme/gitops.git", i)
+		if strings.TrimSpace(got) != want {
+			t.Fatalf("push %d remote: got %q, want %q", i, strings.TrimSpace(got), want)
+		}
+	}
+
+	// A filesystem remote must not mint: the credential resolver is
+	// never consulted for a non-https repo-url.
+	local := &deployer{
+		repoURL: filepath.Join(t.TempDir(), "gitops"),
+		tokenFn: func() (string, error) { t.Fatal("non-https repo-url must not resolve a credential"); return "", nil },
+	}
+	if err := local.setPushAuth(ctx, dir); err != nil {
+		t.Fatalf("setPushAuth local: %v", err)
+	}
 }
