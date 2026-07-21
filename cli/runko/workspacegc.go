@@ -296,8 +296,8 @@ func rebindWorktree(store string, old Materialization, dir string, info Workspac
 			return fmt.Errorf("%w: %v", errRecycleUnavailable, err)
 		}
 	}
-	if len(info.SparsePatterns) > 0 {
-		args := append([]string{"sparse-checkout", "set", "--cone"}, info.SparsePatterns...)
+	if patterns := coneWithAgentSkill(store, info.SparsePatterns, startPoint); len(patterns) > 0 {
+		args := append([]string{"sparse-checkout", "set", "--cone"}, patterns...)
 		if _, err := runGitEnv(dir, authEnv, args...); err != nil {
 			return fmt.Errorf("sparse-checkout set: %w", err)
 		}
@@ -315,6 +315,7 @@ func rebindWorktree(store string, old Materialization, dir string, info Workspac
 	if err := stampCheckoutConfig(dir, true, info, wsBranch, owner); err != nil {
 		return err
 	}
+	installAgentSkill(dir)
 	_ = dropMaterialization(old.Path)
 	return nil
 }

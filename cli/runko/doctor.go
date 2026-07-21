@@ -10,6 +10,7 @@ import (
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitversion"
+	"github.com/saxocellphone/runko/platform/agentsmd"
 )
 
 // changeIDHookScript is a minimal commit-msg hook mirroring what the real
@@ -107,6 +108,15 @@ type DoctorReport struct {
 	// WorkspaceID is set.
 	WorkspaceID   string
 	HasAgentHooks bool
+	// AgentSkill: how this checkout's agent teaching got there - "tree"
+	// (the monorepo owns it, `runko agents-md` regenerates it), "present"
+	// (an untracked skill is already here), "local" (this CLI installed
+	// one), or "" when a skill-loading harness would find nothing.
+	// Reported because that last case is an invisible defect: the agent
+	// works anyway, straight into the refusals the skill exists to
+	// prevent (§8.8).
+	AgentSkill     string
+	AgentSkillPath string
 	// TrackedMaterializations: §12.7's machine-local registry rows whose
 	// directories still exist - `runko workspace gc` reviews and reclaims
 	// them. Machine state, not repo state; reported so the cheat sheet
@@ -164,6 +174,10 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 	if isJJWorkspace(repoDir) {
 		report.IsJJWorkspace = true
 		report.JJChangeIDsWired = jjTrailerConfigured(repoDir)
+	}
+
+	if path, outcome, err := agentSkillStatus(repoDir); err == nil {
+		report.AgentSkill, report.AgentSkillPath = outcome, path
 	}
 
 	if id, _ := runGit(repoDir, "config", "runko.workspace"); id != "" {
@@ -350,6 +364,14 @@ func PrintCheatSheet(w io.Writer, report DoctorReport) {
 		} else {
 			fmt.Fprintln(w, "  agent hooks:     NOT installed - run `runko agent hooks --install` (and keep `runko workspace watch` running)")
 		}
+	}
+	switch report.AgentSkill {
+	case "tree":
+		fmt.Fprintf(w, "  agent skill:     %s (this monorepo's own - `runko agents-md` regenerates it)\n", agentsmd.SkillPath)
+	case "present", "local":
+		fmt.Fprintf(w, "  agent skill:     %s (local to this checkout, excluded from changes)\n", agentsmd.SkillPath)
+	default:
+		fmt.Fprintln(w, "  agent skill:     NOT installed - agents here load no workflow; run `runko doctor --install-hook`")
 	}
 	if report.TrackedMaterializations > 0 {
 		fmt.Fprintf(w, "  materializations: %d tracked on this machine - `runko workspace gc` reviews and reclaims (§12.7)\n", report.TrackedMaterializations)

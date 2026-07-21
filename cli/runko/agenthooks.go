@@ -129,41 +129,50 @@ func invalidSettingsErr(path string) error {
 // shared clone's info/exclude - which git keeps in the COMMON dir, so one
 // append covers every worktree of the clone.
 func ensureSnapshotExcluded(dir string) (via string, err error) {
-	if _, err := runGit(dir, "check-ignore", "-q", agentHooksSettingsPath); err == nil {
+	return excludeFromSnapshots(dir, agentHooksSettingsPath,
+		"# runko agent hooks --install: harness config stays out of snapshots (§12.6.1)")
+}
+
+// excludeFromSnapshots is that guarantee for any local-only file runko
+// writes into a checkout (harness settings, the installed agent skill):
+// tree content is what a Change carries, and a file the tree does not own
+// must never ride into one - `change create` commits the WHOLE working
+// tree, so "the user will notice" is not a mechanism. comment is the line
+// written above the pattern, naming which verb put it there.
+func excludeFromSnapshots(dir, relPath, comment string) (via string, err error) {
+	if _, err := runGit(dir, "check-ignore", "-q", relPath); err == nil {
 		return "gitignore", nil
 	}
 	commonDir, err := runGit(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
-		return "", fmt.Errorf("agent hooks: resolve git common dir: %w", err)
+		return "", fmt.Errorf("exclude %s: resolve git common dir: %w", relPath, err)
 	}
 	excludePath := filepath.Join(commonDir, "info", "exclude")
 	existing, readErr := os.ReadFile(excludePath)
 	if readErr != nil && !os.IsNotExist(readErr) {
-		return "", fmt.Errorf("agent hooks: read %s: %w", excludePath, readErr)
+		return "", fmt.Errorf("exclude %s: read %s: %w", relPath, excludePath, readErr)
 	}
-	if !strings.Contains(string(existing), agentHooksSettingsPath) {
+	if !strings.Contains(string(existing), relPath) {
 		if err := os.MkdirAll(filepath.Dir(excludePath), 0o755); err != nil {
-			return "", fmt.Errorf("agent hooks: %w", err)
+			return "", fmt.Errorf("exclude %s: %w", relPath, err)
 		}
-		line := "# runko agent hooks --install: harness config stays out of snapshots (§12.6.1)\n" +
-			agentHooksSettingsPath + "\n"
 		f, err := os.OpenFile(excludePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
-			return "", fmt.Errorf("agent hooks: %w", err)
+			return "", fmt.Errorf("exclude %s: %w", relPath, err)
 		}
-		if _, err := f.WriteString(line); err != nil {
+		if _, err := f.WriteString(comment + "\n" + relPath + "\n"); err != nil {
 			f.Close()
-			return "", fmt.Errorf("agent hooks: append %s: %w", excludePath, err)
+			return "", fmt.Errorf("exclude %s: append %s: %w", relPath, excludePath, err)
 		}
 		if err := f.Close(); err != nil {
-			return "", fmt.Errorf("agent hooks: %w", err)
+			return "", fmt.Errorf("exclude %s: %w", relPath, err)
 		}
 	}
 	// Re-verify: a core.excludesFile override or negated pattern could
 	// still win. Warn rather than fail - the install itself succeeded.
-	if _, err := runGit(dir, "check-ignore", "-q", agentHooksSettingsPath); err != nil {
+	if _, err := runGit(dir, "check-ignore", "-q", relPath); err != nil {
 		fmt.Fprintf(warnWriter, "warning: %s is still not ignored after appending to %s - check core.excludesFile / negated patterns, or add it to .gitignore\n",
-			agentHooksSettingsPath, excludePath)
+			relPath, excludePath)
 	}
 	return "info/exclude", nil
 }

@@ -163,7 +163,7 @@ func cmdDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	repoDir := fs.String("repo", ".", "path to the local repo")
 	trunk := fs.String("trunk", "main", "trunk ref name")
-	installHook := fs.Bool("install-hook", false, "install the commit-msg Change-Id hook + the advisory pre-commit verb nudge")
+	installHook := fs.Bool("install-hook", false, "wire this checkout: the commit-msg Change-Id hook, the advisory pre-commit verb nudge, and the agent skill")
 	jsonOut := fs.Bool("json", false, "emit the doctor report as JSON instead of the cheat-sheet")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -188,6 +188,14 @@ func cmdDoctor(args []string) error {
 			if err := SetupJJChangeIDs(*repoDir); err != nil {
 				return err
 			}
+		}
+		// Wiring a checkout means wiring it for its agents too (§8.8): a
+		// harness finds the workflow at agentsmd.SkillPath or nowhere. The
+		// tree's own skill is never touched - see ensureAgentSkill.
+		if path, outcome, err := ensureAgentSkill(*repoDir); err != nil {
+			return err
+		} else if outcome == "local" {
+			fmt.Fprintf(os.Stderr, "note: wrote the runko agent skill to %s (local to this checkout, excluded from changes)\n", path)
 		}
 	}
 
