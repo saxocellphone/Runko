@@ -31,12 +31,6 @@ const baseUrl =
     ? new URL(rawBaseUrl, window.location.origin).toString()
     : rawBaseUrl;
 
-/** The control-plane origin this browser talks to (absolute), surfaced on
- * the sign-in screen so it's never ambiguous which deployment you're
- * authenticating against. Empty in demo mode (no live backend). */
-export const backendUrl: string =
-  typeof baseUrl === "string" && baseUrl !== "" ? new URL(baseUrl).origin : "";
-
 // Sign-in state is per BROWSER at runtime (localStorage), never baked at
 // build time - Vite inlines build vars into the public bundle, which
 // would hand the credential to every visitor. Basic auth (name + the
@@ -306,7 +300,7 @@ export async function signIn(name: string, password: string, org: string): Promi
   const res = await fetch(new URL(`o/${org}/api/whoami`, baseUrl), {
     headers: { Authorization: `Basic ${basic}` },
   });
-  if (res.status === 401) throw new Error("wrong name or password");
+  if (res.status === 401) throw new Error("wrong username or password");
   if (res.status === 403) throw new Error(`your account is not a member of org “${org}”`);
   if (res.status === 404) throw new Error(`no org named “${org}” here — check the spelling`);
   if (!res.ok) throw new Error(`runkod answered HTTP ${res.status}`);
