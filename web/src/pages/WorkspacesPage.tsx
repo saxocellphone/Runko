@@ -1,8 +1,15 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ConnectError } from "@connectrpc/connect";
 import { changesClient, publicBrowse, repoClient, workspacesClient } from "../api/client";
 import { ChangeState } from "../gen/runko/v1/common_pb";
 import { WorkspaceEventType, type WorkspaceEvent } from "../gen/runko/v1/workspaces_pb";
+import {
+  runBulk,
+  selectAllState,
+  toggled,
+  visibleSelection,
+  type BulkFailure,
+} from "../lib/bulk";
 import { absoluteTime, shortSha, timeAgo } from "../lib/format";
 import { branchesForWorkspace, changesByOrigin } from "../lib/stacks";
 import { useRpc } from "../lib/useRpc";
@@ -69,19 +76,48 @@ export function WorkspacesPage() {
     return { rows, stacks: changesByOrigin(open.changes) };
   }, "workspaces");
 
-  // Deletion refuses server-side while the workspace has open changes
-  // (workspace_has_open_changes) and enforces owner-only - surface the
-  // server's own §6.5 message rather than pre-judging client-side.
-  const onDelete = async (id: string) => {
-    if (!window.confirm(`Delete workspace ${id}?\n\nRemoves the registry row and its snapshot refs. Open changes block deletion; local checkouts are not touched.`)) {
+  // Cleaning up after a batch of landed tasks is the common case (one
+  // workspace per task, §12.2), so the list supports picking rows and
+  // deleting them in one go. Selection is meaningless without the
+  // delete verb, so the public read-only browse never renders it.
+  const selectable = !publicBrowse;
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [failures, setFailures] = useState<BulkFailure[]>([]);
+
+  const present = data?.rows.map(({ w }) => w.id) ?? [];
+  const picked = visibleSelection(selected, present);
+  const allState = selectAllState(selected, present);
+
+  // Deletion refuses server-side while a workspace has open changes
+  // (workspace_has_open_changes) and enforces owner-only, so a bulk run
+  // partially failing is normal, not exceptional: attempt every pick,
+  // then surface the server's own §6.5 message PER workspace instead of
+  // one alert that loses which row refused. Single-row delete runs the
+  // same path so both report identically.
+  const runDelete = async (ids: string[]) => {
+    const what = ids.length === 1 ? `workspace ${ids[0]}` : `${ids.length} workspaces`;
+    if (
+      !window.confirm(
+        `Delete ${what}?\n\nRemoves each registry row and its snapshot refs. Open changes block deletion; local checkouts are not touched.`,
+      )
+    ) {
       return;
     }
-    try {
-      await workspacesClient.deleteWorkspace({ id });
-      reload();
-    } catch (err) {
-      window.alert(ConnectError.from(err).rawMessage);
-    }
+    setBusy(true);
+    setFailures([]);
+    const { done, failed } = await runBulk(ids, (id) => workspacesClient.deleteWorkspace({ id }));
+    setBusy(false);
+    setFailures(failed);
+    // Deleted rows leave the selection; anything that refused stays
+    // picked, so a retry after landing/abandoning its changes is one
+    // click and the note above the table says why it held.
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of done) next.delete(id);
+      return next;
+    });
+    if (done.length > 0) reload();
   };
 
   return (
@@ -97,11 +133,60 @@ export function WorkspacesPage() {
       {loading && <Spinner />}
       {error && <ErrorNote error={error} />}
       {data && data.rows.length === 0 && <EmptyState>No workspaces yet.</EmptyState>}
+
+      {failures.length > 0 && (
+        <div className="bulk-failures" role="alert">
+          <strong>
+            {failures.length === 1 ? "1 workspace" : `${failures.length} workspaces`} not deleted
+          </strong>
+          <ul>
+            {failures.map((f) => (
+              <li key={f.id}>
+                <span className="mono">{f.id}</span> — {f.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {selectable && picked.length > 0 && (
+        <div className="bulk-bar">
+          <span className="bulk-count">{picked.length} selected</span>
+          <button
+            className="btn btn-sm btn-danger"
+            disabled={busy}
+            onClick={() => void runDelete(picked)}
+          >
+            {busy ? "Deleting…" : "Delete selected"}
+          </button>
+          <button className="btn btn-sm" disabled={busy} onClick={() => setSelected(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
+
       {data && data.rows.length > 0 && (
         <section className="card">
           <table className="table">
             <thead>
               <tr>
+                {selectable && (
+                  <th className="check">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all workspaces"
+                      checked={allState === "all"}
+                      // Indeterminate is DOM-only state, not an attribute.
+                      ref={(el) => {
+                        if (el) el.indeterminate = allState === "some";
+                      }}
+                      disabled={busy}
+                      onChange={() =>
+                        setSelected(allState === "all" ? new Set() : new Set(present))
+                      }
+                    />
+                  </th>
+                )}
                 <th>Workspace</th>
                 <th>Owner</th>
                 <th>
@@ -123,7 +208,18 @@ export function WorkspacesPage() {
               {data.rows.map(({ w, lastEvent, baseChangeId }) => {
                 const branches = branchesForWorkspace(w.branches, data.stacks, w.id);
                 return (
-                <tr key={w.id}>
+                <tr key={w.id} className={selected.has(w.id) ? "row-picked" : undefined}>
+                  {selectable && (
+                    <td className="check">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select workspace ${w.id}`}
+                        checked={selected.has(w.id)}
+                        disabled={busy}
+                        onChange={() => setSelected((prev) => toggled(prev, w.id))}
+                      />
+                    </td>
+                  )}
                   <td className="mono">
                     <Link to={`/workspaces/${w.id}`} title="Live WIP diff + activity timeline (§12.6)">
                       {w.id}
@@ -165,7 +261,8 @@ export function WorkspacesPage() {
                       <button
                         className="btn btn-sm btn-danger"
                         title="Delete this workspace (registry row + snapshot refs). Refused while it has open changes."
-                        onClick={() => void onDelete(w.id)}
+                        disabled={busy}
+                        onClick={() => void runDelete([w.id])}
                       >
                         Delete
                       </button>
