@@ -36,43 +36,42 @@ sample data entirely in your browser, and the
 read-only with no account (joining it is invite-only — "Request an
 invite" on its landing page).
 
-To onboard onto an instance of your own, the whole journey is a control
-plane plus one CLI:
+Joining an org that already runs Runko needs no server setup at all:
+the whole journey is one CLI plus your org's control-plane URL (ask
+whoever operates it):
 
 ```bash
-# 1. A control plane (runkod + Postgres) at http://localhost:8080
-git clone https://github.com/saxocellphone/Runko.git && cd Runko
-RUNKO_ALLOW_SIGNUP=true RUNKO_ALLOW_ORG_CREATE=true docker compose up
-
-# 2. The CLI — or grab a prebuilt binary (see Installing below)
+# 1. The CLI — grab a prebuilt binary (see Installing below), or:
 go install github.com/saxocellphone/runko/cli/runko@latest
 
-# 3. Sign up: one command creates your account, your org, and your stored
+# 2. Join your org: one command creates your account and your stored
 #    login (signup IS login; it prompts for a password)
-runko auth signup --runkod-url http://localhost:8080 --name val --org acme --create
+runko auth signup --runkod-url https://runko.example.com --name val --org acme --join
 
-# 4. A workspace: your slice of the repo, from one shared clone
+# 3. A workspace: your slice of the monorepo, from one shared clone
 runko workspace create --name day-one --project repo
 #    …then cd into the directory it prints
 
-# 5. Your first project — generated, opened as a change, landed by you alone
+# 4. Your first project — generated, opened as a change for review
 runko project create --name hello --type service --api rest
 runko change push          # -> review; checks scoped to what changed
 runko change land          # rebase-lands once the gates are green
 
-# 6. The steady-state loop, forever after
+# 5. The steady-state loop, forever after
 $EDITOR hello/main.go
 runko change create -m "hello: describe the edit"
 runko change push && runko change land
 ```
 
-A signup-created org is genesis-seeded — a root manifest, `OWNERS`
-naming you, `AGENTS.md` — so day-one work lands by its author alone,
-and policy tightens as you add owners, required checks, and agents.
-Without the signup flags, `docker compose up` boots the eval profile
-instead: two users, `alice` and `bob`, with review enforced between
-them (see [Running your own](#running-your-own)). This exact journey,
-including every refusal along the way, is replayed in CI by
+Every gate you meet along the way — owners, required checks, agent
+policy — lives in the org's tree, and each refusal names the command
+that fixes it. Standing up the control plane itself (docker compose,
+signup flags, the two-user eval profile) is the operator's path: see
+[Running your own](#running-your-own). The first user on a fresh
+instance signs up with `--create` instead of `--join`, which
+genesis-seeds the org — a root manifest, `OWNERS` naming you,
+`AGENTS.md` — so day-one work lands by its author alone; CI replays
+that exact journey, refusals included, via
 `scripts/compose-onboarding.sh`.
 
 ## How changes land here

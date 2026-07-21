@@ -403,7 +403,7 @@
     <div class="wrap">
       <p class="eyebrow">$ runko auth signup</p>
       <h2>Getting started</h2>
-      <p class="sectionsub">From nothing to a landed change in five steps — the last one repeats forever. The same journey is replayed end-to-end in CI, refusals included, so it can't rot.</p>
+      <p class="sectionsub">Your org already runs Runko; you bring one CLI. From joining to a landed change in five steps — the last one repeats forever, and the journey is replayed end-to-end in CI, refusals included, so it can't rot.</p>
       <div class="split">
         <ol class="steps">
           <li>
@@ -411,27 +411,25 @@
             <p>The <a href="/demo/" title="Runs entirely in your browser on sample data">playground</a> runs the full UI on sample data in your browser, and <a href="/runko">this instance's own source</a> is browsable with no account. Want in here? <a href="/changes?invite=1">Request an invite</a>.</p>
           </li>
           <li>
-            <h3>Bring up a control plane</h3>
-            <p>One binary + Postgres: <code>docker compose up</code> and the daemon answers at <code>localhost:8080</code>. Prebuilt CLIs ship for Linux, macOS, and Windows on <a href="https://github.com/saxocellphone/Runko/releases/tag/cli-latest">every CLI-affecting landing</a>.</p>
+            <h3>Install the CLI</h3>
+            <p>Prebuilt binaries for Linux, macOS, and Windows, refreshed on <a href="https://github.com/saxocellphone/Runko/releases/tag/cli-latest">every CLI-affecting landing</a> — or <code>go install</code> it. Your org's control plane is already up; ask your operator for its URL.</p>
           </li>
           <li>
             <h3>Sign up — signup is login</h3>
-            <p>One command creates your account and your org, and stores the credential. The org is genesis-seeded — a root manifest, <code>OWNERS</code> naming you, <code>AGENTS.md</code> — born usable, never unborn.</p>
+            <p>One command against your org's control plane creates your account and stores the credential — no browser round-trip, no token pasting. Already have an account? <code>runko auth login</code>.</p>
           </li>
           <li>
             <h3>Land on day one</h3>
-            <p>Make a workspace, generate a project, push the change it opens, land it — by its author alone, before any extra policy exists. When something refuses, the refusal names the command that fixes it.</p>
+            <p>Make a workspace — your slice of the monorepo, not a second clone — generate a project, push the change it opens, land it when the gates go green. When something refuses, the refusal names the command that fixes it.</p>
           </li>
           <li>
-            <h3>Tighten as you grow</h3>
-            <p>Add owners, required checks, and agents when you're ready — every rule lives in the tree, so changing policy is itself a reviewed change.</p>
+            <h3>Read the rules like code</h3>
+            <p>Owners, required checks, and agent policy all live in the org's tree — browsable like any other file, and changing policy is itself a reviewed change. (Running the control plane yourself is <code>docker compose up</code> — the operator's path, not day one's.)</p>
           </li>
         </ol>
-<pre class="terminal"><span class="g">$</span> docker compose up
-  <span class="c"># a working control plane in ~2 minutes</span>
-<span class="g">$</span> runko auth signup <span class="v">--runkod-url</span> http://localhost:8080 \
-    <span class="v">--name</span> val <span class="v">--org</span> acme <span class="v">--create</span>
-  <span class="c"># account + org created; signup is login</span>
+<pre class="terminal"><span class="g">$</span> runko auth signup <span class="v">--runkod-url</span> https://runko.acme.dev \
+    <span class="v">--name</span> val <span class="v">--org</span> acme <span class="v">--join</span>
+  <span class="c"># account created, login stored; signup is login</span>
 <span class="g">$</span> runko workspace create <span class="v">--name</span> day-one <span class="v">--project</span> repo
   materialized repo/  <span class="c"># your slice, ms not minutes</span>
 <span class="g">$</span> runko project create <span class="v">--name</span> hello \
