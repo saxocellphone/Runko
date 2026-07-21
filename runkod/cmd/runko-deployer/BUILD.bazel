@@ -23,7 +23,10 @@ go_binary(
 
 go_test(
     name = "runko-deployer_test",
-    srcs = ["pin_test.go"],
+    srcs = [
+        "pin_test.go",
+        "push_test.go",
+    ],
     embed = [":runko-deployer_lib"],
     deps = ["//platform/checks"],
 )
