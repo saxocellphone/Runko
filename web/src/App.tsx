@@ -112,6 +112,10 @@ function AppRoutes() {
         {/* Workspace ids are single ref segments - no slashes, plain param. */}
         <Route path="/workspaces/:workspaceId" element={<WorkspacePage />} />
         <Route path="/search" element={<SearchPage />} />
+        {/* /demo/watch: the shareable "Watch me work" entry - lands on
+            the changes inbox with the showcase auto-started (?watch=1 is
+            what Director.tsx reads; ?t=<seconds> re-paces the show). */}
+        <Route path="/watch" element={<WatchRedirect />} />
         <Route path="/settings" element={<OrgSettingsPage />} />
         {/* The deployment admin panel is NOT a route here anymore: it is
             its own app (webadmin/) at the root /admin mount, with its own
@@ -125,4 +129,13 @@ function AppRoutes() {
 function GraphRedirect() {
   const location = useLocation();
   return <Navigate to={{ pathname: "/projects", search: location.search }} replace />;
+}
+
+// Keeps ?t=<seconds> (the showcase's pacing knob) while adding the
+// ?watch=1 auto-start flag Director.tsx reads.
+function WatchRedirect() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  params.set("watch", "1");
+  return <Navigate to={{ pathname: "/changes", search: `?${params.toString()}` }} replace />;
 }
