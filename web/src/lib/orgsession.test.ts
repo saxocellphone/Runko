@@ -1,6 +1,38 @@
 import { describe, expect, it } from "vitest";
 
-import { canonicalOrgPath, postSignInPath } from "./orgsession";
+import { canonicalOrgPath, postSignInPath, wantsAuthPage } from "./orgsession";
+
+// The reported bug (2026-07-20): "when I click on sign in, it takes me to
+// /changes, not the sign in page". The landing page's Sign in CTA pointed
+// at a bare /changes and relied on the app's gate to notice there is no
+// credential - but this deployment's own org is public_read and signOut
+// keeps "runko-org", so the signed-out visitor's boot probe succeeds and
+// renders the read-only inbox. The CTA now says ?signin=1, and App
+// answers that BEFORE consulting any auth state.
+describe("wantsAuthPage", () => {
+  it("is true for the landing page's Sign in CTA", () => {
+    expect(wantsAuthPage("?signin=1")).toBe(true);
+  });
+
+  it("is true for the invite deep link (LoginPage picks the request mode)", () => {
+    expect(wantsAuthPage("?invite=1")).toBe(true);
+  });
+
+  it("is true beside other params, and for the bare valueless flag", () => {
+    expect(wantsAuthPage("?tab=landed&signin=1")).toBe(true);
+    expect(wantsAuthPage("?signin")).toBe(true);
+  });
+
+  it("leaves ordinary app URLs alone - the gate keeps deciding for them", () => {
+    expect(wantsAuthPage("")).toBe(false);
+    expect(wantsAuthPage("?tab=landed")).toBe(false);
+    expect(wantsAuthPage("?org=acme")).toBe(false);
+  });
+
+  it("does not fire on a look-alike param", () => {
+    expect(wantsAuthPage("?signinvite=1")).toBe(false);
+  });
+});
 
 // The prod repro (2026-07-16): casey has accounts named "casey" with the
 // SAME password in org-x and org-y. Browsing org-y's public pages

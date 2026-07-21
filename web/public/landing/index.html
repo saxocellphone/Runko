@@ -213,7 +213,11 @@
       </span>
       <span class="actions">
         <a class="btn playground" href="/demo/" title="Runs entirely in your browser on sample data">Playground</a>
-        <a class="btn primary" href="/changes">Sign in</a>
+        <!-- ?signin=1, never a bare /changes: this instance's own org is
+             public_read, so a signed-out visitor who has an org remembered
+             lands in anonymous browsing and gets the read-only inbox
+             instead of the gate (web/src/lib/orgsession.ts wantsAuthPage). -->
+        <a class="btn primary" href="/changes?signin=1">Sign in</a>
       </span>
       <details class="menu">
         <summary aria-label="Menu">
@@ -452,7 +456,7 @@
     <a href="/landing/design.html">Design</a>
     <a href="/demo/">Playground</a>
     <a href="/changes?invite=1">Request an invite</a>
-    <a href="/changes">Sign in</a>
+    <a href="/changes?signin=1">Sign in</a>
   </div>
 </footer>
 

@@ -8,6 +8,7 @@ import {
   probePublicOrg,
   publicBrowse,
 } from "./api/client";
+import { wantsAuthPage } from "./lib/orgsession";
 import { Spinner } from "./components/ui";
 import { Layout } from "./components/Layout";
 import { BrowsePage } from "./pages/BrowsePage";
@@ -23,11 +24,12 @@ import { WorkspacePage } from "./pages/WorkspacePage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
 
 export default function App() {
-  // ?invite=1 (the landing page's "Request an invite" CTA, §15.1) wins
-  // over EVERY auth state: a stored credential, public-read browse, and
-  // the sign-in gate all used to swallow the deep link - the request
-  // form needs no auth, so render it unconditionally.
-  if (new URLSearchParams(window.location.search).has("invite")) return <LoginPage />;
+  // Asking for the auth page outright (?signin=1, ?invite=1) wins over
+  // EVERY auth state - a stored credential, public-read browse, and the
+  // sign-in gate all used to swallow these deep links (lib/orgsession.ts
+  // has the prod repros). Neither form needs auth, so render it
+  // unconditionally; LoginPage picks sign-in vs "request an invite".
+  if (wantsAuthPage(window.location.search)) return <LoginPage />;
   // A live control plane with no credential in this browser: everything
   // would 401, so gate on sign-in instead of a wall of errors - unless
   // the org this browser points at is public_read (§15.2), in which case
@@ -40,19 +42,14 @@ export default function App() {
 
 // AnonGate: decide between the sign-in page and anonymous read-only
 // browsing. ?org=<name> deep links adopt that org (navigating to its
-// own /<org> URL); ?signin=1 forces the sign-in page (the read-only
-// footer's Sign in button); ?invite=1 does too, landing in its
-// "Request an invite" mode (the landing page's CTA, §15.1).
+// own /<org> URL). The explicit ?signin=1 / ?invite=1 requests never
+// arrive here - App answers them before any auth state is consulted.
 function AnonGate() {
   const params = new URLSearchParams(window.location.search);
-  const wantSignin = params.has("signin") || params.has("invite");
   const urlOrg = params.get("org");
-  const [mode, setMode] = useState<"probing" | "browse" | "login">(
-    wantSignin ? "login" : "probing",
-  );
+  const [mode, setMode] = useState<"probing" | "browse" | "login">("probing");
 
   useEffect(() => {
-    if (wantSignin) return;
     let stale = false;
     void (async () => {
       if (urlOrg && urlOrg !== currentOrg) {

@@ -20,6 +20,26 @@ export function postSignInPath(pathOrg: string, org: string): string | null {
   return `/${org}`;
 }
 
+/** Whether the URL asks for the auth page outright - `?signin=1` (every
+ * "Sign in" affordance outside the app: the landing page's header/footer
+ * CTAs and the read-only footer button) or `?invite=1` (the landing
+ * page's "Request an invite" CTA, §15.1).
+ *
+ * Asking to sign in must beat every ambient auth state, exactly as
+ * `?invite=1` already does. A browser that has signed in here before
+ * keeps its org (signOut deliberately leaves "runko-org" behind to
+ * prefill the form), so a SIGNED-OUT visitor still resolves an org - and
+ * when that org is public_read (§15.2), the boot probe puts them into
+ * anonymous browsing and renders the inbox instead of the gate. The
+ * landing page's "Sign in" then lands on a read-only /changes list with
+ * no way to authenticate: prod-observed 2026-07-20 on this very
+ * deployment, whose own org IS public_read. A stale or foreign
+ * credential strands the same way, one branch further along. */
+export function wantsAuthPage(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return params.has("signin") || params.has("invite");
+}
+
 // The app's own root routes that render ONE org's content. When the URL
 // doesn't name an org, they fall back to the stored selection (currentOrg)
 // - so the page shows an org the address bar never names. The rest
