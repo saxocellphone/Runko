@@ -16,7 +16,7 @@ import {
   type StackLayout,
   type WorkspaceCard,
 } from "../lib/stacks";
-import { useRpc } from "../lib/useRpc";
+import { useRpc, type RpcState } from "../lib/useRpc";
 import { RailGraphRow, RailGraphTrunk } from "../components/RailGraph";
 import {
   AttentionChip,
@@ -31,11 +31,19 @@ import {
   StateBadge,
 } from "../components/ui";
 
-const tabs = [
-  { state: ChangeState.OPEN, label: "Open" },
-  { state: ChangeState.LANDED, label: "Landed" },
-  { state: ChangeState.ABANDONED, label: "Abandoned" },
-] as const;
+// Attention is its own tab, not a band stacked above the open list
+// (2026-07-21): "whose turn is it" is a different question from "what is
+// in flight", and answering both in one scroll made every change read as
+// if it were waiting on you. The tab keeps its own answer, and its count
+// badge is what makes it discoverable from anywhere on the page.
+type TabKey = "attention" | "open" | "landed" | "abandoned";
+
+const tabs: { key: TabKey; label: string }[] = [
+  { key: "attention", label: "Needs you" },
+  { key: "open", label: "Open" },
+  { key: "landed", label: "Landed" },
+  { key: "abandoned", label: "Abandoned" },
+];
 
 // One history page. Open is NOT paginated: it is the working set (bounded
 // by active workspaces), and the stack cards need every open change to
@@ -48,46 +56,68 @@ export function ChangesPage() {
   // ProjectsPage's ?focus= convention) so a refresh - or a shared link -
   // lands back on the same tab instead of always snapping to Open.
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = tabs.find((t) => t.label.toLowerCase() === searchParams.get("tab"))?.state ?? ChangeState.OPEN;
-  const setTab = (next: ChangeState) => {
-    const label = tabs.find((t) => t.state === next)?.label.toLowerCase();
-    setSearchParams(label && label !== "open" ? { tab: label } : {}, { replace: true });
+  // Attention needs a signed-in identity to match against; anonymous (the
+  // operator/dev loop) never sees the tab, and a shared ?tab=attention
+  // link degrades to Open rather than to an empty page.
+  const visible = tabs.filter((t) => t.key !== "attention" || authUser);
+  const tab = visible.find((t) => t.key === searchParams.get("tab"))?.key ?? "open";
+  const setTab = (next: TabKey) => {
+    setSearchParams(next !== "open" ? { tab: next } : {}, { replace: true });
   };
+
+  // Fetched once for the page, not per tab: Open and Needs-you are two
+  // views of the same open working set, so switching between them is
+  // instant, and the badge stays truthful while you read history.
+  const inbox = useOpenInbox();
+  const waiting = attentionChanges(inbox.data);
 
   return (
     <div className="page">
       <header className="page-header">
         <h1 className="page-title">Changes</h1>
-        <p className="page-sub">Stacked changes across the monorepo, trunk at the bottom.</p>
+        <p className="page-sub">
+          {tab === "attention"
+            ? "Changes whose turn is yours - review requested of you, or yours already answered."
+            : "Stacked changes across the monorepo, trunk at the bottom."}
+        </p>
       </header>
 
       <div className="tabs">
-        {tabs.map((t) => (
+        {visible.map((t) => (
           <button
-            key={t.state}
-            className={`tab${tab === t.state ? " active" : ""}`}
-            onClick={() => setTab(t.state)}
+            key={t.key}
+            className={`tab${tab === t.key ? " active" : ""}`}
+            onClick={() => setTab(t.key)}
           >
             {t.label}
+            {t.key === "attention" && waiting.length > 0 && (
+              <span className="tab-count">{waiting.length}</span>
+            )}
           </button>
         ))}
       </div>
 
-      {tab === ChangeState.OPEN ? (
-        <OpenInbox />
-      ) : (
+      {tab === "attention" && <AttentionList inbox={inbox} changes={waiting} />}
+      {tab === "open" && <OpenInbox inbox={inbox} />}
+      {(tab === "landed" || tab === "abandoned") && (
         <PagedFlatList
           key={tab}
-          state={tab}
-          label={tabs.find((t) => t.state === tab)?.label.toLowerCase() ?? ""}
+          state={tab === "landed" ? ChangeState.LANDED : ChangeState.ABANDONED}
+          label={tab}
         />
       )}
     </div>
   );
 }
 
-function OpenInbox() {
-  const { data, error, loading } = useRpc(async () => {
+interface OpenInboxData {
+  changes: ChangeSummary[];
+  abandoned: ChangeSummary[];
+  requirements: Map<string, MergeRequirements>;
+}
+
+function useOpenInbox() {
+  return useRpc<OpenInboxData>(async () => {
     const res = await changesClient.listChanges({ state: ChangeState.OPEN });
     // The open inbox also needs abandoned changes: one that a pending
     // change still depends on stays VISIBLE (struck through) until
@@ -116,12 +146,14 @@ function OpenInbox() {
     );
     return { changes: res.changes, abandoned, requirements: reqs };
   }, "changes-open");
+}
 
+function OpenInbox({ inbox }: { inbox: RpcState<OpenInboxData> }) {
+  const { data, error, loading } = inbox;
   return (
     <>
       {loading && <Spinner />}
       {error && <ErrorNote error={error} />}
-      {data && <AttentionInbox changes={data.changes} requirements={data.requirements} />}
       {data && (
         <StackedList changes={data.changes} abandoned={data.abandoned} requirements={data.requirements} />
       )}
@@ -130,29 +162,31 @@ function OpenInbox() {
   );
 }
 
-// AttentionInbox is §17.2's "owner attention inbox", driven by the derived
-// set (§13.4.2): the open changes whose turn is YOURS - requested of you,
-// or owned by you and unreviewed at the current head, or yours and already
-// answered. Renders only for a signed-in named principal; the anonymous
-// operator/dev loop has no identity to match.
-function AttentionInbox({
-  changes,
-  requirements,
-}: {
-  changes: ChangeSummary[];
-  requirements: Map<string, MergeRequirements>;
-}) {
-  if (!authUser) return null;
-  const mine = changes.filter((c) =>
-    inAttention(requirements.get(c.id)?.attentionSet ?? [], authUser),
+// §17.2's "owner attention inbox", driven by the derived set (§13.4.2):
+// the open changes whose turn is YOURS - requested of you, or owned by you
+// and unreviewed at the current head, or yours and already answered.
+function attentionChanges(data: OpenInboxData | undefined): ChangeSummary[] {
+  if (!authUser || !data) return [];
+  return data.changes.filter((c) =>
+    inAttention(data.requirements.get(c.id)?.attentionSet ?? [], authUser),
   );
-  if (mine.length === 0) return null;
+}
+
+function AttentionList({
+  inbox,
+  changes,
+}: {
+  inbox: RpcState<OpenInboxData>;
+  changes: ChangeSummary[];
+}) {
+  const { data, error, loading } = inbox;
+  const requirements = data?.requirements ?? new Map<string, MergeRequirements>();
+  if (loading) return <Spinner />;
+  if (error) return <ErrorNote error={error} />;
+  if (changes.length === 0) return <EmptyState>Nothing is waiting on you.</EmptyState>;
   return (
-    <section className="card attention-inbox">
-      <header className="stack-card-head">
-        <span>Needs your attention · {mine.length}</span>
-      </header>
-      {mine.map((c) => (
+    <section className="card">
+      {changes.map((c) => (
         <div className="stack-row" key={c.id}>
           <span className="rail">
             <span className="dot dot-review" />
@@ -167,7 +201,11 @@ function AttentionInbox({
             </span>
           </div>
           <span className="change-chips">
-            <AttentionChip requirements={requirements.get(c.id)} you={authUser} />
+            {/* No AttentionChip here: on this tab every row is your turn,
+                so the chip that says so is noise. What you need instead is
+                what to DO about it - review state and check state. */}
+            <ReviewChip requirements={requirements.get(c.id)} />
+            <ChecksChip requirements={requirements.get(c.id)} />
           </span>
         </div>
       ))}
