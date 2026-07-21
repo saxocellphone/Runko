@@ -2321,6 +2321,52 @@ a.chip-origin:hover {
   margin-left: auto;
 }
 
+/* Bulk selection: a checkbox gutter, the action bar that appears once
+   something is picked, and the per-item refusal note a bulk run leaves
+   behind (partial failure is the normal outcome, not an exception). */
+.table th.check,
+.table td.check {
+  width: 1px;
+  padding-right: 0;
+}
+.table td.check input,
+.table th.check input {
+  cursor: pointer;
+}
+.table tbody tr.row-picked {
+  background: var(--surface-2);
+}
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.bulk-count {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.bulk-failures {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  background: var(--red-soft);
+  font-size: 12.5px;
+}
+.bulk-failures ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 /* Workspaces page: each branch with its in-flight stack. */
 .ws-branch {
   display: flex;
