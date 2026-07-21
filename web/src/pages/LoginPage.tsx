@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
-  backendUrl,
   fetchAuthConfig,
   pathOrg,
   requestInvite,
@@ -10,7 +9,7 @@ import {
 } from "../api/client";
 
 // Sign-in gate for a live (VITE_RUNKO_URL-configured) deployment with no
-// credential in this browser yet. Name + password are a runkod principal -
+// credential in this browser yet. Username + password are a runkod principal -
 // operator-configured (--principal) or self-registered; the password field
 // also accepts the deploy token with any name for an anonymous session.
 // When the control plane enables self-service sign-up (--allow-signup,
@@ -98,16 +97,17 @@ export function LoginPage() {
     <div className="login-wrap">
       <form className="card login-card" onSubmit={submit}>
         <div className="sidebar-brand login-brand">Runko</div>
-        <p className="login-sub">
-          {requesting
-            ? "Ask for an invite to this control plane"
-            : signingUp
-              ? "Create an account on this control plane"
-              : "Sign in to this control plane"}
-        </p>
-        {backendUrl && (
-          <p className="login-endpoint" title="The runkod control plane this browser is talking to">
-            <code>{backendUrl}</code>
+        {/* Sign-in - the default mode - carries no subtitle and no
+            endpoint URL: the brand above and the Sign in button below
+            already say what this form is, and naming the deployment's
+            origin to someone reading it in their own address bar was
+            noise. The other two modes keep a line, because arriving in
+            them is a mode switch worth confirming. */}
+        {(requesting || signingUp) && (
+          <p className="login-sub">
+            {requesting
+              ? "Ask for an invite to this control plane"
+              : "Create an account on this control plane"}
           </p>
         )}
         {requesting && requested ? (
@@ -138,7 +138,9 @@ export function LoginPage() {
               </label>
             )}
             <label className="login-label">
-              Name
+              {/* The credential's name IS a username (a runkod principal);
+                  only the invite request asks for a human's own name. */}
+              {requesting ? "Name" : "Username"}
               <input
                 type="text"
                 autoComplete={requesting ? "name" : "username"}
