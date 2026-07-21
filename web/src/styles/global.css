@@ -1,6 +1,7 @@
 /* Runko web - design tokens and component styles.
-   Graphite-inspired: quiet neutral surfaces, hairline borders, one violet
-   accent, status color reserved for status. Light + dark via
+   Graphite-inspired: quiet neutral surfaces, hairline borders, one green
+   accent (Robinhood-style: #00c805 in the dark, darkened to read on
+   white), status color reserved for status. Light + dark via
    [data-theme] on <html> (set before first paint in main.tsx). */
 
 :root {
@@ -13,9 +14,9 @@
   --text: #1a1a1f;
   --text-2: #64646e;
   --text-3: #97979f;
-  --accent: #6e56cf;
-  --accent-strong: #5b46b4;
-  --accent-soft: #ece9fb;
+  --accent: #008a05;
+  --accent-strong: #006e04;
+  --accent-soft: #dff6df;
   --green: #1a7f37;
   --green-soft: #e0f2e5;
   --red: #cf222e;
@@ -44,9 +45,9 @@
   --text: #ededf2;
   --text-2: #9b9ba7;
   --text-3: #6b6b77;
-  --accent: #9b8afb;
-  --accent-strong: #b2a5fc;
-  --accent-soft: #2b2645;
+  --accent: #00c805;
+  --accent-strong: #3fdd5a;
+  --accent-soft: #12351a;
   --green: #3fb950;
   --green-soft: #16281c;
   --red: #f47067;
