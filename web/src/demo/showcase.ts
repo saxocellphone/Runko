@@ -53,6 +53,30 @@ const SESSION = "sess-showcase";
 const agentActor = { type: ActorType.AGENT, id: AGENT };
 const priyaActor = { type: ActorType.USER, id: "priya" };
 
+// resetWorld is beat 0's mutation, exported on its own: the transport
+// bootstrap (api/client.ts) applies it BEFORE anything fetches when the
+// URL says the tour is starting, so the first paint is the empty slate
+// rather than a flash of the fixture playground.
+export function resetWorld(state: FakeState): void {
+  state.changes.clear();
+  state.requirements.clear();
+  state.diffs.clear();
+  state.comments.clear();
+  state.reviewRequests.clear();
+  state.pendingProjects.clear();
+  state.workspaces.clear();
+  state.workspaceEvents.clear();
+  state.workspaceActivity.clear();
+  state.workspaceWip.clear();
+  state.showcaseActive = true;
+}
+
+// True when this page load will auto-start the tour (the /watch entry
+// or an explicit ?watch=1) - the moment to open on the empty world.
+export function startsOnEmptyWorld(pathname: string, search: string): boolean {
+  return new URLSearchParams(search).has("watch") || /\/watch\/?$/.test(pathname);
+}
+
 const CHECK_A = "bazel_test://commerce/cart:retry_test";
 const CHECK_B = "bazel_test://commerce/checkout-api:handler_test";
 
@@ -227,19 +251,9 @@ export const SHOWCASE: Beat[] = [
     // fixture scene's open stacks and workspaces step aside (the repo's
     // code, projects, and landed history stay - that's the org the agent
     // works IN). Also flags the canned watchWorkspace scene off.
-    apply: (state) => {
-      state.changes.clear();
-      state.requirements.clear();
-      state.diffs.clear();
-      state.comments.clear();
-      state.reviewRequests.clear();
-      state.pendingProjects.clear();
-      state.workspaces.clear();
-      state.workspaceEvents.clear();
-      state.workspaceActivity.clear();
-      state.workspaceWip.clear();
-      state.showcaseActive = true;
-    },
+    // Idempotent with the bootstrap reset (resetWorld above) that /watch
+    // entries already applied before first paint.
+    apply: resetWorld,
   },
   {
     at: 0.03,
