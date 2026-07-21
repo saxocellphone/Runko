@@ -4,7 +4,14 @@ import { createFakeTransport, demoScene } from "./transport";
 import { ChangeService } from "../../gen/runko/v1/changes_pb";
 import { WorkspaceService } from "../../gen/runko/v1/workspaces_pb";
 import { ChangeState, WorkspaceStatus } from "../../gen/runko/v1/common_pb";
-import { AGENT, CHANGE_A_ID, CHANGE_B_ID, SHOWCASE, WS_ID } from "../../demo/showcase";
+import {
+  AGENT,
+  CHANGE_A_ID,
+  CHANGE_B_ID,
+  SHOWCASE,
+  WS_ID,
+  startsOnEmptyWorld,
+} from "../../demo/showcase";
 
 // The "Watch me work" script (demo/showcase.ts) drives the same store
 // the fake transport serves. These tests play the whole timeline the
@@ -29,6 +36,15 @@ describe("watch-me-work showcase script", () => {
     // the story start and end together.
     expect(SHOWCASE[0]!.at).toBe(0);
     expect(SHOWCASE[SHOWCASE.length - 1]!.at).toBe(1);
+  });
+
+  it("knows which page loads auto-start the tour (the pre-paint reset trigger)", () => {
+    expect(startsOnEmptyWorld("/demo/watch", "")).toBe(true);
+    expect(startsOnEmptyWorld("/demo/watch/", "")).toBe(true);
+    expect(startsOnEmptyWorld("/watch", "")).toBe(true);
+    expect(startsOnEmptyWorld("/demo/changes", "?watch=1&t=120")).toBe(true);
+    expect(startsOnEmptyWorld("/demo/changes", "")).toBe(false);
+    expect(startsOnEmptyWorld("/demo/watchman", "")).toBe(false);
   });
 
   it("opens on an empty world: the reset beat clears everything in flight", () => {

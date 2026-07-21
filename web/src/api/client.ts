@@ -17,7 +17,8 @@ import { ProjectService } from "../gen/runko/v1/projects_pb";
 import { RepoService } from "../gen/runko/v1/repo_pb";
 import { SearchService } from "../gen/runko/v1/search_pb";
 import { WorkspaceService } from "../gen/runko/v1/workspaces_pb";
-import { createFakeTransport } from "./fake/transport";
+import { createFakeTransport, demoScene } from "./fake/transport";
+import { resetWorld, startsOnEmptyWorld } from "../demo/showcase";
 import { postSignInPath } from "../lib/orgsession";
 
 const rawBaseUrl: string | undefined = import.meta.env.VITE_RUNKO_URL;
@@ -288,6 +289,16 @@ export async function removeOrgMember(org: string, name: string): Promise<void> 
 const transport = usingDemoData
   ? createFakeTransport()
   : createConnectTransport({ baseUrl: transportBase!, interceptors: [auth] });
+
+// The guided tour opens on the EMPTY world: when this page load will
+// auto-start it (/demo/watch, ?watch=1), apply the script's reset now -
+// before any page fetches - or the first paint flashes the full fixture
+// playground until the director's first beat lands.
+if (usingDemoData && typeof window !== "undefined") {
+  if (startsOnEmptyWorld(window.location.pathname, window.location.search)) {
+    demoScene()?.mutate(resetWorld);
+  }
+}
 
 /** Org-scoped sign-in (2026-07-09: logging in means logging into AN ORG):
  * validate name+password against the ORG's own surface
