@@ -18,6 +18,7 @@ import { RepoService } from "../gen/runko/v1/repo_pb";
 import { SearchService } from "../gen/runko/v1/search_pb";
 import { WorkspaceService } from "../gen/runko/v1/workspaces_pb";
 import { createFakeTransport, demoScene } from "./fake/transport";
+import { DEMO_USER } from "./fake/fixtures";
 import { resetWorld, startsOnEmptyWorld } from "../demo/showcase";
 import { postSignInPath } from "../lib/orgsession";
 
@@ -55,9 +56,12 @@ export const usingDemoData = onDemoRoute || !baseUrl;
 /** The signed-in principal's name; null when not signed in OR signed in
  * anonymously (deploy-token password). The server re-derives identity
  * from the credential on every call - this is display state, not
- * authority. */
+ * authority. The playground casts the visitor as the fixture
+ * protagonist (DEMO_USER) so every signed-in surface - the Needs-you
+ * tab, "(you)" chips, approving as yourself - behaves like the real
+ * product instead of the anonymous dev loop. */
 export const authUser: string | null =
-  !usingDemoData && storedBasic && storedUser ? storedUser : null;
+  usingDemoData ? DEMO_USER : storedBasic && storedUser ? storedUser : null;
 
 /** True when this browser holds a credential (named or anonymous). */
 export const signedIn = !usingDemoData && !!storedBasic;

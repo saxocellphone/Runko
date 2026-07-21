@@ -87,6 +87,7 @@ import {
 import { OwnersSource, WorkspaceStatus } from "../../gen/runko/v1/common_pb";
 import type { FileDiff } from "../../gen/runko/v1/changes_pb";
 import {
+  DEMO_USER,
   addedFileDiff,
   changes as fixtureChanges,
   comments as fixtureComments,
@@ -776,7 +777,7 @@ export function createFakeTransport(): Transport {
           throw new ConnectError("only open changes can arm automerge", Code.FailedPrecondition);
         }
         c.automerge = req.enabled;
-        c.automergeBy = req.enabled ? "demo" : "";
+        c.automergeBy = req.enabled ? DEMO_USER : "";
         return create(SetAutomergeResponseSchema, { change: c });
       },
 
@@ -863,7 +864,7 @@ export function createFakeTransport(): Transport {
         state.nextCommentID++;
         const comment = create(CommentSchema, {
           id: `cmt-${state.nextCommentID}`,
-          author: { type: ActorType.USER, id: req.author || "demo" },
+          author: { type: ActorType.USER, id: req.author || DEMO_USER },
           body: req.body,
           createdAt: BigInt(Math.floor(Date.now() / 1000)),
           path: req.parentId ? "" : req.path,
@@ -903,10 +904,10 @@ export function createFakeTransport(): Transport {
           throw new ConnectError("reviewer is required", Code.InvalidArgument);
         }
         const requests = state.reviewRequests.get(req.changeId) ?? new Map<string, string>();
-        requests.set(req.reviewer.trim(), "demo");
+        requests.set(req.reviewer.trim(), DEMO_USER);
         state.reviewRequests.set(req.changeId, requests);
         recomputeAttention(state, req.changeId);
-        return create(RequestReviewResponseSchema, { reviewer: req.reviewer.trim(), requestedBy: "demo" });
+        return create(RequestReviewResponseSchema, { reviewer: req.reviewer.trim(), requestedBy: DEMO_USER });
       },
     });
 

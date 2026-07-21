@@ -110,6 +110,14 @@ describe("watch-me-work showcase script", () => {
     expect(reqB.requirements?.checks?.failing.length).toBe(1);
     expect(reqB.requirements?.mergeable).toBe(false);
 
+    // The review-request beat put the VIEWER's persona (val) into both
+    // attention sets - that's what lights the Needs-you tab mid-show.
+    applyThrough(0.71);
+    for (const id of [CHANGE_A_ID, CHANGE_B_ID]) {
+      const r = await changes.getMergeRequirements({ changeId: id });
+      expect(r.requirements?.attentionSet).toContain("val");
+    }
+
     // Approval is the LAST outstanding gate before landing: checks are
     // green again, automerge armed, priya (a different user - never the
     // agent) satisfies group:commerce.
