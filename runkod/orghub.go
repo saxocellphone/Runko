@@ -40,6 +40,7 @@ import (
 	"sync"
 
 	"github.com/saxocellphone/runko/internal/clierr"
+	"github.com/saxocellphone/runko/runkod/proto/gen/mailer/v1/mailerv1connect"
 )
 
 // Directory is the server-global account + membership view backing every
@@ -304,6 +305,14 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /metrics", h.handleHubMetrics)
 	mux.HandleFunc("/api/invite-requests", publicCORS(http.MethodPost, h.Default.handleCreateInviteRequest))
 	mux.HandleFunc("/api/contact", publicCORS(http.MethodPost, h.Default.handleCreateContactMessage))
+	// The mailer's drain surface (InviteFeedService, invitefeed.go) is
+	// deployment-wide like the intake rows it serves, so the org-less
+	// root must mount it exactly as mountRPC does - without it, intake
+	// rows are stored and never mailed (found in prod: after the
+	// org-less flip, runko-mailer's every poll answered "no root-mounted
+	// org" while submissions piled up pending).
+	feedPath, feedHandler := mailerv1connect.NewInviteFeedServiceHandler(&rpcServer{s: h.Default})
+	mux.Handle(feedPath, h.Default.rpcMiddleware(h.Default.requireOperatorRPC(feedHandler)))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
 			Code: "no_default_org", Field: "path",
