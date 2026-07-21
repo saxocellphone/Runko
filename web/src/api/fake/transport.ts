@@ -129,6 +129,10 @@ export interface FakeState {
   // card visibly ticks.
   workspaceActivity: Map<string, WorkspaceActivityEvent[]>;
   workspaceWip: Map<string, { snapshotSha: string; files: FileDiff[] }>;
+  // Set by the "Watch me work" tutorial's reset beat (demo/showcase.ts):
+  // the canned watchWorkspace injections below stay quiet so the scripted
+  // story is the only thing mutating the world.
+  showcaseActive?: boolean;
 }
 
 // Deep-clone the fixtures: each transport owns mutable state (approve,
@@ -1139,6 +1143,15 @@ export function createFakeTransport(): Transport {
       async *watchWorkspace(req, ctx) {
         if (!state.workspaces.has(req.id)) throw notFound("workspace", req.id);
         yield create(WatchWorkspaceResponseSchema, {});
+        // During the tutorial the director owns every beat; the canned
+        // scene below would inject an off-script snapshot into the
+        // clean world, so hold the stream to keepalives only.
+        if (state.showcaseActive) {
+          for (;;) {
+            await abortableSleep(25_000, ctx.signal);
+            yield create(WatchWorkspaceResponseSchema, {});
+          }
+        }
         await abortableSleep(2500, ctx.signal);
         const list = state.workspaceEvents.get(req.id) ?? [];
         const nextID = list.reduce((max, ev) => (ev.id > max ? ev.id : max), 0n) + 1n;

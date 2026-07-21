@@ -113,7 +113,7 @@ export function WorkspacePage() {
   return (
     <div className="page">
       {back}
-      <header className="page-header">
+      <header className="page-header" data-tour="ws-header">
         <h1 className="page-title">
           <span className="mono">{ws.id}</span>
           <span className={`chip ${ws.status === WorkspaceStatus.ACTIVE ? "chip-green" : ""}`}>
@@ -139,7 +139,7 @@ export function WorkspacePage() {
       </header>
 
       <div className="change-layout">
-        <div>
+        <div data-tour="wip-diff">
           {branches.length > 1 && (
             <div className="tabs">
               {branches.map((b) => (
@@ -183,7 +183,7 @@ export function WorkspacePage() {
         </div>
 
         <aside>
-          <section className="card side-card">
+          <section className="card side-card" data-tour="agent-activity">
             <h2>
               Agent activity
               <InfoTip text="What the workspace's agent reports it is doing - reads, edits, commands - live, before anything is pushed (§12.6.1). Client-claimed and observability-only: it never feeds gates. Wire it up with `runko agent hooks`." />
@@ -225,7 +225,7 @@ export function WorkspacePage() {
             )}
           </section>
 
-          <section className="card side-card">
+          <section className="card side-card" data-tour="ws-timeline">
             <h2>
               Activity
               <InfoTip text="Stats-only timeline recorded at receive/land time (§12.6): snapshots, change pushes, lands, abandons, closure. Line counts are numstat totals; file content never leaves Git." />

@@ -34,8 +34,13 @@ export interface Beat {
   // Fraction of the total runtime [0, 1] this beat fires at.
   at: number;
   caption: { title: string; body: string };
-  // Route (inside the app's basename) where this beat is best watched.
-  watchAt?: string;
+  // Videogame-tutorial camera work (Director.tsx): while the visitor is
+  // following, the director navigates to `route`, glides the tour cursor
+  // onto `selector`, and spotlights it (dim everything else). `pointer:
+  // "before"` moves the cursor and pulses BEFORE apply runs - for beats
+  // that read as clicking an existing control (approve, rerun) - while
+  // the default "after" applies first and then points at what appeared.
+  focus?: { route?: string; selector?: string; pointer?: "before" | "after" };
   apply: (state: FakeState) => void;
 }
 
@@ -215,9 +220,26 @@ export const SHOWCASE: Beat[] = [
     caption: {
       title: "Watch Runko work",
       body:
-        "This playground is live: everything you're about to watch mutates real (in-browser) state, and every page stays yours to click. The story: checkout surfaces raw 503s whenever the catalog redeploys, and val just pointed a task agent at it.",
+        "This is acme's monorepo with nothing in flight - no open changes, no workspaces. Everything that appears from here on is built by the run you're watching, live and clickable. The story: checkout surfaces raw 503s whenever the catalog redeploys, and val just pointed a task agent at it.",
     },
-    apply: () => {},
+    focus: { route: "/changes" },
+    // The clean slate: the tutorial builds the world up from zero, so the
+    // fixture scene's open stacks and workspaces step aside (the repo's
+    // code, projects, and landed history stay - that's the org the agent
+    // works IN). Also flags the canned watchWorkspace scene off.
+    apply: (state) => {
+      state.changes.clear();
+      state.requirements.clear();
+      state.diffs.clear();
+      state.comments.clear();
+      state.reviewRequests.clear();
+      state.pendingProjects.clear();
+      state.workspaces.clear();
+      state.workspaceEvents.clear();
+      state.workspaceActivity.clear();
+      state.workspaceWip.clear();
+      state.showcaseActive = true;
+    },
   },
   {
     at: 0.03,
@@ -225,11 +247,12 @@ export const SHOWCASE: Beat[] = [
       title: "A task identity, not a shared credential",
       body: `val ran \`runko agent create --task sku-retry\` — the agent gets its own name (${AGENT}), its own token, and a TTL. Ten agents means ten identities the server can tell apart.`,
     },
+    focus: { route: "/changes" },
     apply: () => {},
   },
   {
     at: 0.06,
-    watchAt: "/workspaces",
+    focus: { route: "/workspaces", selector: `a[href$="/workspaces/${WS_ID}"]` },
     caption: {
       title: "One task, one workspace",
       body:
@@ -255,7 +278,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.1,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="agent-activity"]' },
     caption: {
       title: "The agent's session streams to the server",
       body:
@@ -265,19 +288,19 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.13,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="agent-activity"]' },
     caption: { title: "Tracing the failure", body: "Code search across the whole monorepo — no second clone, no guessing which repo the SKU client lives in." },
     apply: (state) => activity(state, "search", "SkuLookup"),
   },
   {
     at: 0.16,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="agent-activity"]' },
     caption: { title: "Reproducing it first", body: "The agent runs the failing test before touching anything." },
     apply: (state) => activity(state, "command", "bazel test //commerce/checkout-api:handler_test  (2 failed)"),
   },
   {
     at: 0.2,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="agent-activity"]' },
     caption: {
       title: "Root cause, on the record",
       body: "Notes land in the same feed, so the human who takes over later inherits the reasoning, not just the diff.",
@@ -286,13 +309,13 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.24,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="agent-activity"]' },
     caption: { title: "First edit", body: "A retrying SKU client in commerce/cart, where every caller can share it." },
     apply: (state) => activity(state, "edit", "commerce/cart/retry.go"),
   },
   {
     at: 0.28,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="wip-diff"]' },
     caption: {
       title: "Snapshot: the work is on the server now",
       body:
@@ -315,7 +338,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.33,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="agent-activity"]' },
     caption: { title: "Tests alongside the fix", body: "The agent keeps working; the feed keeps ticking." },
     apply: (state) => {
       activity(state, "edit", "commerce/cart/retry_test.go");
@@ -324,13 +347,13 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.37,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="agent-activity"]' },
     caption: { title: "Green locally", body: "Both projects' tests pass in the workspace before anything is pushed for review." },
     apply: (state) => activity(state, "command", "bazel test //commerce/... (passed)"),
   },
   {
     at: 0.41,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="wip-diff"]' },
     caption: {
       title: "Second snapshot — the diff grows",
       body: "Snapshots are cheap and frequent. The live WIP view above just picked up the tests and the checkout-side wiring.",
@@ -356,7 +379,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.46,
-    watchAt: "/changes",
+    focus: { route: "/changes", selector: `.stack-card:has(a[href$="/changes/${CHANGE_A_ID}"])` },
     caption: {
       title: "Pushed for review — as a stack, not a monolith",
       body:
@@ -422,7 +445,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.52,
-    watchAt: `/changes/${CHANGE_A_ID}`,
+    focus: { route: `/changes/${CHANGE_A_ID}`, selector: '[data-tour="merge-gates"]' },
     caption: {
       title: "Checks run scoped to what changed",
       body:
@@ -441,7 +464,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.56,
-    watchAt: `/changes/${CHANGE_B_ID}`,
+    focus: { route: `/changes/${CHANGE_B_ID}`, selector: '[data-tour="merge-gates"]' },
     caption: {
       title: "A check fails — in public",
       body: "checkout-api's handler test flaked. The failure is a first-class fact on the change, not a buried log.",
@@ -459,7 +482,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.6,
-    watchAt: `/changes/${CHANGE_B_ID}`,
+    focus: { route: `/changes/${CHANGE_B_ID}`, selector: '[data-tour="merge-gates"]', pointer: "before" },
     caption: {
       title: "The agent re-runs it",
       body: "One command re-queues the failing check. (It was TestParallelCheckout being TestParallelCheckout.)",
@@ -474,7 +497,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.64,
-    watchAt: `/changes/${CHANGE_B_ID}`,
+    focus: { route: `/changes/${CHANGE_B_ID}`, selector: '[data-tour="merge-gates"]' },
     caption: {
       title: "Green — and armed",
       body:
@@ -496,7 +519,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.68,
-    watchAt: `/changes/${CHANGE_B_ID}`,
+    focus: { route: `/changes/${CHANGE_B_ID}`, selector: '[data-tour="merge-gates"]' },
     caption: {
       title: "Review requested — from a human",
       body:
@@ -514,7 +537,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.74,
-    watchAt: `/changes/${CHANGE_B_ID}`,
+    focus: { route: `/changes/${CHANGE_B_ID}`, selector: ".thread, .conversation-card" },
     caption: {
       title: "priya pushes back",
       body: "A line-level question on the checkout change. The thread binds to the exact commit she reviewed.",
@@ -527,7 +550,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.8,
-    watchAt: `/changes/${CHANGE_B_ID}`,
+    focus: { route: `/changes/${CHANGE_B_ID}`, selector: ".conversation-card" },
     caption: {
       title: "The agent answers with code",
       body:
@@ -549,7 +572,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.85,
-    watchAt: `/changes/${CHANGE_B_ID}`,
+    focus: { route: `/changes/${CHANGE_B_ID}`, selector: '[data-tour="merge-gates"]' },
     caption: { title: "Checks catch up", body: "The amended change is green again. Every gate is now waiting on exactly one thing: priya." },
     apply: (state) =>
       setChecks(state, CHANGE_B_ID, (c) => {
@@ -559,7 +582,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.89,
-    watchAt: `/changes/${CHANGE_A_ID}`,
+    focus: { route: `/changes/${CHANGE_A_ID}`, selector: '[data-tour="merge-gates"]', pointer: "before" },
     caption: {
       title: "priya approves — a different user, by design",
       body: "group:commerce is satisfied on both changes. The agent authored; a human approved; neither could do the other's part.",
@@ -571,7 +594,7 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.92,
-    watchAt: "/changes",
+    focus: { route: "/changes", selector: `.stack-card:has(a[href$="/changes/${CHANGE_A_ID}"])` },
     caption: {
       title: "Automerge lands the parent",
       body: "The armed bit fires the moment gates go green: the cart helper rebase-lands onto trunk first — stacks land bottom-up, never out of order.",
@@ -580,13 +603,13 @@ export const SHOWCASE: Beat[] = [
   },
   {
     at: 0.95,
-    watchAt: "/changes",
+    focus: { route: "/changes" },
     caption: { title: "…then the child", body: "checkout-api's change follows its parent onto trunk. Two landings, zero human clicks after the approval." },
     apply: (state) => land(state, CHANGE_B_ID),
   },
   {
     at: 0.97,
-    watchAt: `/workspaces/${WS_ID}`,
+    focus: { route: `/workspaces/${WS_ID}`, selector: '[data-tour="ws-header"]' },
     caption: {
       title: "The workspace closes itself",
       body: "Its last open change concluded, so the server closed checkout-retry: one task, one workspace, no stale worktrees piling up.",
