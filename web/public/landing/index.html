@@ -4,447 +4,139 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Runko — the monorepo platform for humans and agents</title>
-<meta name="description" content="Runko is a self-hosted monorepo platform on plain Git: one-command project generation, isolated agent workspaces with server-side guardrails, stacked review, and merge gates that can't be skipped.">
+<meta name="description" content="Runko is a self-hosted monorepo platform on plain Git: generated projects, isolated agent workspaces with server-side guardrails, and changes that land through review and checks nobody can skip.">
 <meta property="og:title" content="Runko — the monorepo platform for humans and agents">
-<meta property="og:description" content="Self-hosted, on plain Git: one-command project generation, isolated agent workspaces, stacked review, and merge gates that can't be skipped.">
+<meta property="og:description" content="Self-hosted, on plain Git: generated projects, isolated agent workspaces, and changes that land through review and checks nobody can skip.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#131316" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
+  /* One column, two screens, three jobs: say what Runko is, offer the
+     invite, take a message. The tokens are the product's own (web/src/
+     styles/global.css) so the pitch and the app read as one thing. */
   :root {
-    --bg: #f7f7f8; --surface: #ffffff; --surface-2: #f2f2f4; --border: #e3e3e8;
+    --bg: #f7f7f8; --surface: #ffffff; --border: #e3e3e8;
     --text: #1a1a1f; --text-2: #5b5b66; --accent: #6e56cf; --accent-strong: #5b46b4;
-    --accent-soft: #ece9fb; --ok: #2f9e63; --warn: #d97917;
     --font: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
     --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-    --shadow: 0 12px 40px -18px rgba(0, 0, 0, .25);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #131316; --surface: #1b1b20; --surface-2: #232329; --border: #2e2e36;
+      --bg: #131316; --surface: #1b1b20; --border: #2e2e36;
       --text: #ededf2; --text-2: #9a9aa7; --accent: #9b8afb; --accent-strong: #b2a5fc;
-      --accent-soft: #26214a; --ok: #4cc38a; --warn: #f0a04b;
-      --shadow: 0 12px 40px -18px rgba(0, 0, 0, .6);
     }
     /* In dark, the accent is light - dark text keeps the button legible. */
-    .btn.primary, .btn.primary:hover, .skip:focus { color: #131316; }
+    .btn.primary, .btn.primary:hover { color: #131316; }
   }
   * { box-sizing: border-box; margin: 0; }
-  @media (prefers-reduced-motion: no-preference) {
-    html { scroll-behavior: smooth; }
-  }
   body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.6; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { color: var(--accent-strong); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 clamp(18px, 4vw, 28px); }
-  section[id] { scroll-margin-top: 76px; }
 
-  .skip { position: absolute; left: -9999px; top: 0; z-index: 30; background: var(--accent); color: #fff; padding: 10px 16px; border-radius: 0 0 8px 0; font-size: 14px; }
-  .skip:focus { left: 0; color: #fff; }
+  .wrap { max-width: 620px; margin: 0 auto; padding: 0 clamp(18px, 5vw, 28px); }
 
-  header { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 82%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-  nav { display: flex; align-items: center; gap: 10px; padding: 12px 0; }
-  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); flex: none; }
+  header .wrap { display: flex; align-items: center; padding-top: 22px; padding-bottom: 22px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); }
   .logo:hover { color: var(--text); }
   .logo svg { border-radius: 7px; display: block; }
-  nav .links { display: flex; gap: 18px; align-items: center; font-size: 14px; margin: 0 auto; }
-  nav .actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
-  nav .links + .actions { margin-left: 0; }
-  .btn { display: inline-block; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; border: 1px solid var(--border); color: var(--text); background: var(--surface); white-space: nowrap; }
+  header .signin { margin-left: auto; }
+
+  .btn { display: inline-block; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; border: 1px solid var(--border); color: var(--text); background: var(--surface); white-space: nowrap; cursor: pointer; font-family: var(--font); }
   .btn:hover { border-color: var(--accent); color: var(--text); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-size: 15px; padding: 11px 22px; }
   .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
+  .btn[disabled] { opacity: .6; cursor: default; }
 
-  /* Mobile menu: a plain disclosure, no framework. */
-  .menu { display: none; position: relative; flex: none; }
-  .menu summary { list-style: none; cursor: pointer; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
-  .menu summary::-webkit-details-marker { display: none; }
-  .menu[open] summary { border-color: var(--accent); color: var(--accent); }
-  .menu .sheet { position: absolute; right: 0; top: calc(100% + 10px); min-width: 200px; display: grid; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
-  .menu .sheet a { padding: 9px 14px; border-radius: 8px; color: var(--text); font-size: 14.5px; }
-  .menu .sheet a:hover { background: var(--surface-2); }
-  .menu .sheet hr { border: none; border-top: 1px solid var(--border); margin: 8px 6px; }
+  main { padding: clamp(40px, 9vw, 96px) 0 0; }
+  h1 { font-size: clamp(30px, 6vw, 44px); line-height: 1.12; letter-spacing: -0.025em; font-weight: 800; text-wrap: balance; }
+  h1 em { color: var(--accent); font-style: normal; }
+  .lede { margin-top: 18px; font-size: clamp(16px, 2.2vw, 17.5px); color: var(--text-2); }
+  .cta { margin-top: 28px; }
+  .cta-note { margin-top: 12px; font-size: 14px; color: var(--text-2); }
 
-  .hero { padding: clamp(44px, 8vw, 88px) clamp(18px, 4vw, 28px) clamp(40px, 7vw, 56px); display: grid; grid-template-columns: 1.2fr 0.8fr; gap: clamp(32px, 5vw, 52px); align-items: center; }
-  .hero h1 { font-size: clamp(31px, 5.2vw, 50px); line-height: 1.1; letter-spacing: -0.025em; font-weight: 800; text-wrap: balance; }
-  .hero h1 em { color: var(--accent); font-style: normal; }
-  .hero p.lede { margin-top: 18px; font-size: clamp(16px, 2.2vw, 18px); color: var(--text-2); max-width: 34em; }
-  .hero .ctas { margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  .hero .more-row { margin-top: 10px; display: flex; gap: 4px 22px; flex-wrap: wrap; }
-  .hero .more-row a { font-size: 14px; font-weight: 600; padding: 5px 0; }
+  /* The one flourish: the product's vernacular is a terminal. */
+  .terminal { margin-top: 36px; background: #16161c; color: #d6d6df; border: 1px solid #2e2e36; border-radius: 10px; font-family: var(--mono); font-size: 13px; line-height: 1.75; padding: 14px 18px; overflow-x: auto; white-space: pre; }
+  .terminal .c { color: #6f6f7e; } .terminal .g { color: #4cc38a; }
 
-  .terminal { background: #16161c; color: #d6d6df; border: 1px solid #2e2e36; border-radius: 12px; font-family: var(--mono); font-size: 13px; line-height: 1.75; padding: 16px 20px; overflow-x: auto; }
-  pre.terminal { white-space: pre; }
-  .terminal .c { color: #6f6f7e; } .terminal .g { color: #4cc38a; } .terminal .v { color: #9b8afb; }
-  .quick { margin-top: 22px; font-size: 12.5px; }
+  .contact { margin-top: clamp(48px, 9vw, 80px); border-top: 1px solid var(--border); padding-top: clamp(32px, 6vw, 44px); }
+  .contact h2 { font-size: 21px; letter-spacing: -0.015em; }
+  .contact .sub { margin-top: 8px; font-size: 15px; color: var(--text-2); }
+  form { margin-top: 20px; display: grid; gap: 14px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  label { display: grid; gap: 6px; font-size: 13.5px; font-weight: 600; }
+  input, textarea { font: inherit; font-size: 14.5px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; width: 100%; }
+  input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 108px; }
+  form .btn { justify-self: start; }
+  /* The honeypot: rendered off-screen, humans never see or fill it. */
+  .website-field { position: absolute; left: -9999px; top: 0; height: 0; overflow: hidden; }
+  .form-status { font-size: 14px; }
+  .form-status.error { color: #c4432b; }
+  @media (prefers-color-scheme: dark) { .form-status.error { color: #f0937e; } }
+  .sent { font-size: 15px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-top: 20px; }
+  .sent strong { color: var(--text); }
 
-  /* The stack rail: three changes over a closed trunk - the product's
-     core object, drawn instead of described. */
-  .rail { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; box-shadow: var(--shadow); min-width: 0; }
-  .rail .row { display: flex; align-items: center; gap: 14px; padding: 9px 0; position: relative; }
-  .rail .row + .row::before { content: ""; position: absolute; left: 7px; top: -14px; height: 18px; width: 2px; background: var(--border); }
-  .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; border: 2px solid var(--surface); box-shadow: 0 0 0 2px var(--border); }
-  .dot.landed { background: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-  .dot.green { background: var(--ok); box-shadow: 0 0 0 2px var(--ok); }
-  .dot.pending { background: var(--warn); box-shadow: 0 0 0 2px var(--warn); }
-  @media (prefers-reduced-motion: no-preference) {
-    .dot.pending { animation: checks-running 2.4s ease-in-out infinite; }
-    @keyframes checks-running {
-      0%, 100% { box-shadow: 0 0 0 2px var(--warn); }
-      50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--warn) 30%, transparent); }
-    }
-  }
-  .rail .meta { flex: 1; min-width: 0; }
-  .rail .title { display: block; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .rail .sub { display: block; font-size: 12px; color: var(--text-2); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chip { flex: none; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
-  .chip.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
-  .chip.warn { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
-  .rail .trunk { font-size: 12px; color: var(--text-2); border-top: 1px dashed var(--border); margin-top: 10px; padding-top: 12px; display: flex; gap: 8px; align-items: center; }
-
-  section { padding: clamp(44px, 7vw, 64px) 0; }
-  .eyebrow { font-family: var(--mono); font-size: 13px; color: var(--accent); margin-bottom: 10px; }
-  .eyebrow.comment { color: var(--text-2); }
-  section h2 { font-size: clamp(23px, 4vw, 29px); letter-spacing: -0.015em; margin-bottom: 8px; text-wrap: balance; }
-  section .sectionsub { color: var(--text-2); max-width: 46em; margin-bottom: 30px; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: clamp(18px, 3vw, 22px); }
-  .card h3 { font-size: 16px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
-  .card p { font-size: 14px; color: var(--text-2); }
-  .card code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border-radius: 5px; padding: 1px 6px; color: var(--text); }
-  .glyph { width: 28px; height: 28px; flex: none; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; }
-  .glyph svg { display: block; }
-
-  .pain .card { border-top: 2px solid var(--warn); }
-  .pain .card h3 { font-size: 15.5px; }
-
-  /* Getting started: numbered steps beside one continuous terminal. */
-  .steps { list-style: none; counter-reset: step; padding: 0; }
-  .steps li { counter-increment: step; position: relative; padding: 0 0 20px 46px; }
-  .steps li::before { content: counter(step); position: absolute; left: 0; top: -1px; width: 30px; height: 30px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; }
-  .steps li + li::after { content: ""; position: absolute; left: 14px; top: -16px; height: 12px; width: 2px; background: var(--border); }
-  .steps h3 { font-size: 15.5px; margin-bottom: 3px; }
-  .steps p { font-size: 14px; color: var(--text-2); }
-  .steps code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border-radius: 5px; padding: 1px 6px; color: var(--text); }
-
-  .honest { background: var(--surface-2); border-radius: 14px; padding: clamp(22px, 4vw, 32px); }
-  .honest h2 { font-size: 22px; }
-  .honest ul { margin: 14px 0 0 1.2em; color: var(--text-2); font-size: 14.5px; }
-  .honest li { margin: 6px 0; }
-  .honest b { color: var(--text); }
-
-  .split { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: clamp(24px, 4vw, 36px); align-items: start; }
-  .split > * { min-width: 0; }
-  .split .copy p { color: var(--text-2); font-size: 15px; }
-  .split .copy p + p { margin-top: 12px; }
-  .split .copy b { color: var(--text); }
-
-  .compare-scroll { overflow-x: auto; }
-  table.compare { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; font-size: 14px; min-width: 560px; }
-  .compare th, .compare td { padding: 13px 18px; text-align: left; vertical-align: top; border-top: 1px solid var(--border); }
-  .compare thead th { border-top: none; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); background: var(--surface-2); }
-  .compare thead th.us { color: var(--accent); }
-  .compare td.aspect { font-weight: 600; white-space: nowrap; width: 1%; }
-  .compare td.them { color: var(--text-2); }
-  .compare td.us { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
-
-  footer { border-top: 1px solid var(--border); padding: 28px 0 48px; color: var(--text-2); font-size: 14px; }
-  footer .wrap { display: flex; gap: 16px 20px; flex-wrap: wrap; align-items: center; }
+  footer { margin-top: clamp(48px, 9vw, 80px); border-top: 1px solid var(--border); padding: 24px 0 44px; color: var(--text-2); font-size: 13.5px; }
+  footer .wrap { display: flex; gap: 8px 18px; flex-wrap: wrap; align-items: center; }
   footer .spacer { margin-left: auto; }
 
-  @media (max-width: 999px) {
-    nav .links { display: none; }
-    .menu { display: block; }
-  }
-  @media (max-width: 979px) {
-    .grid { grid-template-columns: repeat(2, 1fr); }
-  }
-  @media (max-width: 899px) {
-    .hero { grid-template-columns: 1fr; }
-    .split { grid-template-columns: 1fr; }
-  }
-  @media (max-width: 639px) {
-    /* The comparison keeps its content but drops the table shape:
-       one card per aspect, them/us stacked and labeled. */
-    table.compare, .compare tbody, .compare tr, .compare td { display: block; }
-    .compare thead { display: none; }
-    table.compare { min-width: 0; background: none; border: none; border-radius: 0; }
-    .compare tr { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-    .compare tr + tr { margin-top: 12px; }
-    .compare td { border-top: none; padding: 12px 16px; }
-    .compare td.aspect { white-space: normal; width: auto; background: var(--surface-2); padding: 9px 16px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
-    .compare td.them::before, .compare td.us::before { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; color: var(--text-2); }
-    .compare td.them::before { content: "git worktrees today"; }
-    .compare td.us::before { content: "runko workspaces"; color: var(--accent); }
-    .compare td.us { border-top: 1px solid var(--border); }
-  }
-  @media (max-width: 619px) {
-    .grid { grid-template-columns: 1fr; }
-  }
-  @media (max-width: 459px) {
-    nav .actions .playground { display: none; }
-    .btn { padding: 8px 13px; }
-    .terminal { font-size: 11.5px; padding: 14px 16px; }
+  @media (max-width: 519px) {
+    .row2 { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
 
-<a class="skip" href="#main">Skip to content</a>
-
 <header>
   <div class="wrap">
-    <nav>
-      <a class="logo" href="/landing/" aria-label="Runko home">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#6e56cf"/><line x1="16" y1="7" x2="16" y2="25" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".55"/><circle cx="16" cy="7.5" r="3.4" fill="#fff"/><circle cx="16" cy="16" r="3.4" fill="#fff"/><circle cx="16" cy="24.5" r="3.4" fill="#fff"/></svg>
-        Runko
-      </a>
-      <span class="links">
-        <a href="#projects">Projects</a>
-        <a href="#cli">CLI</a>
-        <a href="#agents">Agents</a>
-        <a href="#landing">Landing</a>
-        <a href="#selfhost">Self-host</a>
-        <a href="#get-started">Get started</a>
-        <a href="/runko" title="Runko's own source, hosted on this instance — browse without an account">Source</a>
-        <a href="https://github.com/saxocellphone/Runko">GitHub</a>
-      </span>
-      <span class="actions">
-        <a class="btn playground" href="/demo/" title="Runs entirely in your browser on sample data">Playground</a>
-        <!-- ?signin=1, never a bare /changes: this instance's own org is
-             public_read, so a signed-out visitor who has an org remembered
-             lands in anonymous browsing and gets the read-only inbox
-             instead of the gate (web/src/lib/orgsession.ts wantsAuthPage). -->
-        <a class="btn primary" href="/changes?signin=1">Sign in</a>
-      </span>
-      <details class="menu">
-        <summary aria-label="Menu">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14"/></svg>
-        </summary>
-        <span class="sheet">
-          <a href="#projects">Projects</a>
-          <a href="#cli">CLI</a>
-          <a href="#agents">Agents</a>
-          <a href="#landing">Landing</a>
-          <a href="#selfhost">Self-host</a>
-          <a href="#get-started">Get started</a>
-          <hr>
-          <a href="/runko">Source</a>
-          <a href="https://github.com/saxocellphone/Runko">GitHub</a>
-          <a href="/demo/">Playground</a>
-          <a href="/changes?invite=1">Request an invite</a>
-        </span>
-      </details>
-    </nav>
+    <a class="logo" href="/landing/" aria-label="Runko home">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#6e56cf"/><line x1="16" y1="7" x2="16" y2="25" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".55"/><circle cx="16" cy="7.5" r="3.4" fill="#fff"/><circle cx="16" cy="16" r="3.4" fill="#fff"/><circle cx="16" cy="24.5" r="3.4" fill="#fff"/></svg>
+      Runko
+    </a>
+    <!-- ?signin=1, never a bare /changes: this instance's own org is
+         public_read, so a signed-out visitor who has an org remembered
+         lands in anonymous browsing and gets the read-only inbox
+         instead of the gate (web/src/lib/orgsession.ts wantsAuthPage). -->
+    <a class="btn signin" href="/changes?signin=1">Sign in</a>
   </div>
 </header>
 
-<main id="main">
-  <div class="wrap hero">
-    <div>
-      <h1>One repo. Every team.<br><em>Any number of agents.</em></h1>
-      <p class="lede">Runko is a self-hosted monorepo platform on plain Git. Spin up production-ready projects with one command, run parallel coding agents in isolated workspaces, and land every change — human or agent — through review and checks nobody can skip.</p>
-      <div class="ctas">
-        <a class="btn primary" href="/changes?invite=1" title="This instance is invite-only — ask for the code and it arrives by email">Request an invite</a>
-        <a class="btn" href="/demo/" title="Runs entirely in your browser on sample data">Try the playground</a>
-      </div>
-      <div class="more-row">
-        <a href="/runko" title="Runko develops on Runko — read-only, no account needed">Browse the source →</a>
-        <a href="/landing/design.html">How it's designed →</a>
-      </div>
-<pre class="terminal quick"><span class="g">$</span> git clone … &amp;&amp; docker compose up
-  <span class="c"># a working control plane in ~2 minutes</span></pre>
+<main>
+  <div class="wrap">
+    <h1>One repo. Every team. <em>Any number of agents.</em></h1>
+    <p class="lede">Runko is a self-hosted monorepo platform on plain Git. Projects come from a generator instead of copy-paste, coding agents work in isolated workspaces with guardrails enforced at the server, and every change — human or agent — lands through review and checks nobody can skip.</p>
+    <div class="cta">
+      <a class="btn primary" href="/changes?invite=1">Request an invite</a>
+      <p class="cta-note">This instance is invite-only — ask and the code arrives by email. Or poke around first: the <a href="/demo/" title="Runs entirely in your browser on sample data">playground</a> runs on sample data in your browser, and <a href="/runko" title="Runko develops on Runko">this instance's own source</a> is open to read.</p>
     </div>
+<pre class="terminal"><span class="g">$</span> git clone … &amp;&amp; docker compose up
+  <span class="c"># your own control plane in ~2 minutes</span></pre>
 
-    <div class="rail" aria-label="A stack of changes">
-      <div class="row">
-        <span class="dot pending"></span>
-        <span class="meta"><span class="title">checkout: retry failed SKU lookups</span><span class="sub">I4f2a…e1 · ws › pricing</span></span>
-        <span class="chip warn">checks running</span>
-      </div>
-      <div class="row">
-        <span class="dot green"></span>
-        <span class="meta"><span class="title">checkout: extract sku validator</span><span class="sub">I9c07…b4 · ws › pricing</span></span>
-        <span class="chip ok">ready to land</span>
-      </div>
-      <div class="row">
-        <span class="dot landed"></span>
-        <span class="meta"><span class="title">billing: shared money type</span><span class="sub">I77d1…9a · landed</span></span>
-        <span class="chip">landed</span>
-      </div>
-      <div class="trunk">⌂ trunk — closed to direct push; everything above landed through review, checks, and owners</div>
-    </div>
+    <section class="contact" id="contact" aria-labelledby="contact-h">
+      <h2 id="contact-h">Contact</h2>
+      <p class="sub">Questions about Runko or this deployment? Your message goes straight to the inbox of whoever runs it; replies come to your email.</p>
+      <form id="contact-form" novalidate>
+        <div class="row2">
+          <label>Name
+            <input name="name" type="text" autocomplete="name" required maxlength="120">
+          </label>
+          <label>Email
+            <input name="email" type="email" autocomplete="email" required maxlength="254">
+          </label>
+        </div>
+        <label>Message
+          <textarea name="message" required maxlength="2000"></textarea>
+        </label>
+        <label class="website-field" aria-hidden="true">Website
+          <input name="website" type="text" tabindex="-1" autocomplete="off">
+        </label>
+        <button class="btn" type="submit">Send message</button>
+        <p class="form-status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
   </div>
-
-  <section class="pain" id="why">
-    <div class="wrap">
-      <p class="eyebrow comment"># the status quo</p>
-      <h2>You've already built the workarounds</h2>
-      <p class="sectionsub">Monorepos are winning and coding agents are multiplying. The tooling hasn't caught up, so teams improvise:</p>
-      <div class="grid">
-        <div class="card"><h3>Every project is a snowflake</h3><p>Each new service starts as a copy of the last one. Two years in, no two projects share a layout, an owners file, or a CI setup — and there's no way to fix them all at once.</p></div>
-        <div class="card"><h3>Agents live in git worktrees</h3><p>One worktree per agent works — until you're babysitting five branches, half-finished work is stranded on one machine, and every agent pushes with <em>your</em> credentials.</p></div>
-        <div class="card"><h3>Merge policy is theater</h3><p>CODEOWNERS suggests. Branch protection half-enforces. Stacked PRs are faked with base branches, and a one-line change re-runs the whole CI matrix.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="projects">
-    <div class="wrap">
-      <p class="eyebrow">$ runko project create</p>
-      <h2>Projects come from a generator, not a copy-paste</h2>
-      <p class="sectionsub">Name, type, owners in — everything else is generated or defaulted. That's the whole form.</p>
-      <div class="split">
-        <div class="copy">
-          <p><b>Uniformity isn't a style guide anyone has to follow — it's the generator everyone uses.</b> Every project in the org has the same shape: a manifest next to the code, a skeleton from your org's template, a build binding with zero hand-written lines.</p>
-          <p>Ownership and required checks live in <code>PROJECT.yaml</code>, in the tree — so changing the rules is itself a reviewed change that owners approve, and the whole platform re-reads policy from the code it protects.</p>
-        </div>
-<pre class="terminal"><span class="g">$</span> runko project create payments-api \
-    <span class="v">--type</span> service <span class="v">--owners</span> team-payments
-  create payments-api/PROJECT.yaml  <span class="c"># type + owners</span>
-  create payments-api/main.go       <span class="c"># org skeleton</span>
-  create payments-api/BUILD.bazel   <span class="c"># generated</span>
-<span class="g">$</span> runko change push
-  <span class="c"># the new project lands like any other change</span></pre>
-      </div>
-    </div>
-  </section>
-
-  <section id="cli">
-    <div class="wrap">
-      <p class="eyebrow">$ runko --json</p>
-      <h2>The whole platform is a CLI</h2>
-      <p class="sectionsub">Web UI optional. Every flow — projects, workspaces, review, landing — is a command that speaks JSON and tells you what to do next when it refuses.</p>
-      <div class="split">
-<pre class="terminal"><span class="g">$</span> runko workspace create <span class="v">--name</span> fix-sku \
-    <span class="v">--project</span> payments-api
-  materialized payments-api/  <span class="c"># ms, not minutes</span>
-<span class="g">$</span> $EDITOR payments-api/sku.go
-<span class="g">$</span> runko change push
-  I4f2a…e1 → review  <span class="c"># checks scoped to the change</span>
-<span class="g">$</span> runko change requirements <span class="v">--json</span>
-  { "checks": {"pending": []}, "mergeable": true }
-<span class="g">$</span> runko change land
-  <span class="c"># rebase-lands behind the gates</span></pre>
-        <div class="copy">
-          <p><b>Refusals are answers.</b> Every failure is structured — <code>{code, message, suggestion}</code> — and the suggestion is a command you can type. Exit codes mean something. <code>--json</code> is everywhere, so piping to <code>jq</code> replaces screen-scraping.</p>
-          <p><b>One interface, three audiences.</b> Engineers, coding agents, and CI use the same two binaries: <code>runko</code> for people and agents (a generated <code>AGENTS.md</code> teaches it), <code>runko-ci</code> for pipelines — <code>affected</code> computes what a change touches offline, <code>checkout</code> does partial-clone sparse checkouts, <code>report-check</code> posts results back with retries.</p>
-          <p>Prebuilt binaries for Linux, macOS, and Windows ship on <a href="https://github.com/saxocellphone/Runko/releases/tag/cli-latest">every CLI-affecting landing</a>; the <a href="/runko/browse/docs/cli-contract.md">CLI contract</a> is a versioned document, not folklore.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="agents">
-    <div class="wrap">
-      <p class="eyebrow">$ runko agent create</p>
-      <h2>Run five agents like it's one</h2>
-      <p class="sectionsub">Everyone found the same trick: a git worktree per agent. Runko workspaces are what that trick wants to be — each agent gets its own slice of the repo, its own identity, and its own guardrails.</p>
-      <div class="compare-scroll">
-      <table class="compare">
-        <thead>
-          <tr><th scope="col"></th><th scope="col">Git worktrees today</th><th scope="col" class="us">Runko workspaces</th></tr>
-        </thead>
-        <tbody>
-          <tr><td class="aspect">Checkout</td><td class="them">A full tree per worktree</td><td class="us">One shared clone; each workspace materializes only its slice</td></tr>
-          <tr><td class="aspect">Work in progress</td><td class="them">Stranded on one machine</td><td class="us">Snapshotted to the server — kill the box, re-attach anywhere</td></tr>
-          <tr><td class="aspect">Identity</td><td class="them">Every agent pushes as you</td><td class="us">One command mints a per-task identity — named for the work, its own token, dead by TTL</td></tr>
-          <tr><td class="aspect">Guardrails</td><td class="them">Whatever your token allows</td><td class="us">Path allowlists, per-change size caps, secret scan, no self-approval — enforced at the server</td></tr>
-          <tr><td class="aspect">Lifecycle</td><td class="them">Stale worktrees pile up</td><td class="us">One task, one workspace, enforced — auto-closed when its last change lands or is abandoned</td></tr>
-          <tr><td class="aspect">Getting code in</td><td class="them">Hand-merge the branches later</td><td class="us">Each agent's work arrives as stacked, reviewable changes behind the same gates as humans — oversized changes are refused with the split workflow in the message</td></tr>
-        </tbody>
-      </table>
-      </div>
-      <p class="sectionsub" style="margin: 28px 0 14px;">The agent's whole interface is the same CLI your engineers use — taught by a generated <code>AGENTS.md</code>, with policy enforced where it can't be prompt-engineered away:</p>
-<pre class="terminal"><span class="g">$</span> runko agent create <span class="v">--task</span> fix-sku
-  <span class="c"># ephemeral identity: agent-fix-sku-3f2a, dies by TTL</span>
-<span class="g">$</span> runko change push
-  <span class="c"># stack's tip → review; the whole stack updates</span>
-<span class="g">$</span> runko change requirements <span class="v">--json</span>
-  <span class="c"># owners + checks outstanding, as structured JSON</span>
-<span class="g">$</span> runko change automerge
-  <span class="c"># arm once — the server lands it when gates go green</span></pre>
-    </div>
-  </section>
-
-  <section id="landing">
-    <div class="wrap">
-      <p class="eyebrow">$ runko change land</p>
-      <h2>And landing works like it should</h2>
-      <p class="sectionsub">Everything below is shipped and tested against a real daemon, real Git, and a real Postgres — not a roadmap.</p>
-      <div class="grid">
-        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 3.5 6.8 10 10.6l6.5-3.8L10 3z"/><path d="m3.5 10.4 6.5 3.8 6.5-3.8"/><path d="m3.5 13.8 6.5 3.8 6.5-3.8"/></svg></span>Stacked changes, jj-native</h3><p>Jujutsu is the primary client: rework the <em>root</em> of a stack, descendants rebase themselves, and one push updates every change on the server. Plain <code>git push</code> stays fully supported.</p></div>
-        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5 4 4.8v4.3c0 3.9 2.6 6.7 6 7.9 3.4-1.2 6-4 6-7.9V4.8L10 2.5z"/><path d="m7.2 9.7 2 2 3.6-3.7"/></svg></span>Gates that can't be skipped</h3><p>Owners and required checks are declared next to the code they protect. Approvals bind to the exact commit reviewed — amend it, and approval is re-earned, not carried over.</p></div>
-        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5 4.5 11h4.4L9 17.5 15.5 9h-4.4L11 2.5z"/></svg></span>Land without re-running the world</h3><p>Rebase-based landing re-runs checks only when trunk actually touched something your change depends on. A lost race is a retry, never a silent overwrite.</p></div>
-        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="2.2"/></svg></span>CI runs only what can break</h3><p>Changed paths map to projects and their dependents, fail-closed, with optional build-graph refinement (Bazel first). Your runners, your pipelines — we never run your CI.</p></div>
-        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h14l-5.2 5.8v4.7l-3.6 2.3V9.8L3 4z"/></svg></span>One door into trunk</h3><p>Direct push is closed. Every write — human, agent, or bot — passes the same policy, secret scanning (gitleaks), and change tracking on the server.</p></div>
-        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M10 2.8v6.4"/><path d="M5.6 5.6a6.3 6.3 0 1 0 8.8 0"/></svg></span>Arm it and walk away</h3><p>Automerge is a bit, not a babysitter: arm a change once and the server lands it the moment owners and checks go green — through the same gates, attributed to whoever armed it, never forced.</p></div>
-        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h6.6L17 10.4a1.4 1.4 0 0 1 0 2L12.4 17a1.4 1.4 0 0 1-2 0L3 9.6V3z"/><circle cx="7" cy="7" r="1.3"/></svg></span>Releases are immutable</h3><p><code>runko release create</code> versions a project, derives the changelog from the changes that actually landed, and writes the tag server-side under tag policy. No edit, no delete — a wrong release is followed by a corrected one.</p></div>
-        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h12"/><circle cx="12.5" cy="5.5" r="1.7" fill="var(--accent-soft)"/><circle cx="7" cy="10" r="1.7" fill="var(--accent-soft)"/><circle cx="14" cy="14.5" r="1.7" fill="var(--accent-soft)"/></svg></span>Checks declare their class</h3><p><code>run_when: direct</code> lanes run only when a project's own code changes; integration lanes still ride the dependency closure. A dependent's unit tests stop re-running for changes that can't break them.</p></div>
-        <div class="card"><h3><span class="glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 6.8H5.5L8 4.3M4 13.2h10.5L12 15.7"/></svg></span>Mirror to any git host</h3><p>Adopt gradually: keep a leased, divergence-guarded mirror on GitHub, GitLab, Gitea — anything that speaks git. Trust lives where you want it; truth stays yours.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="selfhost">
-    <div class="wrap">
-      <p class="eyebrow">$ docker compose up</p>
-      <div class="honest">
-        <h2>Self-hosted, honest about scope</h2>
-        <ul>
-          <li><b>Git is the only substrate.</b> No custom object store, no virtual filesystem — your escape hatch is <code>git clone</code>, forever.</li>
-          <li><b>We never run your CI.</b> Runko owns change identity, webhooks, the Checks API, and affected computation; your runners and pipelines stay yours.</li>
-          <li><b>Postgres is a rebuildable index.</b> Burn it down and re-derive everything from the tree.</li>
-          <li><b>Apache-2.0.</b> One binary + Postgres via <code>docker compose up</code>; Kubernetes if you feel fancy.</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-  <section id="get-started">
-    <div class="wrap">
-      <p class="eyebrow">$ runko auth signup</p>
-      <h2>Getting started</h2>
-      <p class="sectionsub">Your org already runs Runko; you bring one CLI. From joining to a landed change in five steps — the last one repeats forever, and the journey is replayed end-to-end in CI, refusals included, so it can't rot.</p>
-      <div class="split">
-        <ol class="steps">
-          <li>
-            <h3>Kick the tires without installing anything</h3>
-            <p>The <a href="/demo/" title="Runs entirely in your browser on sample data">playground</a> runs the full UI on sample data in your browser, and <a href="/runko">this instance's own source</a> is browsable with no account. Want in here? <a href="/changes?invite=1">Request an invite</a>.</p>
-          </li>
-          <li>
-            <h3>Install the CLI</h3>
-            <p>Prebuilt binaries for Linux, macOS, and Windows, refreshed on <a href="https://github.com/saxocellphone/Runko/releases/tag/cli-latest">every CLI-affecting landing</a> — or <code>go install</code> it. Your org's control plane is already up; ask your operator for its URL.</p>
-          </li>
-          <li>
-            <h3>Sign up — signup is login</h3>
-            <p>One command against your org's control plane creates your account and stores the credential — no browser round-trip, no token pasting. Already have an account? <code>runko auth login</code>.</p>
-          </li>
-          <li>
-            <h3>Land on day one</h3>
-            <p>Make a workspace — your slice of the monorepo, not a second clone — generate a project, push the change it opens, land it when the gates go green. When something refuses, the refusal names the command that fixes it.</p>
-          </li>
-          <li>
-            <h3>Read the rules like code</h3>
-            <p>Owners, required checks, and agent policy all live in the org's tree — browsable like any other file, and changing policy is itself a reviewed change. (Running the control plane yourself is <code>docker compose up</code> — the operator's path, not day one's.)</p>
-          </li>
-        </ol>
-<pre class="terminal"><span class="g">$</span> runko auth signup <span class="v">--runkod-url</span> https://runko.acme.dev \
-    <span class="v">--name</span> val <span class="v">--org</span> acme <span class="v">--join</span>
-  <span class="c"># account created, login stored; signup is login</span>
-<span class="g">$</span> runko workspace create <span class="v">--name</span> day-one <span class="v">--project</span> repo
-  materialized repo/  <span class="c"># your slice, ms not minutes</span>
-<span class="g">$</span> runko project create <span class="v">--name</span> hello \
-    <span class="v">--type</span> service <span class="v">--api</span> rest
-  <span class="c"># scaffold generated, opened as change I5b3c…d7</span>
-<span class="g">$</span> runko change push
-<span class="g">$</span> runko change land
-  <span class="c"># landed — day one, no copy-paste, nothing skipped</span></pre>
-      </div>
-    </div>
-  </section>
 </main>
 
 <footer>
@@ -453,27 +145,51 @@
     <span class="spacer"></span>
     <a href="/runko">Source</a>
     <a href="https://github.com/saxocellphone/Runko">GitHub</a>
-    <a href="/landing/design.html">Design</a>
     <a href="/demo/">Playground</a>
-    <a href="/changes?invite=1">Request an invite</a>
-    <a href="/changes?signin=1">Sign in</a>
   </div>
 </footer>
 
 <script>
-  // Close the mobile menu after navigating or when tapping elsewhere.
-  const menu = document.querySelector(".menu");
-  if (menu) {
-    for (const a of menu.querySelectorAll("a")) {
-      a.addEventListener("click", () => menu.removeAttribute("open"));
+  // The contact form posts to runkod's public intake (POST /api/contact,
+  // same-origin behind the path-routed ingress) and reports the outcome
+  // in place - success swaps the form for a confirmation, failure quotes
+  // the server's structured error.
+  const form = document.getElementById("contact-form");
+  const status = form.querySelector(".form-status");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!form.reportValidity()) return;
+    const button = form.querySelector('button[type="submit"]');
+    const fields = Object.fromEntries(new FormData(form));
+    button.disabled = true;
+    button.textContent = "Sending…";
+    status.classList.remove("error");
+    status.textContent = "";
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fields),
+      });
+      if (res.ok) {
+        const sent = document.createElement("p");
+        sent.className = "sent";
+        sent.innerHTML = "Message sent — replies go to <strong></strong>.";
+        sent.querySelector("strong").textContent = fields.email.trim();
+        form.replaceWith(sent);
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      status.textContent = [body.Message, body.Suggestion].filter(Boolean).join(" — ") ||
+        "Sending failed (" + res.status + "). Try again in a moment.";
+      status.classList.add("error");
+    } catch {
+      status.textContent = "Sending failed — check your connection and try again.";
+      status.classList.add("error");
     }
-    document.addEventListener("click", (e) => {
-      if (menu.open && !menu.contains(e.target)) menu.removeAttribute("open");
-    });
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") menu.removeAttribute("open");
-    });
-  }
+    button.disabled = false;
+    button.textContent = "Send message";
+  });
 </script>
 
 </body>
