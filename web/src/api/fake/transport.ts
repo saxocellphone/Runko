@@ -106,7 +106,7 @@ import {
   TRUNK_SHA,
 } from "./fixtures";
 
-interface FakeState {
+export interface FakeState {
   changes: Map<string, ChangeSummary>;
   requirements: Map<string, MergeRequirements>;
   workspaces: Map<string, WorkspaceSummary>;
@@ -177,7 +177,7 @@ function freshState(): FakeState {
 // Mirrors runkod's derived attention set (§13.4.2): requested reviewers
 // and required owners who have neither approved nor commented at the
 // CURRENT head, plus the author once any reviewer has responded to it.
-function recomputeAttention(state: FakeState, changeId: string): void {
+export function recomputeAttention(state: FakeState, changeId: string): void {
   const r = state.requirements.get(changeId);
   const c = state.changes.get(changeId);
   if (!r || !c) return;
@@ -214,7 +214,7 @@ function recomputeAttention(state: FakeState, changeId: string): void {
 }
 
 // Mirrors checks.ComputeMergeRequirements's plain-language blockers (§6.6).
-function recompute(r: MergeRequirements): void {
+export function recompute(r: MergeRequirements): void {
   const blockers: string[] = [];
   for (const o of r.owners?.outstanding ?? []) {
     blockers.push(`owner approval outstanding: ${o}`);
@@ -554,8 +554,36 @@ const abortableSleep = (ms: number, signal: AbortSignal | undefined) =>
     else signal?.addEventListener("abort", onAbort, { once: true });
   });
 
+// The demo scene: the LAST created fake transport's mutable state plus a
+// mutation bus, exposed so the "Watch me work" showcase (demo/showcase.ts,
+// demo/Director.tsx) can drive the same store the transport serves and
+// pages can refetch on its beats (lib/useRpc.ts subscribes under demo).
+// One transport exists per page load in practice; tests creating several
+// get last-writer-wins, and each still owns its private state.
+export interface DemoScene {
+  state: FakeState;
+  bus: EventTarget;
+  // Run one mutation against the live store, then poke every subscriber.
+  mutate(fn: (state: FakeState) => void): void;
+}
+
+let scene: DemoScene | null = null;
+
+export function demoScene(): DemoScene | null {
+  return scene;
+}
+
 export function createFakeTransport(): Transport {
   const state = freshState();
+  const bus = new EventTarget();
+  scene = {
+    state,
+    bus,
+    mutate(fn) {
+      fn(state);
+      bus.dispatchEvent(new Event("mutate"));
+    },
+  };
 
   return createRouterTransport(({ service }) => {
     service(ChangeService, {

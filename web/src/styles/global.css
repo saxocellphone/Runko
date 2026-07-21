@@ -2744,3 +2744,114 @@ tr.thread-row > td {
   border-style: dashed;
   border-color: var(--border-strong);
 }
+
+/* ------------------------------------------------------------------ */
+/* "Watch me work" showcase (demo/Director.tsx) - the playground's
+   guided tour. A floating card over .main's scroll; never mounted
+   outside the /demo route. */
+.showcase-pill {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+:root[data-theme="dark"] .showcase-pill {
+  color: #131316;
+}
+.showcase-pill:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+.showcase-card {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  width: min(360px, calc(100vw - 36px));
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 12px 40px -18px rgba(0, 0, 0, 0.45);
+}
+.showcase-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.showcase-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--accent);
+}
+.showcase-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.showcase-iconbtn {
+  border: none;
+  background: none;
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.showcase-iconbtn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.showcase-progress {
+  margin-top: 10px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.showcase-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s linear;
+}
+.showcase-beat-title {
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.showcase-beat-body {
+  margin-top: 5px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.showcase-watchlink {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.showcase-controls {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { ShowcaseDirector } from "../demo/Director";
 import {
   authUser,
   onDemoRoute,
@@ -149,6 +150,10 @@ export function Layout() {
       <main className="main">
         <Outlet />
       </main>
+      {/* The playground's guided tour (demo/Director.tsx): a floating
+          card that plays the scripted agent run against the fake store.
+          Playground-only - the live app never mounts it. */}
+      {onDemoRoute && <ShowcaseDirector />}
     </div>
   );
 }
