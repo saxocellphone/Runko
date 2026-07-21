@@ -40,14 +40,28 @@ export function Layout() {
     <div className="app">
       <header className="topbar">
         <div className="topbar-row">
+          {/* In the playground the brand is the way out: the logo-goes-home
+              reflex is the one every visitor already has, and the playground
+              is the only place in the app where "home" is the product page
+              rather than a signed-in surface. Nothing here links off the
+              deployment otherwise, so the live app keeps a plain wordmark. */}
           <div className="topbar-brand">
-            <BrandMark />
-            Runko
+            {onDemoRoute ? (
+              <a className="topbar-brand-link" href="/" title="Leave the playground">
+                <BrandMark />
+                Runko
+              </a>
+            ) : (
+              <>
+                <BrandMark />
+                Runko
+              </>
+            )}
           </div>
           <div className="topbar-actions">
             {onDemoRoute ? (
               <div className="demo-badge" title="Playground — sample data, in-browser">
-                Playground — sample data, in-browser · <a href="/changes">exit</a>
+                Playground — sample data, in-browser
               </div>
             ) : usingDemoData ? (
               <div
@@ -68,6 +82,19 @@ export function Layout() {
                   <>Live{signedIn ? ", anonymous" : ""}</>
                 )}
               </div>
+            )}
+            {/* The way out of the playground, as a button in the same row as
+                every other action - the old affordance was the word "exit"
+                inside the status badge, small enough to read as part of the
+                label. It also pointed at /changes, which is the APP: for a
+                visitor carrying a stored org that canonicalises to /<org>,
+                so "exit" landed on a source browser rather than the page
+                they arrived from. "/" is the product landing page (nginx
+                path-matches the bare root; the SPA never sees it). */}
+            {onDemoRoute && (
+              <a className="btn btn-sm" href="/" title="Leave the playground">
+                ← Back to Runko
+              </a>
             )}
             {publicBrowse && (
               <button

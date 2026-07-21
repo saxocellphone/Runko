@@ -129,6 +129,20 @@ a:hover {
   border-radius: 7px;
   display: block;
 }
+/* Playground only: the brand doubles as the exit to the landing page. It
+   inherits the wordmark exactly - the link is a target, not a decoration -
+   and announces itself on hover. */
+.topbar-brand-link {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+  color: inherit;
+  text-decoration: none;
+}
+.topbar-brand-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
 .topbar-actions {
   margin-left: auto;
@@ -393,6 +407,11 @@ a:hover {
   border-radius: 7px;
   padding: 5px 12px;
   cursor: pointer;
+}
+/* A link wearing the button chrome (the playground's exit): the global
+   a:hover underline would otherwise fire inside the pill. */
+a.btn:hover {
+  text-decoration: none;
 }
 .btn:hover:not(:disabled) {
   background: var(--surface-2);
