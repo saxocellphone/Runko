@@ -8,5 +8,6 @@ Schema artifacts required before their dependent implementation sessions begin (
 | MCP tool catalog | `mcp-tools/catalog.json` (25 tools) + `mcp-tools/common.schema.json` (shared types) | §8.2, §8.3 | stage 11 |
 | Webhook + CheckRun schemas | `webhooks/webhook-envelope.schema.json`, `webhooks/checkrun.schema.json` | §14.4.1, §14.4.2 | stages 8-9 |
 | Build-graph adapter contract (§26 #13) | `build-adapter/README.md` (engine interface, Bazel/Buck2 query recipes) + `build-adapter/refinement.schema.json` | §14.5.4 | stages 9b-9c |
+| `deploy` capability | `deploy/README.md` (image sub-block + rider edge + image-rebuild post-filter) | §14.10 | deploy CD build-derivation |
 
 These are the single source of truth for generated types (§28.2 item 2): platform API, `runko-ci`, and the MCP server all generate from these files. Do not hand-duplicate these shapes in package code — regenerate instead.
