@@ -532,6 +532,7 @@ func cmdAuth(args []string) error {
 		create := fs.Bool("create", false, "create --org as a new org; you become its admin")
 		join := fs.Bool("join", false, "join --org, an existing org, as a member")
 		code := fs.String("invite-code", "", "invite code, if this control plane requires one to sign up")
+		email := fs.String("email", "", "your email address - OPTIONAL, so nothing prompts for it when omitted")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -546,7 +547,7 @@ func cmdAuth(args []string) error {
 		if *create {
 			orgMode = "create"
 		}
-		_, err := AuthSignup(ctx, http.DefaultClient, *runkodURL, *name, *password, *org, orgMode, *code, bufio.NewReader(os.Stdin), os.Stdout)
+		_, err := AuthSignup(ctx, http.DefaultClient, *runkodURL, *name, *password, *org, orgMode, *code, *email, bufio.NewReader(os.Stdin), os.Stdout)
 		return err
 
 	case "login":
