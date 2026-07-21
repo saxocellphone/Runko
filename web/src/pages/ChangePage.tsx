@@ -261,7 +261,7 @@ export function ChangePage() {
           </section>
         </div>
         <aside>
-          <section className="card side-card">
+          <section className="card side-card" data-tour="stack">
             <h2>
               Stack
               <InfoTip text="Changes stacked on one another: each one's base is the previous one's head. They land independently, bottom-up - a change can't land until everything below it in the stack already has." />
@@ -270,7 +270,7 @@ export function ChangePage() {
           </section>
 
           {requirements && (
-            <section className="card side-card">
+            <section className="card side-card" data-tour="merge-gates">
               <h2>Merge requirements</h2>
               <MergeGates
                 requirements={requirements}

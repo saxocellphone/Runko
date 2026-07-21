@@ -31,6 +31,21 @@ describe("watch-me-work showcase script", () => {
     expect(SHOWCASE[SHOWCASE.length - 1]!.at).toBe(1);
   });
 
+  it("opens on an empty world: the reset beat clears everything in flight", () => {
+    createFakeTransport();
+    const scene = demoScene()!;
+    expect(scene.state.changes.size).toBeGreaterThan(0); // the fixture scene
+    scene.mutate(SHOWCASE[0]!.apply);
+    expect(scene.state.changes.size).toBe(0);
+    expect(scene.state.workspaces.size).toBe(0);
+    expect(scene.state.workspaceEvents.size).toBe(0);
+    expect(scene.state.workspaceActivity.size).toBe(0);
+    // Projects and the browsable tree stay - the org the agent works IN.
+    expect(scene.state.projects.length).toBeGreaterThan(0);
+    // The canned watchWorkspace scene stands down for the tutorial.
+    expect(scene.state.showcaseActive).toBe(true);
+  });
+
   it("plays end to end: agent works, human approves, stack lands, workspace closes", async () => {
     const transport = createFakeTransport();
     const scene = demoScene()!;
@@ -103,6 +118,10 @@ describe("watch-me-work showcase script", () => {
     );
     const closed = await ws.getWorkspace({ id: WS_ID });
     expect(closed.workspace?.status).toBe(WorkspaceStatus.CLOSED);
+    // The end state is exactly what the story built - the world started
+    // empty, so nothing else is in flight.
+    expect(scene.state.changes.size).toBe(2);
+    expect(scene.state.workspaces.size).toBe(1);
 
     // Every beat poked the bus - that's what makes the mounted pages
     // refetch while the visitor browses.

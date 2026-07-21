@@ -2753,7 +2753,7 @@ tr.thread-row > td {
   position: fixed;
   right: 18px;
   bottom: 18px;
-  z-index: 40;
+  z-index: 60;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2779,7 +2779,7 @@ tr.thread-row > td {
   position: fixed;
   right: 18px;
   bottom: 18px;
-  z-index: 40;
+  z-index: 60;
   width: min(360px, calc(100vw - 36px));
   background: var(--surface);
   border: 1px solid var(--border-strong);
@@ -2854,4 +2854,95 @@ tr.thread-row > td {
   margin-top: 12px;
   display: flex;
   gap: 8px;
+}
+
+.showcase-freeroam {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.showcase-linkbtn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/* The tour's camera work: a spotlight box whose enormous box-shadow dims
+   everything else (clicks pass through - the page stays usable), and a
+   cursor that glides between targets with a click pulse. */
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  overflow: hidden;
+}
+.tour-spot {
+  position: absolute;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  transition:
+    left 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    top 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* The dim: four bounded panels around the cutout. (A single element
+   with a 200vmax box-shadow spread stalls layout/paint - the shadow's
+   overflow rect is astronomically large.) */
+.tour-dim-panel {
+  position: absolute;
+  background: color-mix(in srgb, #0b0b10 45%, transparent);
+  transition:
+    left 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    top 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tour-cursor {
+  position: fixed;
+  z-index: 55;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+  transition:
+    left 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+    top 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tour-cursor-instant {
+  transition: none;
+}
+.tour-cursor-pulse {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 26px;
+  height: 26px;
+  margin: -6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  animation: tour-click 0.7s ease-out 1 forwards;
+}
+@keyframes tour-click {
+  0% {
+    transform: scale(0.3);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot,
+  .tour-dim-panel {
+    transition: none;
+  }
+  .tour-cursor-pulse {
+    animation: none;
+    opacity: 0;
+  }
 }
