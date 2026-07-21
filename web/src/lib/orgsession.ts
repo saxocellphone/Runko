@@ -11,13 +11,36 @@
 // blameless here (runkod's TestSameNameSamePasswordAcrossOrgs pins that);
 // the divergence is purely this client-side rebind.
 
-/** Where the browser must go after binding its session to `org`:
- * `null` means reload in place (the URL either names no org or names
- * the same org, so the rebind is consistent); otherwise the returned
- * path re-enters the app under the org that actually authenticated. */
-export function postSignInPath(pathOrg: string, org: string): string | null {
-  if (!pathOrg || pathOrg === org) return null;
-  return `/${org}`;
+/** Where the browser must go after binding its session to `org` - always
+ * a destination, never "stay here".
+ *
+ * Re-entering the authenticated org is only half the job: the auth-page
+ * request itself must be spent. `?signin=1` beats every auth state by
+ * design (wantsAuthPage below), INCLUDING the session that was just
+ * created - so reloading the current URL verbatim re-rendered the gate,
+ * and the credential the server had already accepted bought nothing. On
+ * this deployment that was an unbreakable loop: sign in, land back on
+ * the sign-in form, repeat (prod-observed 2026-07-21 - runkod answered
+ * `GET /o/runko/api/whoami` 200 three times for the same browser, each
+ * followed by the login page mounting again). Stripping the flags here
+ * keeps "asking for the auth page wins" intact for arrivals while
+ * letting a bound session through. */
+export function postSignInPath(opts: {
+  pathOrg: string;
+  org: string;
+  pathname: string;
+  search: string;
+  hash: string;
+}): string {
+  const { pathOrg, org, pathname, search, hash } = opts;
+  // A URL naming a DIFFERENT org re-enters at that org's root: its path,
+  // query, and hash all belong to the other org's content.
+  if (pathOrg && pathOrg !== org) return `/${org}`;
+  const params = new URLSearchParams(search);
+  params.delete("signin");
+  params.delete("invite");
+  const rest = params.toString();
+  return `${pathname}${rest ? `?${rest}` : ""}${hash}`;
 }
 
 /** Whether the URL asks for the auth page outright - `?signin=1` (every

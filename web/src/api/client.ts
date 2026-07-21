@@ -312,14 +312,20 @@ export async function signIn(name: string, password: string, org: string): Promi
   window.localStorage.setItem("runko-user", who.anonymous ? "" : (who.name ?? name));
   window.localStorage.setItem("runko-basic", basic);
   window.localStorage.setItem("runko-org", org);
-  // Land INSIDE the org that authenticated. A bare reload under another
-  // org's /<org> URL rebinds to THAT org instead (the path org wins at
-  // load), and with per-org accounts sharing a name+password combo the
-  // credential verifies there too - a silent sign-in as a different
-  // account (prod-observed 2026-07-16; lib/orgsession.ts).
-  const dest = postSignInPath(pathOrg, org);
-  if (dest) window.location.href = dest;
-  else window.location.reload();
+  // Land INSIDE the org that authenticated, on a URL that no longer asks
+  // for the auth page - the two ways a post-sign-in navigation strands a
+  // valid session (lib/orgsession.ts documents both prod repros).
+  // replace(), not assign(): the ?signin=1 URL must not sit in history
+  // where Back walks straight back into the gate.
+  window.location.replace(
+    postSignInPath({
+      pathOrg,
+      org,
+      pathname: window.location.pathname,
+      search: window.location.search,
+      hash: window.location.hash,
+    }),
+  );
 }
 
 /** Whether this control plane offers self-service sign-up (§15.1),
