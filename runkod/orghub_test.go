@@ -460,7 +460,7 @@ func TestOrgSettingsChecksGateMerge(t *testing.T) {
 // now: per-org email invites are the recorded follow-up) - and a rejected
 // org never strands a half-created account.
 func TestSignupWithOrg(t *testing.T) {
-	srv, _ := newTestHub(t, true)
+	srv, hub := newTestHub(t, true)
 
 	// No org at all: refused, nothing created.
 	status, body := hubDo(t, srv, "POST", "/api/signup", "", "", "",
@@ -486,11 +486,23 @@ func TestSignupWithOrg(t *testing.T) {
 		t.Fatalf("join of unknown org: %d %v", status, body)
 	}
 
+	// A malformed optional email is refused by the hub path too, and (like
+	// every rejection above) creates nothing - carol signs up cleanly next.
+	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
+		map[string]string{"name": "carol", "password": "carolpw123", "org": "carols-org", "org_mode": "create", "email": "carol@"})
+	if status != http.StatusBadRequest || body["Code"] != "invalid_email" {
+		t.Fatalf("signup with a malformed email: %d %v", status, body)
+	}
+
 	// The same account name still signs up cleanly - nothing was created.
 	status, body = hubDo(t, srv, "POST", "/api/signup", "", "", "",
-		map[string]string{"name": "carol", "password": "carolpw123", "org": "carols-org", "org_mode": "create"})
+		map[string]string{"name": "carol", "password": "carolpw123", "org": "carols-org", "org_mode": "create", "email": "carol@example.com"})
 	if status != http.StatusCreated {
 		t.Fatalf("signup with org: %d %v", status, body)
+	}
+	// The address travels the hub path into the account's own org row.
+	if sp, found, err := hub.Directory.GetStoredPrincipal(t.Context(), "carols-org", "carol"); err != nil || !found || sp.Email != "carol@example.com" {
+		t.Fatalf("carol's stored email: %+v found=%v err=%v", sp, found, err)
 	}
 	orgResp := body["org"].(map[string]any)
 	if orgResp["name"] != "carols-org" || orgResp["role"] != "admin" {

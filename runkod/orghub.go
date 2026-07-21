@@ -357,12 +357,13 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 		Password string `json:"password"`
 		Code     string `json:"code"`
+		Email    string `json:"email"` // optional (signup.go)
 		Org      string `json:"org"`
 		OrgMode  string `json:"org_mode"` // "create" | "join"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
-			Code: "bad_request", Message: "body must be JSON: {name, password, code?, org, org_mode}",
+			Code: "bad_request", Message: "body must be JSON: {name, password, code?, email?, org, org_mode}",
 		}))
 		return
 	}
@@ -435,7 +436,7 @@ func (h *OrgHub) handleSignup(w http.ResponseWriter, r *http.Request) {
 	// used to strand its account - real, valid, member of nothing, and
 	// 409ed on every retry. Re-presenting the SAME name+password now
 	// recovers instead: the account half no-ops and the org half runs.
-	recovered, apiErr := h.Default.signupOrRecoverCore(r.Context(), signupRequest{Name: req.Name, Password: req.Password, Code: req.Code, org: req.Org})
+	recovered, apiErr := h.Default.signupOrRecoverCore(r.Context(), signupRequest{Name: req.Name, Password: req.Password, Code: req.Code, Email: req.Email, org: req.Org})
 	if apiErr != nil {
 		writeAPIError(w, apiErr)
 		return
@@ -834,7 +835,7 @@ func (h *OrgHub) handleCreateOrg(w http.ResponseWriter, r *http.Request) {
 					if !verifyCredential(pass, sp.CredentialHash) {
 						continue
 					}
-					if err := h.Default.Store.CreatePrincipal(r.Context(), body.Name, creator, sp.CredentialHash); err != nil {
+					if err := h.Default.Store.CreatePrincipal(r.Context(), body.Name, creator, sp.CredentialHash, sp.Email); err != nil {
 						writeAPIError(w, internalErr(fmt.Errorf("org created, but copying your account into it failed: %w", err)))
 						return
 					}

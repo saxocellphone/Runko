@@ -592,6 +592,7 @@ type Principal struct {
 	CredentialHash string             `json:"credential_hash"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	OrgID          uuid.UUID          `json:"org_id"`
+	Email          *string            `json:"email"`
 }
 
 type Project struct {

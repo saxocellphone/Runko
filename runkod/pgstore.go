@@ -1414,12 +1414,29 @@ func (s *PostgresStore) CountLiveInviteRequests(ctx context.Context) (int, error
 
 var _ Store = (*PostgresStore)(nil)
 
-func (s *PostgresStore) CreatePrincipal(ctx context.Context, org, name, credentialHash string) error {
+// nullableText maps the daemon's "" (not given) onto a NULL column and
+// back: principals.email (0022) is optional, and storing "" instead of
+// NULL would make "has an address" a two-value test forever.
+func nullableText(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func textOrEmpty(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func (s *PostgresStore) CreatePrincipal(ctx context.Context, org, name, credentialHash, email string) error {
 	// Per-org since migration 0017: the row binds to its org; every org's
 	// PostgresStore shares the pool, so any of them answers for any org's
 	// rows given the org name.
 	_, err := s.Queries.CreatePrincipal(ctx, s.Pool, dbgen.CreatePrincipalParams{
-		OrgName: org, Name: name, CredentialHash: credentialHash,
+		OrgName: org, Name: name, CredentialHash: credentialHash, Email: nullableText(email),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		// The INSERT..SELECT matched no org row - a missing org must fail
@@ -1442,7 +1459,7 @@ func (s *PostgresStore) GetStoredPrincipal(ctx context.Context, org, name string
 	if err != nil {
 		return StoredPrincipal{}, false, fmt.Errorf("runkod: get principal %q in org %q: %w", name, org, err)
 	}
-	return StoredPrincipal{Org: org, Name: row.Name, CredentialHash: row.CredentialHash}, true, nil
+	return StoredPrincipal{Org: org, Name: row.Name, CredentialHash: row.CredentialHash, Email: textOrEmpty(row.Email)}, true, nil
 }
 
 func (s *PostgresStore) ListPrincipalOrgs(ctx context.Context, name string) ([]StoredPrincipal, error) {
@@ -1452,7 +1469,7 @@ func (s *PostgresStore) ListPrincipalOrgs(ctx context.Context, name string) ([]S
 	}
 	out := make([]StoredPrincipal, len(rows))
 	for i, r := range rows {
-		out[i] = StoredPrincipal{Org: r.OrgName, Name: name, CredentialHash: r.CredentialHash}
+		out[i] = StoredPrincipal{Org: r.OrgName, Name: name, CredentialHash: r.CredentialHash, Email: textOrEmpty(r.Email)}
 	}
 	return out, nil
 }

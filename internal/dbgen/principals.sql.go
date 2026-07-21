@@ -11,24 +11,32 @@ import (
 
 const createPrincipal = `-- name: CreatePrincipal :one
 
-INSERT INTO principals (org_id, name, credential_hash)
-SELECT o.id, $1::text, $2::text
-FROM orgs o WHERE o.name = $3::text
-RETURNING id, name, credential_hash, created_at, org_id
+INSERT INTO principals (org_id, name, credential_hash, email)
+SELECT o.id, $1::text, $2::text, $3::text
+FROM orgs o WHERE o.name = $4::text
+RETURNING id, name, credential_hash, created_at, org_id, email
 `
 
 type CreatePrincipalParams struct {
-	Name           string `json:"name"`
-	CredentialHash string `json:"credential_hash"`
-	OrgName        string `json:"org_name"`
+	Name           string  `json:"name"`
+	CredentialHash string  `json:"credential_hash"`
+	Email          *string `json:"email"`
+	OrgName        string  `json:"org_name"`
 }
 
 // Self-service principals (§15.1 sign-up; db/migrations/0004).
 // PER-ORG since 0017 (superseding 0007's global rows): an account is
 // (org, name, credential) - the same name in two orgs is two independent
 // accounts. org_members (orgs.sql) stays the access/role gate.
+// email is optional (0022): callers pass NULL for "not given", never an
+// empty string.
 func (q *Queries) CreatePrincipal(ctx context.Context, db DBTX, arg CreatePrincipalParams) (*Principal, error) {
-	row := db.QueryRow(ctx, createPrincipal, arg.Name, arg.CredentialHash, arg.OrgName)
+	row := db.QueryRow(ctx, createPrincipal,
+		arg.Name,
+		arg.CredentialHash,
+		arg.Email,
+		arg.OrgName,
+	)
 	var i Principal
 	err := row.Scan(
 		&i.ID,
@@ -36,12 +44,13 @@ func (q *Queries) CreatePrincipal(ctx context.Context, db DBTX, arg CreatePrinci
 		&i.CredentialHash,
 		&i.CreatedAt,
 		&i.OrgID,
+		&i.Email,
 	)
 	return &i, err
 }
 
 const getPrincipalByOrgAndName = `-- name: GetPrincipalByOrgAndName :one
-SELECT p.id, p.name, p.credential_hash, p.created_at, p.org_id FROM principals p
+SELECT p.id, p.name, p.credential_hash, p.created_at, p.org_id, p.email FROM principals p
 JOIN orgs o ON o.id = p.org_id
 WHERE o.name = $1::text AND p.name = $2::text
 `
@@ -60,20 +69,22 @@ func (q *Queries) GetPrincipalByOrgAndName(ctx context.Context, db DBTX, arg Get
 		&i.CredentialHash,
 		&i.CreatedAt,
 		&i.OrgID,
+		&i.Email,
 	)
 	return &i, err
 }
 
 const listPrincipalOrgsByName = `-- name: ListPrincipalOrgsByName :many
-SELECT o.name AS org_name, p.credential_hash FROM principals p
+SELECT o.name AS org_name, p.credential_hash, p.email FROM principals p
 JOIN orgs o ON o.id = p.org_id
 WHERE p.name = $1::text
 ORDER BY o.name
 `
 
 type ListPrincipalOrgsByNameRow struct {
-	OrgName        string `json:"org_name"`
-	CredentialHash string `json:"credential_hash"`
+	OrgName        string  `json:"org_name"`
+	CredentialHash string  `json:"credential_hash"`
+	Email          *string `json:"email"`
 }
 
 // Every org holding an account with this name - the hub's cross-org
@@ -88,7 +99,7 @@ func (q *Queries) ListPrincipalOrgsByName(ctx context.Context, db DBTX, name str
 	var items []*ListPrincipalOrgsByNameRow
 	for rows.Next() {
 		var i ListPrincipalOrgsByNameRow
-		if err := rows.Scan(&i.OrgName, &i.CredentialHash); err != nil {
+		if err := rows.Scan(&i.OrgName, &i.CredentialHash, &i.Email); err != nil {
 			return nil, err
 		}
 		items = append(items, &i)

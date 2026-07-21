@@ -13,7 +13,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"regexp"
+	"strings"
 
 	"github.com/saxocellphone/runko/internal/clierr"
 )
@@ -24,10 +26,29 @@ var principalNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{1,62}$
 
 const minPasswordLength = 8
 
+// maxEmailLength: RFC 5321's path limit; net/mail validates the shape.
+const maxEmailLength = 254
+
+// validBareEmail accepts only the bare-address form - "you@example.com",
+// never `You <you@example.com>` and never anything carrying CR/LF, which
+// would otherwise ride into a mail header. Shared by sign-up (optional
+// field) and the invite intake (required one, invite.go).
+func validBareEmail(email string) bool {
+	parsed, err := mail.ParseAddress(email)
+	return err == nil && parsed.Address == email && len(email) <= maxEmailLength
+}
+
 type signupRequest struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
 	Code     string `json:"code"`
+	// Email is OPTIONAL (2026-07-20, user direction: "optional for now,
+	// but in the future we might make it required") - omitted or "" is a
+	// complete request, a present value must be a real bare address.
+	// Collected for the flows that will need a way to reach a human
+	// (invites, recovery); nothing authenticates on it, and no read
+	// surface returns it yet.
+	Email string `json:"email"`
 	// org scopes the account (migration 0017: per-org identity). Set by
 	// the caller - the hub passes the signup's target org, the plain
 	// default-server handler passes its own OrgName - never decoded from
@@ -66,6 +87,17 @@ func (s *Server) signupCore(ctx context.Context, req signupRequest) *apiError {
 			Suggestion: "pick a longer one - it is your only credential here",
 		})
 	}
+	// Optional, but not "anything goes": a stored junk address is worse
+	// than none the day something mails it, so a PRESENT value gets the
+	// invite intake's bare-address rule.
+	email := strings.TrimSpace(req.Email)
+	if email != "" && !validBareEmail(email) {
+		return typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "invalid_email", Field: "email",
+			Message:    "email must be a plain address like you@example.com",
+			Suggestion: "fix it, or leave it out - email is optional for now",
+		})
+	}
 
 	// Operator-configured names are reserved: config always wins lookups,
 	// so a colliding signup would be a confusing dead row at best and a
@@ -101,7 +133,7 @@ func (s *Server) signupCore(ctx context.Context, req signupRequest) *apiError {
 	if err != nil {
 		return internalErr(err)
 	}
-	if err := s.Store.CreatePrincipal(ctx, req.org, req.Name, hash); err != nil {
+	if err := s.Store.CreatePrincipal(ctx, req.org, req.Name, hash, email); err != nil {
 		// A racing duplicate insert lands here via the unique constraint.
 		return nameTaken
 	}
@@ -116,7 +148,11 @@ func (s *Server) signupCore(ctx context.Context, req signupRequest) *apiError {
 // no-op instead of a 409, and the caller proceeds to the org half. The
 // front gates (signup enabled, invite code) apply unchanged, and a
 // non-matching password keeps the name_taken contract - recovery never
-// becomes an oracle beyond what sign-in already answers.
+// becomes an oracle beyond what sign-in already answers. A recovered
+// account is left EXACTLY as it stands, email included: this path exists
+// to unstrand an interrupted signup, not to edit an existing account
+// (that wants an authenticated account-settings verb, not an
+// unauthenticated one that only has to guess a password to write).
 func (s *Server) signupOrRecoverCore(ctx context.Context, req signupRequest) (recovered bool, apiErr *apiError) {
 	if lookup := s.accountLookup(); lookup != nil && s.AllowSignup &&
 		(s.SignupCode == "" || constantTimeEquals(req.Code, s.SignupCode)) {
@@ -160,7 +196,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	var req signupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
-			Code: "bad_request", Message: "body must be JSON: {name, password, code?}",
+			Code: "bad_request", Message: "body must be JSON: {name, password, code?, email?}",
 		}))
 		return
 	}
