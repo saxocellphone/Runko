@@ -101,7 +101,13 @@ export const projects: ProjectDetail[] = [
 
 // ----------------------------------------------------------------- changes
 
-const val = { type: ActorType.USER, id: "val" };
+// The playground persona: the demo viewer IS val (api/client.ts sets
+// authUser to this under the demo), so signed-in surfaces - the
+// Needs-you tab, "(you)" chips, approve-as-yourself - work exactly as
+// they do on a live deployment.
+export const DEMO_USER = "val";
+
+const val = { type: ActorType.USER, id: DEMO_USER };
 const priya = { type: ActorType.USER, id: "priya" };
 const refactorBot = { type: ActorType.AGENT, id: "refactor-bot" };
 

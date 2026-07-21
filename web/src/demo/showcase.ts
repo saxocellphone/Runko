@@ -525,19 +525,33 @@ export const SHOWCASE: Beat[] = [
     at: 0.68,
     focus: { route: `/changes/${CHANGE_B_ID}`, selector: '[data-tour="merge-gates"]' },
     caption: {
-      title: "Review requested — from a human",
+      title: "Review requested — from humans",
       body:
-        "The agent asked priya (group:commerce) for review. Agents can comment but NEVER approve — least of all their own work. That rule lives in the server, not the prompt.",
+        "The agent asked priya (group:commerce) for review, and you — val — for a sanity check. Agents can comment but NEVER approve — least of all their own work. That rule lives in the server, not the prompt.",
     },
     apply: (state) => {
       for (const id of [CHANGE_A_ID, CHANGE_B_ID]) {
         if (!state.changes.has(id)) continue;
         const requests = state.reviewRequests.get(id) ?? new Map<string, string>();
         requests.set("priya", AGENT);
+        // The viewer plays val (api/client.ts DEMO_USER): being asked
+        // puts these changes in YOUR Needs-you tab - the next beat
+        // points at it.
+        requests.set("val", AGENT);
         state.reviewRequests.set(id, requests);
         recomputeAttention(state, id);
       }
     },
+  },
+  {
+    at: 0.71,
+    focus: { route: "/changes", selector: ".tabs .tab:first-child" },
+    caption: {
+      title: "Your inbox knows it's your turn",
+      body:
+        "You're val in this playground, and the Needs-you tab just counted the two changes waiting on you. Attention is derived — who was asked, who responded, at which commit — never hand-managed.",
+    },
+    apply: () => {},
   },
   {
     at: 0.74,
