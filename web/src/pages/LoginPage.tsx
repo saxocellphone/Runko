@@ -44,8 +44,11 @@ export function LoginPage() {
   // prefill the last org this browser used.
   const [org, setOrg] = useState(() => pathOrg || window.localStorage.getItem("runko-org") || "");
   const [orgMode, setOrgMode] = useState<"create" | "join">("create");
-  // Invite-request mode's own fields; `website` is the honeypot (rendered
-  // off-screen, humans leave it empty).
+  // `email` is shared by the invite request (required there) and sign-up
+  // (optional, 2026-07-20) - the modes are mutually exclusive, and
+  // carrying the address across "got the code? create your account"
+  // saves retyping it. `website` is the honeypot (rendered off-screen,
+  // humans leave it empty).
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [website, setWebsite] = useState("");
@@ -82,6 +85,7 @@ export function LoginPage() {
           code.trim(),
           org.trim(),
           config.orgCreateEnabled ? orgMode : "join",
+          email.trim(),
         );
       } else {
         await signIn(name.trim(), password, org.trim());
@@ -199,6 +203,20 @@ export function LoginPage() {
             )}
             {signingUp && (
               <p className="login-hint">At least 8 characters — it's your only credential here.</p>
+            )}
+            {/* Optional today (migration 0022): the form must stay
+                completable without it, so nothing here gates submit. */}
+            {signingUp && (
+              <label className="login-label">
+                Email (optional)
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  placeholder="you@example.com"
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
             )}
             {signingUp && (
               <>

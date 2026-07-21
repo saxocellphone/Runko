@@ -363,18 +363,20 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
  * joining an existing one (orgMode "join": open to anyone for now; per-org
  * invites are the planned tightening). Signs in on success and lands the
  * browser inside that org. Throws the server's structured message on
- * rejection. */
+ * rejection. `email` is optional (migration 0022): "" is a complete
+ * signup and stores no address. */
 export async function signUp(
   name: string,
   password: string,
   code: string,
   org: string,
   orgMode: "create" | "join",
+  email = "",
 ): Promise<void> {
   const res = await fetch(new URL("api/signup", baseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, password, code, org, org_mode: orgMode }),
+    body: JSON.stringify({ name, password, code, org, org_mode: orgMode, email }),
   });
   if (!res.ok) await throwStructured(res, "sign-up failed");
   const d = (await res.json()) as { org?: { name?: string } };
