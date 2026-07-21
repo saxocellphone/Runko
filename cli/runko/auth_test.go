@@ -259,13 +259,26 @@ func TestAuthSignupRegistersAndStoresOrgScopedCredential(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	srv, lastSignup := signupStub(t)
 
-	// Password can come from the (hidden) prompt, like auth login.
+	// Password can come from the (hidden) prompt, like auth login. Email
+	// is optional and NEVER prompts: omitting it must leave signup fully
+	// non-interactive past the password, and send an empty field the
+	// server reads as "not given".
 	if _, err := AuthSignup(context.Background(), srv.Client(), srv.URL,
-		"val", "", "acme", "create", "", bufio.NewReader(strings.NewReader("hunter2hunter2\n")), os.Stdout); err != nil {
+		"val", "", "acme", "create", "", "", bufio.NewReader(strings.NewReader("hunter2hunter2\n")), os.Stdout); err != nil {
 		t.Fatalf("AuthSignup: %v", err)
 	}
-	if (*lastSignup)["org_mode"] != "create" || (*lastSignup)["password"] != "hunter2hunter2" {
+	if (*lastSignup)["org_mode"] != "create" || (*lastSignup)["password"] != "hunter2hunter2" || (*lastSignup)["email"] != "" {
 		t.Fatalf("signup body: %v", *lastSignup)
+	}
+
+	// --email travels in the body when given.
+	if _, err := AuthSignup(context.Background(), srv.Client(), srv.URL,
+		"val", "hunter2hunter2", "acme", "create", "", "val@example.com",
+		bufio.NewReader(strings.NewReader("")), os.Stdout); err != nil {
+		t.Fatalf("AuthSignup with --email: %v", err)
+	}
+	if (*lastSignup)["email"] != "val@example.com" {
+		t.Fatalf("signup body should carry the email: %v", *lastSignup)
 	}
 	cred, found, err := loadCredential()
 	if err != nil || !found {
@@ -288,7 +301,7 @@ func TestAuthSignupRefusalIsStructuredAndStoresNothing(t *testing.T) {
 	defer srv.Close()
 
 	_, err := AuthSignup(context.Background(), srv.Client(), srv.URL,
-		"val", "hunter2hunter2", "acme", "create", "", bufio.NewReader(strings.NewReader("")), os.Stdout)
+		"val", "hunter2hunter2", "acme", "create", "", "", bufio.NewReader(strings.NewReader("")), os.Stdout)
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "org_exists" {
 		t.Fatalf("want org_exists, got %v", err)

@@ -254,10 +254,13 @@ func AuthLogin(ctx context.Context, client *http.Client, url, name, secret strin
 // the org it created or joined - signup IS login (§6.10's golden path), so
 // first contact with a Runko needs neither the web UI nor a second auth
 // step. hubURL is the HOST root (the hub serves signup), not an /o/<org>
-// mount - the org half travels in the body. The refusal shapes are the
-// server's structured ones (signup_disabled, org_exists, weak_password,
-// ...), relayed as-is by apiJSON.
-func AuthSignup(ctx context.Context, client *http.Client, hubURL, name, password, org, orgMode, code string, prompt *bufio.Reader, out *os.File) (Credential, error) {
+// mount - the org half travels in the body. email is OPTIONAL (2026-07-20,
+// migration 0022): "" is a complete signup and is simply not stored, so
+// unlike password this never prompts - a scripted first contact stays one
+// non-interactive command. The refusal shapes are the server's structured
+// ones (signup_disabled, org_exists, weak_password, invalid_email, ...),
+// relayed as-is by apiJSON.
+func AuthSignup(ctx context.Context, client *http.Client, hubURL, name, password, org, orgMode, code, email string, prompt *bufio.Reader, out *os.File) (Credential, error) {
 	if password == "" {
 		fmt.Fprintf(out, "choose a password for %s: ", name)
 		s, err := readSecret(prompt, out)
@@ -272,7 +275,7 @@ func AuthSignup(ctx context.Context, client *http.Client, hubURL, name, password
 		Org  OrgInfo `json:"org"`
 	}
 	if err := apiJSON(ctx, client, http.MethodPost, base+"/api/signup", "",
-		map[string]string{"name": name, "password": password, "org": org, "org_mode": orgMode, "code": code}, &resp); err != nil {
+		map[string]string{"name": name, "password": password, "org": org, "org_mode": orgMode, "code": code, "email": email}, &resp); err != nil {
 		return Credential{}, err
 	}
 	cred := Credential{URL: base + resp.Org.APIBase, Name: name, Secret: password}
