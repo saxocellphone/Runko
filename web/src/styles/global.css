@@ -541,6 +541,9 @@ a.btn:hover {
   margin-bottom: 16px;
 }
 .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font: inherit;
   font-size: 12.5px;
   font-weight: 550;
@@ -555,6 +558,19 @@ a.btn:hover {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow);
+}
+/* The count that makes the attention tab worth having: it has to read from
+   the other tabs too, so it keeps its amber whether or not it is active. */
+.tab-count {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 17px;
+  min-width: 17px;
+  text-align: center;
 }
 .load-more {
   display: flex;
@@ -2519,9 +2535,6 @@ tr.thread-row > td {
 }
 .attention-you {
   font-weight: 600;
-}
-.attention-inbox {
-  border-color: var(--amber, #d4a72c);
 }
 .muted {
   color: var(--text-3);
