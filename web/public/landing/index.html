@@ -19,7 +19,6 @@
     --bg: #f7f7f8; --surface: #ffffff; --border: #e3e3e8;
     --text: #1a1a1f; --text-2: #5b5b66; --accent: #008a05; --accent-strong: #006e04;
     --font: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
-    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -55,10 +54,6 @@
   .lede { margin-top: 18px; font-size: clamp(16px, 2.2vw, 17.5px); color: var(--text-2); }
   .cta { margin-top: 28px; }
   .cta-note { margin-top: 12px; font-size: 14px; color: var(--text-2); }
-
-  /* The one flourish: the product's vernacular is a terminal. */
-  .terminal { margin-top: 36px; background: #16161c; color: #d6d6df; border: 1px solid #2e2e36; border-radius: 10px; font-family: var(--mono); font-size: 13px; line-height: 1.75; padding: 14px 18px; overflow-x: auto; white-space: pre; }
-  .terminal .c { color: #6f6f7e; } .terminal .g { color: #00c805; }
 
   .contact { margin-top: clamp(48px, 9vw, 80px); border-top: 1px solid var(--border); padding-top: clamp(32px, 6vw, 44px); }
   .contact h2 { font-size: 21px; letter-spacing: -0.015em; }
@@ -111,8 +106,6 @@
       <a class="btn primary" href="/changes?invite=1">Request an invite</a>
       <p class="cta-note">This instance is invite-only — ask and the code arrives by email. Or poke around first: the <a href="/demo/" title="Runs entirely in your browser on sample data">playground</a> runs on sample data in your browser, and <a href="/runko" title="Runko develops on Runko">this instance's own source</a> is open to read.</p>
     </div>
-<pre class="terminal"><span class="g">$</span> git clone … &amp;&amp; docker compose up
-  <span class="c"># your own control plane in ~2 minutes</span></pre>
 
     <section class="contact" id="contact" aria-labelledby="contact-h">
       <h2 id="contact-h">Contact</h2>
