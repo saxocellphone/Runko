@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -214,25 +215,74 @@ func (d *deployer) apply(ctx context.Context, hook checks.DeployImagesReadyWebho
 	}
 	msg := fmt.Sprintf("monorepo-platform: image bump from runko@%s", short(hook.Deploy.TrunkSHA))
 	body := fmt.Sprintf("Runko-driven GitOps write-back (deploy.images_ready). Change: %s. Provenance: %s", hook.Deploy.ChangeKey, hook.Deploy.Provenance)
-	if err := d.git(ctx, dir,
-		"-c", "user.name=runko-release", "-c", "user.email=runko-release@users.noreply.github.com",
-		"commit", "-m", msg, "-m", body); err != nil {
+	if err := d.git(ctx, dir, asRunkoRelease("commit", "-m", msg, "-m", body)...); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
 	if err := d.setPushAuth(ctx, dir); err != nil {
 		return err
 	}
-	// Rebase-retry to survive a concurrent human push to the deploy repo.
-	for i := 0; i < 3; i++ {
-		if err := d.git(ctx, dir, "push", "origin", "HEAD:"+d.branch); err == nil {
-			log.Printf("runko-deployer: %s: pushed image bump to %s", short(hook.Deploy.TrunkSHA), d.repoURL)
+	if err := d.pushBump(ctx, dir); err != nil {
+		return err
+	}
+	log.Printf("runko-deployer: %s: pushed image bump to %s", short(hook.Deploy.TrunkSHA), d.repoURL)
+	return nil
+}
+
+// pushAttempts: the first push, plus two rebase-and-retry rounds for a
+// human pushing to the deploy repo in the same instant.
+const pushAttempts = 3
+
+// asRunkoRelease prefixes a git command with the committer identity.
+// It rides EVERY command that writes a commit, the rebase included: the
+// container has no git config to fall back on (HOME is an emptyDir), and
+// a rebase replaying our own commit demands an identity exactly as the
+// commit did - so the retry path would have died on "Committer identity
+// unknown" the first time a human raced us.
+func asRunkoRelease(args ...string) []string {
+	return append([]string{
+		"-c", "user.name=runko-release",
+		"-c", "user.email=runko-release@users.noreply.github.com",
+	}, args...)
+}
+
+// pushBump publishes the pin commit, rebasing onto a deploy repo that
+// moved under us. EVERY failure carries git's own stderr out: this
+// wrapper used to answer a bare "could not push the bump after 3
+// attempts" for any cause at all, and when prod's deploy repo grew a
+// `protect-main` ruleset whose `update` rule admits only bypass actors,
+// that message was all four dead-lettered deliveries left behind - the
+// actual "refusing to allow ... protected branch" line was discarded
+// three times per delivery, and finding it meant going to the GitHub
+// API instead of the log (2026-07-21).
+func (d *deployer) pushBump(ctx context.Context, dir string) error {
+	var pushErr error
+	for i := 0; i < pushAttempts; i++ {
+		if pushErr = d.git(ctx, dir, "push", "origin", "HEAD:"+d.branch); pushErr == nil {
 			return nil
 		}
-		if err := d.git(ctx, dir, "pull", "--rebase", "origin", d.branch); err != nil {
-			return fmt.Errorf("rebase before push retry: %w", err)
+		// Only a race is worth a second try. A rejection on policy, a
+		// bad credential, a full quota - those fail identically every
+		// time, so retrying just triples the noise and delays the
+		// report of a message the operator has to act on anyway.
+		if !racyPushRejection(pushErr) {
+			return fmt.Errorf("push rejected, and not by a race - retrying cannot help: %w", pushErr)
+		}
+		if err := d.git(ctx, dir, asRunkoRelease("pull", "--rebase", "origin", d.branch)...); err != nil {
+			return fmt.Errorf("rebase before push retry (push said: %v): %w", pushErr, err)
 		}
 	}
-	return fmt.Errorf("could not push the bump after 3 attempts")
+	return fmt.Errorf("could not push the bump after %d attempts: %w", pushAttempts, pushErr)
+}
+
+// racyPushRejection: the remote moved under us, which is precisely what
+// the rebase-retry exists for. Matched on git's own wording - these
+// three phrases have been stable across every git that satisfies the
+// repo's >= 2.40 floor.
+func racyPushRejection(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "fetch first") ||
+		strings.Contains(s, "non-fast-forward") ||
+		strings.Contains(s, "Updates were rejected")
 }
 
 func (d *deployer) git(ctx context.Context, dir string, args ...string) error {
@@ -273,7 +323,13 @@ func (d *deployer) setPushAuth(ctx context.Context, dir string) error {
 		return nil
 	}
 	authed := "https://x-access-token:" + tok + "@" + strings.TrimPrefix(d.repoURL, "https://")
-	return d.git(ctx, dir, "remote", "set-url", "origin", authed)
+	if err := d.git(ctx, dir, "remote", "set-url", "origin", authed); err != nil {
+		// The one call that DOES carry the credential in argv, and
+		// git() quotes argv back on failure - so redact before this
+		// becomes a log line. (The push itself names only "origin".)
+		return errors.New(strings.ReplaceAll(err.Error(), tok, "<token>"))
+	}
+	return nil
 }
 
 func short(sha string) string {
