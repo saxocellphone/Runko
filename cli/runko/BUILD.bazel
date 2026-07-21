@@ -6,6 +6,7 @@ go_library(
         "agent.go",
         "agentevent.go",
         "agenthooks.go",
+        "agentskill.go",
         "approve.go",
         "auth.go",
         "change.go",
@@ -59,6 +60,7 @@ go_test(
     srcs = [
         "agentevent_test.go",
         "agenthooks_test.go",
+        "agentskill_test.go",
         "approve_test.go",
         "auth_test.go",
         "change_test.go",

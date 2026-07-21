@@ -287,8 +287,8 @@ func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, w
 		}
 		return fmt.Errorf("worktree add: %w", err)
 	}
-	if len(info.SparsePatterns) > 0 {
-		args := append([]string{"sparse-checkout", "set", "--cone"}, info.SparsePatterns...)
+	if patterns := coneWithAgentSkill(cloneDir, info.SparsePatterns, startPoint); len(patterns) > 0 {
+		args := append([]string{"sparse-checkout", "set", "--cone"}, patterns...)
 		if _, err := runGitEnv(dir, authEnv, args...); err != nil {
 			return fmt.Errorf("sparse-checkout set: %w", err)
 		}
@@ -296,7 +296,28 @@ func materializeWorktree(cloneDir, dir string, info WorkspaceInfo, startPoint, w
 	if _, err := runGitEnv(dir, authEnv, "checkout"); err != nil {
 		return fmt.Errorf("checkout: %w", err)
 	}
-	return stampCheckoutConfig(dir, true, info, wsBranch, owner)
+	if err := stampCheckoutConfig(dir, true, info, wsBranch, owner); err != nil {
+		return err
+	}
+	installAgentSkill(dir)
+	return nil
+}
+
+// installAgentSkill is the materialization-time call: an agent that lands
+// in this checkout should find the runko teaching without being told to
+// fetch it (§6.10 - the materialized environment teaches the verbs). It
+// never fails a materialization; a checkout that works without a teaching
+// file beats no checkout at all, so a problem is a warning, like the
+// verb-nudge hook's non-clobber note.
+func installAgentSkill(dir string) {
+	path, outcome, err := ensureAgentSkill(dir)
+	if err != nil {
+		fmt.Fprintf(warnWriter, "warning: could not install the runko agent skill: %v\n", err)
+		return
+	}
+	if outcome == "local" {
+		fmt.Fprintf(warnWriter, "note: wrote the runko agent skill to %s (local to this checkout, excluded from changes; this repo's tree carries none - `runko agents-md` commits one)\n", path)
+	}
 }
 
 // cloneJJCheckout lays down the standalone FULL clone a --jj workspace
@@ -365,7 +386,7 @@ func finishJJCheckout(dir string, info WorkspaceInfo, startPoint, wsBranch, owne
 			}
 		}
 	}
-	if patterns := jjSparsePatterns(dir, info.SparsePatterns, startPoint); len(patterns) > 0 {
+	if patterns := jjSparsePatterns(dir, coneWithAgentSkill(dir, info.SparsePatterns, startPoint), startPoint); len(patterns) > 0 {
 		args := []string{"sparse", "set", "--clear"}
 		for _, p := range patterns {
 			args = append(args, "--add", p)
@@ -377,7 +398,11 @@ func finishJJCheckout(dir string, info WorkspaceInfo, startPoint, wsBranch, owne
 	if _, err := runJJ(dir, "new", startPoint); err != nil {
 		return fmt.Errorf("start the working copy at %s: %w", short(startPoint), err)
 	}
-	return stampCheckoutConfig(dir, false, info, wsBranch, owner)
+	if err := stampCheckoutConfig(dir, false, info, wsBranch, owner); err != nil {
+		return err
+	}
+	installAgentSkill(dir)
+	return nil
 }
 
 // jjSparsePatterns translates the workspace cone into jj prefix patterns.
