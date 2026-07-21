@@ -408,8 +408,9 @@ type Store interface {
 	// name is taken IN THAT ORG. Operator principals (--principal) stay
 	// daemon config, server-wide, and are checked FIRST everywhere - a
 	// signup can never shadow one (the handler rejects colliding names
-	// before calling this).
-	CreatePrincipal(ctx context.Context, org, name, credentialHash string) error
+	// before calling this). email is OPTIONAL (migration 0022): "" means
+	// the person skipped it and the column stays NULL.
+	CreatePrincipal(ctx context.Context, org, name, credentialHash, email string) error
 	GetStoredPrincipal(ctx context.Context, org, name string) (StoredPrincipal, bool, error)
 
 	// Agent principals: ephemeral per-task identities (agentprincipal.go).
@@ -507,6 +508,11 @@ type StoredPrincipal struct {
 	Org            string
 	Name           string
 	CredentialHash string
+	// Email is optional (migration 0022, 2026-07-20): "" is the NULL
+	// column - an account that predates the field, or a person who
+	// skipped it. Collected, never verified, never a credential: nothing
+	// authenticates or authorizes on it.
+	Email string
 }
 
 type MemStore struct {
@@ -1128,7 +1134,7 @@ func (s *MemStore) GetWorkspace(ctx context.Context, id string) (Workspace, bool
 
 func principalKey(org, name string) string { return org + "\x00" + name }
 
-func (s *MemStore) CreatePrincipal(ctx context.Context, org, name, credentialHash string) error {
+func (s *MemStore) CreatePrincipal(ctx context.Context, org, name, credentialHash, email string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.principals == nil {
@@ -1137,7 +1143,7 @@ func (s *MemStore) CreatePrincipal(ctx context.Context, org, name, credentialHas
 	if _, taken := s.principals[principalKey(org, name)]; taken {
 		return fmt.Errorf("runkod: principal %q already exists in org %q", name, org)
 	}
-	s.principals[principalKey(org, name)] = StoredPrincipal{Org: org, Name: name, CredentialHash: credentialHash}
+	s.principals[principalKey(org, name)] = StoredPrincipal{Org: org, Name: name, CredentialHash: credentialHash, Email: email}
 	return nil
 }
 

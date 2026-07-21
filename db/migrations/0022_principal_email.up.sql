@@ -1,0 +1,12 @@
+-- Sign-up takes an email (2026-07-20, user direction: "the signup flow
+-- should include an email - optional for now, but in the future we might
+-- make it required"). NULL means the account predates the field or the
+-- person skipped it; '' is never stored, so "has an address" is a plain
+-- NOT NULL test the day it becomes required.
+--
+-- Deliberately NOT unique: uniqueness would make signup answer "does
+-- this address already have an account here", the address oracle
+-- invite_requests (0019) is careful not to be. That question belongs to
+-- the change that makes email required AND verified - which is also when
+-- a partial unique index (WHERE email IS NOT NULL) becomes cheap.
+ALTER TABLE principals ADD COLUMN email TEXT;

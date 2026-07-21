@@ -79,6 +79,12 @@ func TestSignupFlow(t *testing.T) {
 		{`{"name":"val","password":"short","code":"join-us"}`, http.StatusBadRequest},
 		{`{"name":"v!","password":"hunter2hunter2","code":"join-us"}`, http.StatusBadRequest},
 		{`{"name":"alice","password":"hunter2hunter2","code":"join-us"}`, http.StatusConflict}, // operator name reserved
+		// Email is optional (0022): absent is fine, present must be a bare
+		// address - a display-name form or a header-injecting one is not.
+		{`{"name":"eve","password":"hunter2hunter2","code":"join-us","email":"not-an-email"}`, http.StatusBadRequest},
+		{`{"name":"eve","password":"hunter2hunter2","code":"join-us","email":"Eve <eve@example.com>"}`, http.StatusBadRequest},
+		{`{"name":"eve","password":"hunter2hunter2","code":"join-us","email":"eve@example.com\r\nBcc: victim@example.com"}`, http.StatusBadRequest},
+		{`{"name":"eve","password":"hunter2hunter2","code":"join-us","email":" eve@example.com "}`, http.StatusCreated}, // trimmed, then stored
 		{`{"name":"val","password":"hunter2hunter2","code":"join-us"}`, http.StatusCreated},
 		{`{"name":"val","password":"other-password","code":"join-us"}`, http.StatusConflict}, // duplicate
 		{`{"name":"val","password":"hunter2hunter2","code":"join-us"}`, http.StatusCreated},  // same credential = idempotent recovery (finding #44)
@@ -90,6 +96,17 @@ func TestSignupFlow(t *testing.T) {
 		if resp.StatusCode != c.want {
 			t.Fatalf("signup %s: want %d, got %d: %s", c.body, c.want, resp.StatusCode, body)
 		}
+	}
+
+	// What actually landed in the store: the trimmed address for eve,
+	// nothing for the signup that omitted it. That eve's 201 came AFTER
+	// three rejected bodies with her name is itself the assertion that a
+	// bad address creates no account (it would have 409ed).
+	if sp, found, err := store.GetStoredPrincipal(t.Context(), "", "eve"); err != nil || !found || sp.Email != "eve@example.com" {
+		t.Fatalf("eve's stored email: %+v found=%v err=%v", sp, found, err)
+	}
+	if sp, found, err := store.GetStoredPrincipal(t.Context(), "", "val"); err != nil || !found || sp.Email != "" {
+		t.Fatalf("val omitted email, want empty: %+v found=%v err=%v", sp, found, err)
 	}
 
 	// The minted credential authenticates via Basic and names the caller;

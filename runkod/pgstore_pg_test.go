@@ -591,30 +591,41 @@ func TestPostgresStorePrincipalRoundTrip(t *testing.T) {
 	if _, found, err := store.GetStoredPrincipal(ctx, org, "val"); err != nil || found {
 		t.Fatalf("empty table: found=%v err=%v", found, err)
 	}
-	if err := store.CreatePrincipal(ctx, org, "val", "pbkdf2-sha256$1$c2FsdA$aGFzaA"); err != nil {
+	if err := store.CreatePrincipal(ctx, org, "val", "pbkdf2-sha256$1$c2FsdA$aGFzaA", "val@example.com"); err != nil {
 		t.Fatalf("CreatePrincipal: %v", err)
 	}
 	sp, found, err := store.GetStoredPrincipal(ctx, org, "val")
-	if err != nil || !found || sp.Name != "val" || sp.CredentialHash != "pbkdf2-sha256$1$c2FsdA$aGFzaA" {
+	if err != nil || !found || sp.Name != "val" || sp.CredentialHash != "pbkdf2-sha256$1$c2FsdA$aGFzaA" || sp.Email != "val@example.com" {
 		t.Fatalf("round trip: %+v found=%v err=%v", sp, found, err)
 	}
 	// The unique constraint backs the handler's race path - per org
 	// (migration 0017), so the same name in ANOTHER org is fine.
-	if err := store.CreatePrincipal(ctx, org, "val", "other"); err == nil {
+	if err := store.CreatePrincipal(ctx, org, "val", "other", ""); err == nil {
 		t.Fatalf("duplicate CreatePrincipal should error")
 	}
 	if _, err := NewOrgPostgresStore(ctx, store.Pool, "valtown", "main"); err != nil {
 		t.Fatalf("NewOrgPostgresStore: %v", err)
 	}
-	if err := store.CreatePrincipal(ctx, "valtown", "val", "other-hash"); err != nil {
+	// Email is optional (0022): "" stores NULL and reads back as "".
+	if err := store.CreatePrincipal(ctx, "valtown", "val", "other-hash", ""); err != nil {
 		t.Fatalf("same name in another org must be allowed: %v", err)
+	}
+	if sp, found, err := store.GetStoredPrincipal(ctx, "valtown", "val"); err != nil || !found || sp.Email != "" {
+		t.Fatalf("omitted email should read back empty: %+v found=%v err=%v", sp, found, err)
 	}
 	rows, err := store.ListPrincipalOrgs(ctx, "val")
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("ListPrincipalOrgs: %+v %v", rows, err)
 	}
+	// ListPrincipalOrgs carries the address too - the org-create path
+	// clones an account into its new org with it (orghub.go).
+	for _, r := range rows {
+		if want := map[string]string{org: "val@example.com", "valtown": ""}[r.Org]; r.Email != want {
+			t.Fatalf("ListPrincipalOrgs email for %q: want %q, got %q", r.Org, want, r.Email)
+		}
+	}
 	// A missing org row fails loudly instead of inserting nothing.
-	if err := store.CreatePrincipal(ctx, "no-such-org", "val", "h"); err == nil {
+	if err := store.CreatePrincipal(ctx, "no-such-org", "val", "h", ""); err == nil {
 		t.Fatalf("CreatePrincipal into an unknown org must error")
 	}
 }
@@ -661,7 +672,7 @@ func TestPostgresDirectoryMultiOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOrgPostgresStore(acme): %v", err)
 	}
-	if err := def.CreatePrincipal(ctx, "acme", "alice", "hash-a"); err != nil {
+	if err := def.CreatePrincipal(ctx, "acme", "alice", "hash-a", ""); err != nil {
 		t.Fatalf("CreatePrincipal: %v", err)
 	}
 	if sp, found, err := acme.GetStoredPrincipal(ctx, "acme", "alice"); err != nil || !found || sp.CredentialHash != "hash-a" {

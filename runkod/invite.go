@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/mail"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,6 @@ import (
 
 const (
 	maxInviteName    = 120
-	maxInviteEmail   = 254 // RFC 5321's path limit; net/mail validates shape
 	maxInviteMessage = 2000
 
 	// inviteRateLimit/-Window: per-IP fixed window on the public intake.
@@ -77,10 +75,9 @@ func (s *Server) inviteRequestCore(ctx context.Context, req inviteRequestBody, i
 		})
 	}
 	email := strings.TrimSpace(req.Email)
-	// Require the bare-address form: a display name or any CR/LF here
-	// would otherwise ride into the mailer's Reply-To header.
-	parsed, err := mail.ParseAddress(email)
-	if err != nil || parsed.Address != email || len(email) > maxInviteEmail {
+	// Required here (unlike sign-up's optional field) and in the same
+	// bare-address form - validBareEmail lives in signup.go.
+	if !validBareEmail(email) {
 		return typedErr(http.StatusBadRequest, clierr.Error{
 			Code: "invalid_email", Field: "email",
 			Message:    "email must be a plain address like you@example.com",
