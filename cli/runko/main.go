@@ -1330,11 +1330,11 @@ func cmdWorkspace(args []string) error {
 	}
 }
 
-// cmdAgentsMD implements `runko agents-md`: (re)write both generated agent
-// teaching surfaces - AGENTS.md at the repo root and the loadable skill at
-// agentsmd.SkillPath - from the same command inventory (§8.8's "reference
+// cmdAgentsMD implements `runko agents-md`: (re)write every generated agent
+// teaching surface - AGENTS.md at the repo root and each skill in
+// agentsmd.Skills() - from the same command inventory (§8.8's "reference
 // prompts / skill files ... generated per monorepo", stage 11's (§28.3)
-// done-when bar; org genesis seeds the identical pair). Overwrites
+// done-when bar; org genesis seeds the identical set). Overwrites
 // unconditionally, matching how sqlc/oapi-codegen generated files in this
 // repo are treated: regenerate, don't hand-edit.
 func cmdAgentsMD(args []string) error {
@@ -1353,17 +1353,27 @@ func cmdAgentsMD(args []string) error {
 	if err := os.WriteFile(path, []byte(agentsmd.Generate()), 0o644); err != nil {
 		return fmt.Errorf("agents-md: write %s: %w", path, err)
 	}
-	skillPath := filepath.Join(*repoDir, filepath.FromSlash(agentsmd.SkillPath))
-	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
-		return fmt.Errorf("agents-md: mkdir %s: %w", filepath.Dir(skillPath), err)
-	}
-	if err := os.WriteFile(skillPath, []byte(agentsmd.GenerateSkill()), 0o644); err != nil {
-		return fmt.Errorf("agents-md: write %s: %w", skillPath, err)
+	var skillPaths []string
+	for _, s := range agentsmd.Skills() {
+		p := filepath.Join(*repoDir, filepath.FromSlash(s.Path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return fmt.Errorf("agents-md: mkdir %s: %w", filepath.Dir(p), err)
+		}
+		if err := os.WriteFile(p, []byte(s.Content), 0o644); err != nil {
+			return fmt.Errorf("agents-md: write %s: %w", p, err)
+		}
+		skillPaths = append(skillPaths, p)
 	}
 	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(map[string]string{"path": path, "skill_path": skillPath})
+		// skill_path stays the reference skill for callers written against
+		// the single-skill shape; skill_paths is the whole set.
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"path":        path,
+			"skill_path":  filepath.Join(*repoDir, filepath.FromSlash(agentsmd.SkillPath)),
+			"skill_paths": skillPaths,
+		})
 	}
-	fmt.Printf("generated %s and %s\n", path, skillPath)
+	fmt.Printf("generated %s and %s\n", path, strings.Join(skillPaths, ", "))
 	return nil
 }
 
