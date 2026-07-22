@@ -73,7 +73,6 @@ func WrapRevisionError(err error, field, value string) error {
 		Field:      field,
 		Message:    field + " " + quote(value) + " does not resolve to a commit in this repository",
 		Suggestion: "check the spelling, and that the ref/SHA has been fetched (`git fetch` may be needed)",
-		DocURL:     "docs/design.md#65-validation-ux-fix-boq-style-late-failure",
 	}
 }
 

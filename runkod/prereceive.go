@@ -304,7 +304,7 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		if _, err := p.runGit(extraEnv, "rev-parse", "--verify", "--quiet", "refs/heads/"+p.TrunkRef); err == nil {
 			return verdict{update: u, author: author, decision: receive.Decision{
 				Accepted: false,
-				RejectionMessage: "remote: changes are born in workspaces - this push declares no workspace origin (§12.2)\n" +
+				RejectionMessage: "remote: changes are born in workspaces - this push declares no workspace origin\n" +
 					"remote:   -> runko workspace create --name <n> --project <p> ... (or workspace attach <id>), then `runko change push` from that worktree\n" +
 					"remote:   -> plain git: git push -o workspace=<id> " + u.Ref + "\n",
 			}}
@@ -354,7 +354,7 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		if err != nil {
 			return verdict{update: u, author: author, decision: receive.Decision{
 				Accepted:         false,
-				RejectionMessage: fmt.Sprintf("remote: could not index projects at pushed head (§13.3.1 contract checks): %v\n", err),
+				RejectionMessage: fmt.Sprintf("remote: could not index projects at pushed head (contract checks): %v\n", err),
 			}}
 		}
 		req.Projects = contractProjects(indexed)
@@ -408,7 +408,7 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		} else if known && existing.State == "landed" {
 			return verdict{update: u, decision: receive.Decision{
 				Accepted: false,
-				RejectionMessage: fmt.Sprintf("remote: change %s has already landed - landed is terminal (§7.4)\nremote:   -> start new work as a fresh change: drop the Change-Id trailer (or `runko change create`) and push again\n",
+				RejectionMessage: fmt.Sprintf("remote: change %s has already landed - landed is terminal\nremote:   -> start new work as a fresh change: drop the Change-Id trailer (or `runko change create`) and push again\n",
 					decision.ChangeID),
 			}}
 		}
@@ -483,18 +483,18 @@ func (p *Processor) enforcePerChangeCaps(ctx context.Context, v *verdict) *verdi
 		if violations := receive.EvaluatePolicy(caps, receive.PushSummary{ChangedFiles: paths, DiffBytes: bytes}); len(violations) > 0 {
 			rej := *v
 			var b strings.Builder
-			fmt.Fprintf(&b, "remote: change %s (%q) is too big as ONE change (§8.7 agent policy):\n", m.changeID, m.title)
+			fmt.Fprintf(&b, "remote: change %s (%q) is too big as ONE change (agent policy):\n", m.changeID, m.title)
 			for _, viol := range violations {
 				fmt.Fprintf(&b, "remote:   %s\n", viol.Message)
 			}
 			b.WriteString("remote:   -> split it into a stack of smaller changes - one reviewable step each (jj split, or jj new between steps)\n")
-			b.WriteString("remote:   -> one `runko change push` still pushes the whole stack; smaller changes scope checks narrower and land faster (§7.4)\n")
+			b.WriteString("remote:   -> one `runko change push` still pushes the whole stack; smaller changes scope checks narrower and land faster\n")
 			rej.decision = receive.Decision{Accepted: false, RejectionMessage: b.String()}
 			return &rej
 		}
 
 		if (maxFiles > 0 && len(paths)*2 > maxFiles) || (maxBytes > 0 && bytes*2 > maxBytes) {
-			fmt.Fprintf(&advice, "remote: note: change %s (%q) touches %d files / %d bytes - over half the agent cap; consider splitting into a stack (§7.4)\n",
+			fmt.Fprintf(&advice, "remote: note: change %s (%q) touches %d files / %d bytes - over half the agent cap; consider splitting into a stack\n",
 				m.changeID, m.title, len(paths), bytes)
 		}
 	}
@@ -560,7 +560,7 @@ func (p *Processor) enforceOneStackPerBranch(ctx context.Context, v verdict) *ve
 		rej := v
 		rej.decision = receive.Decision{
 			Accepted: false,
-			RejectionMessage: fmt.Sprintf("remote: workspace branch %s/%s already carries an open stack including %s (%q) - one branch, one stack (§12.2)\n"+
+			RejectionMessage: fmt.Sprintf("remote: workspace branch %s/%s already carries an open stack including %s (%q) - one branch, one stack\n"+
 				"remote:   -> restack onto it and push your branch TIP so the whole stack rides along (jj rebase; runko workspace sync)\n"+
 				"remote:   -> or abandon it: runko change abandon --change %s\n"+
 				"remote:   -> or open a parallel line: runko workspace branch <name>\n",
@@ -636,14 +636,14 @@ func (p *Processor) resolveOrigin(ctx context.Context, u RefUpdate, extraEnv []s
 	if author != "" && ws.Owner != "" && author != ws.Owner {
 		return "", "", Workspace{}, &verdict{update: u, decision: receive.Decision{
 			Accepted: false,
-			RejectionMessage: fmt.Sprintf("remote: workspace %q belongs to %s - a Change cannot claim someone else's workspace as its origin (§12.2)\nremote:   -> unset runko.workspace in this worktree's git config, or attach your own workspace\n",
+			RejectionMessage: fmt.Sprintf("remote: workspace %q belongs to %s - a Change cannot claim someone else's workspace as its origin\nremote:   -> unset runko.workspace in this worktree's git config, or attach your own workspace\n",
 				wsID, ws.Owner),
 		}}
 	}
 	if ws.Status == "closed" {
 		return "", "", Workspace{}, &verdict{update: u, decision: receive.Decision{
 			Accepted: false,
-			RejectionMessage: fmt.Sprintf("remote: workspace %q is closed - its task concluded, and one workspace carries one task (§12.2)\nremote:   -> start the new task in a fresh workspace: runko workspace create --name <new> --project <p> ... --by <you>\n",
+			RejectionMessage: fmt.Sprintf("remote: workspace %q is closed - its task concluded, and one workspace carries one task\nremote:   -> start the new task in a fresh workspace: runko workspace create --name <new> --project <p> ... --by <you>\n",
 				wsID),
 		}}
 	}
@@ -758,14 +758,14 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 	if author != "" && ws.Owner != "" && author != ws.Owner {
 		return verdict{update: u, isSnapshot: true, author: author, decision: receive.Decision{
 			Accepted: false,
-			RejectionMessage: fmt.Sprintf("remote: workspace %q belongs to %s - snapshots may only be pushed by their owner (§12.2)\nremote:   -> runko workspace create --name <yours> ... to get your own\n",
+			RejectionMessage: fmt.Sprintf("remote: workspace %q belongs to %s - snapshots may only be pushed by their owner\nremote:   -> runko workspace create --name <yours> ... to get your own\n",
 				wsID, ws.Owner),
 		}}
 	}
 	if ws.Status == "closed" {
 		return verdict{update: u, isSnapshot: true, author: author, decision: receive.Decision{
 			Accepted: false,
-			RejectionMessage: fmt.Sprintf("remote: workspace %q is closed - its task concluded, and one workspace carries one task (§12.2)\nremote:   -> start the new task in a fresh workspace: runko workspace create --name <new> --project <p> ... --by <you>\n",
+			RejectionMessage: fmt.Sprintf("remote: workspace %q is closed - its task concluded, and one workspace carries one task\nremote:   -> start the new task in a fresh workspace: runko workspace create --name <new> --project <p> ... --by <you>\n",
 				wsID),
 		}}
 	}
@@ -826,7 +826,7 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 		if total > cap {
 			return verdict{update: u, isSnapshot: true, decision: receive.Decision{
 				Accepted: false,
-				RejectionMessage: fmt.Sprintf("remote: snapshot introduces %d bytes, over the %d-byte cap - build artifacts and dependency trees (node_modules, target/, .venv) must never enter snapshots (§12.2)\nremote:   -> add them to .gitignore and snapshot again\n",
+				RejectionMessage: fmt.Sprintf("remote: snapshot introduces %d bytes, over the %d-byte cap - build artifacts and dependency trees (node_modules, target/, .venv) must never enter snapshots\nremote:   -> add them to .gitignore and snapshot again\n",
 					total, cap),
 			}}
 		}
@@ -931,9 +931,9 @@ func (p *Processor) neverStreamedAdvice(ctx context.Context, wsID string) string
 	// is as likely to be at their repo root as inside the materialization,
 	// and a bare verb there fails with not_a_workspace - advice that
 	// misfires on the reader who took it is worse than none.
-	return "remote: note: this workspace never streamed while the work happened - the workspace page saw nothing until this push (§12.6)\n" +
+	return "remote: note: this workspace never streamed while the work happened - the workspace page saw nothing until this push\n" +
 		"remote:   -> runko workspace watch -w " + wsID + "          # background auto-snapshot loop; WIP shows on the workspace page live\n" +
-		"remote:   -> runko agent hooks --install -w " + wsID + "    # agents: report reads/edits/commands to the live activity feed (§12.6.1)\n"
+		"remote:   -> runko agent hooks --install -w " + wsID + "    # agents: report reads/edits/commands to the live activity feed\n"
 }
 
 func (p *Processor) commit(ctx context.Context, v verdict) RefResult {

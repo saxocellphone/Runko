@@ -68,7 +68,7 @@ func Check() error {
 		return err
 	}
 	if v.Less(Minimum) {
-		return fmt.Errorf("gitversion: found git %s, need >= %s (`git merge-tree --merge-base`, docs/design.md §28.3 stage 9a) - upgrade git", v, Minimum)
+		return fmt.Errorf("gitversion: found git %s, need >= %s (`git merge-tree --merge-base`) - upgrade git", v, Minimum)
 	}
 	return nil
 }

@@ -100,7 +100,7 @@ func Validate(intent Intent, templates TemplateSet) []ValidationError {
 		errs = append(errs, ValidationError{
 			Code: "unsupported_build_engine", Field: "build_engine",
 			Message:    fmt.Sprintf("unknown build engine %q; supported: %s", intent.BuildEngine, strings.Join(BuildEngines, ", ")),
-			Suggestion: "omit build_engine for the language default (ts -> vite, else bazel; docs/design.md §14.5.5)",
+			Suggestion: "omit build_engine for the language default (ts -> vite, else bazel)",
 		})
 	}
 	// The `build` capability declares a hermetic build-graph binding
@@ -109,7 +109,7 @@ func Validate(intent Intent, templates TemplateSet) []ValidationError {
 	if (intent.BuildEngine == BuildEngineVite || intent.BuildEngine == BuildEngineNone) && hasCapability(intent.Capabilities, "build") {
 		errs = append(errs, ValidationError{
 			Code: "invalid_combination", Field: "build_engine",
-			Message:    fmt.Sprintf("the build capability declares a qualifying build-graph binding (§14.5.4); %q is not a qualifying engine", intent.BuildEngine),
+			Message:    fmt.Sprintf("the build capability declares a qualifying build-graph binding; %q is not a qualifying engine", intent.BuildEngine),
 			Suggestion: "use build_engine bazel, or drop the explicit build capability",
 		})
 	}
@@ -119,7 +119,7 @@ func Validate(intent Intent, templates TemplateSet) []ValidationError {
 	default:
 		errs = append(errs, ValidationError{
 			Code: "unsupported_api", Field: "api",
-			Message:    fmt.Sprintf("unknown api %q; supported: grpc, rest, none (§13.3.1)", intent.API),
+			Message:    fmt.Sprintf("unknown api %q; supported: grpc, rest, none", intent.API),
 			Suggestion: "grpc scaffolds an in-boundary proto contract, rest a mandatory OpenAPI document, none records no surface",
 		})
 	}
@@ -128,7 +128,7 @@ func Validate(intent Intent, templates TemplateSet) []ValidationError {
 	if intent.Type == "service" && intent.API == "" {
 		errs = append(errs, ValidationError{
 			Code: "api_required", Field: "api",
-			Message:    "a service decides its contract surface at creation (§13.3.1)",
+			Message:    "a service decides its contract surface at creation",
 			Suggestion: "pass --api grpc|rest|none",
 		})
 	}
@@ -139,7 +139,7 @@ func Validate(intent Intent, templates TemplateSet) []ValidationError {
 		intent.Type != "service" && intent.Type != "app" {
 		errs = append(errs, ValidationError{
 			Code: "invalid_combination", Field: "api",
-			Message:    fmt.Sprintf("a %s cannot declare an API surface - grpc/rest are for services and apps (§13.3.1)", intent.Type),
+			Message:    fmt.Sprintf("a %s cannot declare an API surface - grpc/rest are for services and apps", intent.Type),
 			Suggestion: "drop --api (or pass none), or create the project as a service/app",
 		})
 	}

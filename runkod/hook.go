@@ -79,7 +79,7 @@ func PruneDanglingChangeRefs(repoDir string) error {
 // compiled shim.
 func preReceiveHookScript(runkodBin, addr, token string) string {
 	return fmt.Sprintf("#!/bin/sh\n"+
-		"# Installed by runkod (docs/design.md §28.3 stage 10, §7.4, §11.5).\n"+
+		"# Installed by runkod.\n"+
 		"# Enforces the closed-trunk write path for every push, any transport.\n"+
 		"exec %q hook pre-receive --addr %q --token %q\n",
 		runkodBin, addr, token)

@@ -94,7 +94,7 @@ func (s *Server) deleteProjectCore(ctx context.Context, name string, principal *
 	if principal != nil && principal.IsAgent {
 		return Change{}, typedErr(http.StatusForbidden, clierr.Error{
 			Code: "agents_cannot_delete_projects", Field: "auth",
-			Message:    "deleting a project is a human product action (§13.1)",
+			Message:    "deleting a project is a human product action",
 			Suggestion: "ask a human to run `runko project delete` or use the project page",
 		})
 	}

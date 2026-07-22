@@ -130,8 +130,7 @@ func (s *Server) resolveReleaseProject(name string) (index.IndexedProject, proje
 		return index.IndexedProject{}, project.ReleaseConfig{}, "", typedErr(http.StatusConflict, clierr.Error{
 			Code: "release_not_enabled", Field: "project",
 			Message:    fmt.Sprintf("project %q does not declare the release capability", name),
-			Suggestion: "add `release` to the project's capabilities (and optionally capability_config.release) - absent means no release surface (§14.10.3)",
-			DocURL:     "docs/design.md#14103-tags-and-releases-decided-2026-07-10-resolves-the-223-tag-governance-question",
+			Suggestion: "add `release` to the project's capabilities (and optionally capability_config.release) - absent means no release surface",
 		})
 	}
 	return *found, cfg, trunkTip, nil

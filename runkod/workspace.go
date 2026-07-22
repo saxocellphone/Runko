@@ -540,7 +540,7 @@ func (s *Server) deleteWorkspaceCore(ctx context.Context, id string, principal *
 	if principal != nil && !principal.Admin && ws.Owner != "" && principal.Name != ws.Owner {
 		return typedErr(http.StatusForbidden, clierr.Error{
 			Code: "not_workspace_owner", Field: "id",
-			Message:    fmt.Sprintf("workspace %q belongs to %s (§12.2)", id, ws.Owner),
+			Message:    fmt.Sprintf("workspace %q belongs to %s", id, ws.Owner),
 			Suggestion: "only the owner or an operator may delete it",
 		})
 	}

@@ -575,19 +575,19 @@ func (h *OrgHub) routeOrg(w http.ResponseWriter, r *http.Request, defaultHandler
 // the three commands that matter. All of it is ordinary tree content the
 // org evolves or deletes through ordinary Changes (tree-as-truth, §10.3).
 func genesisFiles(orgName, creator, trunkRef string) []core.FileChange {
-	rootManifest := "# Root glue project, seeded at org creation (§6.10). It owns every path\n" +
+	rootManifest := "# Root glue project, seeded at org creation. It owns every path\n" +
 		"# no deeper PROJECT.yaml claims, so every change resolves a merge policy;\n" +
 		"# carve real projects out of it with `runko project create`.\n" +
 		"schema: project/v1\n" +
 		"name: repo\n" +
 		"type: other\n"
-	owners := "# Path ownership (§7.3): the nearest OWNERS file up the tree applies\n" +
+	owners := "# Path ownership: the nearest OWNERS file up the tree applies\n" +
 		"# wherever a PROJECT.yaml names no owners itself. Seeded with the org's\n" +
 		"# creator - add teammates as they join.\n" +
 		creator + "\n"
 	contributing := "# Contributing to " + orgName + "\n\n" +
 		"Trunk (`" + trunkRef + "`) is closed to direct push: work lands as reviewed\n" +
-		"Changes (§6.9). The three commands that matter:\n\n" +
+		"Changes. The three commands that matter:\n\n" +
 		"    runko change create -m \"<what and why>\"   # commit your work as one Change\n" +
 		"    runko change push                          # submit it (and its stack) for review\n" +
 		"    runko change land --change <Change-Id>     # rebase-land once its gates are green\n\n" +
@@ -618,7 +618,7 @@ func seedGenesisCommit(repoDir, trunkRef, orgName, creator string) error {
 		return nil
 	}
 	rev, err := gstore.CommitOverlay("", core.Overlay{Changes: genesisFiles(orgName, creator, trunkRef)}, core.CommitMeta{
-		Message: fmt.Sprintf("org genesis: root manifest, OWNERS (%s), AGENTS.md, agent skill, CONTRIBUTING.md (§6.10)", creator),
+		Message: fmt.Sprintf("org genesis: root manifest, OWNERS (%s), AGENTS.md, agent skill, CONTRIBUTING.md", creator),
 	})
 	if err != nil {
 		return fmt.Errorf("genesis commit: %w", err)
@@ -756,7 +756,7 @@ func (h *OrgHub) hubCaller(r *http.Request) (caller, *apiError) {
 	}
 	if c.principal != nil && c.principal.IsAgent {
 		return c, typedErr(http.StatusForbidden, clierr.Error{
-			Code: "agent_denied", Message: "agent principals may not manage orgs (§8.7)",
+			Code: "agent_denied", Message: "agent principals may not manage orgs",
 		})
 	}
 	if c.lane != nil {
@@ -1078,7 +1078,7 @@ func (h *OrgHub) handlePutOrgSettings(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
 				Code: "restricted_projects_present", Field: "public_read",
 				Message:    fmt.Sprintf("public_read cannot be enabled while restricted projects exist: %s", strings.Join(restricted, ", ")),
-				Suggestion: "remove visibility: restricted from those manifests, or keep the org private (§15.2)",
+				Suggestion: "remove visibility: restricted from those manifests, or keep the org private",
 			}))
 			return
 		}
