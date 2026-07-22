@@ -22,6 +22,17 @@ consumed by tests as runfiles; keep it in lockstep with
 - **Structured errors everywhere** (§6.5): `{code, field, message,
   suggestion, doc_url}` with a suggestion the user can type; exit
   codes 0 (success) / 1 (recognized failure) / 2 (usage).
+- **The command shell is cobra/pflag, shaped by
+  [clig.dev](https://clig.dev)** (2026-07-22): grouped root help,
+  per-command `--help` with examples, did-you-mean suggestions,
+  generated shell completions, POSIX short/long flags (`-m`, `-w`),
+  and `--runkod-url`/`--token` as root persistent flags with a
+  uniform flags > `RUNKO_RUNKOD_URL`/`RUNKO_TOKEN` env > stored-login
+  credential rule. Command names, aliases, `--json` shapes, and exit
+  codes are contract-frozen across the redesign; cobra is the ONLY
+  sanctioned CLI-framework dependency (with its pflag/mousetrap
+  closure), and command files stay wiring-only over the platform
+  libraries.
 - **Every data-producing command takes `--json`**; human output names
   the next command rather than describing state abstractly.
 - **Raw git is transport only.** The CLI wraps the write path
@@ -64,3 +75,7 @@ description and `docs/cli-contract.md`, never here (see
 
 - **2026-07-16** — this README becomes the project's living spec;
   `docs/design.md` is retired and frozen (see [`docs/README.md`](../docs/README.md)).
+- **2026-07-22** — the hand-rolled stdlib-flag dispatch is replaced by
+  a cobra/pflag command tree per clig.dev (the first sanctioned CLI
+  framework dependency); the output contract survives byte-for-byte,
+  single-dash long flags (`-json`) do not.

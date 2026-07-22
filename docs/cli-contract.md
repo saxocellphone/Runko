@@ -15,12 +15,37 @@ doesn't require reading source to guess behavior.
 | `1` | The command was understood but failed - a structured error (see below) is printed to stderr |
 | `2` | Usage error - unknown command, wrong/missing subcommand keyword, or unparseable flags |
 
-Flag-parsing errors (bad flag names, malformed values) already exit `2` via
-Go's stdlib `flag.ExitOnError`. A recognized command with a missing
-*required* value (e.g. `project create` without `--name`) exits `1`, not
-`2` - it parsed fine syntactically; the failure is a validation error, not
-a usage error, matching how required-field errors are reported everywhere
-else in this codebase (§6.5's `required_field` code).
+Flag-parsing errors (bad flag names, malformed values) exit `2` with a
+one-line error plus a `Run 'runko <cmd> --help' for usage.` pointer. A
+recognized command with a missing *required* value (e.g. `project create`
+without `--name`) exits `1`, not `2` - it parsed fine syntactically; the
+failure is a validation error, not a usage error, matching how
+required-field errors are reported everywhere else in this codebase
+(§6.5's `required_field` code).
+
+## Command tree, help, and flag conventions (clig.dev redesign, 2026-07-22)
+
+Both CLIs are a cobra/pflag command tree; the shell of every command -
+help, completions, flag parsing - follows [clig.dev](https://clig.dev),
+while every command name, alias, `--json` shape, and exit code above is
+unchanged from the pre-cobra CLI. What scripts can rely on:
+
+- **POSIX flags.** Long flags take `--flag` (double dash); the short
+  forms are `-m` (`--message`), `-w` (`--workspace`), `-h` (`--help`),
+  and root-level `-v` (`--version`). The old stdlib-flag tolerance for
+  single-dash long forms (`-json`) is gone - every documented invocation
+  has always used `--`. Flags and positionals intersperse: both
+  `runko change resolve <id> --undo` and `... --undo <id>` parse.
+- **Global connection flags.** `--runkod-url` and `--token` are root
+  persistent flags, accepted anywhere on the line. Credentials resolve
+  flags > `RUNKO_RUNKOD_URL`/`RUNKO_TOKEN` env > the stored login - the
+  env fallback that used to be `agent event`-local is now uniform.
+- **Help.** `-h`/`--help`/`help <cmd>` print full help to stdout, exit
+  `0`. A noun command run bare (`runko change`) prints its help to
+  stderr and exits `2` (the historical usage-error contract); an unknown
+  keyword adds did-you-mean suggestions before exiting `2`.
+- **Completions.** `runko completion bash|zsh|fish|powershell` emits the
+  shell's completion script (cobra-generated; `runko-ci` likewise).
 
 ## Structured errors (§6.5)
 
@@ -75,7 +100,7 @@ schemas are.
 | `runko agent create` | `AgentIdentity` incl. `token` - shown exactly ONCE; mints an ephemeral task identity (`agent-<task>-<suffix>`, default TTL 8h, cap 168h). An agent credential is refused (`agents_cannot_mint`) - the harness or a human mints. Human mode ends with the §12.6 streaming next-commands incl. the exact env exports; never in `--json`. Needs a live runkod |
 | `runko agent list` | `[]AgentIdentity` (no tokens) - live/expired/revoked task identities - needs a live runkod |
 | `runko agent revoke` | `{"revoked"}` - immediate credential kill; the row survives for attribution - needs a live runkod |
-| `runko agent event` | `{"recorded"}` - reports one activity event (kind `read\|edit\|command\|search\|note` + detail) to the workspace's §12.6.1 live feed; `--from-hook` derives kind/detail/session from a post-tool-use hook JSON on stdin; workspace from `runko.workspace` git config; credentials fall back to `RUNKO_RUNKOD_URL`/`RUNKO_TOKEN` env (flags > env > stored login) - needs a live runkod |
+| `runko agent event` | `{"recorded"}` - reports one activity event (kind `read\|edit\|command\|search\|note` + detail) to the workspace's §12.6.1 live feed; `--from-hook` derives kind/detail/session from a post-tool-use hook JSON on stdin; workspace from `runko.workspace` git config; credentials fall back to `RUNKO_RUNKOD_URL`/`RUNKO_TOKEN` env (flags > env > stored login - since 2026-07-22 the uniform rule for every control-plane verb, not just this one) - needs a live runkod |
 | `runko agent hooks` | the ready-to-paste harness hooks JSON snippet on stdout (prerequisites on stderr); wires every post-tool-use call to `runko agent event --from-hook \|\| true`. `--install [--dir . | -w <ws>]` merges the snippet into the named (or current) workspace worktree's Claude Code `.claude/settings.local.json` instead (2026-07-14, opt-in only): foreign keys survive, an already-wired file no-ops, an unparseable one is refused (`invalid_settings`), and the file is excluded from snapshots (repo gitignore when it already covers it, else the shared clone's `info/exclude`); prints whether credentials resolve and the exact exports when they don't; `--json` (with `--install`) emits `{"path","installed"}`. Outside a workspace worktree and with no `-w`: `not_a_workspace` (the suggestion names `-w`) - local only |
 | `runko workspace delete` | `{"deleted"}` - removes the registry row and every `refs/workspaces/<id>/*` snapshot ref; refused while the workspace has OPEN changes (`workspace_has_open_changes` - land or abandon first) and owner-only for named principals (`not_workspace_owner`, operators exempt). Local checkouts are never touched - needs a live runkod |
 | `runko workspace snapshot` | `{"ref"}` - local git only (pushes to the worktree's workspace branch ref, `refs/workspaces/<id>/<branch>`; `head` is the default). In a bound jj colocated checkout the snapshot is built OUT-OF-BAND (the watch mechanics: throwaway index + commit-tree on HEAD) - never a commit on the checked-out line, which would rewrite history behind jj's back |
