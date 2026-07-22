@@ -231,6 +231,13 @@ func AuthLogin(ctx context.Context, client *http.Client, url, name, secret strin
 		}
 		secret = s
 	}
+	if name != "" {
+		// Accept the "name:token" credential form `runko agent create`
+		// prints (sibling of `workspace create --as`): strip a leading
+		// "<name>:" so a pasted composite authenticates instead of 401ing.
+		// Done before whoami so a mis-strip can never be persisted.
+		secret = agentTokenSecret(name, secret)
+	}
 	cred := Credential{URL: strings.TrimSuffix(url, "/"), Name: name, Secret: secret}
 	who, anonymous, err := whoami(ctx, client, cred)
 	if err != nil {
