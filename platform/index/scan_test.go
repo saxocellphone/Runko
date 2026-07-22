@@ -215,6 +215,84 @@ func TestScanDefaultVisibility(t *testing.T) {
 	}
 }
 
+// TestScanDeployImageAndRiders pins the §14.10 deploy-capability extraction:
+// deploy.image -> DeployImage (owner), deploy.workloads[].image -> RidesImages
+// (rider edge), with context defaulting to the project dir and the neither-
+// sub-block case staying zero-valued.
+func TestScanDeployImageAndRiders(t *testing.T) {
+	repo := gitfixture.New(t)
+	// owner: declares deploy.image with an explicit context + build_args.
+	repo.WriteFile("api/PROJECT.yaml", manifest("api", "service",
+		"capabilities:\n  - deploy\ncapability_config:\n  deploy:\n    image:\n      name: api\n      context: .\n      dockerfile: Dockerfile\n      build_args:\n        FOO: bar\n"))
+	// owner omitting context: it must default to the project dir.
+	repo.WriteFile("svc2/PROJECT.yaml", manifest("svc2", "service",
+		"capabilities:\n  - deploy\ncapability_config:\n  deploy:\n    image:\n      name: svc2\n      dockerfile: svc2/Dockerfile\n"))
+	// rider: no image of its own, a workload running from api's image.
+	repo.WriteFile("side/PROJECT.yaml", manifest("side", "service",
+		"capabilities:\n  - deploy\ncapability_config:\n  deploy:\n    workloads:\n      - name: side-worker\n        image: api\n"))
+	// deploy capability but neither sub-block: both fields stay zero-valued.
+	repo.WriteFile("bare/PROJECT.yaml", manifest("bare", "library",
+		"capabilities:\n  - deploy\n"))
+	// image sub-block with no name declares nothing rebuildable -> nil.
+	repo.WriteFile("noname/PROJECT.yaml", manifest("noname", "service",
+		"capabilities:\n  - deploy\ncapability_config:\n  deploy:\n    image:\n      context: .\n      dockerfile: Dockerfile\n"))
+	// deploy config present but the capability is NOT in `capabilities`: the
+	// hasCapability gate drops it (same posture as rpc/http) - both fields nil.
+	repo.WriteFile("nocap/PROJECT.yaml", manifest("nocap", "service",
+		"capability_config:\n  deploy:\n    image:\n      name: nocap\n      dockerfile: Dockerfile\n"))
+	head := repo.Commit("deploy manifests")
+
+	store := gitstore.New(repo.Dir)
+	projects, err := Scan(store, core.Revision(head), nil)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	byName := map[string]IndexedProject{}
+	for _, p := range projects {
+		byName[p.Name] = p
+	}
+
+	api := byName["api"]
+	if api.DeployImage == nil {
+		t.Fatalf("api: DeployImage nil, want owner")
+	}
+	if api.DeployImage.Name != "api" || api.DeployImage.Context != "." || api.DeployImage.Dockerfile != "Dockerfile" {
+		t.Fatalf("api image: got %+v", *api.DeployImage)
+	}
+	if api.DeployImage.BuildArgs["FOO"] != "bar" {
+		t.Fatalf("api build_args: want FOO=bar, got %v", api.DeployImage.BuildArgs)
+	}
+	if len(api.RidesImages) != 0 {
+		t.Fatalf("api rides: want none, got %v", api.RidesImages)
+	}
+
+	if got := byName["svc2"].DeployImage; got == nil || got.Context != "svc2" {
+		t.Fatalf("svc2 image context should default to the project dir, got %+v", got)
+	}
+
+	side := byName["side"]
+	if side.DeployImage != nil {
+		t.Fatalf("side: DeployImage %+v, want nil (no image sub-block)", *side.DeployImage)
+	}
+	if len(side.RidesImages) != 1 || side.RidesImages[0] != "api" {
+		t.Fatalf("side rides: want [api], got %v", side.RidesImages)
+	}
+
+	bare := byName["bare"]
+	if bare.DeployImage != nil || len(bare.RidesImages) != 0 {
+		t.Fatalf("bare: want zero-valued deploy, got image=%v rides=%v", bare.DeployImage, bare.RidesImages)
+	}
+
+	if got := byName["noname"].DeployImage; got != nil {
+		t.Fatalf("noname: image with no name should yield nil DeployImage, got %+v", got)
+	}
+
+	nocap := byName["nocap"]
+	if nocap.DeployImage != nil || len(nocap.RidesImages) != 0 {
+		t.Fatalf("nocap: deploy config without the capability must be dropped, got image=%v rides=%v", nocap.DeployImage, nocap.RidesImages)
+	}
+}
+
 // root_invalidation is tree-borne policy (§9.4): Scan surfaces it and the
 // helper concatenates in scan order - ORDER PRESERVED (§14.5.8: lists are
 // first-match-wins with "!" exceptions, so the root manifest's exceptions
