@@ -126,7 +126,7 @@ export function WorkspacePage() {
           <span className="mono" title={`base ${ws.baseRevision}`}>
             base {shortSha(ws.baseRevision)}
           </span>
-          <InfoTip text="The trunk revision this workspace's WIP is diffed against - what its next stack forks from (§12.2)." />
+          <InfoTip text="The trunk revision this workspace's WIP is diffed against - what its next stack forks from." />
           <span className="chip-row">
             {ws.projectAffinity.map((p) => (
               <Link className="chip" key={p} to={`/projects/${p}`}>
@@ -159,7 +159,7 @@ export function WorkspacePage() {
             <EmptyState>
               No snapshot on <span className="mono">{branch}</span> yet — WIP appears here the
               moment the workspace pushes one (<span className="mono">runko workspace watch</span>{" "}
-              keeps it continuous, §12.6).
+              keeps it continuous).
             </EmptyState>
           )}
           {diff.data && diff.data.snapshotSha !== "" && (
@@ -186,7 +186,7 @@ export function WorkspacePage() {
           <section className="card side-card" data-tour="agent-activity">
             <h2>
               Agent activity
-              <InfoTip text="What the workspace's agent reports it is doing - reads, edits, commands - live, before anything is pushed (§12.6.1). Client-claimed and observability-only: it never feeds gates. Wire it up with `runko agent hooks`." />
+              <InfoTip text="What the workspace's agent reports it is doing - reads, edits, commands - live, before anything is pushed. Client-claimed and observability-only: it never feeds gates. Wire it up with `runko agent hooks`." />
             </h2>
             {activity.loading && <Spinner />}
             {activity.error && <ErrorNote error={activity.error} />}
@@ -228,7 +228,7 @@ export function WorkspacePage() {
           <section className="card side-card" data-tour="ws-timeline">
             <h2>
               Activity
-              <InfoTip text="Stats-only timeline recorded at receive/land time (§12.6): snapshots, change pushes, lands, abandons, closure. Line counts are numstat totals; file content never leaves Git." />
+              <InfoTip text="Stats-only timeline recorded at receive/land time: snapshots, change pushes, lands, abandons, closure. Line counts are numstat totals; file content never leaves Git." />
             </h2>
             {events.loading && <Spinner />}
             {events.error && <ErrorNote error={events.error} />}

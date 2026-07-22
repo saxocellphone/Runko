@@ -412,7 +412,7 @@ function BehindTipChip({ change }: { change: ChangeSummary }) {
   return (
     <span
       className="chip chip-amber"
-      title={`based on main, but ${n} landing${n === 1 ? " has" : "s have"} stacked on trunk since - landing will sync, and re-runs checks if the trunk delta overlaps this change's affected set (§13.5)`}
+      title={`based on main, but ${n} landing${n === 1 ? " has" : "s have"} stacked on trunk since - landing will sync, and re-runs checks if the trunk delta overlaps this change's affected set`}
     >
       {n} behind tip
     </span>

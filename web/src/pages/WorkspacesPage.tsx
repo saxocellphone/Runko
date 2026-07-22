@@ -125,7 +125,7 @@ export function WorkspacesPage() {
       <header className="page-header">
         <h1 className="page-title">Workspaces</h1>
         <p className="page-sub">
-          Registry metadata only — content lives in Git at each snapshot ref (§12.2). Each
+          Registry metadata only — content lives in Git at each snapshot ref. Each
           branch carries one stack of changes.
         </p>
       </header>
@@ -191,7 +191,7 @@ export function WorkspacesPage() {
                 <th>Owner</th>
                 <th>
                   Last change
-                  <InfoTip text="The newest event on this workspace's timeline (§12.6): a snapshot, a change push/land/abandon, close - or its creation, until anything else happens. The list sorts on this, most recently active first; the label links to the change when the event names one." />
+                  <InfoTip text="The newest event on this workspace's timeline: a snapshot, a change push/land/abandon, close - or its creation, until anything else happens. The list sorts on this, most recently active first; the label links to the change when the event names one." />
                 </th>
                 <th>
                   Base
@@ -221,7 +221,7 @@ export function WorkspacesPage() {
                     </td>
                   )}
                   <td className="mono">
-                    <Link to={`/workspaces/${w.id}`} title="Live WIP diff + activity timeline (§12.6)">
+                    <Link to={`/workspaces/${w.id}`} title="Live WIP diff + activity timeline">
                       {w.id}
                     </Link>
                     {/* §12.6.1 at-a-glance: what the agent is doing right

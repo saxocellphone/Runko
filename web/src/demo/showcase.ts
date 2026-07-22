@@ -286,7 +286,7 @@ export const SHOWCASE: Beat[] = [
     caption: {
       title: "The agent's session streams to the server",
       body:
-        "Every read, search, command, and edit the agent makes is reported to the workspace's activity feed (§12.6.1) — you're watching it think, not waiting for a PR to appear at the end.",
+        "Every read, search, command, and edit the agent makes is reported to the workspace's activity feed — you're watching it think, not waiting for a PR to appear at the end.",
     },
     apply: (state) => activity(state, "read", "commerce/checkout-api/handler.go"),
   },

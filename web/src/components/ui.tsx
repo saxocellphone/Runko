@@ -134,7 +134,7 @@ export function OriginChip({
     <Link
       className="chip chip-origin mono"
       to="/workspaces"
-      title={`pushed from workspace ${workspace}, branch ${branch} - one workspace branch carries one stack (§12.2)`}
+      title={`pushed from workspace ${workspace}, branch ${branch} - one workspace branch carries one stack`}
     >
       <WorkspaceGlyph />
       {branchOnly ? branch : `${workspace} › ${branch}`}

@@ -386,7 +386,7 @@ function fakeEntrypoint(lang: string, short: string) {
       return {
         path: "main.go",
         action: "create",
-        content: `package main\n\nfunc main() {\n\t// ${short}: generated entrypoint (§10.1)\n}\n`,
+        content: `package main\n\nfunc main() {\n\t// ${short}: generated entrypoint\n}\n`,
       };
   }
 }

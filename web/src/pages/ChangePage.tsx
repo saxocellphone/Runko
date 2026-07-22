@@ -128,13 +128,13 @@ export function ChangePage() {
           {change.originWorkspace && (
             <>
               <OriginChip workspace={change.originWorkspace} branch={change.originBranch} />
-              <InfoTip text="The workspace branch this change was pushed from (§12.2): one workspace branch carries one stack. Recorded at push time from the worktree's own runko.workspace/runko.branch config, validated against the registry." />
+              <InfoTip text="The workspace branch this change was pushed from: one workspace branch carries one stack. Recorded at push time from the worktree's own runko.workspace/runko.branch config, validated against the registry." />
             </>
           )}
           <span className="mono" title={`base ${change.baseSha}`}>
             base {shortSha(change.baseSha)}
           </span>
-          <InfoTip text="The merge-base with trunk as of this version's push. Landing rebases this change onto trunk's current tip: a clean rebase lands as-is under the default conflict-only policy, a conflict always blocks, and stricter org revalidation tiers may re-run checks first (§13.5)." />
+          <InfoTip text="The merge-base with trunk as of this version's push. Landing rebases this change onto trunk's current tip: a clean rebase lands as-is under the default conflict-only policy, a conflict always blocks, and stricter org revalidation tiers may re-run checks first." />
           <span className="mono" title={`head ${change.headSha}`}>
             head {shortSha(change.headSha)}
           </span>
@@ -167,7 +167,7 @@ export function ChangePage() {
       {landResult && !landResult.landed && landResult.requiresRevalidation && (
         <div className="land-banner land-banner-warn">
           Trunk moved under this change and intersects its affected set — required checks must
-          re-run before landing (§13.5).
+          re-run before landing.
         </div>
       )}
       {landResult && !landResult.landed && landResult.conflicts.length > 0 && (
@@ -193,7 +193,7 @@ export function ChangePage() {
           {landStackResult.conflicts.length > 0
             ? `rebase conflicts in ${landStackResult.conflicts.join(", ")}`
             : landStackResult.requiresRevalidation
-              ? "trunk moved in a way that intersects its affected set — required checks must re-run (§13.5)"
+              ? "trunk moved in a way that intersects its affected set — required checks must re-run"
               : landStackResult.raceRetry
                 ? "lost a land race — try again"
                 : landStackResult.blockers.join("; ") || "not mergeable yet"}
@@ -235,7 +235,7 @@ export function ChangePage() {
           <section className="card conversation-card">
             <h2>
               Conversation
-              <InfoTip text="Change-level review threads (§13.4.1). Line comments live on the diff above; comments written against an earlier version collect under 'outdated' - they keep their original anchor rather than guessing a new one." />
+              <InfoTip text="Change-level review threads. Line comments live on the diff above; comments written against an earlier version collect under 'outdated' - they keep their original anchor rather than guessing a new one." />
             </h2>
             {threads.conversation.length === 0 && threads.outdated.length === 0 && (
               <p className="muted">No comments yet.</p>
@@ -311,7 +311,7 @@ export function ChangePage() {
                   <button
                     className="btn btn-primary"
                     disabled={busy}
-                    title={`Land the ${ancestors.length + 1} changes from the bottom of the stack through this one, bottom-up (§13.5) - each through its own merge gate, exactly like ${ancestors.length + 1} Land clicks. Stops at the first member that can't land; members landed before the stop stay landed. Changes stacked above this one are left open.`}
+                    title={`Land the ${ancestors.length + 1} changes from the bottom of the stack through this one, bottom-up - each through its own merge gate, exactly like ${ancestors.length + 1} Land clicks. Stops at the first member that can't land; members landed before the stop stay landed. Changes stacked above this one are left open.`}
                     onClick={() =>
                       act(async () => {
                         setLandResult(undefined);
@@ -326,7 +326,7 @@ export function ChangePage() {
                 <button
                   className="btn"
                   disabled={busy}
-                  title="Rebase this change's whole stack onto the current trunk tip, server-side (design.md 13.5). All-or-nothing: a conflict in any member is reported and nothing moves. Rebased heads re-run their required checks."
+                  title="Rebase this change's whole stack onto the current trunk tip, server-side. All-or-nothing: a conflict in any member is reported and nothing moves. Rebased heads re-run their required checks."
                   onClick={() =>
                     act(async () => {
                       setLandResult(undefined);
@@ -341,7 +341,7 @@ export function ChangePage() {
                   <button
                     className="btn btn-danger"
                     disabled={busy}
-                    title="Admin override (design.md 13.5): bypasses owner/check gates, audited as landed_forced. The server refuses non-admin callers."
+                    title="Admin override: bypasses owner/check gates, audited as landed_forced. The server refuses non-admin callers."
                     onClick={() => {
                       const blockers = requirements?.blockers.join("\n") ?? "";
                       if (
@@ -362,7 +362,7 @@ export function ChangePage() {
                   <button
                     className="btn"
                     disabled={busy}
-                    title="Arm the when-ready land (§13.5): the server lands this change automatically the moment its merge gates go green. Survives amends - the gates reset and re-gate on their own."
+                    title="Arm the when-ready land: the server lands this change automatically the moment its merge gates go green. Survives amends - the gates reset and re-gate on their own."
                     onClick={() => act(() => changesClient.setAutomerge({ changeId, enabled: true }))}
                   >
                     Auto-land when ready
@@ -413,7 +413,7 @@ function LandCleanlinessChip({ change, stack }: { change: ChangeSummary; stack: 
       return (
         <span
           className="chip chip-green"
-          title="Based on trunk's current tip: landing applies this change exactly as checked - no rebase, nothing to conflict with (§13.5)."
+          title="Based on trunk's current tip: landing applies this change exactly as checked - no rebase, nothing to conflict with."
         >
           ✓ lands cleanly
         </span>
@@ -422,7 +422,7 @@ function LandCleanlinessChip({ change, stack }: { change: ChangeSummary; stack: 
     return (
       <span
         className="chip chip-amber"
-        title={`Based on trunk, but ${n} landing${n === 1 ? " has" : "s have"} stacked on it since. Landing rebases onto the tip server-side: a clean rebase lands as-is, a conflict blocks, and stricter org revalidation tiers may re-run checks first (§13.5).`}
+        title={`Based on trunk, but ${n} landing${n === 1 ? " has" : "s have"} stacked on it since. Landing rebases onto the tip server-side: a clean rebase lands as-is, a conflict blocks, and stricter org revalidation tiers may re-run checks first.`}
       >
         ⟳ rebases on land · {n} behind tip
       </span>
