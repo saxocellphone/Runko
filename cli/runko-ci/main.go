@@ -34,6 +34,8 @@ func main() {
 		err = cmdAffected(os.Args[2:])
 	case "checks":
 		err = cmdChecks(os.Args[2:])
+	case "images":
+		err = cmdImages(os.Args[2:])
 	case "checkout":
 		err = cmdCheckout(os.Args[2:])
 	case "report-check":
@@ -63,6 +65,7 @@ func printUsage() {
 commands:
   affected       compute the affected project set for a base..head range (JSON always)
   checks         resolve affected projects' manifest-declared checks (name+command) for a generic CI executor (JSON always)
+  images         resolve which deployable images a base..head range must rebuild, with their build config (JSON always)
   checkout       partial-clone + sparse-checkout a rev for CI [--json]
   report-check   POST a CheckRun result to the platform's Checks API [--json]
   report-image   POST a built image's digest to the platform's deploy API (post-land CD) [--json]
@@ -113,6 +116,28 @@ func cmdChecks(args []string) error {
 	}
 
 	result, err := Checks(*repoDir, *base, *head, splitNonEmpty(*rootPatterns), *engine, *universe, *engineTimeout)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+func cmdImages(args []string) error {
+	fs := flag.NewFlagSet("images", flag.ExitOnError)
+	repoDir := fs.String("repo", ".", "path to the local repo")
+	base := fs.String("base", "", "base revision")
+	head := fs.String("head", "HEAD", "head revision")
+	rootPatterns := fs.String("root-invalidation", "", "comma-separated root-invalidation glob patterns (additive to the tree's)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *base == "" {
+		return fmt.Errorf("images: --base is required")
+	}
+
+	result, err := Images(*repoDir, *base, *head, splitNonEmpty(*rootPatterns))
 	if err != nil {
 		return err
 	}
