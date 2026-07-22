@@ -1,7 +1,7 @@
 # Runko CD template — post-land image builds (copy to .github/workflows/).
 #
 # Builds your monorepo's deployable container images for a landed commit and
-# reports each digest back to Runko's deploy record (§14.10 inverted CD). Runko
+# reports each digest back to Runko's deploy record (inverted CD). Runko
 # drives the rollout; GitHub only builds and reports.
 #
 # GENERIC — this file hardcodes NOTHING about your repo. Every image detail

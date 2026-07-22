@@ -1,7 +1,7 @@
 # Runko CI/CD templates
 
 Drop-in GitHub Actions workflows that turn any Runko-hosted monorepo's CI and
-CD into **generic executors of tree-declared policy** (§14.9.1, §14.10). They
+CD into **generic executors of tree-declared policy**. They
 hardcode no project names, check commands, image names, or registry — all of
 that lives in your `PROJECT.yaml` manifests, so adding a check or a deployable
 service is a single-manifest change and these files never change.
@@ -12,7 +12,7 @@ service is a single-manifest change and these files never change.
 | `runko-images.yml` | Post-land CD: builds each landed change's deployable images and reports digests to Runko's deploy record | `runko-image-build` dispatch (per land) |
 
 Runko drives everything; GitHub only builds and reports. Runko never runs your
-checks or deploys — it emits events and consumes results (§14.16).
+checks or deploys — it emits events and consumes results.
 
 ## Adopt (both workflows)
 
