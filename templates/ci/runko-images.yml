@@ -12,12 +12,15 @@
 # The daemon's deploy record uses the same computation over the same commit, so
 # the built set always matches what the record expects. Adding/renaming an
 # image or moving registries is a single-manifest change; this file never
-# changes.
+# changes. The workflow DOWNLOADS the `runko-ci` binary itself.
 #
 # SETUP (see templates/ci/README.md):
+#   - Install the Runko GitHub App on this repo, THEN `runko github connect
+#     --repo <owner/name>` to wire the runko-image-build dispatch here.
 #   - Secrets: RUNKO_URL (your org mount, e.g. https://<host>/o/<org>),
-#     RUNKO_CI_TOKEN.
-#   - `runko github connect` wires the runko-image-build dispatch to this repo.
+#     RUNKO_CI_TOKEN (the org's deploy token).
+#   - Optional repo variables: RUNKO_CI_VERSION (pin, default cli-latest),
+#     RUNKO_CI_DOWNLOAD_URL (a fork/mirror/GHES release base URL).
 #   - Set deploy_registry on your root PROJECT.yaml; ensure the runner can push
 #     to it (this template logs in to GHCR — change the registry login for
 #     another registry).
@@ -41,6 +44,10 @@ env:
   HEAD_SHA: ${{ github.event.client_payload.head_sha }}
   RUNKO_URL: ${{ secrets.RUNKO_URL }}
   RUNKO_CI_TOKEN: ${{ secrets.RUNKO_CI_TOKEN }}
+  # Optional overrides (repo Settings -> Variables). Empty -> the defaults
+  # baked into the install step below (cli-latest from the upstream project).
+  RUNKO_CI_VERSION: ${{ vars.RUNKO_CI_VERSION }}
+  RUNKO_CI_DOWNLOAD_URL: ${{ vars.RUNKO_CI_DOWNLOAD_URL }}
 
 jobs:
   setup:
@@ -61,10 +68,32 @@ jobs:
           done
           git checkout -q "$HEAD_SHA"
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.25', cache: true }
-      - name: locate runko-ci
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
+      - name: install runko-ci
+        # Download the release binary onto PATH (no sudo, no language runtime).
+        # RUNKO_CI_VERSION pins; RUNKO_CI_DOWNLOAD_URL points at a fork/mirror.
+        run: |
+          ver="${RUNKO_CI_VERSION:-cli-latest}"
+          base="${RUNKO_CI_DOWNLOAD_URL:-https://github.com/saxocellphone/runko/releases/download/$ver}"
+          os=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "$(uname -m)" in
+            x86_64|amd64)  arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "runko-ci: unsupported arch $(uname -m)" >&2; exit 1 ;;
+          esac
+          asset="runko-ci_${os}_${arch}"
+          mkdir -p "$RUNNER_TEMP/rbin"
+          for i in $(seq 1 5); do
+            curl -fsSL -o "$RUNNER_TEMP/rbin/runko-ci" "$base/$asset" \
+              && curl -fsSL -o "$RUNNER_TEMP/rbin/checksums.txt" "$base/checksums.txt" && break
+            sleep 5
+          done
+          want=$(awk -v a="$asset" '$2==a {print $1}' "$RUNNER_TEMP/rbin/checksums.txt")
+          got=$(sha256sum "$RUNNER_TEMP/rbin/runko-ci" | awk '{print $1}')
+          if [ -z "$want" ] || [ "$want" != "$got" ]; then
+            echo "runko-ci: checksum mismatch (want '$want' got '$got')" >&2; exit 1
+          fi
+          chmod +x "$RUNNER_TEMP/rbin/runko-ci"
+          echo "$RUNNER_TEMP/rbin" >> "$GITHUB_PATH"
       - name: resolve the image matrix from the tree
         id: resolve
         run: |
@@ -73,7 +102,7 @@ jobs:
           # No --engine: fail closed, a narrower set than the record expects
           # would strand the rollout. `.images` is null (not []) for a
           # non-deployable land, so coalesce before iterating.
-          IMAGES=$(go run "$RUNKO_CI_PKG" images --base "$HEAD_SHA^" --head "$HEAD_SHA")
+          IMAGES=$(runko-ci images --base "$HEAD_SHA^" --head "$HEAD_SHA")
           echo "$IMAGES" | jq .
           MATRIX=$(echo "$IMAGES" | jq -c '[(.images // [])[] | {
             name, image_ref, context, dockerfile,
@@ -132,8 +161,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.HEAD_SHA }}
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.25', cache: true }
+      - name: install runko-ci
+        run: |
+          ver="${RUNKO_CI_VERSION:-cli-latest}"
+          base="${RUNKO_CI_DOWNLOAD_URL:-https://github.com/saxocellphone/runko/releases/download/$ver}"
+          os=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "$(uname -m)" in
+            x86_64|amd64)  arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "runko-ci: unsupported arch $(uname -m)" >&2; exit 1 ;;
+          esac
+          asset="runko-ci_${os}_${arch}"
+          mkdir -p "$RUNNER_TEMP/rbin"
+          for i in $(seq 1 5); do
+            curl -fsSL -o "$RUNNER_TEMP/rbin/runko-ci" "$base/$asset" \
+              && curl -fsSL -o "$RUNNER_TEMP/rbin/checksums.txt" "$base/checksums.txt" && break
+            sleep 5
+          done
+          want=$(awk -v a="$asset" '$2==a {print $1}' "$RUNNER_TEMP/rbin/checksums.txt")
+          got=$(sha256sum "$RUNNER_TEMP/rbin/runko-ci" | awk '{print $1}')
+          if [ -z "$want" ] || [ "$want" != "$got" ]; then
+            echo "runko-ci: checksum mismatch (want '$want' got '$got')" >&2; exit 1
+          fi
+          chmod +x "$RUNNER_TEMP/rbin/runko-ci"
+          echo "$RUNNER_TEMP/rbin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -141,12 +192,11 @@ jobs:
           path: reports
       - name: report built image refs + digests to Runko
         run: |
-          RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)
           shopt -s nullglob
           for f in reports/report-*/*; do
             name=$(basename "$f"); read -r image_ref digest < "$f"
             [ -n "$digest" ] || continue
-            go run "$RUNKO_CI_PKG" report-image \
+            runko-ci report-image \
               --url "$RUNKO_URL/api/deploys/${HEAD_SHA}/images" \
               --token "$RUNKO_CI_TOKEN" \
               --image "$name" \

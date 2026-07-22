@@ -8,14 +8,19 @@
 # live in the manifests, so adding/renaming a check is a single-manifest change
 # and this file never changes.
 #
-# ADJUST the RUNNER CONTRACT (marked below): the toolchains and services your
-# check commands need (a database, a build tool, a language runtime). The
-# template ships with Go only (required to run runko-ci itself) plus commented
-# examples; add what your `ci.checks` commands actually invoke.
+# The workflow DOWNLOADS the `runko-ci` binary itself (no language runtime is
+# needed just to run the executor). ADJUST the RUNNER CONTRACT (marked below):
+# the toolchains and services your CHECK COMMANDS invoke — a database, a build
+# tool (Go, Node, bazel) — are yours to add; the template ships them commented.
 #
 # SETUP (see templates/ci/README.md):
-#   - Secrets: RUNKO_URL (your org mount), RUNKO_CI_TOKEN.
-#   - `runko github connect` wires the runko-change dispatch to this repo.
+#   - Install the Runko GitHub App on this repo, THEN `runko github connect
+#     --repo <owner/name>` (connect verifies the install) to wire the
+#     runko-change dispatch here.
+#   - Secrets: RUNKO_URL (your org mount, e.g. https://<host>/o/<org>),
+#     RUNKO_CI_TOKEN (the org's deploy token).
+#   - Optional repo variables: RUNKO_CI_VERSION (pin, default cli-latest),
+#     RUNKO_CI_DOWNLOAD_URL (a fork/mirror/GHES release base URL).
 name: Runko checks
 
 run-name: "checks: ${{ github.event.client_payload.change_id }}@${{ github.event.client_payload.head_sha }}"
@@ -35,6 +40,10 @@ env:
   GIT_REF: ${{ github.event.client_payload.git_ref }}
   RUNKO_URL: ${{ secrets.RUNKO_URL }}
   RUNKO_CI_TOKEN: ${{ secrets.RUNKO_CI_TOKEN }}
+  # Optional overrides (repo Settings -> Variables). Empty -> the defaults
+  # baked into the install step below (cli-latest from the upstream project).
+  RUNKO_CI_VERSION: ${{ vars.RUNKO_CI_VERSION }}
+  RUNKO_CI_DOWNLOAD_URL: ${{ vars.RUNKO_CI_DOWNLOAD_URL }}
 
 jobs:
   setup:
@@ -53,17 +62,43 @@ jobs:
             sleep 5
           done
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
-      - name: locate runko-ci
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.25', cache: true }
+      - name: install runko-ci
+        # Download the release binary onto PATH. No sudo, no language runtime:
+        # the executor is a static binary. RUNKO_CI_VERSION pins the release;
+        # RUNKO_CI_DOWNLOAD_URL points at a fork/mirror/GHES base URL.
+        run: |
+          ver="${RUNKO_CI_VERSION:-cli-latest}"
+          base="${RUNKO_CI_DOWNLOAD_URL:-https://github.com/saxocellphone/runko/releases/download/$ver}"
+          os=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "$(uname -m)" in
+            x86_64|amd64)  arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "runko-ci: unsupported arch $(uname -m)" >&2; exit 1 ;;
+          esac
+          asset="runko-ci_${os}_${arch}"
+          mkdir -p "$RUNNER_TEMP/rbin"
+          for i in $(seq 1 5); do
+            curl -fsSL -o "$RUNNER_TEMP/rbin/runko-ci" "$base/$asset" \
+              && curl -fsSL -o "$RUNNER_TEMP/rbin/checksums.txt" "$base/checksums.txt" && break
+            sleep 5
+          done
+          # Verify against the release's published sums (cli-latest is
+          # delete-recreate, so a mid-publish asset can lag — never run an
+          # unverified binary).
+          want=$(awk -v a="$asset" '$2==a {print $1}' "$RUNNER_TEMP/rbin/checksums.txt")
+          got=$(sha256sum "$RUNNER_TEMP/rbin/runko-ci" | awk '{print $1}')
+          if [ -z "$want" ] || [ "$want" != "$got" ]; then
+            echo "runko-ci: checksum mismatch (want '$want' got '$got')" >&2; exit 1
+          fi
+          chmod +x "$RUNNER_TEMP/rbin/runko-ci"
+          echo "$RUNNER_TEMP/rbin" >> "$GITHUB_PATH"
       - name: resolve the check matrix from the manifests
         id: resolve
         run: |
           # `checks` fails closed to run_everything on any unowned path; a hard
           # failure here leaves the gate pending (never green), so no fallback
           # matrix is needed.
-          OUT=$(go run "$RUNKO_CI_PKG" checks --base "$BASE_SHA" --head "$HEAD_SHA")
+          OUT=$(runko-ci checks --base "$BASE_SHA" --head "$HEAD_SHA")
           echo "$OUT" | jq .
           echo "matrix=$(echo "$OUT" | jq -c '.checks')" >> "$GITHUB_OUTPUT"
           echo "has_checks=$(echo "$OUT" | jq -r '.checks | length > 0')" >> "$GITHUB_OUTPUT"
@@ -103,24 +138,53 @@ jobs:
             sleep 5
           done
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
-      - name: locate runko-ci
+      - name: install runko-ci
         # success()||failure(): the report step must run even if the fetch
-        # failed, or a broken run reports nothing and the gate sits pending.
+        # failed, or a broken run reports nothing and the gate sits pending —
+        # so runko-ci must be present regardless. (See setup job for the
+        # download/verify rationale.)
         if: success() || failure()
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@v5
-        if: success() || failure()
-        with: { go-version: '1.25', cache: true }
-      # --- RUNNER CONTRACT (ADJUST): toolchains your checks invoke. ---
+        run: |
+          ver="${RUNKO_CI_VERSION:-cli-latest}"
+          base="${RUNKO_CI_DOWNLOAD_URL:-https://github.com/saxocellphone/runko/releases/download/$ver}"
+          os=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "$(uname -m)" in
+            x86_64|amd64)  arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "runko-ci: unsupported arch $(uname -m)" >&2; exit 1 ;;
+          esac
+          asset="runko-ci_${os}_${arch}"
+          mkdir -p "$RUNNER_TEMP/rbin"
+          for i in $(seq 1 5); do
+            curl -fsSL -o "$RUNNER_TEMP/rbin/runko-ci" "$base/$asset" \
+              && curl -fsSL -o "$RUNNER_TEMP/rbin/checksums.txt" "$base/checksums.txt" && break
+            sleep 5
+          done
+          want=$(awk -v a="$asset" '$2==a {print $1}' "$RUNNER_TEMP/rbin/checksums.txt")
+          got=$(sha256sum "$RUNNER_TEMP/rbin/runko-ci" | awk '{print $1}')
+          if [ -z "$want" ] || [ "$want" != "$got" ]; then
+            echo "runko-ci: checksum mismatch (want '$want' got '$got')" >&2; exit 1
+          fi
+          chmod +x "$RUNNER_TEMP/rbin/runko-ci"
+          echo "$RUNNER_TEMP/rbin" >> "$GITHUB_PATH"
+      # --- RUNNER CONTRACT (ADJUST): toolchains your CHECK COMMANDS invoke.
+      #     runko-ci is already installed above; add ONLY what your `ci.checks`
+      #     commands need. Guard each with `if: success() || failure()` so the
+      #     result still reports if an earlier step failed. ---
+      # - uses: actions/setup-go@v5
+      #   if: success() || failure()
+      #   with: { go-version: '1.25', cache: true }   # pin >= your go.mod's `go` directive
       # - uses: bazel-contrib/setup-bazel@0.15.0
+      #   if: success() || failure()
       # - uses: actions/setup-node@v4
+      #   if: success() || failure()
       #   with: { node-version: '24', cache: npm }
       # ---------------------------------------------------------------
       # First report is already clickable in the Runko UI; the completed
       # report overwrites with the same URL.
       - name: report in_progress
         run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name "${{ matrix.name }}" --external-id "${{ github.run_id }}-${{ strategy.job-index }}" \
             --status in_progress --reporter github-actions \
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
@@ -130,7 +194,7 @@ jobs:
         # success()||failure() excludes CANCELLED.
         if: success() || failure()
         run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          runko-ci report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name "${{ matrix.name }}" --external-id "${{ github.run_id }}-${{ strategy.job-index }}" \
             --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
