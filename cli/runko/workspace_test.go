@@ -347,9 +347,9 @@ func TestWorkspaceAttachDocumentedArgumentOrderWorks(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := cmdWorkspace([]string{"attach", "payments-fix",
+		if err := execCLI("workspace", "attach", "payments-fix",
 			"--runkod-url", srv.URL, "--token", "sekret",
-			"--clone-dir", cloneDir, "--dir", filepath.Join(root, "restored")}); err != nil {
+			"--clone-dir", cloneDir, "--dir", filepath.Join(root, "restored")); err != nil {
 			t.Errorf("documented id-first attach form failed: %v", err)
 		}
 	})
@@ -370,10 +370,10 @@ func TestWorkspaceAttachDocumentedArgumentOrderWorks(t *testing.T) {
 		t.Fatalf("remove worktree: %v", err)
 	}
 	captureStdout(t, func() {
-		if err := cmdWorkspace([]string{"attach",
+		if err := execCLI("workspace", "attach",
 			"--runkod-url", srv.URL, "--token", "sekret",
 			"--clone-dir", cloneDir, "--dir", filepath.Join(root, "restored2"),
-			"payments-fix"}); err != nil {
+			"payments-fix"); err != nil {
 			t.Errorf("flags-first attach form failed: %v", err)
 		}
 	})
@@ -391,7 +391,7 @@ func TestWorkspaceListColumnsAreAligned(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := cmdWorkspace([]string{"list", "--runkod-url", srv.URL, "--token", "sekret"}); err != nil {
+		if err := execCLI("workspace", "list", "--runkod-url", srv.URL, "--token", "sekret"); err != nil {
 			t.Errorf("workspace list: %v", err)
 		}
 	})
@@ -409,7 +409,7 @@ func TestWorkspaceListColumnsAreAligned(t *testing.T) {
 func TestProjectListShowsTrunkIndexedProjects(t *testing.T) {
 	srv, _ := startWorkspaceServer(t)
 	out := captureStdout(t, func() {
-		if err := cmdProjectList([]string{"--runkod-url", srv.URL, "--token", "sekret"}); err != nil {
+		if err := execCLI("project", "list", "--runkod-url", srv.URL, "--token", "sekret"); err != nil {
 			t.Errorf("project list: %v", err)
 		}
 	})

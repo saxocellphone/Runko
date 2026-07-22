@@ -10,12 +10,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // GithubConnectResult mirrors POST /api/github/connect's wire shape.
@@ -56,86 +57,104 @@ func GithubMirrorStatus(ctx context.Context, client *http.Client, cred Credentia
 	return out, err
 }
 
-func cmdGithub(args []string) error {
-	if len(args) < 1 {
-		return usageError("usage: runko github connect|status ... (see docs/cli-contract.md)")
+func newGithubCmd(a *app) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "github",
+		Short:   "Wire and inspect the outbound GitHub mirror",
+		GroupID: "repo",
+		Args:    cobra.ArbitraryArgs,
+		RunE:    groupRunE,
 	}
-	ctx := context.Background()
-	switch args[0] {
-	case "connect":
-		fs := flag.NewFlagSet("github connect", flag.ExitOnError)
-		runkodURL := fs.String("runkod-url", "", "runkod base URL (the /o/<org> mount)")
-		token := fs.String("token", "", "deploy token")
-		repo := fs.String("repo", "", "GitHub repo to wire this org to, owner/name")
-		jsonOut := fs.Bool("json", false, "emit the wiring result as JSON")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		if *repo == "" {
-			return usageError("usage: runko github connect --repo <owner/name>")
-		}
-		cred, err := resolveCredential(*runkodURL, *token)
-		if err != nil {
-			return err
-		}
-		res, err := ConnectGithub(ctx, http.DefaultClient, cred, *repo)
-		if err != nil {
-			return err
-		}
-		if *jsonOut {
-			return json.NewEncoder(os.Stdout).Encode(res)
-		}
-		fmt.Printf("wired org %s to %s\n", res.Org, res.RemoteURL)
-		fmt.Println("  verified: repo reachable, GitHub App installed, push token minted")
-		fmt.Println("  mirror:   armed; first sync triggered (runko github status)")
-		fmt.Println("  dispatch: native (2026-07-17) - the outbox sends repository_dispatch for this org's changes itself")
-		fmt.Println("one manual step remains, on the GitHub repo:")
-		fmt.Println("  workflow: .github/workflows/runko-checks.yml (repository_dispatch types: [runko-change] -> runko-ci checks)")
-		return nil
+	cmd.AddCommand(newGithubConnectCmd(a), newGithubStatusCmd(a))
+	return cmd
+}
 
-	case "status":
-		fs := flag.NewFlagSet("github status", flag.ExitOnError)
-		runkodURL := fs.String("runkod-url", "", "runkod base URL (the /o/<org> mount)")
-		token := fs.String("token", "", "deploy token")
-		jsonOut := fs.Bool("json", false, "emit the mirror status as JSON")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		cred, err := resolveCredential(*runkodURL, *token)
-		if err != nil {
-			return err
-		}
-		status, err := GithubMirrorStatus(ctx, http.DefaultClient, cred)
-		if err != nil {
-			return err
-		}
-		if *jsonOut {
-			return json.NewEncoder(os.Stdout).Encode(status)
-		}
-		if !status.Configured {
-			fmt.Println("no mirror configured")
-			fmt.Println("  -> runko github connect --repo <owner/name>   # wire this org to GitHub")
+func newGithubConnectCmd(a *app) *cobra.Command {
+	var (
+		repo    string
+		jsonOut bool
+	)
+	cmd := &cobra.Command{
+		Use:   "connect --repo <owner/name>",
+		Short: "Wire this org to a GitHub repo in one command",
+		Long: `One call wires the org to GitHub (2026-07-16): the server verifies its
+deployment-wide GitHub App can actually push, persists the wiring in
+org settings, and arms the mirror worker live - no daemon restart.
+Covers CI dispatch too (the outbox sends repository_dispatch itself).`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if repo == "" {
+				return usageError("usage: runko github connect --repo <owner/name>")
+			}
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
+			res, err := ConnectGithub(cmd.Context(), http.DefaultClient, cred, repo)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(res)
+			}
+			fmt.Printf("wired org %s to %s\n", res.Org, res.RemoteURL)
+			fmt.Println("  verified: repo reachable, GitHub App installed, push token minted")
+			fmt.Println("  mirror:   armed; first sync triggered (runko github status)")
+			fmt.Println("  dispatch: native (2026-07-17) - the outbox sends repository_dispatch for this org's changes itself")
+			fmt.Println("one manual step remains, on the GitHub repo:")
+			fmt.Println("  workflow: .github/workflows/runko-checks.yml (repository_dispatch types: [runko-change] -> runko-ci checks)")
 			return nil
-		}
-		fmt.Printf("mirroring to %s\n", status.RemoteURL)
-		if !status.LastSyncAt.IsZero() {
-			fmt.Printf("  last sync: %s\n", status.LastSyncAt.Format(time.RFC3339))
-		}
-		if status.LastError != "" {
-			fmt.Printf("  last error: %s\n", status.LastError)
-		}
-		for _, c := range status.Cursors {
-			state := "ok"
-			if c.Frozen {
-				state = "FROZEN (POST /api/mirror/unfreeze after review)"
-			}
-			sha := c.LastSyncedSHA
-			if len(sha) > 12 {
-				sha = sha[:12]
-			}
-			fmt.Printf("  %-20s %-12s %s\n", c.Ref, sha, state)
-		}
-		return nil
+		},
 	}
-	return usageError("usage: runko github connect|status ...")
+	cmd.Flags().StringVar(&repo, "repo", "", "GitHub repo to wire this org to, owner/name")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the wiring result as JSON")
+	return cmd
+}
+
+func newGithubStatusCmd(a *app) *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "The org's mirror state: target, cursors, freezes",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
+			status, err := GithubMirrorStatus(cmd.Context(), http.DefaultClient, cred)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(status)
+			}
+			if !status.Configured {
+				fmt.Println("no mirror configured")
+				fmt.Println("  -> runko github connect --repo <owner/name>   # wire this org to GitHub")
+				return nil
+			}
+			fmt.Printf("mirroring to %s\n", status.RemoteURL)
+			if !status.LastSyncAt.IsZero() {
+				fmt.Printf("  last sync: %s\n", status.LastSyncAt.Format(time.RFC3339))
+			}
+			if status.LastError != "" {
+				fmt.Printf("  last error: %s\n", status.LastError)
+			}
+			for _, c := range status.Cursors {
+				state := "ok"
+				if c.Frozen {
+					state = "FROZEN (POST /api/mirror/unfreeze after review)"
+				}
+				sha := c.LastSyncedSHA
+				if len(sha) > 12 {
+					sha = sha[:12]
+				}
+				fmt.Printf("  %-20s %-12s %s\n", c.Ref, sha, state)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the mirror status as JSON")
+	return cmd
 }

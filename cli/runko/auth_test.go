@@ -334,7 +334,7 @@ func TestOrgCreateRebindsStoredLogin(t *testing.T) {
 	if _, err := saveCredential(Credential{URL: srv.URL, Name: "val", Secret: "hunter2hunter2"}); err != nil {
 		t.Fatalf("seed credential: %v", err)
 	}
-	if err := cmdOrg([]string{"create", "--name", "acme"}); err != nil {
+	if err := execCLI("org", "create", "--name", "acme"); err != nil {
 		t.Fatalf("org create: %v", err)
 	}
 	cred, _, _ := loadCredential()
@@ -346,7 +346,7 @@ func TestOrgCreateRebindsStoredLogin(t *testing.T) {
 	if _, err := saveCredential(Credential{URL: srv.URL, Name: "val", Secret: "hunter2hunter2"}); err != nil {
 		t.Fatalf("re-seed credential: %v", err)
 	}
-	if err := cmdOrg([]string{"create", "--name", "acme", "--no-switch"}); err != nil {
+	if err := execCLI("org", "create", "--name", "acme", "--no-switch"); err != nil {
 		t.Fatalf("org create --no-switch: %v", err)
 	}
 	if cred, _, _ := loadCredential(); cred.URL != srv.URL {
@@ -374,7 +374,7 @@ func TestWorkspaceCreateDefaultsByToStoredLogin(t *testing.T) {
 	if _, err := saveCredential(Credential{URL: srv.URL, Name: "val", Secret: "hunter2hunter2"}); err != nil {
 		t.Fatalf("seed credential: %v", err)
 	}
-	err := cmdWorkspace([]string{"create", "--name", "ws1", "--project", "repo"})
+	err := execCLI("workspace", "create", "--name", "ws1", "--project", "repo")
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "invalid_workspace_name" {
 		t.Fatalf("expected the stub refusal to surface, got %v", err)

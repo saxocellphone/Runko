@@ -11,11 +11,12 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"runtime"
 	"runtime/debug"
+
+	"github.com/spf13/cobra"
 )
 
 // BuildIdentity is the wire shape of `runko version --json` (and the
@@ -74,16 +75,26 @@ func (id BuildIdentity) String() string {
 	return fmt.Sprintf("%s (%s)", rev, id.Go)
 }
 
-func cmdVersion(args []string) error {
-	fs := flag.NewFlagSet("version", flag.ExitOnError)
-	jsonOut := fs.Bool("json", false, "emit {revision, time, modified, module, go} as JSON")
-	if err := fs.Parse(args); err != nil {
-		return err
+func newVersionCmd() *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:     "version",
+		Short:   "Which binary is this: revision, build time, toolchain",
+		GroupID: "start",
+		Long: `Prints this binary's identity from the Go toolchain's own VCS build
+stamp - checkout builds carry the revision (+dirty), go install builds
+the module version, an unstamped binary says so. -v/--version on the
+root are aliases; doctor reprints the same line first.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := buildIdentity()
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(id)
+			}
+			fmt.Printf("runko %s\n", id)
+			return nil
+		},
 	}
-	id := buildIdentity()
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(id)
-	}
-	fmt.Printf("runko %s\n", id)
-	return nil
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit {revision, time, modified, module, go} as JSON")
+	return cmd
 }

@@ -51,10 +51,10 @@ func TestAgentEventPostsToWorkspaceActivity(t *testing.T) {
 	srv := activityFakeServer(t, "/api/workspaces/obs/activity", "Bearer sekret", &got)
 	defer srv.Close()
 
-	err := cmdAgentEvent([]string{
+	err := execCLI("agent", "event",
 		"--kind", "read", "--detail", "runkod/api.go", "--session", "sess-1",
 		"--dir", dir, "--runkod-url", srv.URL, "--token", "sekret", "--json",
-	})
+	)
 	if err != nil {
 		t.Fatalf("cmdAgentEvent: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestAgentEventFromHookEndToEnd(t *testing.T) {
 		w.Close()
 	}()
 
-	err = cmdAgentEvent([]string{"--from-hook", "--dir", dir, "--runkod-url", srv.URL, "--token", "sekret", "--json"})
+	err = execCLI("agent", "event", "--from-hook", "--dir", dir, "--runkod-url", srv.URL, "--token", "sekret", "--json")
 	if err != nil {
 		t.Fatalf("cmdAgentEvent --from-hook: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestAgentEventEnvCredentialFallback(t *testing.T) {
 
 	t.Setenv("RUNKO_TOKEN", "env-token")
 	t.Setenv("RUNKO_RUNKOD_URL", srv.URL)
-	if err := cmdAgentEvent([]string{"--kind", "note", "--detail", "hello", "--dir", dir, "--json"}); err != nil {
+	if err := execCLI("agent", "event", "--kind", "note", "--detail", "hello", "--dir", dir, "--json"); err != nil {
 		t.Fatalf("cmdAgentEvent with env credential: %v", err)
 	}
 	if len(got["events"].([]any)) != 1 {
@@ -139,7 +139,7 @@ func TestAgentEventEnvCredentialFallback(t *testing.T) {
 
 	// Token without URL is the structured missing_url, not a guess.
 	t.Setenv("RUNKO_RUNKOD_URL", "")
-	err := cmdAgentEvent([]string{"--kind", "note", "--detail", "hello", "--dir", dir})
+	err := execCLI("agent", "event", "--kind", "note", "--detail", "hello", "--dir", dir)
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "missing_url" {
 		t.Fatalf("want missing_url, got %v", err)
@@ -149,7 +149,7 @@ func TestAgentEventEnvCredentialFallback(t *testing.T) {
 func TestAgentEventOutsideWorkspaceIsStructured(t *testing.T) {
 	dir := t.TempDir()
 	mustGit(t, dir, "init", "--quiet")
-	err := cmdAgentEvent([]string{"--kind", "read", "--detail", "x", "--dir", dir, "--runkod-url", "http://127.0.0.1:0", "--token", "t"})
+	err := execCLI("agent", "event", "--kind", "read", "--detail", "x", "--dir", dir, "--runkod-url", "http://127.0.0.1:0", "--token", "t")
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "not_a_workspace" {
 		t.Fatalf("want not_a_workspace, got %v", err)

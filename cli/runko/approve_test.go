@@ -87,7 +87,7 @@ func TestApproveChangeNotFoundIsStructuredError(t *testing.T) {
 }
 
 func TestCmdChangeApproveRequiresFlags(t *testing.T) {
-	err := cmdChangeApprove([]string{"--change", "Ichg1"})
+	err := execCLI("change", "approve", "--change", "Ichg1")
 	if err == nil {
 		t.Fatalf("expected an error when required flags are missing")
 	}

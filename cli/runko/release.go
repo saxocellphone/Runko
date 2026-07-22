@@ -7,13 +7,14 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // ReleaseInfo mirrors runkod's release wire shape (release.go's
@@ -60,82 +61,98 @@ func ListReleases(ctx context.Context, client *http.Client, runkodURL, token, pr
 	return page.Releases, nil
 }
 
-func cmdRelease(args []string) error {
-	if len(args) < 1 || (args[0] != "create" && args[0] != "list") {
-		return usageError("usage: runko release create|list ... (see docs/cli-contract.md)")
+func newReleaseCmd(a *app) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "release",
+		Short:   "Cut and list immutable releases",
+		GroupID: "repo",
+		Long: `Releases are immutable (§14.10.3): a server-minted tag + changelog
+derived from the landed changes touching the project since the
+previous release. There is no edit or delete verb anywhere - a wrong
+release is followed by a corrected one.`,
+		Args: cobra.ArbitraryArgs,
+		RunE: groupRunE,
 	}
-	switch args[0] {
-	case "create":
-		return cmdReleaseCreate(args[1:])
-	default:
-		return cmdReleaseList(args[1:])
-	}
+	cmd.AddCommand(newReleaseCreateCmd(a), newReleaseListCmd(a))
+	return cmd
 }
 
-func cmdReleaseCreate(args []string) error {
-	fs := flag.NewFlagSet("release create", flag.ExitOnError)
-	runkodURL := fs.String("runkod-url", "", "runkod base URL")
-	token := fs.String("token", "", "deploy token")
-	project := fs.String("project", "", "project name (required)")
-	version := fs.String("version", "", "explicit version (default: patch-bump the latest release; required for manual-versioning projects)")
-	jsonOut := fs.Bool("json", false, "emit the created release as JSON")
-	if err := fs.Parse(args); err != nil {
-		return err
+func newReleaseCreateCmd(a *app) *cobra.Command {
+	var (
+		project, version string
+		jsonOut          bool
+	)
+	cmd := &cobra.Command{
+		Use:   "create --project <p>",
+		Short: "Cut an immutable release with a derived changelog",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if project == "" {
+				return fmt.Errorf("release create: --project is required")
+			}
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
+			release, err := CreateRelease(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), project, version)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(release)
+			}
+			fmt.Printf("released %s %s\n  tag %s -> %.12s\n", release.Project.Name, release.Version, release.TagRef, release.TargetSHA)
+			if release.Changelog != "" {
+				fmt.Println(release.Changelog)
+			}
+			return nil
+		},
 	}
-	if *project == "" {
-		return fmt.Errorf("release create: --project is required")
-	}
-	cred, err := resolveCredential(*runkodURL, *token)
-	if err != nil {
-		return err
-	}
-	release, err := CreateRelease(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *project, *version)
-	if err != nil {
-		return err
-	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(release)
-	}
-	fmt.Printf("released %s %s\n  tag %s -> %.12s\n", release.Project.Name, release.Version, release.TagRef, release.TargetSHA)
-	if release.Changelog != "" {
-		fmt.Println(release.Changelog)
-	}
-	return nil
+	cmd.Flags().StringVar(&project, "project", "", "project name (required)")
+	cmd.Flags().StringVar(&version, "version", "", "explicit version (default: patch-bump the latest release; required for manual-versioning projects)")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the created release as JSON")
+	return cmd
 }
 
-func cmdReleaseList(args []string) error {
-	fs := flag.NewFlagSet("release list", flag.ExitOnError)
-	runkodURL := fs.String("runkod-url", "", "runkod base URL")
-	token := fs.String("token", "", "deploy token")
-	project := fs.String("project", "", "project name (required)")
-	jsonOut := fs.Bool("json", false, "emit the release list as JSON")
-	if err := fs.Parse(args); err != nil {
-		return err
+func newReleaseListCmd(a *app) *cobra.Command {
+	var (
+		project string
+		jsonOut bool
+	)
+	cmd := &cobra.Command{
+		Use:   "list --project <p>",
+		Short: "The project's releases, newest first",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if project == "" {
+				return fmt.Errorf("release list: --project is required")
+			}
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
+			releases, err := ListReleases(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), project)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(releases)
+			}
+			if len(releases) == 0 {
+				fmt.Printf("%s: no releases\n", project)
+				return nil
+			}
+			for _, r := range releases {
+				by := r.CreatedBy
+				if by == "" {
+					by = "operator"
+				}
+				fmt.Printf("%s  %s  %.12s  by %s  %s\n", r.Version, r.TagRef, r.TargetSHA, by, r.CreatedAt.Format("2006-01-02"))
+			}
+			return nil
+		},
 	}
-	if *project == "" {
-		return fmt.Errorf("release list: --project is required")
-	}
-	cred, err := resolveCredential(*runkodURL, *token)
-	if err != nil {
-		return err
-	}
-	releases, err := ListReleases(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), *project)
-	if err != nil {
-		return err
-	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(releases)
-	}
-	if len(releases) == 0 {
-		fmt.Printf("%s: no releases\n", *project)
-		return nil
-	}
-	for _, r := range releases {
-		by := r.CreatedBy
-		if by == "" {
-			by = "operator"
-		}
-		fmt.Printf("%s  %s  %.12s  by %s  %s\n", r.Version, r.TagRef, r.TargetSHA, by, r.CreatedAt.Format("2006-01-02"))
-	}
-	return nil
+	cmd.Flags().StringVar(&project, "project", "", "project name (required)")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the release list as JSON")
+	return cmd
 }
