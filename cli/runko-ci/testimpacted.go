@@ -37,7 +37,7 @@ func newTestImpactedCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "test-impacted --universe <pattern> [-- <bazel test args>]",
 		Short: "Run a check's bazel tests scoped to the impacted targets",
-		Long: `Runs a manifest check's bazel tests scoped to the §14.5.8
+		Long: `Runs a manifest check's bazel tests scoped to the
 snapshot-diff-impacted targets between base and head; every scoping
 failure falls back to the full universe pattern (fail closed). Bazel's
 own exit code passes through verbatim.`,
@@ -85,7 +85,7 @@ own exit code passes through verbatim.`,
 	}
 	fl := cmd.Flags()
 	fl.StringVar(&repoDir, "repo", ".", "path to the local repo")
-	fl.StringVar(&base, "base", "", "base revision (default: $BASE_SHA, the §14.4 executor payload)")
+	fl.StringVar(&base, "base", "", "base revision (default: $BASE_SHA, the executor payload)")
 	fl.StringVar(&head, "head", "", "head revision (default: $HEAD_SHA, then HEAD)")
 	fl.StringVar(&universe, "universe", "", "bazel target pattern this check owns, e.g. //runkod/... (required)")
 	fl.DurationVar(&engineTimeout, "engine-timeout", 10*time.Minute, "timeout for the snapshot diff")

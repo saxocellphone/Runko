@@ -53,7 +53,7 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "runko-ci",
 		Short: "The CI-facing Runko CLI",
-		Long: `runko-ci is the generic-executor side of Runko's CI contract (§14.9):
+		Long: `runko-ci is the generic-executor side of Runko's CI contract:
 resolve what a base..head range affects (affected, checks, images),
 materialize a sparse checkout (checkout), and report results back
 (report-check, report-image). affected/checks/images always emit JSON -
@@ -145,7 +145,7 @@ func newChecksCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "checks --base <rev>",
 		Short: "Resolve affected projects' manifest-declared checks (JSON always)",
-		Long: `The §14.9 executor contract: the affected closure's manifest-declared
+		Long: `The executor contract: the affected closure's manifest-declared
 ci.checks, deduped by name - each project OWNS its check commands, this
 verb only resolves them for a generic executor to run.`,
 		Args: noArgs,
@@ -167,7 +167,7 @@ verb only resolves them for a generic executor to run.`,
 	fl.StringVar(&base, "base", "", "base revision")
 	fl.StringVar(&head, "head", "HEAD", "head revision")
 	fl.StringVar(&rootPatterns, "root-invalidation", "", "comma-separated root-invalidation glob patterns (additive to the tree's)")
-	fl.StringVar(&engine, "engine", "", "optional build-graph adapter engine: enables §14.5.8 snapshot-diff narrowing of refinable-only escalations - pass ONLY where nothing gates on the output (post-land CI)")
+	fl.StringVar(&engine, "engine", "", "optional build-graph adapter engine: enables snapshot-diff narrowing of refinable-only escalations - pass ONLY where nothing gates on the output (post-land CI)")
 	fl.StringVar(&universe, "universe", "", "build-graph universe pattern, e.g. //... (default when --engine is set)")
 	fl.DurationVar(&engineTimeout, "engine-timeout", 10*time.Minute, "timeout for the build-graph engine query")
 	return cmd

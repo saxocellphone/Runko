@@ -77,7 +77,7 @@ func newAgentEventCmd(a *app) *cobra.Command {
 		Use:   "event --kind <kind> --detail <text>",
 		Short: "Report one activity event to the workspace feed",
 		Long: `Reports what the agent is doing (kind read|edit|command|search|note +
-detail) to the workspace's §12.6.1 live feed. --from-hook derives
+detail) to the workspace's live feed. --from-hook derives
 kind/detail/session from a post-tool-use hook JSON on stdin - the form
 ` + "`runko agent hooks`" + ` wires. Observability only; it never gates.`,
 		Args: noArgs,
@@ -144,7 +144,7 @@ kind/detail/session from a post-tool-use hook JSON on stdin - the form
 	fl := cmd.Flags()
 	fl.StringVar(&kind, "kind", "", "event kind: read|edit|command|search|note")
 	fl.StringVar(&detail, "detail", "", "what happened: a path, a command line")
-	fl.StringVar(&session, "session", "", "harness coding-session id (§7.2 audit link)")
+	fl.StringVar(&session, "session", "", "harness coding-session id (audit link)")
 	fl.BoolVar(&fromHook, "from-hook", false, "read a post-tool-use hook JSON from stdin and derive kind/detail/session from it")
 	fl.StringVar(&dir, "dir", ".", "workspace worktree to report for")
 	fl.BoolVar(&jsonOut, "json", false, "emit the result as JSON")
@@ -191,7 +191,7 @@ an already-wired file no-ops, and the file is excluded from snapshots.`,
 				fmt.Fprintln(os.Stderr, "prerequisites: runko on PATH; RUNKO_RUNKOD_URL + RUNKO_TOKEN exported in the")
 				fmt.Fprintln(os.Stderr, "harness environment (or a stored `runko auth login`); name the workspace with")
 				fmt.Fprintln(os.Stderr, "-w (or run inside its worktree). events feed the workspace page's live Agent")
-				fmt.Fprintln(os.Stderr, "activity card (§12.6.1).")
+				fmt.Fprintln(os.Stderr, "activity card.")
 				fmt.Println(agentHooksSnippet)
 				return nil
 			}

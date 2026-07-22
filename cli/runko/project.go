@@ -130,7 +130,6 @@ func resolveBaseOrEmpty(repoDir string, store *gitstore.Store) (core.Revision, e
 			Field:      "repo",
 			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
 			Suggestion: "run `git init` (or `jj git init --colocate`) first, then retry `runko project create`",
-			DocURL:     "docs/design.md#67-empty-states-and-education",
 		}
 	}
 	if _, err := runGit(repoDir, "symbolic-ref", "-q", "HEAD"); err != nil {
@@ -139,7 +138,6 @@ func resolveBaseOrEmpty(repoDir string, store *gitstore.Store) (core.Revision, e
 			Field:      "repo",
 			Message:    "HEAD is not on a branch (detached HEAD)",
 			Suggestion: "check out a branch first, e.g. `git checkout -b my-branch`",
-			DocURL:     "docs/design.md#69-the-closed-trunk-moment-human-git-ux",
 		}
 	}
 	base, err := store.ResolveRef("HEAD")

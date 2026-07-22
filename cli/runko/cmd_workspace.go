@@ -23,7 +23,7 @@ func newWorkspaceCmd(a *app) *cobra.Command {
 		Use:     "workspace",
 		Short:   "Materialize and manage workspaces",
 		GroupID: "loop",
-		Long: `A workspace is a durable workstream (§12.1-12.3): full-repo view,
+		Long: `A workspace is a durable workstream: full-repo view,
 materialized as a worktree holding only your slice (sparse cone), with
 WIP made durable via snapshot refs pushed through the normal receive
 path. One workspace = one task; parallel lines within it are branches.`,
@@ -54,8 +54,8 @@ func newWorkspaceCreateCmd(a *app) *cobra.Command {
 		Short: "Register and materialize a new workspace",
 		Long: `Registers the workspace (registry row + snapshot ref namespace) and
 materializes it: worktree off a shared blobless clone, sparse cone
-covering the --project affinities, hooks and credential helper wired
-(§12.7). With no --dir/--clone-dir everything lands under
+covering the --project affinities, hooks and credential helper wired.
+With no --dir/--clone-dir everything lands under
 $RUNKO_WORKSPACE_HOME (default ~/runko-ws). --new-path grants affinity
 for a project that does not exist at trunk yet (the greenfield
 bootstrap). --jj materializes a standalone jj colocated checkout
@@ -118,7 +118,7 @@ instead (full clone; jj cannot lazy-fetch promisor blobs).`,
 	fl.StringVar(&name, "name", "", "workspace name (also the snapshot-ref segment)")
 	fl.StringVar(&by, "by", "", "who owns this workspace (default: the stored login's principal)")
 	fl.StringVar(&as, "as", "", "authenticate as this named principal using --token as its password (Basic, not stored) - the no-XDG agent form")
-	fl.StringVar(&cloneDir, "clone-dir", "", "shared blobless clone directory (default: the managed home's .store, §12.7)")
+	fl.StringVar(&cloneDir, "clone-dir", "", "shared blobless clone directory (default: the managed home's .store)")
 	fl.StringVar(&dir, "dir", "", "worktree directory (default: under the managed home, ~/runko-ws)")
 	fl.BoolVar(&forceNested, "force-nested", false, "materialize inside another git checkout anyway")
 	fl.BoolVar(&jjClient, "jj", false, "standalone jj colocated checkout (jj + .git side by side, Change-Ids from jj change ids) instead of a worktree off the shared store")
@@ -177,8 +177,8 @@ func newWorkspaceAttachCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "attach <id>",
 		Short: "Restore a workspace from its snapshot ref",
-		Long: `Materializes an existing workspace's branch from its snapshot ref
-(§12.2) - the restore path after a lost machine, or a second checkout
+		Long: `Materializes an existing workspace's branch from its snapshot ref -
+the restore path after a lost machine, or a second checkout
 for a parallel branch (branch attaches land at <workspace>@<branch>
 under the managed home).`,
 		Args: cobra.ArbitraryArgs,
@@ -214,9 +214,9 @@ under the managed home).`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&cloneDir, "clone-dir", "", "shared blobless clone directory (default: the managed home's .store, §12.7)")
+	fl.StringVar(&cloneDir, "clone-dir", "", "shared blobless clone directory (default: the managed home's .store)")
 	fl.StringVar(&dir, "dir", "", "worktree directory (default: under the managed home; branches land at <workspace>@<branch>)")
-	fl.StringVar(&branch, "branch", "head", "workspace branch to restore (parallel lines of work, §12.2)")
+	fl.StringVar(&branch, "branch", "head", "workspace branch to restore (parallel lines of work)")
 	fl.BoolVar(&forceNested, "force-nested", false, "materialize inside another git checkout anyway")
 	fl.BoolVar(&jjClient, "jj", false, "restore as a standalone jj colocated checkout instead of a worktree off the shared store")
 	fl.BoolVar(&jsonOut, "json", false, "emit the workspace (+ Dir) as JSON")
@@ -228,7 +228,7 @@ func newWorkspacePathCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "path [<name[@branch]>]",
 		Short: "Print a workspace's local directory",
-		Long: `Scripting glue for the rare case -w cannot cover (§12.7):
+		Long: `Scripting glue for the rare case -w cannot cover:
 cd $(runko workspace path <name>). With no name, the current checkout
 answers for itself.`,
 		Args: maxOneArg,
@@ -264,7 +264,7 @@ func newWorkspaceGCCmd(a *app) *cobra.Command {
 		Use:   "gc",
 		Short: "Reclaim closed and synced materializations",
 		Long: `Plans (default) or executes (--apply) reclamation of this machine's
-materializations (§12.7): reclaimable means server-closed AND the
+materializations: reclaimable means server-closed AND the
 working tree provably preserved under its snapshot ref - everything
 doubtful is a fail-closed keep with the reason named.`,
 		Args: noArgs,
@@ -314,7 +314,7 @@ doubtful is a fail-closed keep with the reason named.`,
 	fl := cmd.Flags()
 	fl.BoolVar(&apply, "apply", false, "execute the plan (default: print it)")
 	fl.DurationVar(&idle, "idle", 0, "also sweep OPEN workspaces idle this long (their durable state is server-side; re-attach recreates them)")
-	fl.StringArrayVar(&scans, "scan", nil, "store directory whose worktrees are adopted into the registry first (repeatable; the pre-§12.7 migration path)")
+	fl.StringArrayVar(&scans, "scan", nil, "store directory whose worktrees are adopted into the registry first (repeatable; the migration path for stores predating the workspace registry)")
 	fl.BoolVar(&jsonOut, "json", false, "emit the plan as JSON")
 	return cmd
 }
@@ -328,7 +328,7 @@ func newWorkspaceSnapshotCmd() *cobra.Command {
 		Use:   "snapshot",
 		Short: "Commit WIP to the workspace's snapshot ref",
 		Long: `Commits the working tree onto the workspace branch and pushes it to
-refs/workspaces/<id>/<branch> (§12.2) - durable, secret-scanned WIP; a
+refs/workspaces/<id>/<branch> - durable, secret-scanned WIP; a
 killed session loses nothing. In a jj colocated checkout the snapshot
 is built out-of-band, never a commit on the checked-out line.`,
 		Args: noArgs,
@@ -366,7 +366,7 @@ func newWorkspaceWatchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Auto-snapshot the working tree while it changes",
-		Long: `The §12.6 streaming loop: every --interval it builds the working
+		Long: `The streaming loop: every --interval it builds the working
 tree's snapshot OUT-OF-BAND (temp index + commit-tree - HEAD, the real
 index, and the worktree are never touched, safe beside a working agent
 or jj) and force-pushes when the tree moved. The workspace page shows
@@ -397,7 +397,7 @@ func newWorkspaceBranchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "branch <name>",
 		Short: "Fork a parallel line of work",
-		Long: `Forks a parallel line at the current HEAD (§12.2): snapshots from
+		Long: `Forks a parallel line at the current HEAD: snapshots from
 this worktree now target refs/workspaces/<id>/<name>. Each branch
 reviews and lands on its own - the fix for unrelated work sharing a
 stack.`,
@@ -437,7 +437,7 @@ func newWorkspaceSyncCmd(a *app) *cobra.Command {
 		Use:     "sync",
 		Aliases: []string{"update-base"}, // the original stage-12b name
 		Short:   "Rebase the workspace onto the trunk tip",
-		Long: `The CitC "sync to head" verb (§12.3): fetch trunk, rebase the
+		Long: `The "sync to head" verb: fetch trunk, rebase the
 workspace line onto its tip (jj-aware: descendants follow), record the
 new base in the registry. Conflicts abort and name the files.`,
 		Args: noArgs,

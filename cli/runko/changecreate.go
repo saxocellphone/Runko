@@ -35,7 +35,6 @@ func CreateChange(repoDir, message string, allowLarge bool) (changeID string, er
 			Code: "not_a_repo", Field: "repo",
 			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
 			Suggestion: "clone the monorepo first (see `runko doctor`)",
-			DocURL:     "docs/design.md#67-empty-states-and-education",
 		}
 	}
 	// In a sparse-cone worktree (runko workspace attach), paths outside
@@ -60,7 +59,6 @@ func CreateChange(repoDir, message string, allowLarge bool) (changeID string, er
 			Field:      "repo",
 			Message:    "these files are outside this workspace's sparse cone and cannot be part of the change: " + strings.Join(strings.Split(skipped, "\n"), ", "),
 			Suggestion: widen + ", or move the files under a materialized project",
-			DocURL:     "docs/design.md#122-durability-snapshot-refs",
 		}
 	}
 	if addErr != nil {
@@ -84,7 +82,6 @@ func CreateChange(repoDir, message string, allowLarge bool) (changeID string, er
 				Field:      "repo",
 				Message:    "these newly-added files look like build artifacts, not source:\n" + strings.Join(suspects, "\n"),
 				Suggestion: "remove them or add them to .gitignore (build output never belongs in a change); if the addition is intentional, re-run with --allow-large",
-				DocURL:     "docs/design.md#122-durability-snapshot-refs",
 			}
 		}
 	}

@@ -118,7 +118,7 @@ func newChangeCommentCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "comment -m <text>",
 		Short: "Leave an anchored review comment",
-		Long: `Comments on a change (§13.4.1): change-level (no --file), file-level
+		Long: `Comments on a change: change-level (no --file), file-level
 (--file), or line-level (--file --line; --side defaults to head). The
 server stamps the head SHA, so an amend marks the comment outdated.
 --reply-to replies in a thread (one level deep). Agent principals
@@ -181,7 +181,7 @@ func newChangeCommentsCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "comments",
 		Short: "List review threads on a Change",
-		Long: `Lists the change's review threads (§13.4.1), grouped with replies
+		Long: `Lists the change's review threads, grouped with replies
 indented, marking [resolved]/[outdated]/[agent].`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -272,7 +272,7 @@ func newChangeResolveCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "resolve <comment-id>",
 		Short: "Resolve or reopen a review thread",
-		Long: `Resolves a thread root (§13.4.1) - allowed for the thread author, the
+		Long: `Resolves a thread root - allowed for the thread author, the
 change author, an owner of the anchored path, or an admin. --undo
 reopens.`,
 		Args: cobra.ArbitraryArgs,
@@ -322,7 +322,7 @@ func newChangeRequestReviewCmd(a *app) *cobra.Command {
 		Use:   "request-review <principal|group:name>",
 		Short: "Ask a principal or group to review",
 		Long: `Records the review request (idempotent) and puts the reviewer in the
-derived attention set (§13.4.2) until they approve or comment at the
+derived attention set until they approve or comment at the
 current head.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -344,7 +344,7 @@ current head.`,
 			if jsonOut {
 				return json.NewEncoder(os.Stdout).Encode(map[string]string{"reviewer": reviewer})
 			}
-			fmt.Printf("requested review from %s on %s - they enter the attention set (§13.4.2)\n", reviewer, id)
+			fmt.Printf("requested review from %s on %s - they enter the attention set\n", reviewer, id)
 			return nil
 		},
 	}

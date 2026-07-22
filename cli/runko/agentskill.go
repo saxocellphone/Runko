@@ -73,7 +73,7 @@ func ensureAgentSkill(dir string) (path, outcome string, err error) {
 			return "", "", fmt.Errorf("agent skill: write %s: %w", p, err)
 		}
 		if _, err := excludeFromSnapshots(dir, s.Path,
-			"# runko: the installed agent skill is local teaching, never Change content (§8.8)"); err != nil {
+			"# runko: the installed agent skill is local teaching, never Change content"); err != nil {
 			return "", "", err
 		}
 		wrote = true

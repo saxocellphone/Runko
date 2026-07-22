@@ -47,12 +47,12 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "runko",
 		Short: "The monorepo operating system CLI",
-		Long: `Runko is a monorepo operating system layered on Git (docs/design.md):
-Projects and CitC-class Workspaces over one repo, change-centric review,
-and CI/CD contracts. This CLI is the primary interface for humans and
-agents alike (§8.3); every data-producing command takes --json.
+		Long: `Runko is a monorepo operating system layered on Git: Projects and
+CitC-class Workspaces over one repo, change-centric review, and CI/CD
+contracts. This CLI is the primary interface for humans and agents
+alike; every data-producing command takes --json.
 
-The loop (§6.9):
+The loop:
   runko change create -m "<what and why>"   # commit the working tree as one Change
   runko change push                         # submit the stack for review (refs/for/<trunk>)
   runko change land --change <Change-Id>    # land it once the gates are green`,
@@ -160,7 +160,7 @@ func unknownCommand(cmd *cobra.Command, name string) error {
 // working directory (resolveWorkspaceDir, materializations.go), so the
 // verb runs from anywhere - no cd into the worktree (§12.7).
 func addWorkspaceFlag(cmd *cobra.Command) *string {
-	return cmd.Flags().StringP("workspace", "w", "", "workspace name[@branch]: run against its registered materialization instead of the current directory (§12.7)")
+	return cmd.Flags().StringP("workspace", "w", "", "workspace name[@branch]: run against its registered materialization instead of the current directory")
 }
 
 // noArgs is cobra.NoArgs mapped into the exit-2 usage class

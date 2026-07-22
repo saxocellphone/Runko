@@ -20,7 +20,7 @@ func newAuthCmd(a *app) *cobra.Command {
 		Short:   "Sign up, sign in, and manage the stored credential",
 		GroupID: "start",
 		Long: `First contact is one command: signup registers the account, creates or
-joins the org, and stores the credential - signup IS login (§6.10).
+joins the org, and stores the credential - signup IS login.
 Every control-plane command then needs no --runkod-url/--token flags.`,
 		Example: `  runko auth signup --runkod-url https://<host> --name <you> --org <org> --create
   runko auth login --runkod-url https://<host>/o/<org> --name <you>

@@ -41,6 +41,7 @@ go_test(
         "checkout_test.go",
         "checks_test.go",
         "exec_test.go",
+        "helptext_test.go",
         "images_test.go",
         "main_test.go",
         "reportcheck_test.go",
@@ -53,5 +54,6 @@ go_test(
     deps = [
         "//internal/clierr",
         "//internal/gitfixture",
+        "@com_github_spf13_cobra//:cobra",
     ],
 )

@@ -79,6 +79,7 @@ go_test(
         "exec_test.go",
         "gitauth_test.go",
         "github_test.go",
+        "helptext_test.go",
         "jj_test.go",
         "land_test.go",
         "main_test.go",
@@ -103,5 +104,6 @@ go_test(
         "//platform/project",
         "//platform/receive",
         "//runkod",
+        "@com_github_spf13_cobra//:cobra",
     ],
 )

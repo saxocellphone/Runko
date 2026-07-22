@@ -27,9 +27,9 @@ func newChangeCmd(a *app) *cobra.Command {
 		Short:   "Create, submit, review, and land Changes",
 		GroupID: "loop",
 		Long: `A Change is one reviewable unit, identified by its Change-Id trailer
-across amends (§7.4). The loop: create commits the working tree, push
-submits to refs/for/<trunk> (one push updates the WHOLE stack), land
-rebases onto trunk once the §13.5 gates are green.`,
+across amends. The loop: create commits the working tree, push submits
+to refs/for/<trunk> (one push updates the WHOLE stack), land rebases
+onto trunk once the merge gates are green.`,
 		Example: `  runko change create -m "checkout: validate address up front"
   runko change push
   runko change requirements            # what still blocks HEAD's Change
@@ -57,7 +57,7 @@ func newChangeCreateCmd() *cobra.Command {
 		Use:   "create -m <message>",
 		Short: "Commit the working tree as one Change",
 		Long: `Commits ALL working-tree changes as one commit carrying a fresh
-Change-Id trailer (§7.4). No auto-push - ` + "`change push`" + ` stays the
+Change-Id trailer. No auto-push - ` + "`change push`" + ` stays the
 explicit submit step. Newly-added files that look like build artifacts
 (executable+binary, or >=5 MiB) are refused with suspect_artifact;
 --allow-large is the escape for an intentional binary asset.`,
@@ -79,7 +79,7 @@ explicit submit step. Newly-added files that look like build artifacts
 			// message) that RequireDescription gates agent lands on - surfacing it
 			// here means an agent sets it up front instead of discovering the blocker
 			// only at `change requirements` (FIX #6).
-			fmt.Printf("created change %s\n  -> runko change describe --description \"WHAT changed and WHY\"   # agent changes must, before landing (§8.7)\n  -> runko change push                                       # submit it for review\n", id)
+			fmt.Printf("created change %s\n  -> runko change describe --description \"WHAT changed and WHY\"   # agent changes must, before landing\n  -> runko change push                                       # submit it for review\n", id)
 			return nil
 		},
 	}
@@ -87,7 +87,7 @@ explicit submit step. Newly-added files that look like build artifacts
 	fl.StringVarP(&msg, "message", "m", "", "change message (required)")
 	fl.StringVar(&dir, "dir", ".", "repository directory")
 	addWorkspaceFlag(cmd)
-	fl.BoolVar(&allowLarge, "allow-large", false, "commit large/executable untracked files anyway (they are refused by default as suspected build artifacts, §12.2)")
+	fl.BoolVar(&allowLarge, "allow-large", false, "commit large/executable untracked files anyway (they are refused by default as suspected build artifacts)")
 	fl.BoolVar(&jsonOut, "json", false, "emit {change_id} as JSON")
 	return cmd
 }
@@ -104,7 +104,7 @@ func newChangeAmendCmd() *cobra.Command {
 		Use:   "amend",
 		Short: "Fold the working tree into HEAD's Change",
 		Long: `The native git commit --amend: folds the working tree into HEAD's
-existing Change, PRESERVING its Change-Id (§7.4). -m rewords; the
+existing Change, PRESERVING its Change-Id. -m rewords; the
 default keeps HEAD's message. Refused in a jj colocated checkout
 (jj squash / jj describe are the natives there).`,
 		Args: noArgs,
@@ -140,10 +140,10 @@ func newChangePushCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Push HEAD to refs/for/<trunk> for review",
-		Long: `Submits for review (§11.5): pushes HEAD (jj-aware) to refs/for/<trunk>
+		Long: `Submits for review: pushes HEAD (jj-aware) to refs/for/<trunk>
 with the worktree's workspace-origin push options. Auto-syncs a stale
 base onto the trunk tip first and, in a workspace-bound checkout,
-auto-snapshots the working tree beforehand (§12.6) - both best-effort
+auto-snapshots the working tree beforehand - both best-effort
 opt-outs. One push updates EVERY Change in the stack (series receive).`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -173,7 +173,7 @@ opt-outs. One push updates EVERY Change in the stack (series receive).`,
 	fl.StringVar(&remote, "remote", "origin", "git remote to push to")
 	fl.StringVar(&trunk, "trunk", "main", "trunk ref name")
 	fl.BoolVar(&noSync, "no-sync", false, "push as-is even when the base is stale (skip the automatic rebase onto the trunk tip)")
-	fl.BoolVar(&noSnapshot, "no-snapshot", false, "skip the automatic workspace snapshot before pushing (§12.6)")
+	fl.BoolVar(&noSnapshot, "no-snapshot", false, "skip the automatic workspace snapshot before pushing")
 	fl.BoolVar(&jsonOut, "json", false, "emit {change_id, ref} as JSON instead of a human summary")
 	return cmd
 }
@@ -186,9 +186,9 @@ func newChangeRequirementsCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "requirements",
 		Short: "The merge gates for a Change: what still blocks",
-		Long: `Reports the §13.5 gates - owners, checks, mergeable, blockers - plus
-the attention set (§13.4.2: whose turn it is). --change defaults to
-HEAD's Change-Id trailer.`,
+		Long: `Reports the merge gates - owners, checks, mergeable, blockers - plus
+the attention set (whose turn it is). --change defaults to HEAD's
+Change-Id trailer.`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), dir)
@@ -236,7 +236,7 @@ func newChangeLandCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "land --change <Change-Id>",
 		Short: "Land a mergeable Change onto trunk",
-		Long: `Rebase-lands a mergeable Change (§13.5). On requires_revalidation
+		Long: `Rebase-lands a mergeable Change. On requires_revalidation
 (trunk moved under it) the default --sync recovery loop runs right
 here: sync onto trunk, re-push, wait for checks, retry - bounded by
 --sync-timeout. --force is the admin override: bypasses owner/check
@@ -285,7 +285,7 @@ order), audited as landed_forced.`,
 	}
 	fl := cmd.Flags()
 	fl.StringVar(&changeID, "change", "", "Change-Id to land")
-	fl.BoolVar(&force, "force", false, "admin override (docs/design.md 13.5): bypass owner/check gates and revalidation; audited as landed_forced")
+	fl.BoolVar(&force, "force", false, "admin override: bypass owner/check gates and revalidation; audited as landed_forced")
 	fl.StringVar(&repoDir, "repo", ".", "local checkout used by --sync to rebase and re-push on requires_revalidation")
 	addWorkspaceFlag(cmd)
 	fl.StringVar(&remote, "remote", "origin", "git remote --sync pushes to")
@@ -427,7 +427,7 @@ func newChangeDescribeCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "describe --description <text>",
 		Short: "Set a Change's description and test plan",
-		Long: `Sets the §8.6 summary on an open change: --description says what the
+		Long: `Sets the review summary on an open change: --description says what the
 change does and why, --test-plan how it was verified - agents SHOULD
 set both after push (RequireDescription gates agent lands). A separate
 control-plane field, never derived from the commit message; an omitted
@@ -475,8 +475,8 @@ flag preserves the stored value, an explicit "" clears it.`,
 	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
 	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
 	addWorkspaceFlag(cmd)
-	fl.StringVar(&description, "description", "", "what the change does and why (§8.6)")
-	fl.StringVar(&testPlan, "test-plan", "", "how the change was verified (§8.6)")
+	fl.StringVar(&description, "description", "", "what the change does and why")
+	fl.StringVar(&testPlan, "test-plan", "", "how the change was verified")
 	fl.BoolVar(&jsonOut, "json", false, "emit the updated change as JSON")
 	return cmd
 }
@@ -490,7 +490,7 @@ func newChangeAutomergeCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "automerge --change <Change-Id>",
 		Short: "Arm the when-ready land",
-		Long: `Arms automerge (§13.5): the server lands the change automatically the
+		Long: `Arms automerge: the server lands the change automatically the
 moment its checks and approvals go green, attributed to the armer,
 surviving amends (gates reset and re-gate). The alternative to
 poll-and-land loops. --disable disarms.`,

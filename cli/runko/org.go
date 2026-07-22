@@ -92,8 +92,8 @@ func newOrgCmd(a *app) *cobra.Command {
 		Use:     "org",
 		Short:   "Create and manage orgs",
 		GroupID: "repo",
-		Long: `Every org mounts the FULL surface (git, REST, RPC) under /o/<org>/
-(§7.1), so pointing the stored login at an org's mount makes every
+		Long: `Every org mounts the FULL surface (git, REST, RPC) under /o/<org>/,
+so pointing the stored login at an org's mount makes every
 other command work against it unchanged - these verbs exist for the
 hub-level surface only.`,
 		Args: cobra.ArbitraryArgs,
@@ -111,7 +111,7 @@ func newOrgCreateCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create --name <org>",
 		Short: "Create a new org, genesis-seeded and ready to work in",
-		Long: `Creates an org owning its own repo at /o/<org>/ (§6.10, §7.1); the
+		Long: `Creates an org owning its own repo at /o/<org>/; the
 caller becomes its admin. The new org is GENESIS-SEEDED (root
 manifest, OWNERS naming you, AGENTS.md - trunk is never unborn) and
 the stored login is rebound to the new org's mount.`,
@@ -210,7 +210,7 @@ func newOrgAddMemberCmd(a *app) *cobra.Command {
 		Short: "Grant an existing account access to an org",
 		Long: `Org admins and operators only; the account must already have signed
 up (membership is not an invitation system). Roles: member, admin,
-releaser (§14.10.3: may write tags and cut releases under tag policy).`,
+releaser (may write tags and cut releases under tag policy).`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if org == "" || name == "" {
@@ -242,7 +242,7 @@ func newOrgBootstrapCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bootstrap",
 		Short: "Retrofit governance onto an ownerless org",
-		Long: `The §6.10 genesis retrofit for an org whose trunk resolves no owners
+		Long: `The genesis retrofit for an org whose trunk resolves no owners
 anywhere (born before genesis, or imported bare): opens a
 server-authored Change adding root OWNERS naming you - landable by you
 right now under uploader consent. An unborn trunk is genesis-seeded

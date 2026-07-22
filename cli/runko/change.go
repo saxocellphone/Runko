@@ -71,7 +71,6 @@ func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (cha
 			Field:      "repo",
 			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
 			Suggestion: "run `git init` (or `jj git init --colocate`) first, then retry `runko change push`",
-			DocURL:     "docs/design.md#67-empty-states-and-education",
 		}
 	}
 	// jj mode (§7.4, jj.go): the tip is resolved from jj's working copy,
@@ -92,7 +91,6 @@ func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (cha
 				Field:      "repo",
 				Message:    "HEAD is not on a branch (detached HEAD)",
 				Suggestion: "check out a branch first, e.g. `git checkout -b my-branch`",
-				DocURL:     "docs/design.md#69-the-closed-trunk-moment-human-git-ux",
 			}
 		}
 
@@ -104,7 +102,6 @@ func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (cha
 				Field:      "repo",
 				Message:    "HEAD has no commits yet - nothing to push",
 				Suggestion: "run `runko project create` or make a commit first",
-				DocURL:     "docs/design.md#67-empty-states-and-education",
 			}
 		}
 	}
@@ -257,7 +254,6 @@ func transportRejection(err error) *clierr.Error {
 		Field:      "remote",
 		Message:    "the push to the control plane failed at the HTTP transport layer, not on policy (a proxy dropped the pack upload): " + firstNonEmptyLine(s),
 		Suggestion: "raise git's HTTP post buffer and pin HTTP/1.1, then retry `runko change push`: `git config http.postBuffer 524288000 && git config http.version HTTP/1.1` (a fresh `runko workspace create` now stamps both for you)",
-		DocURL:     "docs/design.md#1411-smart-http",
 	}
 }
 
