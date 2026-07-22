@@ -1,6 +1,6 @@
 # Runko CI template — pre-land checks (copy to .github/workflows/).
 #
-# The generic executor of your tree-declared checks (§14.9). Runko dispatches
+# The generic executor of your tree-declared checks. Runko dispatches
 # `runko-change` for every pushed Change; this workflow asks `runko-ci checks`
 # which checks the change's affected projects declare (their PROJECT.yaml
 # `ci.checks`), runs each, and reports the result back so the merge gate can

@@ -104,6 +104,7 @@ go_test(
         "//platform/project",
         "//platform/receive",
         "//runkod",
+        "//templates/ci",
         "@com_github_spf13_cobra//:cobra",
     ],
 )

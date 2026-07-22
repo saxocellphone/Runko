@@ -7,10 +7,13 @@ package main
 // walked here so a new command cannot reintroduce them.
 
 import (
+	"io/fs"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	citemplates "github.com/saxocellphone/runko/templates/ci"
 )
 
 // forbiddenInHelp are substrings that mark internal-record language
@@ -52,4 +55,32 @@ func TestHelpTextCarriesNoSpecCitations(t *testing.T) {
 			}
 		}
 	})
+}
+
+// `runko ci init` copies templates/ci verbatim into someone else's
+// repository, where a design.md section number names a document that does
+// not exist. Guarded here rather than beside the templates because the
+// root project - which owns templates/ - declares no Go test lane.
+func TestScaffoldedCITemplatesCarryNoSpecCitations(t *testing.T) {
+	entries, err := fs.ReadDir(citemplates.FS, ".")
+	if err != nil {
+		t.Fatalf("read embedded CI templates: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("embedded CI templates are empty - wrong FS?")
+	}
+	for _, entry := range entries {
+		content, err := fs.ReadFile(citemplates.FS, entry.Name())
+		if err != nil {
+			t.Fatalf("read %s: %v", entry.Name(), err)
+		}
+		for i, line := range strings.Split(string(content), "\n") {
+			for _, bad := range forbiddenInHelp {
+				if strings.Contains(line, bad) {
+					t.Errorf("templates/ci/%s:%d cites %q - scaffolded into other repos:\n  %s",
+						entry.Name(), i+1, bad, strings.TrimSpace(line))
+				}
+			}
+		}
+	}
 }
