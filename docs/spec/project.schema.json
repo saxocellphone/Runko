@@ -97,6 +97,10 @@
       "items": { "type": "string" },
       "description": "L3, root-manifest-oriented; ORDERED, first match wins. The de-escalation dual of root_invalidation (\u00a714.5.7): a changed path matching a prose pattern is re-attributed, for check derivation only, to the repo-root project - it requires the root project's content-tier checks and feeds no dependency closure. Same glob dialect as root_invalidation plus a leading '**/' any-depth form and a gitignore-style '!' prefix for exceptions (a '!' match means NOT prose). root_invalidation always wins over prose; the \u00a77.3 owner gate is untouched (it derives from raw touched paths); a repo with no root project gets no de-escalation. Paths tests consume as data must be '!'-excepted and covered by a declared check."
     },
+    "deploy_registry": {
+      "type": "string",
+      "description": "L3, root-oriented. The registry base (e.g. 'ghcr.io/acme/monorepo') that `runko-ci images` prefixes to each deploy.image `name` to form its full image_ref (<deploy_registry>/<name>). Repo-wide: read from the ROOT project's manifest, a single value for the whole monorepo (a per-image override is not modeled in v1). Absent -> image_ref is the bare `name` (local/dev; a real registry push needs this set). This is publishing config - one value per repo, not per-image policy - so it lives once at the root rather than being repeated in every deploy.image; a generic image-build workflow then hardcodes no registry (§14.10, docs/spec/deploy/README.md)."
+    },
     "visibility": {
       "type": "string",
       "enum": ["default", "restricted"],

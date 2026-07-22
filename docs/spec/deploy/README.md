@@ -88,17 +88,46 @@ is mirrored to a public git host verbatim. **A secret must never appear in a
 build_arg.** Tokens and credentials are runtime, per-environment, and belong to
 the GitOps/secret layer, never the tree.
 
+## The registry lives at the root (`deploy_registry`)
+
+A `deploy.image` declares an image's logical `name` (e.g. `runkod`), NOT where
+it is published. The publishing target — the registry base — is one value for
+the whole monorepo, so it lives ONCE on the root project's manifest as the
+top-level `deploy_registry` field (like `root_invalidation`/`prose`), not
+repeated in every `deploy.image`:
+
+```yaml
+# root PROJECT.yaml
+deploy_registry: ghcr.io/acme/monorepo
+```
+
+`runko-ci images` reads it from the root project and emits a full **`image_ref`**
+per image — `<deploy_registry>/<name>` — so a generic image-build workflow
+hardcodes no registry: it builds/pushes/reports whatever `image_ref` the tree
+declares. Absent, `image_ref` is the bare `name` (local/dev; a real push needs
+the registry set). This keeps the registry in the tree (manifest-first) and
+publishing config out of the workflow file — the difference between a workflow
+a Runko user can copy unchanged and one they must fork.
+
 ## Consumers
 
-- `platform/index` — extracts `deploy.image` / `workloads[].image` into the
-  project index (raw `capability_config` is otherwise dropped).
-- `platform/deploy` — the pure `ImagesForAffected(result, index)` derivation.
+- `platform/index` — extracts `deploy.image` / `workloads[].image` and the
+  root's `deploy_registry` into the project index (raw `capability_config` is
+  otherwise dropped).
+- `platform/deploy` — the pure `ImagesForAffected(result, index)` derivation,
+  and `ImageBuildsForAffected` which resolves each image's build config +
+  `image_ref` (registry-prefixed).
 - `runkod` — opens the per-land deploy record from the derived set.
-- `runko-ci images` — the CI-facing executor form (the build workflow computes
-  the image set itself; the daemon names no images to it, §14.9.1).
+- `runko-ci images` — the CI-facing executor form: emits `{name, image_ref,
+  context, dockerfile, build_args}` (the build workflow computes the image set
+  itself; the daemon names no images to it, §14.9.1).
 
 ## Decisions
 
 - **2026-07-21** — Born as the `deploy` capability's spec surface. The image
   sub-block + rider edge + the rebuild post-filter are the build-derivation
   half (Track A); the runtime/chart half and receive-time validation follow.
+- **2026-07-21** — `deploy_registry` added (root-oriented) so `runko-ci images`
+  emits a registry-prefixed `image_ref`, moving the last hardcoded value out of
+  the image-build workflow and making it a reusable generic template. Registry
+  is one-per-repo publishing config, so it lives at the root, not per-image.
