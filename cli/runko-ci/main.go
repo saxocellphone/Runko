@@ -94,6 +94,16 @@ func groupRunE(cmd *cobra.Command, args []string) error {
 	return errUsageShown
 }
 
+// noArgs is cobra.NoArgs mapped into the exit-2 usage class
+// (docs/cli-contract.md): a stray positional on a flags-only command
+// refuses with the command's own usage line instead of a generic error.
+func noArgs(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		return usageError(fmt.Sprintf("%s: unexpected argument %q\nusage: %s", cmd.CommandPath(), args[0], cmd.UseLine()))
+	}
+	return nil
+}
+
 func newAffectedCmd() *cobra.Command {
 	var (
 		repoDir, base, head, rootPatterns, engine, universe string
@@ -102,7 +112,7 @@ func newAffectedCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "affected --base <rev>",
 		Short: "Compute the affected project set for a base..head range (JSON always)",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if base == "" {
 				return fmt.Errorf("affected: --base is required")
@@ -138,7 +148,7 @@ func newChecksCmd() *cobra.Command {
 		Long: `The §14.9 executor contract: the affected closure's manifest-declared
 ci.checks, deduped by name - each project OWNS its check commands, this
 verb only resolves them for a generic executor to run.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if base == "" {
 				return fmt.Errorf("checks: --base is required")
@@ -168,7 +178,7 @@ func newImagesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "images --base <rev>",
 		Short: "Resolve which deployable images a range must rebuild (JSON always)",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if base == "" {
 				return fmt.Errorf("images: --base is required")
@@ -198,7 +208,7 @@ func newCheckoutCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "checkout --remote <url> --dest <dir> --rev <sha>",
 		Short: "Partial-clone + sparse-checkout a rev for CI",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if remote == "" || dest == "" || rev == "" {
 				return fmt.Errorf("checkout: --remote, --dest, and --rev are required")
@@ -230,7 +240,7 @@ func newReportCheckCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "report-check --url <url> --name <check> --external-id <id> --reporter <id>",
 		Short: "POST a CheckRun result to the platform's Checks API",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if checksURL == "" || name == "" || externalID == "" || reporter == "" {
 				return fmt.Errorf("report-check: --url, --name, --external-id, and --reporter are required")
@@ -274,7 +284,7 @@ func newReportImageCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "report-image --url <url> --image <name> --digest <sha256>",
 		Short: "POST a built image's digest to the platform's deploy API",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deployURL == "" || image == "" || digest == "" {
 				return fmt.Errorf("report-image: --url, --image, and --digest are required")

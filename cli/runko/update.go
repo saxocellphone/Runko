@@ -325,7 +325,7 @@ entry for this platform, so a from-source build reads as stale and is
 replaced. The download is checksum-verified before an atomic swap.`,
 		Example: `  runko self-update --check   # report only; exit 0 either way
   runko self-update`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			exe, err := os.Executable()
 			if err != nil {

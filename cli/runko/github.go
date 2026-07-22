@@ -81,7 +81,7 @@ func newGithubConnectCmd(a *app) *cobra.Command {
 deployment-wide GitHub App can actually push, persists the wiring in
 org settings, and arms the mirror worker live - no daemon restart.
 Covers CI dispatch too (the outbox sends repository_dispatch itself).`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if repo == "" {
 				return usageError("usage: runko github connect --repo <owner/name>")
@@ -116,7 +116,7 @@ func newGithubStatusCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "The org's mirror state: target, cursors, freezes",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {

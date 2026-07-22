@@ -80,7 +80,7 @@ func newAgentEventCmd(a *app) *cobra.Command {
 detail) to the workspace's §12.6.1 live feed. --from-hook derives
 kind/detail/session from a post-tool-use hook JSON on stdin - the form
 ` + "`runko agent hooks`" + ` wires. Observability only; it never gates.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if fromHook {
 				var in hookInput
@@ -181,7 +181,7 @@ func newAgentHooksCmd() *cobra.Command {
 stderr, snippet on stdout). --install merges it into the worktree's
 Claude Code .claude/settings.local.json instead: foreign keys survive,
 an already-wired file no-ops, and the file is excluded from snapshots.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !install {
 				// Prerequisites go to stderr so `runko agent hooks > hooks.json`

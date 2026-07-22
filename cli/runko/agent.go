@@ -61,7 +61,7 @@ func newAgentCreateCmd(a *app) *cobra.Command {
 		Long: `Mints agent-<task>-<suffix> with a token shown exactly ONCE (default
 TTL 8h, cap 168h). The harness or a human mints - an agent credential
 is refused (agents_cannot_mint).`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if task == "" {
 				return usageError("usage: runko agent create --task <slug> [--ttl 8h]")
@@ -110,7 +110,7 @@ func newAgentListCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "Live and expired agent identities",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {

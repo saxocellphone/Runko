@@ -115,7 +115,7 @@ func newOrgCreateCmd(a *app) *cobra.Command {
 caller becomes its admin. The new org is GENESIS-SEEDED (root
 manifest, OWNERS naming you, AGENTS.md - trunk is never unborn) and
 the stored login is rebound to the new org's mount.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return usageError("usage: runko org create --name <org> [--no-switch] [--runkod-url <url> --token <t>]")
@@ -173,7 +173,7 @@ func newOrgListCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "Orgs you can reach (role + git URL)",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {
@@ -211,7 +211,7 @@ func newOrgAddMemberCmd(a *app) *cobra.Command {
 		Long: `Org admins and operators only; the account must already have signed
 up (membership is not an invitation system). Roles: member, admin,
 releaser (§14.10.3: may write tags and cut releases under tag policy).`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if org == "" || name == "" {
 				return usageError("usage: runko org add-member --org <org> --name <account> [--role member|admin]")
@@ -247,7 +247,7 @@ anywhere (born before genesis, or imported bare): opens a
 server-authored Change adding root OWNERS naming you - landable by you
 right now under uploader consent. An unborn trunk is genesis-seeded
 directly instead.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {

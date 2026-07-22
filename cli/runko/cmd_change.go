@@ -61,7 +61,7 @@ Change-Id trailer (§7.4). No auto-push - ` + "`change push`" + ` stays the
 explicit submit step. Newly-added files that look like build artifacts
 (executable+binary, or >=5 MiB) are refused with suspect_artifact;
 --allow-large is the escape for an intentional binary asset.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), dir)
 			if err != nil {
@@ -107,7 +107,7 @@ func newChangeAmendCmd() *cobra.Command {
 existing Change, PRESERVING its Change-Id (§7.4). -m rewords; the
 default keeps HEAD's message. Refused in a jj colocated checkout
 (jj squash / jj describe are the natives there).`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), dir)
 			if err != nil {
@@ -145,7 +145,7 @@ with the worktree's workspace-origin push options. Auto-syncs a stale
 base onto the trunk tip first and, in a workspace-bound checkout,
 auto-snapshots the working tree beforehand (§12.6) - both best-effort
 opt-outs. One push updates EVERY Change in the stack (series receive).`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), repoDir)
 			if err != nil {
@@ -189,7 +189,7 @@ func newChangeRequirementsCmd(a *app) *cobra.Command {
 		Long: `Reports the §13.5 gates - owners, checks, mergeable, blockers - plus
 the attention set (§13.4.2: whose turn it is). --change defaults to
 HEAD's Change-Id trailer.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), dir)
 			if err != nil {
@@ -244,7 +244,7 @@ gates and revalidation (server-authorized; never conflicts or stacking
 order), audited as landed_forced.`,
 		Example: `  runko change land --change I6a3f...
   runko change land --change I6a3f... -w my-workstream   # recovery checkout by name`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if changeID == "" {
 				return fmt.Errorf("change land: --change is required")
@@ -307,7 +307,7 @@ func newChangeApproveCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "approve --change <Change-Id> --owner <ref>",
 		Short: "Record an owner approval on a Change",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if changeID == "" || ownerRef == "" {
 				return fmt.Errorf("change approve: --change and --owner are required")
@@ -353,7 +353,7 @@ func newChangeListCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List changes, newest first",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {
@@ -394,7 +394,7 @@ func newChangeAbandonCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "abandon --change <Change-Id>",
 		Short: "Abandon an open change",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if changeID == "" {
 				return fmt.Errorf("change abandon: --change is required")
@@ -432,7 +432,7 @@ change does and why, --test-plan how it was verified - agents SHOULD
 set both after push (RequireDescription gates agent lands). A separate
 control-plane field, never derived from the commit message; an omitted
 flag preserves the stored value, an explicit "" clears it.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// A flag the caller never passed means "leave that field alone"; an
 			// explicit --description "" clears it - distinguished by Changed.
@@ -494,7 +494,7 @@ func newChangeAutomergeCmd(a *app) *cobra.Command {
 moment its checks and approvals go green, attributed to the armer,
 surviving amends (gates reset and re-gate). The alternative to
 poll-and-land loops. --disable disarms.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if changeID == "" {
 				return fmt.Errorf("change automerge: --change is required")
@@ -540,7 +540,7 @@ func newChangeRerunCheckCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rerun-check --change <Change-Id> --name <check>",
 		Short: "Request a required check re-run",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if changeID == "" || name == "" {
 				return fmt.Errorf("change rerun-check: --change and --name are required")

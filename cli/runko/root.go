@@ -8,7 +8,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -24,6 +26,9 @@ type app struct {
 	runkodURL string
 	token     string
 	version   bool
+	// versionJSON backs the hidden root --json so `runko -v --json` keeps
+	// emitting BuildIdentity JSON, exactly like the pre-cobra alias did.
+	versionJSON bool
 }
 
 // credential resolves the global connection flags to a usable credential -
@@ -65,7 +70,11 @@ The loop (§6.9):
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if a.version {
-				fmt.Printf("runko %s\n", buildIdentity())
+				id := buildIdentity()
+				if a.versionJSON {
+					return json.NewEncoder(os.Stdout).Encode(id)
+				}
+				fmt.Printf("runko %s\n", id)
 				return nil
 			}
 			return groupRunE(cmd, args)
@@ -73,9 +82,11 @@ The loop (§6.9):
 	}
 
 	pf := root.PersistentFlags()
-	pf.StringVar(&a.runkodURL, "runkod-url", "", "control-plane base URL, e.g. https://<host>/o/<org> (default: the stored login; env RUNKO_RUNKOD_URL)")
-	pf.StringVar(&a.token, "token", "", "bearer token, or the password for a named principal (env RUNKO_TOKEN; default: the stored login)")
+	pf.StringVar(&a.runkodURL, "runkod-url", "", "control-plane base URL, e.g. https://<host>/o/<org> (default: the stored login; env RUNKO_RUNKOD_URL, honored alongside RUNKO_TOKEN)")
+	pf.StringVar(&a.token, "token", "", "bearer token, <name>:<token>, or a named principal's password (env RUNKO_TOKEN; default: the stored login)")
 	root.Flags().BoolVarP(&a.version, "version", "v", false, "print this binary's build identity")
+	root.Flags().BoolVar(&a.versionJSON, "json", false, "with -v/--version: emit the build identity as JSON")
+	_ = root.Flags().MarkHidden("json")
 
 	// Flag-parse failures are usage errors (exit 2, docs/cli-contract.md) -
 	// one line + a help pointer, never a full usage dump (clig.dev).
@@ -150,6 +161,28 @@ func unknownCommand(cmd *cobra.Command, name string) error {
 // verb runs from anywhere - no cd into the worktree (§12.7).
 func addWorkspaceFlag(cmd *cobra.Command) *string {
 	return cmd.Flags().StringP("workspace", "w", "", "workspace name[@branch]: run against its registered materialization instead of the current directory (§12.7)")
+}
+
+// noArgs is cobra.NoArgs mapped into the exit-2 usage class
+// (docs/cli-contract.md): a stray positional on a flags-only command
+// refuses with the command's own usage line, not a generic error. The
+// pre-cobra CLI silently ignored trailing positionals; refusing beats
+// silently doing something other than what was typed (fable review,
+// 2026-07-22).
+func noArgs(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		return usageError(fmt.Sprintf("%s: unexpected argument %q\nusage: %s", cmd.CommandPath(), args[0], cmd.UseLine()))
+	}
+	return nil
+}
+
+// maxOneArg is noArgs' sibling for the zero-or-one positional forms
+// (`workspace path [<name>]`).
+func maxOneArg(cmd *cobra.Command, args []string) error {
+	if len(args) > 1 {
+		return usageError(fmt.Sprintf("%s: expected at most one argument, got %d\nusage: %s", cmd.CommandPath(), len(args), cmd.UseLine()))
+	}
+	return nil
 }
 
 // requireArg enforces exactly one positional (the id-first documented

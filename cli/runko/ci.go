@@ -56,7 +56,7 @@ and read all project/check/image/registry facts from the tree, so this
 command names none of them. --images adds the post-land CD workflow.`,
 		Example: `  runko ci init
   runko ci init --images --force`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if executor != "github" {
 				return &clierr.Error{

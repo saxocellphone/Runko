@@ -32,14 +32,24 @@ unchanged from the pre-cobra CLI. What scripts can rely on:
 
 - **POSIX flags.** Long flags take `--flag` (double dash); the short
   forms are `-m` (`--message`), `-w` (`--workspace`), `-h` (`--help`),
-  and root-level `-v` (`--version`). The old stdlib-flag tolerance for
-  single-dash long forms (`-json`) is gone - every documented invocation
-  has always used `--`. Flags and positionals intersperse: both
-  `runko change resolve <id> --undo` and `... --undo <id>` parse.
+  and root-level `-v` (`--version`, composing with `--json`). The old
+  stdlib-flag tolerance for single-dash long forms (`-json`) is gone -
+  every documented invocation has always used `--`. Flags and
+  positionals intersperse: both `runko change resolve <id> --undo` and
+  `... --undo <id>` parse. A stray positional on a flags-only command
+  is refused as a usage error (exit `2`) - the pre-cobra CLI silently
+  ignored trailing arguments.
 - **Global connection flags.** `--runkod-url` and `--token` are root
   persistent flags, accepted anywhere on the line. Credentials resolve
   flags > `RUNKO_RUNKOD_URL`/`RUNKO_TOKEN` env > the stored login - the
   env fallback that used to be `agent event`-local is now uniform.
+  `RUNKO_TOKEN` takes either a bare bearer token or the name-qualified
+  `<name>:<token>` form `agent create` prints (authenticates as that
+  principal, HTTP Basic - the same split the git push transport already
+  applied); with `RUNKO_TOKEN` set and no URL from flag or env, the
+  stored login supplies the control plane (an exported token retargets
+  WHO authenticates, not WHERE - `missing_url` only when there is no
+  stored login either).
 - **Help.** `-h`/`--help`/`help <cmd>` print full help to stdout, exit
   `0`. A noun command run bare (`runko change`) prints its help to
   stderr and exits `2` (the historical usage-error contract); an unknown

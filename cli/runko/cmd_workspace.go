@@ -63,7 +63,7 @@ instead (full clone; jj cannot lazy-fetch promisor blobs).`,
 		Example: `  runko workspace create --name checkout-fix --project checkout
   runko workspace create --name new-svc --new-path services/new-svc
   runko workspace create --name fix --project checkout --by agent-x --as agent-x --token <tok>`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {
@@ -133,7 +133,7 @@ func newWorkspaceListCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "My workstreams, cones, base revisions",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {
@@ -231,7 +231,7 @@ func newWorkspacePathCmd() *cobra.Command {
 		Long: `Scripting glue for the rare case -w cannot cover (§12.7):
 cd $(runko workspace path <name>). With no name, the current checkout
 answers for itself.`,
-		Args: cobra.MaximumNArgs(1),
+		Args: maxOneArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := ""
 			if len(args) > 0 {
@@ -267,7 +267,7 @@ func newWorkspaceGCCmd(a *app) *cobra.Command {
 materializations (§12.7): reclaimable means server-closed AND the
 working tree provably preserved under its snapshot ref - everything
 doubtful is a fail-closed keep with the reason named.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {
@@ -331,7 +331,7 @@ func newWorkspaceSnapshotCmd() *cobra.Command {
 refs/workspaces/<id>/<branch> (§12.2) - durable, secret-scanned WIP; a
 killed session loses nothing. In a jj colocated checkout the snapshot
 is built out-of-band, never a commit on the checked-out line.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), dir)
 			if err != nil {
@@ -371,7 +371,7 @@ tree's snapshot OUT-OF-BAND (temp index + commit-tree - HEAD, the real
 index, and the worktree are never touched, safe beside a working agent
 or jj) and force-pushes when the tree moved. The workspace page shows
 the WIP live.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), dir)
 			if err != nil {
@@ -440,7 +440,7 @@ func newWorkspaceSyncCmd(a *app) *cobra.Command {
 		Long: `The CitC "sync to head" verb (§12.3): fetch trunk, rebase the
 workspace line onto its tip (jj-aware: descendants follow), record the
 new base in the registry. Conflicts abort and name the files.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), dir)
 			if err != nil {
