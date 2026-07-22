@@ -1,0 +1,157 @@
+# Runko CD template — post-land image builds (copy to .github/workflows/).
+#
+# Builds your monorepo's deployable container images for a landed commit and
+# reports each digest back to Runko's deploy record (§14.10 inverted CD). Runko
+# drives the rollout; GitHub only builds and reports.
+#
+# GENERIC — this file hardcodes NOTHING about your repo. Every image detail
+# (which images, their full registry-qualified ref, context, dockerfile,
+# build_args) comes from `runko-ci images`, which reads your tree:
+#   - each service's PROJECT.yaml declares `capability_config.deploy.image`
+#   - your ROOT PROJECT.yaml declares `deploy_registry: <registry>/<namespace>`
+# The daemon's deploy record uses the same computation over the same commit, so
+# the built set always matches what the record expects. Adding/renaming an
+# image or moving registries is a single-manifest change; this file never
+# changes.
+#
+# SETUP (see templates/ci/README.md):
+#   - Secrets: RUNKO_URL (your org mount, e.g. https://<host>/o/<org>),
+#     RUNKO_CI_TOKEN.
+#   - `runko github connect` wires the runko-image-build dispatch to this repo.
+#   - Set deploy_registry on your root PROJECT.yaml; ensure the runner can push
+#     to it (this template logs in to GHCR — change the registry login for
+#     another registry).
+name: Runko images
+
+run-name: "images: ${{ github.event.client_payload.change_id }}@${{ github.event.client_payload.head_sha }}"
+
+on:
+  repository_dispatch:
+    types: [runko-image-build]
+
+permissions:
+  packages: write # image push (checkout needs only contents: read, the default)
+
+concurrency:
+  group: runko-images-${{ github.event.client_payload.head_sha }}
+  cancel-in-progress: false
+
+env:
+  CHANGE_ID: ${{ github.event.client_payload.change_id }}
+  HEAD_SHA: ${{ github.event.client_payload.head_sha }}
+  RUNKO_URL: ${{ secrets.RUNKO_URL }}
+  RUNKO_CI_TOKEN: ${{ secrets.RUNKO_CI_TOKEN }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      has_images: ${{ steps.resolve.outputs.has_images }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: check out the landed head (mirror-lag retry)
+        run: |
+          for i in $(seq 1 30); do
+            git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null && break
+            git fetch --quiet origin main 2>/dev/null || true
+            sleep 5
+          done
+          git checkout -q "$HEAD_SHA"
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: locate runko-ci
+        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
+      - name: resolve the image matrix from the tree
+        id: resolve
+        run: |
+          # head^..head is the single-land delta. runko-ci images reads the
+          # tree's deploy.image + deploy_registry and handles run_everything.
+          # No --engine: fail closed, a narrower set than the record expects
+          # would strand the rollout. `.images` is null (not []) for a
+          # non-deployable land, so coalesce before iterating.
+          IMAGES=$(go run "$RUNKO_CI_PKG" images --base "$HEAD_SHA^" --head "$HEAD_SHA")
+          echo "$IMAGES" | jq .
+          MATRIX=$(echo "$IMAGES" | jq -c '[(.images // [])[] | {
+            name, image_ref, context, dockerfile,
+            build_args: ((.build_args // {}) | to_entries | map("\(.key)=\(.value)") | join("\n"))
+          }]')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "has_images=$(echo "$IMAGES" | jq -r '.images | length > 0')" >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: setup
+    if: needs.setup.outputs.has_images == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+      - uses: docker/setup-buildx-action@v3
+      # Registry login. This template uses GHCR; for another registry change
+      # the `registry`/`username`/`password` (the ref itself comes from the
+      # tree's deploy_registry, so this is the only registry-aware line).
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          build-args: ${{ matrix.build_args }}
+          push: true
+          tags: |
+            ${{ matrix.image_ref }}:latest
+            ${{ matrix.image_ref }}:sha-${{ env.HEAD_SHA }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+      - name: record image ref + digest for the deploy report
+        run: |
+          mkdir -p report
+          printf '%s %s' "${{ matrix.image_ref }}" "${{ steps.build.outputs.digest }}" > "report/${{ matrix.name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ matrix.name }}
+          path: report/${{ matrix.name }}
+
+  report:
+    needs: images
+    if: ${{ !cancelled() && needs.images.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: report-*
+          path: reports
+      - name: report built image refs + digests to Runko
+        run: |
+          RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)
+          shopt -s nullglob
+          for f in reports/report-*/*; do
+            name=$(basename "$f"); read -r image_ref digest < "$f"
+            [ -n "$digest" ] || continue
+            go run "$RUNKO_CI_PKG" report-image \
+              --url "$RUNKO_URL/api/deploys/${HEAD_SHA}/images" \
+              --token "$RUNKO_CI_TOKEN" \
+              --image "$name" \
+              --image-ref "$image_ref" \
+              --digest "$digest" \
+              --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              --reporter github-actions
+          done
