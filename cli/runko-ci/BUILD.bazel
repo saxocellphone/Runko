@@ -7,6 +7,7 @@ go_library(
         "checkout.go",
         "checks.go",
         "git.go",
+        "images.go",
         "main.go",
         "reportcheck.go",
         "reportimage.go",
@@ -21,6 +22,7 @@ go_library(
         "//platform/buildadapter",
         "//platform/buildadapter/bazel",
         "//platform/core",
+        "//platform/deploy",
         "//platform/index",
     ],
 )
@@ -37,6 +39,7 @@ go_test(
         "affected_test.go",
         "checkout_test.go",
         "checks_test.go",
+        "images_test.go",
         "main_test.go",
         "reportcheck_test.go",
         "reportimage_test.go",

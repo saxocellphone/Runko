@@ -6,6 +6,7 @@ go_library(
     importpath = "github.com/saxocellphone/runko/platform/deploy",
     visibility = ["//visibility:public"],
     deps = [
+        "//internal/clierr",
         "//platform/affected",
         "//platform/index",
     ],
@@ -16,6 +17,7 @@ go_test(
     srcs = ["deploy_test.go"],
     embed = [":deploy"],
     deps = [
+        "//internal/clierr",
         "//platform/affected",
         "//platform/index",
     ],
