@@ -43,29 +43,86 @@ func TestGenerateIsDeterministic(t *testing.T) {
 	}
 }
 
-// TestGenerateSkillWrapsGenerate: the skill is Generate()'s body under
-// loadable-skill frontmatter - byte-identical below the divider, so the two
-// teaching surfaces cannot drift apart.
-func TestGenerateSkillWrapsGenerate(t *testing.T) {
-	got := GenerateSkill()
-	if !strings.HasPrefix(got, "---\nname: runko\n") {
-		t.Fatalf("expected skill frontmatter to open with the skill name, got:\n%s", got[:min(len(got), 120)])
+// TestSkillsAreWellFormed: every scaffolded skill opens with a frontmatter
+// block a harness can parse - the name it is discovered by and the
+// single-line description it is chosen by.
+func TestSkillsAreWellFormed(t *testing.T) {
+	for _, s := range Skills() {
+		rest, ok := strings.CutPrefix(s.Content, "---\nname: "+s.Name+"\n")
+		if !ok {
+			t.Fatalf("skill %q must open with frontmatter naming it, got:\n%s", s.Name, s.Content[:min(len(s.Content), 120)])
+		}
+		front, body, ok := strings.Cut(rest, "---\n")
+		if !ok {
+			t.Fatalf("skill %q frontmatter block does not close", s.Name)
+		}
+		if !strings.Contains(front, "description: ") {
+			t.Fatalf("skill %q has no description: line, got:\n%s", s.Name, front)
+		}
+		if strings.Count(front, "\ndescription: ") > 1 || strings.TrimSpace(body) == "" {
+			t.Fatalf("skill %q frontmatter/body is malformed", s.Name)
+		}
+		if !strings.HasPrefix(s.Path, ".claude/skills/") || !strings.HasSuffix(s.Path, "/SKILL.md") {
+			t.Fatalf("skill %q path %q is not a harness-discoverable location", s.Name, s.Path)
+		}
+		if !strings.Contains(s.Path, "/"+s.Name+"/") {
+			t.Fatalf("skill %q lives at %q - the directory must match the name", s.Name, s.Path)
+		}
 	}
-	// Frontmatter = everything through the second "---" line; exactly one
-	// name and one single-line description between the markers.
-	rest, ok := strings.CutPrefix(got, "---\n")
-	if !ok {
-		t.Fatalf("expected the skill to open a frontmatter block")
+}
+
+// TestSkillsSplitByJob: the two skills exist so each has ONE unambiguous
+// load trigger. The reference must carry the command table and not the
+// workflow; the workspaces skill the reverse. If both grow the same
+// content, a harness has no basis to choose and we are back to one skill.
+func TestSkillsSplitByJob(t *testing.T) {
+	ref, work := GenerateSkill(), GenerateWorkspacesSkill()
+
+	if !strings.Contains(ref, "## Commands") {
+		t.Fatalf("the runko skill must carry the command inventory")
 	}
-	front, body, ok := strings.Cut(rest, "---\n")
-	if !ok {
-		t.Fatalf("expected the skill frontmatter block to close")
+	if strings.Contains(ref, "## Workspaces: the writing discipline") ||
+		strings.Contains(ref, "## What bites agents") {
+		t.Fatalf("the runko skill must not duplicate the workflow - that is runko-workspaces' job")
 	}
-	if !strings.Contains(front, "\ndescription: ") {
-		t.Fatalf("expected a description: line in the skill frontmatter, got:\n%s", front)
+
+	for _, want := range []string{
+		"## Workspaces: the writing discipline",
+		"## The worktree is transparent",
+		"## What bites agents",
+	} {
+		if !strings.Contains(work, want) {
+			t.Fatalf("the runko-workspaces skill is missing %q", want)
+		}
 	}
-	if strings.TrimPrefix(body, "\n") != Generate() {
-		t.Fatalf("expected the skill body to be Generate()'s output verbatim")
+	if strings.Contains(work, "## Commands") {
+		t.Fatalf("the runko-workspaces skill must not duplicate the command table")
+	}
+	// Each points at the other, so an agent that loaded the wrong one is
+	// one hop from the right one.
+	if !strings.Contains(ref, "runko-workspaces") {
+		t.Fatalf("the runko skill should point at the workflow skill")
+	}
+	if !strings.Contains(work, "`runko` skill") {
+		t.Fatalf("the runko-workspaces skill should point at the reference skill")
+	}
+}
+
+// TestWorkspacesSkillIsRepoAgnostic: this skill is scaffolded into EVERY
+// Runko-managed monorepo, so nothing specific to the repo that generated
+// it may leak in - no host, no build tool, no check or deploy command.
+// Repo-specific teaching belongs in that repo's own AGENTS.md/CLAUDE.md.
+func TestWorkspacesSkillIsRepoAgnostic(t *testing.T) {
+	got := GenerateWorkspacesSkill()
+	for _, leak := range []string{
+		"runko.victornazzaro.com",                // this deployment's host
+		"bazel", "gazelle", "make check", "sqlc", // this repo's build/check tooling
+		"kubectl", "argo", "maas-dev", // this repo's deploy path
+		"go test", "npm", "vitest", // any language's test runner
+	} {
+		if strings.Contains(strings.ToLower(got), strings.ToLower(leak)) {
+			t.Fatalf("the scaffolded workspaces skill leaks repo-specific %q - it ships to every Runko monorepo", leak)
+		}
 	}
 }
 
@@ -162,10 +219,30 @@ func TestGenerateTeachesTheGatesThatBlockAgents(t *testing.T) {
 		"refuses the ENTIRE series",      // one denied path fails the push
 		"git sparse-checkout add <dir>",  // the cone does not follow build deps
 		"forks from your CURRENT HEAD",   // parallel lines must fork at the base
-		"`runko workspace path <name>`",  // worktrees stay transparent
+		"`runko workspace path <name>`",  // the escape hatch, when -w cannot serve
+		"Never `cd` into a worktree",     // worktrees stay transparent (§12.7)
+		"-w <name[@branch]>",             // ...and this is how
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected the generated teaching to contain %q", want)
+		}
+	}
+}
+
+// TestEverySurfaceTeachesTransparency: the cd habit spreads by being copied
+// out of whatever an agent happened to read, so no generated surface may
+// omit the rule - AGENTS.md and the workspaces skill both state it, and
+// neither may print a cd into a worktree while doing so.
+func TestEverySurfaceTeachesTransparency(t *testing.T) {
+	for name, got := range map[string]string{
+		"AGENTS.md":        Generate(),
+		"runko-workspaces": GenerateWorkspacesSkill(),
+	} {
+		if !strings.Contains(got, "Never `cd` into a worktree") {
+			t.Errorf("%s does not state the transparency rule", name)
+		}
+		if strings.Contains(got, "cd $(") || strings.Contains(got, "cd <") {
+			t.Errorf("%s hands out a cd-into-worktree command while teaching not to", name)
 		}
 	}
 }

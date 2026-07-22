@@ -51,8 +51,10 @@ func TestEnsureAgentSkillInstallsAndExcludesIt(t *testing.T) {
 // the CLI's job there is `runko agents-md`, an explicit regeneration.
 func TestEnsureAgentSkillLeavesTheTreesOwnAlone(t *testing.T) {
 	repo := gitfixture.New(t)
-	repo.WriteFile(agentsmd.SkillPath, "---\nname: runko\n---\n\nthe org's own teaching\n")
-	repo.Commit("seed the agent skill")
+	for _, s := range agentsmd.Skills() {
+		repo.WriteFile(s.Path, "---\nname: "+s.Name+"\n---\n\nthe org's own teaching\n")
+	}
+	repo.Commit("seed the agent skills")
 
 	path, outcome, err := ensureAgentSkill(repo.Dir)
 	if err != nil || outcome != "tree" {
@@ -60,6 +62,33 @@ func TestEnsureAgentSkillLeavesTheTreesOwnAlone(t *testing.T) {
 	}
 	if content, _ := os.ReadFile(path); !strings.Contains(string(content), "the org's own teaching") {
 		t.Fatalf("the tree's skill was overwritten: %q", content)
+	}
+}
+
+// TestEnsureAgentSkillAddsMissingSkillsWithoutClobbering: a monorepo seeded
+// before a skill was added to the set owns some and not others. The ones it
+// owns stay untouched (tree-as-truth); the missing one is installed locally
+// rather than left absent, because a harness that loads half the teaching
+// is the failure this installer exists to prevent.
+func TestEnsureAgentSkillAddsMissingSkillsWithoutClobbering(t *testing.T) {
+	skills := agentsmd.Skills()
+	if len(skills) < 2 {
+		t.Skip("needs at least two generated skills to exercise the mixed case")
+	}
+	repo := gitfixture.New(t)
+	repo.WriteFile(skills[0].Path, "---\nname: "+skills[0].Name+"\n---\n\nthe org's own teaching\n")
+	repo.Commit("seed one skill")
+
+	if _, outcome, err := ensureAgentSkill(repo.Dir); err != nil || outcome != "local" {
+		t.Fatalf("ensureAgentSkill: outcome=%q err=%v, want local (it had one to write)", outcome, err)
+	}
+	owned, _ := os.ReadFile(filepath.Join(repo.Dir, filepath.FromSlash(skills[0].Path)))
+	if !strings.Contains(string(owned), "the org's own teaching") {
+		t.Fatalf("the tree's own skill was overwritten: %q", owned)
+	}
+	added, err := os.ReadFile(filepath.Join(repo.Dir, filepath.FromSlash(skills[1].Path)))
+	if err != nil || string(added) != skills[1].Content {
+		t.Fatalf("expected the missing skill to be installed verbatim, got err=%v", err)
 	}
 }
 

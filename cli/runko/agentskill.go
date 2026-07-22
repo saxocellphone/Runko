@@ -32,52 +32,79 @@ import (
 // the tree's skill at all.
 var agentSkillConeDir = strings.SplitN(agentsmd.SkillPath, "/", 2)[0]
 
-// ensureAgentSkill puts the runko agent skill where a skill-loading
-// harness will find it in dir's checkout, and reports what it did:
+// ensureAgentSkill puts every runko agent skill where a skill-loading
+// harness will find it in dir's checkout, and reports what it did for the
+// SET (agentsmd.Skills): the reference skill and the workspace-discipline
+// skill are installed together, because an agent that loads one and not the
+// other gets half the teaching.
 //
-//	"tree"    - the repo owns a skill at that path; nothing written, it is
-//	            the repo's to evolve (`runko agents-md` regenerates it)
-//	"present" - an untracked skill is already there; never clobbered
-//	"local"   - this CLI wrote the generated skill and excluded it
+//	"tree"    - the repo owns them; nothing written, they are the repo's to
+//	            evolve (`runko agents-md` regenerates them)
+//	"present" - already on disk untracked; never clobbered
+//	"local"   - this CLI wrote what was missing and excluded it
+//
+// A mixed checkout (one skill tracked, another absent) resolves per skill
+// and reports the outcome of the ones it had to write, so a repo that
+// predates a newly added skill still gains it. path is the reference
+// skill's, kept for callers (doctor) that report a single location.
 //
 // Never an error the caller must handle as fatal: materializing a checkout
 // that works is worth more than a teaching file, so callers log and move
 // on (the InstallVerbNudgeHook posture).
 func ensureAgentSkill(dir string) (path, outcome string, err error) {
 	path, outcome, err = agentSkillStatus(dir)
-	if err != nil || outcome != "" {
-		return path, outcome, err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", "", fmt.Errorf("agent skill: %w", err)
-	}
-	if err := os.WriteFile(path, []byte(agentsmd.GenerateSkill()), 0o644); err != nil {
-		return "", "", fmt.Errorf("agent skill: write %s: %w", path, err)
-	}
-	if _, err := excludeFromSnapshots(dir, agentsmd.SkillPath,
-		"# runko: the installed agent skill is local teaching, never Change content (§8.8)"); err != nil {
+	if err != nil {
 		return "", "", err
 	}
-	return path, "local", nil
+
+	wrote := false
+	for _, s := range agentsmd.Skills() {
+		p, own, err := skillStatus(dir, s.Path)
+		if err != nil {
+			return "", "", err
+		}
+		if own != "" {
+			continue // the tree's, or already there: never clobber
+		}
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return "", "", fmt.Errorf("agent skill: %w", err)
+		}
+		if err := os.WriteFile(p, []byte(s.Content), 0o644); err != nil {
+			return "", "", fmt.Errorf("agent skill: write %s: %w", p, err)
+		}
+		if _, err := excludeFromSnapshots(dir, s.Path,
+			"# runko: the installed agent skill is local teaching, never Change content (§8.8)"); err != nil {
+			return "", "", err
+		}
+		wrote = true
+	}
+	if wrote {
+		return path, "local", nil
+	}
+	return path, outcome, nil
 }
 
-// agentSkillStatus is ensureAgentSkill's read-only half - where the skill
-// would live, and what is there now: "tree" (tracked), "present" (an
-// untracked file), or "" (nothing, so an installer may write one).
-// `runko doctor` reports it without writing anything.
+// agentSkillStatus is ensureAgentSkill's read-only half for the REFERENCE
+// skill - where it would live, and what is there now: "tree" (tracked),
+// "present" (an untracked file), or "" (nothing, so an installer may write
+// one). `runko doctor` reports it without writing anything.
 func agentSkillStatus(dir string) (path, outcome string, err error) {
+	return skillStatus(dir, agentsmd.SkillPath)
+}
+
+// skillStatus answers agentSkillStatus's question for one skill path.
+func skillStatus(dir, treePath string) (path, outcome string, err error) {
 	top, err := runGit(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", "", fmt.Errorf("agent skill: resolve worktree root: %w", err)
 	}
-	path = filepath.Join(top, filepath.FromSlash(agentsmd.SkillPath))
+	path = filepath.Join(top, filepath.FromSlash(treePath))
 
 	// Tracked wins outright, materialized or not: the tree is the source
 	// of truth (§10.3), and a repo that has evolved its own skill must not
 	// find this CLI's copy shadowing it. When the cone left it unchecked
 	// out, coneWithAgentSkill is what brings it onto disk.
-	if _, err := runGit(dir, "ls-files", "--error-unmatch", "--", agentsmd.SkillPath); err == nil {
+	if _, err := runGit(dir, "ls-files", "--error-unmatch", "--", treePath); err == nil {
 		return path, "tree", nil
 	}
 	if _, err := os.Stat(path); err == nil {
@@ -105,11 +132,19 @@ func coneWithAgentSkill(dir string, patterns []string, rev string) []string {
 	return append(patterns, agentSkillConeDir)
 }
 
-// treeHasAgentSkill reports whether rev's tree carries a skill at
-// agentsmd.SkillPath. ls-tree walks trees only - in a blobless clone that
-// is the local, network-free question, where `cat-file -e` on the blob
-// would reach for the promisor remote.
+// treeHasAgentSkill reports whether rev's tree carries ANY generated skill.
+// Any is the right test: they share one cone directory, so one tracked
+// skill is reason enough to materialize it, and a repo that predates a
+// newly added skill still gets its existing one checked out. ls-tree walks
+// trees only - in a blobless clone that is the local, network-free
+// question, where `cat-file -e` on the blob would reach for the promisor
+// remote.
 func treeHasAgentSkill(dir, rev string) bool {
-	out, err := runGit(dir, "ls-tree", "--name-only", rev, "--", agentsmd.SkillPath)
-	return err == nil && strings.TrimSpace(out) != ""
+	for _, s := range agentsmd.Skills() {
+		out, err := runGit(dir, "ls-tree", "--name-only", rev, "--", s.Path)
+		if err == nil && strings.TrimSpace(out) != "" {
+			return true
+		}
+	}
+	return false
 }

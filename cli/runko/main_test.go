@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -185,15 +186,33 @@ func TestCmdAgentsMDJSONOutput(t *testing.T) {
 	if cmdErr != nil {
 		t.Fatalf("cmdAgentsMD: %v", cmdErr)
 	}
-	var result map[string]string
+	var result struct {
+		Path       string   `json:"path"`
+		SkillPath  string   `json:"skill_path"`
+		SkillPaths []string `json:"skill_paths"`
+	}
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatalf("expected valid JSON output, got %q: %v", out, err)
 	}
-	if result["path"] != filepath.Join(dir, "AGENTS.md") {
+	if result.Path != filepath.Join(dir, "AGENTS.md") {
 		t.Fatalf("expected path in JSON output, got %+v", result)
 	}
-	if result["skill_path"] != filepath.Join(dir, filepath.FromSlash(agentsmd.SkillPath)) {
+	// skill_path stays the reference skill, for callers written against the
+	// single-skill shape; skill_paths is every skill actually written.
+	if result.SkillPath != filepath.Join(dir, filepath.FromSlash(agentsmd.SkillPath)) {
 		t.Fatalf("expected skill_path in JSON output, got %+v", result)
+	}
+	if len(result.SkillPaths) != len(agentsmd.Skills()) {
+		t.Fatalf("expected skill_paths to list every generated skill, got %+v", result.SkillPaths)
+	}
+	for _, s := range agentsmd.Skills() {
+		want := filepath.Join(dir, filepath.FromSlash(s.Path))
+		if !slices.Contains(result.SkillPaths, want) {
+			t.Fatalf("skill_paths is missing %q, got %+v", want, result.SkillPaths)
+		}
+		if _, err := os.Stat(want); err != nil {
+			t.Fatalf("expected %s on disk: %v", want, err)
+		}
 	}
 }
 
