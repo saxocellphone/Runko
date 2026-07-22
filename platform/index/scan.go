@@ -82,6 +82,25 @@ type IndexedProject struct {
 	// not "all checks required" (anti-Boq, §6.2: L2 fields never gate a
 	// default project).
 	RequiredChecks []string
+	// DeployImage is the deploy.image sub-block when this project OWNS a
+	// deployable image (nil otherwise) - the §14.10 `deploy` capability's
+	// build-derivation half (docs/spec/deploy/README.md). RidesImages are the
+	// image NAMES this project's deploy.workloads run from (its binary ships
+	// inside each) - the rider edge. Together they drive the manifest-derived
+	// image-rebuild set (platform/deploy), the per-org replacement for
+	// runkod's hardcoded map. Zero-valued unless the deploy capability is
+	// declared; raw capability_config is otherwise dropped by Scan.
+	DeployImage *ImageDecl
+	RidesImages []string
+}
+
+// ImageDecl is a project's deploy.image sub-block: it declares this project
+// as the OWNER of one deployable image. Context defaults to the project dir.
+type ImageDecl struct {
+	Name       string
+	Context    string
+	Dockerfile string
+	BuildArgs  map[string]string
 }
 
 // Scan walks the tree at rev, finds every PROJECT.yaml, and resolves its
@@ -212,6 +231,12 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		_, err := s.store.GetBlob(s.rev, openAPIPath)
 		openAPIPresent = err == nil
 	}
+	var deployImage *ImageDecl
+	var ridesImages []string
+	if hasCapability(manifest.Capabilities, "deploy") {
+		deployImage = deployImageDecl(manifest.CapabilityConfig, dir)
+		ridesImages = deployRiderImages(manifest.CapabilityConfig)
+	}
 
 	return IndexedProject{
 		Name:                      manifest.Name,
@@ -232,6 +257,8 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		SchemaPaths:               schemaPaths,
 		OpenAPIPath:               openAPIPath,
 		OpenAPIPresent:            openAPIPresent,
+		DeployImage:               deployImage,
+		RidesImages:               ridesImages,
 	}, nil
 }
 
@@ -268,6 +295,59 @@ func capabilityConfigString(cfg map[string]interface{}, cap, key, def string) st
 		return v
 	}
 	return def
+}
+
+// deployImageDecl reads capability_config.deploy.image into an ImageDecl, or
+// nil when the sub-block is absent or names no image (an image with no name
+// declares nothing rebuildable). Context defaults to the project dir. Same
+// read-time normalization posture as the helpers above: malformed values are
+// dropped, not errors - the schema polices authoring.
+func deployImageDecl(cfg map[string]interface{}, dir string) *ImageDecl {
+	deploy, _ := cfg["deploy"].(map[string]interface{})
+	img, _ := deploy["image"].(map[string]interface{})
+	name, _ := img["name"].(string)
+	if name == "" {
+		return nil
+	}
+	ctx, _ := img["context"].(string)
+	if ctx == "" {
+		ctx = dir
+	}
+	if ctx == "" {
+		ctx = "." // the root project's dir is "" - as a build context that is "."
+	}
+	dockerfile, _ := img["dockerfile"].(string)
+	var buildArgs map[string]string
+	if raw, ok := img["build_args"].(map[string]interface{}); ok {
+		for k, v := range raw {
+			if s, ok := v.(string); ok {
+				if buildArgs == nil {
+					buildArgs = map[string]string{}
+				}
+				buildArgs[k] = s
+			}
+		}
+	}
+	return &ImageDecl{Name: name, Context: ctx, Dockerfile: dockerfile, BuildArgs: buildArgs}
+}
+
+// deployRiderImages reads the distinct image names capability_config.deploy.
+// workloads[].image references (the rider edge): images this project's
+// binaries ship inside. Order-preserving, deduped; malformed entries dropped.
+func deployRiderImages(cfg map[string]interface{}) []string {
+	deploy, _ := cfg["deploy"].(map[string]interface{})
+	raw, _ := deploy["workloads"].([]interface{})
+	var out []string
+	seen := map[string]bool{}
+	for _, w := range raw {
+		wm, _ := w.(map[string]interface{})
+		img, _ := wm["image"].(string)
+		if img != "" && !seen[img] {
+			seen[img] = true
+			out = append(out, img)
+		}
+	}
+	return out
 }
 
 // resolveOwners implements §7.3's precedence: explicit manifest owners win

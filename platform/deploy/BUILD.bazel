@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "deploy",
+    srcs = ["deploy.go"],
+    importpath = "github.com/saxocellphone/runko/platform/deploy",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//platform/affected",
+        "//platform/index",
+    ],
+)
+
+go_test(
+    name = "deploy_test",
+    srcs = ["deploy_test.go"],
+    embed = [":deploy"],
+    deps = [
+        "//platform/affected",
+        "//platform/index",
+    ],
+)
