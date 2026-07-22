@@ -78,7 +78,7 @@ func (p *Processor) authorizeTagWrite(ctx context.Context, author, laneName, tag
 			return ""
 		}
 		return fmt.Sprintf(
-			"remote: bot lane %q may not write tag %q - lanes write only the tag namespaces their tags= allowlist covers (docs/design.md #14103-tags-and-releases).\n", laneName, tagName)
+			"remote: bot lane %q may not write tag %q - lanes write only the tag namespaces their tags= allowlist covers.\n", laneName, tagName)
 	}
 	if author == "" {
 		return "" // the anonymous deploy token: the documented v1 operator credential
@@ -99,7 +99,7 @@ func (p *Processor) authorizeTagWrite(ctx context.Context, author, laneName, tag
 			return ""
 		}
 	}
-	return fmt.Sprintf(`remote: this org enforces tag policy - %q may not write %s (docs/design.md #14103-tags-and-releases).
+	return fmt.Sprintf(`remote: this org enforces tag policy - %q may not write %s.
 remote:
 remote: Tags here are release surface: CD keys deploys on them.
 remote:   -> cut a release instead:  runko release create --project <p>

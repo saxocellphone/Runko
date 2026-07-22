@@ -35,7 +35,7 @@ const defaultPageSize = 50
 var Tools = []Tool{
 	{
 		Name:        "list_projects",
-		Description: "List projects, optionally filtered by name/path substring. Summary-shaped by default per the §8.2 context-budget rule.",
+		Description: "List projects, optionally filtered by name/path substring. Summary-shaped by default, to stay inside a caller's context budget.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"query":{"type":"string","description":"Optional substring filter on name or path."},"page_size":{"$ref":"common.schema.json#/$defs/PageParams/properties/page_size"},"page_token":{"$ref":"common.schema.json#/$defs/PageParams/properties/page_token"}}}`),
 	},
 	{
@@ -45,27 +45,27 @@ var Tools = []Tool{
 	},
 	{
 		Name:        "who_owns",
-		Description: "Resolve effective owners for a path or a project (§7.3).",
+		Description: "Resolve effective owners for a path or a project.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"oneOf":[{"required":["path"]},{"required":["project"]}],"properties":{"path":{"type":"string"},"project":{"type":"string"}}}`),
 	},
 	{
 		Name:        "get_affected",
-		Description: "Compute affected projects for a set of paths, or re-fetch the computation already attached to a Change (§13.3, §14.4.3).",
+		Description: "Compute affected projects for a set of paths, or re-fetch the computation already attached to a Change.",
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"oneOf":[{"required":["paths"]},{"required":["change_id"]}],"properties":{"paths":{"type":"array","items":{"type":"string"}},"change_id":{"type":"string"}}}`),
 	},
 	{
 		Name:        "search_code",
-		Description: "Full-text code search via Zoekt (default engine, §8.2). Returns path hits tagged with project id, not a raw multi-GB grep dump.",
+		Description: "Full-text code search via Zoekt (the default engine). Returns path hits tagged with project id, not a raw multi-GB grep dump.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["query"],"additionalProperties":false,"properties":{"query":{"type":"string"},"project":{"type":"string","description":"Optional: scope search to one project."},"page_size":{"$ref":"common.schema.json#/$defs/PageParams/properties/page_size"},"page_token":{"$ref":"common.schema.json#/$defs/PageParams/properties/page_token"}}}`),
 	},
 	{
 		Name:        "get_merge_requirements",
-		Description: "Owners + checks outstanding, in plain language, for both the Change page and agent callers (§8.3, §13.4, §13.5).",
+		Description: "Owners + checks outstanding, in plain language, for both the Change page and agent callers.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["change_id"],"additionalProperties":false,"properties":{"change_id":{"type":"string"}}}`),
 	},
 	{
 		Name:        "list_change_comments",
-		Description: "List review comments on a Change (§13.4.1): threads one level deep, anchored to the head_sha they were written against - a differing head means outdated, never repositioned.",
+		Description: "List review comments on a Change: threads one level deep, anchored to the head_sha they were written against - a differing head means outdated, never repositioned.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["change_id"],"additionalProperties":false,"properties":{"change_id":{"type":"string"},"page_size":{"$ref":"common.schema.json#/$defs/PageParams/properties/page_size"},"page_token":{"$ref":"common.schema.json#/$defs/PageParams/properties/page_token"}}}`),
 	},
 }
@@ -205,7 +205,7 @@ func (s *Server) whoOwns(ctx context.Context, args toolArgs) (interface{}, *Erro
 		return nil, &Error{
 			Code: "not_found", Field: "path",
 			Message:    fmt.Sprintf("no project owns %q", args.Path),
-			Suggestion: "unowned paths fail closed in affected computation (§14.5.3); add a PROJECT.yaml above this path to own it",
+			Suggestion: "unowned paths fail closed in affected computation; add a PROJECT.yaml above this path to own it",
 		}
 	}
 	return ownersResult(p), nil

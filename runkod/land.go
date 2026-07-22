@@ -83,7 +83,6 @@ func (s *Server) refuseUnlandedParent(ctx context.Context, key string, change Ch
 			Code: "parent_change_not_landed", Field: "change",
 			Message:    fmt.Sprintf("change %s is stacked on a commit trunk does not have (base %s); open changes could not be checked: %v", key, change.BaseSHA, err),
 			Suggestion: "retry the land, or rebase this change onto trunk and re-push",
-			DocURL:     "docs/design.md#74-change",
 		})
 	}
 	for _, parent := range open {
@@ -92,7 +91,6 @@ func (s *Server) refuseUnlandedParent(ctx context.Context, key string, change Ch
 				Code: "parent_change_not_landed", Field: "change",
 				Message:    fmt.Sprintf("change %s is stacked on unlanded change %s (base %s)", key, parent.ChangeKey, change.BaseSHA),
 				Suggestion: fmt.Sprintf("land %s first, or rebase this change onto trunk and re-push", parent.ChangeKey),
-				DocURL:     "docs/design.md#74-change",
 			})
 		}
 	}

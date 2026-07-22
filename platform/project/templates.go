@@ -274,16 +274,16 @@ func apiScaffoldFiles(intent Intent, projectPath string) []FileWrite {
 	case "grpc":
 		return []FileWrite{
 			{Path: "proto/" + name + "/v1/" + name + ".proto", Action: "create", Content: "" +
-				"// " + intent.Name + "'s contract surface (§13.3.1): sources live in-boundary,\n" +
+				"// " + intent.Name + "'s contract surface: sources live in-boundary,\n" +
 				"// generated Go is committed at proto/gen/ beside them. Regenerate after\n" +
 				"// any edit: buf generate (see ../../buf.gen.yaml). Consumers of this\n" +
-				"// contract must declare a dependency on " + intent.Name + " (§13.3.1).\n" +
+				"// contract must declare a dependency on " + intent.Name + ".\n" +
 				"syntax = \"proto3\";\n\n" +
 				"package " + name + ".v1;\n\n" +
 				"// TODO: replace <module> with this monorepo's Go module path.\n" +
 				"option go_package = \"<module>/" + projectPath + "/proto/gen/" + name + "/v1;" + name + "v1\";\n"},
 			{Path: "proto/buf.gen.yaml", Action: "create", Content: "" +
-				"# Generated Go is committed at gen/ beside the sources (§13.3.1).\n" +
+				"# Generated Go is committed at gen/ beside the sources.\n" +
 				"# Regenerate after a .proto edit, with the plugins on PATH:\n" +
 				"#   go install google.golang.org/protobuf/cmd/protoc-gen-go\n" +
 				"#   go install connectrpc.com/connect/cmd/protoc-gen-connect-go\n" +
@@ -301,7 +301,7 @@ func apiScaffoldFiles(intent Intent, projectPath string) []FileWrite {
 		}
 	case "rest":
 		return []FileWrite{{Path: "openapi.yaml", Action: "create", Content: "" +
-			"# " + intent.Name + "'s REST contract (§13.3.1): mandatory while the http\n" +
+			"# " + intent.Name + "'s REST contract: mandatory while the http\n" +
 			"# capability is declared - receive refuses a push that deletes it.\n" +
 			"# Consumers generate clients from THIS file and declare a dependency\n" +
 			"# edge on " + intent.Name + ".\n" +

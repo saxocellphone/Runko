@@ -54,7 +54,6 @@ func (NotConfiguredSearcher) Search(_ context.Context, _ string, _ SearchOptions
 		Field:      "search",
 		Message:    "code search is not configured on this runkod instance",
 		Suggestion: "start runkod with --search-url pointing at a zoekt-webserver, and ensure zoekt-git-index has run at least once",
-		DocURL:     "docs/design.md#83-mcp-and-tool-surface",
 	}
 }
 

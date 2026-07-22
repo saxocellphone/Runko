@@ -71,7 +71,7 @@ func (s *Server) bootstrapOrgCore(ctx context.Context, principal *Principal) (Bo
 	if principal.IsAgent {
 		return BootstrapOutcome{}, typedErr(http.StatusForbidden, clierr.Error{
 			Code: "agents_cannot_bootstrap_org", Field: "auth",
-			Message:    "bootstrapping org governance is a human product action (§8.7): it names who owns the tree",
+			Message:    "bootstrapping org governance is a human product action: it names who owns the tree",
 			Suggestion: "ask a human to run `runko org bootstrap`",
 		})
 	}
@@ -134,7 +134,7 @@ func (s *Server) bootstrapOrgCore(ctx context.Context, principal *Principal) (Bo
 	changeID := receive.GenerateChangeID("org-bootstrap|" + baseSHA + "|" + time.Now().UTC().String())
 	title := fmt.Sprintf("Bootstrap org governance: root OWNERS (%s)", principal.Name)
 	msg := title + "\n\n" +
-		"Seeded by `runko org bootstrap` (§6.10 retrofit): this org's trunk\n" +
+		"Seeded by `runko org bootstrap` (governance retrofit): this org's trunk\n" +
 		"resolved no owners anywhere, so under default-deny nothing could land -\n" +
 		"including this fix. Owners resolve from this change's own head tree and\n" +
 		"the author's push is their consent (uploader model), which is what makes\n" +

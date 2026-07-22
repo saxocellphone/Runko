@@ -23,7 +23,10 @@ go_binary(
 
 go_test(
     name = "runkod_test",
-    srcs = ["main_test.go"],
+    srcs = [
+        "helptext_test.go",
+        "main_test.go",
+    ],
     data = [
         "//cli/runko",
         "//runkod/cmd/runkod",

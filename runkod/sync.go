@@ -87,7 +87,6 @@ func (s *Server) syncChangeCore(ctx context.Context, key string, change Change, 
 				Code: "sync_unsupported", Field: "change",
 				Message:    fmt.Sprintf("change %s has no recorded base to rebase from", m.ChangeKey),
 				Suggestion: "rebase in your workspace and re-push: runko workspace sync && runko change push",
-				DocURL:     "docs/design.md#135-landing",
 			})
 		}
 

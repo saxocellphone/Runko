@@ -99,7 +99,7 @@ func (s *Server) approveChangeCore(ctx context.Context, key string, change Chang
 			return checks.MergeRequirements{}, typedErr(http.StatusForbidden, clierr.Error{
 				Code:       "agent_approval_denied",
 				Field:      "approved_by",
-				Message:    fmt.Sprintf("%q is an agent principal - agents cannot approve changes (§13.5)", principal.Name),
+				Message:    fmt.Sprintf("%q is an agent principal - agents cannot approve changes", principal.Name),
 				Suggestion: "a human owner must approve; agents may run checks and request review",
 			})
 		}
@@ -129,7 +129,7 @@ func (s *Server) approveChangeCore(ctx context.Context, key string, change Chang
 		return checks.MergeRequirements{}, typedErr(http.StatusForbidden, clierr.Error{
 			Code:       "self_approval_denied",
 			Field:      "approved_by",
-			Message:    fmt.Sprintf("%q pushed this change's current head and cannot approve it (§8.7)", approvedBy),
+			Message:    fmt.Sprintf("%q pushed this change's current head and cannot approve it", approvedBy),
 			Suggestion: "another required owner must approve",
 		})
 	}
@@ -411,7 +411,6 @@ func (s *Server) createReleaseCore(ctx context.Context, projectName, explicitVer
 				Code: "release_denied", Field: "project",
 				Message:    fmt.Sprintf("this org enforces tag policy - %s may not cut releases for %q", callerLabel(principal, lane), projectName),
 				Suggestion: `ask an org admin for the "releaser" role (release automation gets a bot lane with tags=<glob>)`,
-				DocURL:     "docs/design.md#14103-tags-and-releases-decided-2026-07-10-resolves-the-223-tag-governance-question",
 			})
 		}
 	}
@@ -436,7 +435,7 @@ func (s *Server) createReleaseCore(ctx context.Context, projectName, explicitVer
 			return Release{}, typedErr(http.StatusConflict, clierr.Error{
 				Code: "tag_exists", Field: "version",
 				Message:    fmt.Sprintf("tag %q already exists", tagName),
-				Suggestion: "pick a different version - existing tags are never re-pointed (§14.10.3)",
+				Suggestion: "pick a different version - existing tags are never re-pointed",
 			})
 		}
 		return Release{}, internalErr(err)
@@ -515,7 +514,7 @@ func authorizeForceLand(principal *Principal, lane *BotLane) *apiError {
 	if lane != nil {
 		return typedErr(http.StatusForbidden, clierr.Error{
 			Code: "force_denied", Field: "force",
-			Message:    fmt.Sprintf("bot lane %q may not force-land - lanes land only under their own required checks (§14.10.2)", lane.Name),
+			Message:    fmt.Sprintf("bot lane %q may not force-land - lanes land only under their own required checks", lane.Name),
 			Suggestion: "use an admin principal for manual overrides",
 		})
 	}
@@ -525,7 +524,7 @@ func authorizeForceLand(principal *Principal, lane *BotLane) *apiError {
 	if principal.IsAgent {
 		return typedErr(http.StatusForbidden, clierr.Error{
 			Code: "force_denied", Field: "force",
-			Message:    fmt.Sprintf("%q is an agent principal - agents may never bypass merge gates (§8.7, §13.5)", principal.Name),
+			Message:    fmt.Sprintf("%q is an agent principal - agents may never bypass merge gates", principal.Name),
 			Suggestion: "a human admin must force-land",
 		})
 	}
@@ -591,7 +590,6 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 				Field:      "change",
 				Message:    fmt.Sprintf("bot lane %q may not land changes touching: %s", lane.Name, strings.Join(outside, ", ")),
 				Suggestion: "this change needs the normal owner/check gate - request a human land",
-				DocURL:     "docs/design.md#14102-gitops-writers--the-bot-lane",
 			})
 		}
 	}
@@ -607,7 +605,6 @@ func (s *Server) landChangeCore(ctx context.Context, key string, change Change, 
 				Field:      "change",
 				Message:    fmt.Sprintf("change %s is not mergeable yet", key),
 				Suggestion: strings.Join(mr.Blockers, "; "),
-				DocURL:     "docs/design.md#136-merge-gates-and-landing",
 			})
 		}
 		// The override is loud by design: every bypassed blocker is named

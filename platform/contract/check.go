@@ -113,9 +113,9 @@ func checkImports(modulePath string, projects []Project, files []File) []Violati
 			out = append(out, Violation{
 				Code: "undeclared_contract_dependency",
 				Path: f.Path,
-				Message: fmt.Sprintf("%s imports %s's contract (%s) without a declared client edge (§13.3.1)",
+				Message: fmt.Sprintf("%s imports %s's contract (%s) without a declared client edge",
 					consumerName, owner.Name, ipath),
-				Suggestion: fmt.Sprintf("declare %q in %s's PROJECT.yaml consumes (the server/client edge; use dependencies only when you build against or run %s's code, §13.3.1)",
+				Suggestion: fmt.Sprintf("declare %q in %s's PROJECT.yaml consumes (the server/client edge; use dependencies only when you build against or run %s's code)",
 					owner.Name, consumerName, owner.Name),
 			})
 		}
@@ -144,7 +144,7 @@ func checkOpenAPI(projects []Project, changedPaths []string) []Violation {
 		out = append(out, Violation{
 			Code: "missing_openapi_document",
 			Path: p.OpenAPIPath,
-			Message: fmt.Sprintf("%s declares the http capability but %s does not exist (§13.3.1: a REST surface carries its OpenAPI document in-boundary)",
+			Message: fmt.Sprintf("%s declares the http capability but %s does not exist (a REST surface carries its OpenAPI document in-boundary)",
 				p.Name, p.OpenAPIPath),
 			Suggestion: fmt.Sprintf("add %s (OpenAPI 3.1; `runko project create --api rest` scaffolds one) or drop the http capability",
 				p.OpenAPIPath),

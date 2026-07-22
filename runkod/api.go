@@ -1158,7 +1158,7 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 		if policy, isAgent := s.agentPolicyForAuthor(ctx, change.AuthoredBy); isAgent && policy.RequireDescription && strings.TrimSpace(change.Description) == "" {
 			req.Mergeable = false
 			req.Blockers = append(req.Blockers,
-				"this change has no description - agent changes must summarize WHAT changed and WHY before landing (§8.7); add one with `runko change describe --description \"...\"`")
+				"this change has no description - agent changes must summarize WHAT changed and WHY before landing; add one with `runko change describe --description \"...\"`")
 		}
 	}
 
@@ -1643,7 +1643,6 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 			Field:      "change",
 			Message:    "trunk has moved in a way that intersects this change's affected set",
 			Suggestion: "re-run required checks against current trunk, then retry land",
-			DocURL:     "docs/design.md#135-optimistic-revalidation",
 		})
 	case len(decision.Conflicts) > 0:
 		writeJSON(w, http.StatusConflict, &clierr.Error{
@@ -1651,7 +1650,6 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 			Field:      "change",
 			Message:    fmt.Sprintf("rebase produced conflicts in: %s", strings.Join(decision.Conflicts, ", ")),
 			Suggestion: "rebase locally, resolve conflicts, and push an updated Change",
-			DocURL:     "docs/design.md#134-rebase-based-landing",
 		})
 	default: // exhausted maxLandRaceRetries
 		writeJSON(w, http.StatusConflict, &clierr.Error{
@@ -1659,7 +1657,6 @@ func (s *Server) handleLandChange(w http.ResponseWriter, r *http.Request) {
 			Field:      "change",
 			Message:    "trunk kept moving faster than this land attempt could keep up",
 			Suggestion: "retry the land request",
-			DocURL:     "docs/design.md#135-optimistic-revalidation",
 		})
 	}
 }

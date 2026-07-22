@@ -116,14 +116,14 @@ func (s *Server) recordWorkspaceActivityCore(ctx context.Context, id string, pri
 	if principal != nil && !principal.Admin && ws.Owner != "" && principal.Name != ws.Owner {
 		return 0, typedErr(http.StatusForbidden, clierr.Error{
 			Code: "not_workspace_owner", Field: "id",
-			Message:    fmt.Sprintf("workspace %q belongs to %s (§12.2)", id, ws.Owner),
+			Message:    fmt.Sprintf("workspace %q belongs to %s", id, ws.Owner),
 			Suggestion: "only the owner or an operator may report activity into it",
 		})
 	}
 	if ws.Status == "closed" {
 		return 0, typedErr(http.StatusConflict, clierr.Error{
 			Code: "workspace_closed", Field: "id",
-			Message:    fmt.Sprintf("workspace %q is closed - its task concluded (§12.2)", id),
+			Message:    fmt.Sprintf("workspace %q is closed - its task concluded", id),
 			Suggestion: "start the new task in a fresh workspace: runko workspace create",
 		})
 	}
@@ -137,7 +137,7 @@ func (s *Server) recordWorkspaceActivityCore(ctx context.Context, id string, pri
 	if len(events) > workspaceActivityBatchMax {
 		return 0, typedErr(http.StatusBadRequest, clierr.Error{
 			Code: "batch_too_large", Field: "events",
-			Message:    fmt.Sprintf("%d events exceed the %d-per-request cap (§12.6.1)", len(events), workspaceActivityBatchMax),
+			Message:    fmt.Sprintf("%d events exceed the %d-per-request cap", len(events), workspaceActivityBatchMax),
 			Suggestion: fmt.Sprintf("split the batch into chunks of at most %d", workspaceActivityBatchMax),
 		})
 	}

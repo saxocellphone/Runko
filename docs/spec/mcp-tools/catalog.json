@@ -8,7 +8,7 @@
     {
       "name": "list_projects",
       "category": "navigation",
-      "description": "List projects, optionally filtered by name/path substring. Summary-shaped by default per the §8.2 context-budget rule.",
+      "description": "List projects, optionally filtered by name/path substring. Summary-shaped by default, to stay inside a caller's context budget.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -60,7 +60,7 @@
     {
       "name": "who_owns",
       "category": "navigation",
-      "description": "Resolve effective owners for a path or a project (§7.3).",
+      "description": "Resolve effective owners for a path or a project.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -83,7 +83,7 @@
     {
       "name": "get_affected",
       "category": "navigation",
-      "description": "Compute affected projects for a set of paths, or re-fetch the computation already attached to a Change (§13.3, §14.4.3).",
+      "description": "Compute affected projects for a set of paths, or re-fetch the computation already attached to a Change.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -106,7 +106,7 @@
     {
       "name": "search_code",
       "category": "navigation",
-      "description": "Full-text code search via Zoekt (default engine, §8.2). Returns path hits tagged with project id, not a raw multi-GB grep dump.",
+      "description": "Full-text code search via Zoekt (the default engine). Returns path hits tagged with project id, not a raw multi-GB grep dump.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -148,7 +148,7 @@
     {
       "name": "search_symbols",
       "category": "navigation",
-      "description": "Symbol search (functions, types, etc.), same engine and result shape as search_code (§8.2).",
+      "description": "Symbol search (functions, types, etc.), same engine and result shape as search_code.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -191,7 +191,7 @@
     {
       "name": "explain_layout",
       "category": "navigation",
-      "description": "Short org conventions doc for orientation (from CONVENTIONS.md or a control-plane doc object), §8.2.",
+      "description": "Short org conventions doc for orientation (from CONVENTIONS.md or a control-plane doc object).",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -210,7 +210,7 @@
     {
       "name": "get_template_catalog",
       "category": "navigation",
-      "description": "List templates allowed for create_project (§8.2, §10.4).",
+      "description": "List templates allowed for create_project.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -243,7 +243,7 @@
     {
       "name": "validate_project_intent",
       "category": "validation",
-      "description": "Live-validate a create_project intent without writing anything (§6.5, §8.3).",
+      "description": "Live-validate a create_project intent without writing anything.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -267,7 +267,7 @@
     {
       "name": "preview_create_project",
       "category": "validation",
-      "description": "Dry-run preview of the files create_project would write, plus the effective manifest (§6.5, §10.1).",
+      "description": "Dry-run preview of the files create_project would write, plus the effective manifest.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -292,7 +292,7 @@
     {
       "name": "create_project",
       "category": "project_lifecycle",
-      "description": "L0-only intent -> generated files + control-plane registration (§8.5, §10.1). Never requires hand-authored PROJECT.yaml.",
+      "description": "L0-only intent -> generated files + control-plane registration. Never requires hand-authored PROJECT.yaml.",
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
@@ -322,7 +322,7 @@
     {
       "name": "add_capability",
       "category": "project_lifecycle",
-      "description": "Enable an L2 capability as a product action, triggering template codegen (§7.2, §8.5).",
+      "description": "Enable an L2 capability as a product action, triggering template codegen.",
       "read_only": false,
       "idempotent": true,
       "agent_policy_gated": true,
@@ -351,7 +351,7 @@
     {
       "name": "adopt_path_as_project",
       "category": "project_lifecycle",
-      "description": "Adopt an existing tree path as a Project; infers name/type where possible, asks only for owners if missing (§6.3 tertiary path).",
+      "description": "Adopt an existing tree path as a Project; infers name/type where possible, asks only for owners if missing.",
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
@@ -389,7 +389,7 @@
     {
       "name": "create_workspace",
       "category": "workspace",
-      "description": "Create a CitC-class workspace with affinity to one or more projects (§8.3, §12.2). Required before an agent may write.",
+      "description": "Create a CitC-class workspace with affinity to one or more projects. Required before an agent may write.",
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
@@ -409,7 +409,7 @@
     {
       "name": "attach_workspace",
       "category": "workspace",
-      "description": "Return connection/config info for attaching to an existing workspace from a client (§12.3).",
+      "description": "Return connection/config info for attaching to an existing workspace from a client.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -441,7 +441,7 @@
     {
       "name": "get_workspace_status",
       "category": "workspace",
-      "description": "Current workspace state: dirty overlay, base drift, affinity (§12.2, §12.5).",
+      "description": "Current workspace state: dirty overlay, base drift, affinity.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -470,7 +470,7 @@
     {
       "name": "prefetch",
       "category": "workspace",
-      "description": "Prefetch template files, project source, or direct deps for a workspace - tuned for tool-using agent loops (§8.4).",
+      "description": "Prefetch template files, project source, or direct deps for a workspace - tuned for tool-using agent loops.",
       "read_only": false,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -502,7 +502,7 @@
     {
       "name": "update_workspace_base",
       "category": "workspace",
-      "description": "Fetch + rebase workspace onto latest trunk, surfacing conflicts in plain language (§6.6, §12.3).",
+      "description": "Fetch + rebase workspace onto latest trunk, surfacing conflicts in plain language.",
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": false,
@@ -536,7 +536,7 @@
     {
       "name": "create_change",
       "category": "change",
-      "description": "Snapshot the workspace overlay server-side into a new Change (§7.4, §11.5, §13.2). Agents are encouraged to set description and test_plan.",
+      "description": "Snapshot the workspace overlay server-side into a new Change. Agents are encouraged to set description and test_plan.",
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
@@ -549,7 +549,7 @@
           "workspace_id": { "type": "string" },
           "description": { "type": "string" },
           "test_plan": { "type": "string" },
-          "depends_on": { "type": "string", "description": "Optional parent Change-Id for stacks (§7.4)." }
+          "depends_on": { "type": "string", "description": "Optional parent Change-Id for stacks." }
         }
       },
       "output_schema": { "$ref": "common.schema.json#/$defs/ChangeSummary" },
@@ -558,7 +558,7 @@
     {
       "name": "update_change_description",
       "category": "change",
-      "description": "Update description/test_plan on an existing Change (§8.6).",
+      "description": "Update description/test_plan on an existing Change.",
       "read_only": false,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -579,7 +579,7 @@
     {
       "name": "get_change",
       "category": "change",
-      "description": "Fetch a Change plus its current affected computation (§13.2, §14.4.3).",
+      "description": "Fetch a Change plus its current affected computation.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -605,7 +605,7 @@
     {
       "name": "list_change_comments",
       "category": "change",
-      "description": "List review comments on a Change (§13.4.1): threads one level deep, anchored to the head_sha they were written against - a differing head means outdated, never repositioned.",
+      "description": "List review comments on a Change: threads one level deep, anchored to the head_sha they were written against - a differing head means outdated, never repositioned.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -634,7 +634,7 @@
     {
       "name": "request_review",
       "category": "change",
-      "description": "Ping required or explicitly-listed owners for review (§13.4).",
+      "description": "Ping required or explicitly-listed owners for review.",
       "read_only": false,
       "idempotent": true,
       "agent_policy_gated": false,
@@ -662,7 +662,7 @@
     {
       "name": "land_change",
       "category": "change",
-      "description": "Land a Change: rebase onto trunk tip with optimistic revalidation (§13.5). Gated by AgentPolicy.can_land_changes, which defaults to false (§8.7) - human land by default.",
+      "description": "Land a Change: rebase onto trunk tip with optimistic revalidation. Gated by AgentPolicy.can_land_changes, which defaults to false - human land by default.",
       "read_only": false,
       "idempotent": false,
       "agent_policy_gated": true,
@@ -687,7 +687,7 @@
     {
       "name": "get_merge_requirements",
       "category": "change",
-      "description": "Owners + checks outstanding, in plain language, for both the Change page and agent callers (§8.3, §13.4, §13.5).",
+      "description": "Owners + checks outstanding, in plain language, for both the Change page and agent callers.",
       "read_only": true,
       "idempotent": true,
       "agent_policy_gated": false,

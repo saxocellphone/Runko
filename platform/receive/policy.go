@@ -122,7 +122,7 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 		v = append(v, PolicyViolation{
 			Code:       "max_changed_files_exceeded",
 			Message:    fmt.Sprintf("changed %d files, agent policy allows at most %d", len(summary.ChangedFiles), policy.MaxChangedFiles),
-			Suggestion: "split the work into a stack of smaller changes - one reviewable step each; a single push carries the whole stack (§7.4)",
+			Suggestion: "split the work into a stack of smaller changes - one reviewable step each; a single push carries the whole stack",
 		})
 	}
 
@@ -130,7 +130,7 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 		v = append(v, PolicyViolation{
 			Code:       "max_diff_bytes_exceeded",
 			Message:    fmt.Sprintf("diff is %d bytes, agent policy allows at most %d", summary.DiffBytes, policy.MaxDiffBytes),
-			Suggestion: "split the work into a stack of smaller changes - one reviewable step each; a single push carries the whole stack (§7.4)",
+			Suggestion: "split the work into a stack of smaller changes - one reviewable step each; a single push carries the whole stack",
 		})
 	}
 
@@ -162,8 +162,8 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 			if o == summary.Author {
 				v = append(v, PolicyViolation{
 					Code:       "owner_self_grant",
-					Message:    fmt.Sprintf("the new project's owners name the pushing agent (%s) - an agent never grants itself ownership (§8.7)", o),
-					Suggestion: "name your minting human in owners:, or leave owners empty to inherit (§7.3)",
+					Message:    fmt.Sprintf("the new project's owners name the pushing agent (%s) - an agent never grants itself ownership", o),
+					Suggestion: "name your minting human in owners:, or leave owners empty to inherit",
 				})
 				break
 			}

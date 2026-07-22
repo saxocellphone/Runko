@@ -92,35 +92,35 @@ func cmdServe(args []string) error {
 	webhookURL := fs.String("webhook-url", envString("WEBHOOK_URL", ""), "webhook delivery target (optional - outbox worker is idle without one) [RUNKO_WEBHOOK_URL]")
 	webhookSecret := fs.String("webhook-secret", envString("WEBHOOK_SECRET", ""), "webhook HMAC secret [RUNKO_WEBHOOK_SECRET]")
 	gitleaksBin := fs.String("gitleaks-bin", envString("GITLEAKS_BIN", "gitleaks"), "gitleaks binary (path or PATH-resolved name) [RUNKO_GITLEAKS_BIN]")
-	skipScan := fs.Bool("insecure-skip-secret-scan", envBool("INSECURE_SKIP_SECRET_SCAN"), "DEV/EVAL ONLY: disable secret scanning entirely (never use in production, docs/design.md §11.4) [RUNKO_INSECURE_SKIP_SECRET_SCAN]")
-	databaseURL := fs.String("database-url", envString("DATABASE_URL", ""), "Postgres DSN for durable storage (default: in-memory Store, the §9.3 Eval/dev profile - lost on restart) [RUNKO_DATABASE_URL]")
-	rootInvalidation := fs.String("root-invalidation", envString("ROOT_INVALIDATION", ""), "comma-separated root-invalidation glob patterns (org policy, §14.5.2) [RUNKO_ROOT_INVALIDATION]")
-	landIdentity := fs.String("land-identity", envString("LAND_IDENTITY", "Runko <runko@localhost>"), "'Name <email>' stamped as BOTH author and committer on every LANDED commit (§7.5) - trunk and the outbound mirror carry a uniform identity; per-author attribution lives in Runko's authored_by/landed_by, not git. Set your deployment host here, e.g. 'Runko <runko@runko.example.com>' [RUNKO_LAND_IDENTITY]")
-	revalidation := fs.String("revalidation", envString("REVALIDATION", string(land.RevalidationConflictOnly)), "§13.5 revalidation tier: conflict-only (default - green changes whose rebase is clean land with zero re-runs, the Gerrit model) | affected-intersection (re-run when the trunk delta intersects the change's affected closure) | always. An org's stored revalidation_policy setting overrides this [RUNKO_REVALIDATION]")
-	globalChecks := fs.String("global-required-checks", envString("GLOBAL_REQUIRED_CHECKS", ""), "comma-separated org-level check names required on EVERY change (§14.9, e.g. secrets-scan) [RUNKO_GLOBAL_REQUIRED_CHECKS]")
-	allowSignup := fs.Bool("allow-signup", envBool("ALLOW_SIGNUP"), "enable self-service sign-up (POST /api/signup, §15.1) - default off [RUNKO_ALLOW_SIGNUP]")
+	skipScan := fs.Bool("insecure-skip-secret-scan", envBool("INSECURE_SKIP_SECRET_SCAN"), "DEV/EVAL ONLY: disable secret scanning entirely (never use in production) [RUNKO_INSECURE_SKIP_SECRET_SCAN]")
+	databaseURL := fs.String("database-url", envString("DATABASE_URL", ""), "Postgres DSN for durable storage (default: in-memory Store, the eval/dev profile - lost on restart) [RUNKO_DATABASE_URL]")
+	rootInvalidation := fs.String("root-invalidation", envString("ROOT_INVALIDATION", ""), "comma-separated root-invalidation glob patterns (org policy) [RUNKO_ROOT_INVALIDATION]")
+	landIdentity := fs.String("land-identity", envString("LAND_IDENTITY", "Runko <runko@localhost>"), "'Name <email>' stamped as BOTH author and committer on every LANDED commit - trunk and the outbound mirror carry a uniform identity; per-author attribution lives in Runko's authored_by/landed_by, not git. Set your deployment host here, e.g. 'Runko <runko@runko.example.com>' [RUNKO_LAND_IDENTITY]")
+	revalidation := fs.String("revalidation", envString("REVALIDATION", string(land.RevalidationConflictOnly)), "revalidation tier: conflict-only (default - green changes whose rebase is clean land with zero re-runs, the Gerrit model) | affected-intersection (re-run when the trunk delta intersects the change's affected closure) | always. An org's stored revalidation_policy setting overrides this [RUNKO_REVALIDATION]")
+	globalChecks := fs.String("global-required-checks", envString("GLOBAL_REQUIRED_CHECKS", ""), "comma-separated org-level check names required on EVERY change (e.g. secrets-scan) [RUNKO_GLOBAL_REQUIRED_CHECKS]")
+	allowSignup := fs.Bool("allow-signup", envBool("ALLOW_SIGNUP"), "enable self-service sign-up (POST /api/signup) - default off [RUNKO_ALLOW_SIGNUP]")
 	signupCode := fs.String("signup-code", envString("SIGNUP_CODE", ""), "invite code sign-ups must present (only meaningful with --allow-signup) [RUNKO_SIGNUP_CODE]")
-	allowInviteRequests := fs.Bool("allow-invite-requests", envBool("ALLOW_INVITE_REQUESTS"), "enable the public invite-request intake (POST /api/invite-requests, §15.1) - the runko-mailer service drains it; default off [RUNKO_ALLOW_INVITE_REQUESTS]")
-	singleUseAgentWS := fs.Bool("single-use-agent-workspaces", envBoolDefault("SINGLE_USE_AGENT_WORKSPACES", true), "close an agent-owned workspace when its last open change lands or is abandoned - one workspace per task; the funnel then refuses pushes into it with a create-a-fresh-one suggestion (§8.7/§12.2). ON by default; humans are never affected [RUNKO_SINGLE_USE_AGENT_WORKSPACES]")
-	allowUnpoliced := fs.Bool("insecure-allow-unpoliced-land", envBool("INSECURE_ALLOW_UNPOLICED_LAND"), "DEV/EVAL ONLY: let changes that resolve NO merge policy (no required checks, no owners) land anyway - the in-memory eval profile implies this; a durable deployment should declare policy instead (§28.3 stage 11c) [RUNKO_INSECURE_ALLOW_UNPOLICED_LAND]")
-	allowWorkspaceless := fs.Bool("allow-workspaceless-changes", envBool("ALLOW_WORKSPACELESS_CHANGES"), "DEV/EVAL ONLY: accept refs/for pushes with no workspace origin - by default changes are born in workspaces (§12.2, 2026-07-09); a brand-new monorepo's bootstrap push is always exempt [RUNKO_ALLOW_WORKSPACELESS_CHANGES]")
+	allowInviteRequests := fs.Bool("allow-invite-requests", envBool("ALLOW_INVITE_REQUESTS"), "enable the public invite-request intake (POST /api/invite-requests) - the runko-mailer service drains it; default off [RUNKO_ALLOW_INVITE_REQUESTS]")
+	singleUseAgentWS := fs.Bool("single-use-agent-workspaces", envBoolDefault("SINGLE_USE_AGENT_WORKSPACES", true), "close an agent-owned workspace when its last open change lands or is abandoned - one workspace per task; the funnel then refuses pushes into it with a create-a-fresh-one suggestion. ON by default; humans are never affected [RUNKO_SINGLE_USE_AGENT_WORKSPACES]")
+	allowUnpoliced := fs.Bool("insecure-allow-unpoliced-land", envBool("INSECURE_ALLOW_UNPOLICED_LAND"), "DEV/EVAL ONLY: let changes that resolve NO merge policy (no required checks, no owners) land anyway - the in-memory eval profile implies this; a durable deployment should declare policy instead [RUNKO_INSECURE_ALLOW_UNPOLICED_LAND]")
+	allowWorkspaceless := fs.Bool("allow-workspaceless-changes", envBool("ALLOW_WORKSPACELESS_CHANGES"), "DEV/EVAL ONLY: accept refs/for pushes with no workspace origin - by default changes are born in workspaces; a brand-new monorepo's bootstrap push is always exempt [RUNKO_ALLOW_WORKSPACELESS_CHANGES]")
 	var botLanes botLaneFlag
-	fs.Var(&botLanes, "bot-lane", "path-scoped auto-land grant (§14.10.2), repeatable: 'name=<n>;token=<t>;paths=<glob,glob>;checks=<check,check>' [RUNKO_BOT_LANES, '|'-separated]")
+	fs.Var(&botLanes, "bot-lane", "path-scoped auto-land grant, repeatable: 'name=<n>;token=<t>;paths=<glob,glob>;checks=<check,check>' [RUNKO_BOT_LANES, '|'-separated]")
 	var principals principalFlag
-	fs.Var(&principals, "principal", "named-token identity (§15.1 interim), repeatable: 'name=<n>;token=<t>[;agent][;admin]' - agent principals get the default §8.7 agent policy enforced at receive; admin principals may force-land (§13.5) [RUNKO_PRINCIPALS, '|'-separated]")
-	searchURL := fs.String("search-url", envString("SEARCH_URL", ""), "zoekt-webserver base URL for search_code (§8.3); absent -> search_code returns a structured 'not configured' error, never a git-grep fallback (§8.2) [RUNKO_SEARCH_URL]")
+	fs.Var(&principals, "principal", "named-token identity, repeatable: 'name=<n>;token=<t>[;agent][;admin]' - agent principals get the default agent policy enforced at receive; admin principals may force-land [RUNKO_PRINCIPALS, '|'-separated]")
+	searchURL := fs.String("search-url", envString("SEARCH_URL", ""), "zoekt-webserver base URL for search_code; absent -> search_code returns a structured 'not configured' error, never a git-grep fallback [RUNKO_SEARCH_URL]")
 	zoektIndexDir := fs.String("zoekt-index-dir", envString("ZOEKT_INDEX_DIR", ""), "directory zoekt-git-index writes shards into (required to enable indexing on trunk advance) [RUNKO_ZOEKT_INDEX_DIR]")
 	zoektIndexBin := fs.String("zoekt-index-bin", envString("ZOEKT_INDEX_BIN", "zoekt-git-index"), "zoekt-git-index binary (path or PATH-resolved name) [RUNKO_ZOEKT_INDEX_BIN]")
-	mirrorRemote := fs.String("mirror-remote", envString("MIRROR_REMOTE", ""), "outbound mirror git URL (§18.6 M1) - ANY git host: https:// gets token auth, everything else used as-is [RUNKO_MIRROR_REMOTE]")
+	mirrorRemote := fs.String("mirror-remote", envString("MIRROR_REMOTE", ""), "outbound mirror git URL - ANY git host: https:// gets token auth, everything else used as-is [RUNKO_MIRROR_REMOTE]")
 	mirrorUsername := fs.String("mirror-username", envString("MIRROR_USERNAME", ""), "basic-auth username for the mirror token: GitHub 'x-access-token' (default), GitLab 'oauth2', Gitea anything [RUNKO_MIRROR_USERNAME]")
 	mirrorToken := fs.String("mirror-token", envString("MIRROR_TOKEN", ""), "mirror access token (prefer the env var - never lands in shell history) [RUNKO_MIRROR_TOKEN]")
 	githubAppID := fs.String("github-app-id", envString("GITHUB_APP_ID", ""), "GitHub App id enabling App auth (2026-07-16, runkogithubapp/README.md): mirrors on the App's GitHub host with no static token mint installation tokens on demand - no more per-org PATs [RUNKO_GITHUB_APP_ID]")
 	githubAppKeyFile := fs.String("github-app-key-file", envString("GITHUB_APP_KEY_FILE", ""), "path to the GitHub App private key PEM (required with --github-app-id) [RUNKO_GITHUB_APP_KEY_FILE]")
 	githubAPI := fs.String("github-api", envString("GITHUB_API", "https://api.github.com"), "GitHub API base for App auth; GHES: https://<host>/api/v3 (App auth then applies to that host's remotes) [RUNKO_GITHUB_API]")
-	allowOrgCreate := fs.Bool("allow-org-create", envBool("ALLOW_ORG_CREATE"), "enable self-service org creation (POST /api/orgs, §7.1) - each org owns its own repo under --orgs-dir; default off [RUNKO_ALLOW_ORG_CREATE]")
+	allowOrgCreate := fs.Bool("allow-org-create", envBool("ALLOW_ORG_CREATE"), "enable self-service org creation (POST /api/orgs) - each org owns its own repo under --orgs-dir; default off [RUNKO_ALLOW_ORG_CREATE]")
 	orgsDir := fs.String("orgs-dir", envString("ORGS_DIR", ""), "directory holding per-org repos at <orgs-dir>/<org>/repo.git (default: 'orgs' beside --repo-dir) [RUNKO_ORGS_DIR]")
 	var orgMirrors orgMirrorFlag
-	fs.Var(&orgMirrors, "org-mirror", "outbound mirror for a hub org's repo (§18.6 M1), repeatable: 'org=<name>;remote=<url>[;username=<u>][;token=<t>]' - the default org keeps --mirror-remote [RUNKO_ORG_MIRRORS, '|'-separated]")
+	fs.Var(&orgMirrors, "org-mirror", "outbound mirror for a hub org's repo, repeatable: 'org=<name>;remote=<url>[;username=<u>][;token=<t>]' - the default org keeps --mirror-remote [RUNKO_ORG_MIRRORS, '|'-separated]")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -183,7 +183,7 @@ func cmdServe(args []string) error {
 
 	var scanner receive.SecretScanner
 	if *skipScan {
-		fmt.Fprintln(os.Stderr, "runkod: WARNING --insecure-skip-secret-scan is set - no secret scanning will occur. Never use this in production (docs/design.md §11.4).")
+		fmt.Fprintln(os.Stderr, "runkod: WARNING --insecure-skip-secret-scan is set - no secret scanning will occur. Never use this in production.")
 		scanner = receive.NoOpScanner{}
 	} else {
 		if _, err := exec.LookPath(*gitleaksBin); err != nil {
@@ -240,10 +240,10 @@ func cmdServe(args []string) error {
 		}
 		fmt.Println("runkod: using Postgres-backed storage (durable across restarts)")
 		if *allowUnpoliced {
-			fmt.Fprintln(os.Stderr, "runkod: WARNING --insecure-allow-unpoliced-land is set - changes resolving NO merge policy (no required checks, no owners) will land ungated. Declare owners/ci.checks or --global-required-checks instead in production (§28.3 stage 11c).")
+			fmt.Fprintln(os.Stderr, "runkod: WARNING --insecure-allow-unpoliced-land is set - changes resolving NO merge policy (no required checks, no owners) will land ungated. Declare owners/ci.checks or --global-required-checks instead in production.")
 		}
 	} else {
-		fmt.Fprintln(os.Stderr, "runkod: WARNING no --database-url given - using in-memory storage (§9.3 Eval/dev profile): every Change, check run, and queued webhook is LOST on restart, and unpoliced changes (no required checks, no owners) may land ungated.")
+		fmt.Fprintln(os.Stderr, "runkod: WARNING no --database-url given - using in-memory storage (the eval/dev profile): every Change, check run, and queued webhook is LOST on restart, and unpoliced changes (no required checks, no owners) may land ungated.")
 		store = runkod.NewMemStore()
 		// The eval profile is for kicking the tires (§16.4's compose loop
 		// must work before any policy exists) - default-deny there would
@@ -267,7 +267,7 @@ func cmdServe(args []string) error {
 	if *searchURL != "" {
 		searcher = search.ZoektSearcher{BaseURL: *searchURL}
 	} else {
-		fmt.Fprintln(os.Stderr, "runkod: no --search-url given - search_code (GET /api/search) will return a structured 'not configured' error (§8.2: no git-grep fallback)")
+		fmt.Fprintln(os.Stderr, "runkod: no --search-url given - search_code (GET /api/search) will return a structured 'not configured' error (no git-grep fallback)")
 		searcher = search.NotConfiguredSearcher{}
 	}
 
@@ -911,7 +911,7 @@ func parseBotLane(v string) (runkod.BotLane, error) {
 		}
 	}
 	if lane.Name == "" || lane.Token == "" || len(lane.PathAllowlist) == 0 || len(lane.RequiredChecks) == 0 {
-		return lane, fmt.Errorf("bot-lane: name=, token=, paths=, and checks= are all required - a lane is constrained to a path allowlist AND a required-check set (docs/design.md §14.10.2)")
+		return lane, fmt.Errorf("bot-lane: name=, token=, paths=, and checks= are all required - a lane is constrained to a path allowlist AND a required-check set")
 	}
 	return lane, nil
 }
