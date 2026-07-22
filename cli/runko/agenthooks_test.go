@@ -241,29 +241,68 @@ func TestWorkspaceStreamingGuidanceNamesBothVerbs(t *testing.T) {
 // teach addresses the workspace by name, so neither may hand out a cd -
 // that is the habit -w exists to delete, and printing one trains it right
 // where a workspace is born.
+//
+// The assertions are deliberately whole-output rather than "no cd
+// anywhere": a printer that regressed to prose, or to some other command
+// style, would sail past a substring check while teaching the wrong thing.
+// Every non-header line must BE a runko command that names the workspace,
+// and each block must still print the number of commands it is meant to.
 func TestWorkspaceGuidanceNeverTeachesCd(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		print func(*strings.Builder)
+		name     string
+		print    func(*strings.Builder)
+		wantCmds int
 	}{
-		{"streaming", func(b *strings.Builder) { printWorkspaceStreamingGuidance(b, "payments-fix") }},
-		{"loop", func(b *strings.Builder) { printWorkspaceLoop(b, "payments-fix") }},
+		{"streaming", func(b *strings.Builder) { printWorkspaceStreamingGuidance(b, "payments-fix") }, 2},
+		{"loop", func(b *strings.Builder) { printWorkspaceLoop(b, "payments-fix") }, 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out strings.Builder
 			tc.print(&out)
-			if strings.Contains(out.String(), "cd ") {
-				t.Fatalf("guidance sends the reader into the worktree:\n%s", out.String())
-			}
+
+			cmds := 0
 			for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
-				cmd := strings.TrimSpace(line)
-				if !strings.HasPrefix(cmd, "runko ") {
-					continue // the prose header
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasSuffix(line, ":") {
+					continue // the prose header introducing the block
 				}
-				if !strings.Contains(cmd, "-w payments-fix") {
-					t.Fatalf("command does not name the workspace: %q", cmd)
+				cmds++
+				if !strings.HasPrefix(line, "runko ") {
+					t.Errorf("not a runko command (a shell escape hatch would slip the -w check): %q", line)
+					continue
+				}
+				if !strings.Contains(line, "-w payments-fix") {
+					t.Errorf("command does not name the workspace: %q", line)
+				}
+			}
+			if cmds != tc.wantCmds {
+				t.Errorf("printed %d commands, want %d - a printer that stops printing "+
+					"cannot teach the wrong thing, but it cannot teach the right thing either:\n%s",
+					cmds, tc.wantCmds, out.String())
+			}
+			// Belt and braces: no cd in any form, including the ones the
+			// line-by-line rule above would not catch on a prose line.
+			for _, forbidden := range []string{"cd ", "cd\t", "pushd", "$(runko workspace path"} {
+				if strings.Contains(out.String(), forbidden) {
+					t.Errorf("guidance sends the reader into the worktree (%q):\n%s", forbidden, out.String())
 				}
 			}
 		})
+	}
+}
+
+// A plain attach is on "head" and addresses the workspace by bare name;
+// only a non-default branch earns the @branch suffix. The `--branch` flag
+// defaults to "head" rather than "", so an emptiness check alone would
+// teach every attach a pointless @head - this pins both.
+func TestWorkspaceHandleOmitsDefaultBranch(t *testing.T) {
+	for _, tc := range []struct{ branch, want string }{
+		{"", "payments-fix"},
+		{"head", "payments-fix"},
+		{"experiment", "payments-fix@experiment"},
+	} {
+		if got := workspaceHandle("payments-fix", tc.branch); got != tc.want {
+			t.Errorf("workspaceHandle(payments-fix, %q) = %q, want %q", tc.branch, got, tc.want)
+		}
 	}
 }

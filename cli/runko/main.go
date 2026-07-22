@@ -135,7 +135,7 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace branch <name> [--dir . | -w <ws>]                 fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
   workspace sync [--dir . | -w <ws>]                          sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
 
-  -w/--workspace <name[@branch]> on checkout verbs (create/push/land/requirements/describe/comment*/snapshot/watch/branch/sync/agent hooks):
+  -w/--workspace <name[@branch]> on checkout verbs (change create/amend/push/requirements/land/describe/comment/comments/resolve/request-review, workspace snapshot/watch/branch/sync, agent hooks):
   run against that workspace's registered materialization from ANYWHERE - no cd into the worktree (§12.7; workspace list shows what's local)
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)
 
@@ -1142,13 +1142,9 @@ func cmdWorkspace(args []string) error {
 			mode = " (jj colocated)"
 		}
 		fmt.Printf("workspace %s restored at %s%s\n", info.ID, wsDir, mode)
-		// A branch attach materializes that branch's own row, so the -w
-		// handle it teaches has to carry it (name@branch, §12.7).
-		handle := info.ID
-		if *branch != "" {
-			handle += "@" + *branch
-		}
-		printWorkspaceStreamingGuidance(os.Stdout, handle)
+		// A non-default branch attach materializes that branch's own row, so
+		// the -w handle it teaches has to carry it (name@branch, §12.7).
+		printWorkspaceStreamingGuidance(os.Stdout, workspaceHandle(info.ID, *branch))
 		return nil
 
 	case "gc":
