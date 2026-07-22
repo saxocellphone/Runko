@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/platform/affected"
@@ -88,11 +89,16 @@ func ImagesForAffected(result affected.Result, projects []index.IndexedProject) 
 }
 
 // ImageBuild is one deployable image the CI executor must build: its logical
-// name plus everything needed to build it, read from the OWNER's deploy.image
-// (§14.9.1 executor contract - the workflow gets build config from the tree,
-// never hardcoded). JSON-tagged for `runko-ci images`.
+// name, the full registry-qualified ref to tag/push/report, plus everything
+// needed to build it, read from the OWNER's deploy.image (§14.9.1 executor
+// contract - the workflow gets build config from the tree, never hardcoded).
+// JSON-tagged for `runko-ci images`.
 type ImageBuild struct {
-	Name       string            `json:"name"`
+	Name string `json:"name"`
+	// ImageRef is <deploy_registry>/<name> when the root manifest sets
+	// deploy_registry, else the bare name (local/dev). The generic image-build
+	// workflow tags/pushes/reports this, hardcoding no registry.
+	ImageRef   string            `json:"image_ref"`
 	Context    string            `json:"context"`
 	Dockerfile string            `json:"dockerfile"`
 	BuildArgs  map[string]string `json:"build_args,omitempty"`
@@ -121,6 +127,7 @@ func ImageBuildsForAffected(result affected.Result, projects []index.IndexedProj
 	for _, n := range names {
 		want[n] = true
 	}
+	registry := rootRegistry(projects)
 	type owned struct {
 		build ImageBuild
 		owner string
@@ -130,7 +137,7 @@ func ImageBuildsForAffected(result affected.Result, projects []index.IndexedProj
 		if p.DeployImage == nil || !want[p.DeployImage.Name] {
 			continue
 		}
-		b := ImageBuild{Name: p.DeployImage.Name, Context: p.DeployImage.Context, Dockerfile: p.DeployImage.Dockerfile, BuildArgs: p.DeployImage.BuildArgs}
+		b := ImageBuild{Name: p.DeployImage.Name, ImageRef: imageRef(registry, p.DeployImage.Name), Context: p.DeployImage.Context, Dockerfile: p.DeployImage.Dockerfile, BuildArgs: p.DeployImage.BuildArgs}
 		if prev, ok := byName[b.Name]; ok {
 			if !sameBuild(prev.build, b) {
 				return nil, &clierr.Error{
@@ -154,4 +161,24 @@ func ImageBuildsForAffected(result affected.Result, projects []index.IndexedProj
 
 func sameBuild(a, b ImageBuild) bool {
 	return a.Context == b.Context && a.Dockerfile == b.Dockerfile && reflect.DeepEqual(a.BuildArgs, b.BuildArgs)
+}
+
+// rootRegistry returns the repo-wide deploy_registry declared on the root
+// project (path "" or "."), or "" when unset or no root is indexed.
+func rootRegistry(projects []index.IndexedProject) string {
+	for _, p := range projects {
+		if p.Path == "" || p.Path == "." {
+			return p.DeployRegistry
+		}
+	}
+	return ""
+}
+
+// imageRef forms an image's full ref: <registry>/<name>, or the bare name
+// when no registry is declared (local/dev; a real registry push needs it set).
+func imageRef(registry, name string) string {
+	if registry == "" {
+		return name
+	}
+	return strings.TrimRight(registry, "/") + "/" + name
 }

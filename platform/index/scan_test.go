@@ -293,6 +293,31 @@ func TestScanDeployImageAndRiders(t *testing.T) {
 	}
 }
 
+// TestScanDeployRegistry: the top-level deploy_registry surfaces into
+// IndexedProject.DeployRegistry (the root-oriented §14.10 registry base).
+func TestScanDeployRegistry(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("PROJECT.yaml", manifest("repo", "other", "deploy_registry: ghcr.io/acme/monorepo\n"))
+	repo.WriteFile("svc/PROJECT.yaml", manifest("svc", "service", ""))
+	head := repo.Commit("root registry")
+
+	store := gitstore.New(repo.Dir)
+	projects, err := Scan(store, core.Revision(head), nil)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	byName := map[string]IndexedProject{}
+	for _, p := range projects {
+		byName[p.Name] = p
+	}
+	if got := byName["repo"].DeployRegistry; got != "ghcr.io/acme/monorepo" {
+		t.Fatalf("root deploy_registry: got %q", got)
+	}
+	if got := byName["svc"].DeployRegistry; got != "" {
+		t.Fatalf("non-declaring project should have empty registry, got %q", got)
+	}
+}
+
 // root_invalidation is tree-borne policy (§9.4): Scan surfaces it and the
 // helper concatenates in scan order - ORDER PRESERVED (§14.5.8: lists are
 // first-match-wins with "!" exceptions, so the root manifest's exceptions

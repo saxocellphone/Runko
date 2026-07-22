@@ -89,6 +89,26 @@ func TestImagesRunEverythingRebuildsAll(t *testing.T) {
 	}
 }
 
+// The root manifest's deploy_registry prefixes each image's image_ref, so the
+// generic workflow hardcodes no registry: it tags/pushes whatever ref the tree
+// declares.
+func TestImagesEmitsRegistryPrefixedRef(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("PROJECT.yaml", "schema: project/v1\nname: repo\ntype: other\ndeploy_registry: ghcr.io/acme/monorepo\n")
+	repo.WriteFile("api/PROJECT.yaml", "schema: project/v1\nname: api\ntype: service\ncapabilities:\n  - deploy\ncapability_config:\n  deploy:\n    image:\n      name: api\n      context: .\n      dockerfile: Dockerfile\n")
+	base := repo.Commit("seed")
+	repo.WriteFile("api/main.go", "package main\n")
+	head := repo.Commit("touch api")
+
+	out, err := Images(repo.Dir, base, head, nil)
+	if err != nil {
+		t.Fatalf("Images: %v", err)
+	}
+	if len(out.Images) != 1 || out.Images[0].Name != "api" || out.Images[0].ImageRef != "ghcr.io/acme/monorepo/api" {
+		t.Fatalf("image_ref should be <registry>/<name>, got %+v", out)
+	}
+}
+
 // A change touching no deployable project yields an empty image set (JSON
 // still emits, with an empty images array).
 func TestImagesEmptyForNonDeployChange(t *testing.T) {
