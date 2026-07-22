@@ -24,11 +24,20 @@ type: service
 language: go
 capabilities:
     - build
+    - deploy
 capability_config:
     build:
         engine: bazel
         target_patterns:
             - //mailer/...
+    # deploy (§14.10, docs/spec/deploy/README.md): mailer owns no image of
+    # its own - its binary ships INSIDE the runkod image (the root
+    # Dockerfile builds it), so it RIDES that image. This rider edge is
+    # what makes a mailer-only change rebuild the runkod image.
+    deploy:
+        workloads:
+            - name: runko-mailer
+              image: runkod
 consumes:
   - runkod
 ci:

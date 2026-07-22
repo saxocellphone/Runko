@@ -11,6 +11,16 @@ schema: project/v1
 name: watchdog
 type: service
 language: go
+# deploy (§14.10, docs/spec/deploy/README.md): watchdog owns no image - its
+# binary ships INSIDE the runkod image (built by the root Dockerfile), so
+# it RIDES that image; a watchdog-only change rebuilds the runkod image.
+capabilities:
+  - deploy
+capability_config:
+  deploy:
+    workloads:
+      - name: runko-watchdog
+        image: runkod
 dependencies:
   - platform
 # consumes (§13.3.1, 2026-07-14 re-evaluation): the ORIGINAL stub-pinned

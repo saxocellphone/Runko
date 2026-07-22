@@ -17,9 +17,21 @@ type: service
 language: go
 capabilities:
   - rpc
+  - deploy
 capability_config:
   rpc:
     path: proto
+  # deploy (§14.10, docs/spec/deploy/README.md): runkod OWNS the runkod
+  # image - a multi-binary image. The mailer and watchdog binaries ship
+  # inside it, so those projects RIDE this image (each declares a workload
+  # with image: runkod). runko-bridge and runko-deployer ship in it too but
+  # live inside runkod's OWN boundary (no separate project), so their
+  # changes are runkod changes already - no rider edge needed.
+  deploy:
+    image:
+      name: runkod
+      context: .
+      dockerfile: Dockerfile
 dependencies:
   - platform
   - internal
