@@ -246,3 +246,26 @@ func TestEverySurfaceTeachesTransparency(t *testing.T) {
 		}
 	}
 }
+
+// Everything this package emits is read by an agent (or the human skimming
+// AGENTS.md), never by someone with design.md open: the spec is retired and
+// the citations resolve to nothing at the other end. The guard covers all
+// three artifacts at once, so a new Commands row or bullet cannot slip one
+// back in. Package comments keep theirs.
+func TestGeneratedSurfacesCarryNoSpecCitations(t *testing.T) {
+	artifacts := map[string]string{
+		"AGENTS.md":         Generate(),
+		SkillPath:           GenerateSkill(),
+		WorkspacesSkillPath: GenerateWorkspacesSkill(),
+	}
+	for name, content := range artifacts {
+		for _, bad := range []string{"§", "design.md"} {
+			for i, line := range strings.Split(content, "\n") {
+				if strings.Contains(line, bad) {
+					t.Errorf("%s:%d cites %q - generated copy is read by agents, not contributors:\n  %s",
+						name, i+1, bad, strings.TrimSpace(line))
+				}
+			}
+		}
+	}
+}
