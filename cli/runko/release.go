@@ -66,7 +66,7 @@ func newReleaseCmd(a *app) *cobra.Command {
 		Use:     "release",
 		Short:   "Cut and list immutable releases",
 		GroupID: "repo",
-		Long: `Releases are immutable (§14.10.3): a server-minted tag + changelog
+		Long: `Releases are immutable: a server-minted tag + changelog
 derived from the landed changes touching the project since the
 previous release. There is no edit or delete verb anywhere - a wrong
 release is followed by a corrected one.`,

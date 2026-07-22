@@ -25,7 +25,7 @@ func newDoctorCmd() *cobra.Command {
 		Use:     "doctor",
 		Short:   "Check this checkout's wiring; print the cheat-sheet",
 		GroupID: "start",
-		Long: `Reports how this checkout is wired (§6.9): remotes, hooks, git
+		Long: `Reports how this checkout is wired: remotes, hooks, git
 version, jj/workspace binding - then prints the cheat-sheet.
 --install-hook wires the checkout: the commit-msg Change-Id hook, the
 advisory pre-commit verb nudge, jj Change-Id trailers (in a jj

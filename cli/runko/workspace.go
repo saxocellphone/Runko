@@ -679,7 +679,7 @@ func WorkspaceSnapshot(dir, message string) (ref string, err error) {
 		return "", &clierr.Error{
 			Code: "not_a_workspace", Field: "dir",
 			Message:    fmt.Sprintf("%s is not a runko workspace worktree", dir),
-			Suggestion: "name the workspace instead of standing in it: `runko workspace snapshot -w <name>` (§12.7); or run inside a directory created by `runko workspace create` or `attach`",
+			Suggestion: "name the workspace instead of standing in it: `runko workspace snapshot -w <name>`; or run inside a directory created by `runko workspace create` or `attach`",
 		}
 	}
 	if _, err := runGit(dir, "add", "-A"); err != nil {
@@ -765,7 +765,7 @@ func WorkspaceBranch(dir, name string) (ref string, err error) {
 		return "", &clierr.Error{
 			Code: "not_a_workspace", Field: "dir",
 			Message:    fmt.Sprintf("%s is not a runko workspace worktree", dir),
-			Suggestion: "name the workspace instead of standing in it: `runko workspace branch <name> -w <workspace>` (§12.7); or run inside a directory created by `runko workspace create` or `attach`",
+			Suggestion: "name the workspace instead of standing in it: `runko workspace branch <name> -w <workspace>`; or run inside a directory created by `runko workspace create` or `attach`",
 		}
 	}
 	if !workspaceBranchPattern.MatchString(name) {
@@ -877,12 +877,12 @@ func asClierr(err error, target **clierr.Error) bool {
 // would teach the very habit -w exists to delete. Human output only;
 // --json callers never see it.
 func printWorkspaceStreamingGuidance(w io.Writer, workspace string) {
-	fmt.Fprintln(w, "stream the work (§12.6) - from your repo, no cd:")
+	fmt.Fprintln(w, "stream the work - from your repo, no cd:")
 	printCommands(w, []annotatedCommand{
 		{fmt.Sprintf("runko workspace watch -w %s &", workspace),
 			"auto-snapshot loop: the workspace page follows WIP live"},
 		{fmt.Sprintf("runko agent hooks --install -w %s", workspace),
-			"agents: reads/edits/commands on the live activity feed (§12.6.1)"},
+			"agents: reads/edits/commands on the live activity feed"},
 	})
 }
 

@@ -319,7 +319,7 @@ func newSelfUpdateCmd() *cobra.Command {
 		Short:   "Replace this binary with the latest release build",
 		GroupID: "start",
 		Long: `Replaces the running binary with the rolling ` + releaseTag + ` GitHub
-release build (§17.1). Identity is content, not a version string: up
+release build. Identity is content, not a version string: up
 to date iff the binary's sha256 matches the release's checksums.txt
 entry for this platform, so a from-source build reads as stale and is
 replaced. The download is checksum-verified before an atomic swap.`,

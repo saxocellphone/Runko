@@ -25,7 +25,7 @@ import (
 // isn't on macOS), and cut -c1-40 keeps the id shape stable even in
 // sha256-object-format repos.
 const changeIDHookScript = `#!/bin/sh
-# Installed by ` + "`runko doctor --install-hook`" + ` (docs/design.md §6.9, §11.5).
+# Installed by ` + "`runko doctor --install-hook`" + `.
 # Appends a Change-Id trailer if the commit message doesn't already have one.
 if ! grep -q '^Change-Id: I[0-9a-f]\{40\}$' "$1"; then
   random=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')
@@ -58,7 +58,7 @@ fi
 // don't nudge about themselves, and jj runs no git hooks at all, so jj
 // surgery never sees it - it fires precisely and only on a raw git commit.
 const verbNudgeHookScript = `#!/bin/sh
-# runko-verb-nudge: advisory, installed by runko (docs/design.md §6.9, §21).
+# runko-verb-nudge: advisory, installed by runko.
 # Prints the native verbs on a raw git commit; never blocks (always exit 0).
 [ -n "$RUNKO_INTERNAL_GIT" ] && exit 0
 cat >&2 <<'MSG'
@@ -149,7 +149,6 @@ func RunDoctor(repoDir, trunkRef string) (DoctorReport, error) {
 			Field:      "repo",
 			Message:    fmt.Sprintf("%s is not a git repository", repoDir),
 			Suggestion: "run `git init` (or `jj git init --colocate`) first, then retry `runko doctor`",
-			DocURL:     "docs/design.md#67-empty-states-and-education",
 		}
 	}
 
@@ -360,7 +359,7 @@ func PrintCheatSheet(w io.Writer, report DoctorReport) {
 	// workspace worktree there is nothing to stream into, so no nag.
 	if report.WorkspaceID != "" {
 		if report.HasAgentHooks {
-			fmt.Fprintln(w, "  agent hooks:     installed (activity streams to the workspace page, §12.6.1)")
+			fmt.Fprintln(w, "  agent hooks:     installed (activity streams to the workspace page)")
 		} else {
 			fmt.Fprintln(w, "  agent hooks:     NOT installed - run `runko agent hooks --install` (and keep `runko workspace watch` running)")
 		}
@@ -374,7 +373,7 @@ func PrintCheatSheet(w io.Writer, report DoctorReport) {
 		fmt.Fprintln(w, "  agent skill:     NOT installed - agents here load no workflow; run `runko doctor --install-hook`")
 	}
 	if report.TrackedMaterializations > 0 {
-		fmt.Fprintf(w, "  materializations: %d tracked on this machine - `runko workspace gc` reviews and reclaims (§12.7)\n", report.TrackedMaterializations)
+		fmt.Fprintf(w, "  materializations: %d tracked on this machine - `runko workspace gc` reviews and reclaims\n", report.TrackedMaterializations)
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "The commands that matter:")

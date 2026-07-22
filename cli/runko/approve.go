@@ -43,7 +43,6 @@ func ApproveChange(ctx context.Context, client *http.Client, baseURL, token, cha
 			Field:      "change",
 			Message:    fmt.Sprintf("no such change %q", changeID),
 			Suggestion: "check the Change-Id, e.g. from `runko change push`'s output",
-			DocURL:     "docs/design.md#74-change",
 		}
 	}
 	if resp.StatusCode != http.StatusOK {

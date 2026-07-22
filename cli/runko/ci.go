@@ -50,7 +50,7 @@ func newCIInitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Write the generic Runko CI workflows into a repo",
 		Long: `Scaffolds the generic Runko CI/CD GitHub Actions workflows into
-.github/workflows/ (§14.9.1) - a LOCAL file-writer you review and
+.github/workflows/ - a LOCAL file-writer you review and
 commit through your normal change flow. The files download runko-ci
 and read all project/check/image/registry facts from the tree, so this
 command names none of them. --images adds the post-land CD workflow.`,

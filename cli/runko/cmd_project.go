@@ -25,8 +25,8 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short:   "Create, list, and delete Projects",
 		GroupID: "repo",
 		Long: `Projects are the unit of ownership, checks, and dependency edges - a
-folder with a PROJECT.yaml manifest (§10). Creation is intent-based:
-name/type/owners in, generated manifest + scaffold out (§2.3 anti-Boq).`,
+folder with a PROJECT.yaml manifest. Creation is intent-based:
+name/type/owners in, generated manifest + scaffold out.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: groupRunE,
 	}
@@ -42,7 +42,7 @@ func newProjectCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create --name <name> --type <type>",
 		Short: "Create a project from an intent, on top of HEAD",
-		Long: `Creates a project locally (§10.1): PROJECT.yaml + scaffold from the
+		Long: `Creates a project locally: PROJECT.yaml + scaffold from the
 type/language template, committed on top of HEAD with a fresh Change-Id -
 pushable as-is with no amend step. All flags, deliberately no positional
 name argument.`,
@@ -95,8 +95,8 @@ name argument.`,
 	fl.StringVar(&path, "path", "", "project path (default: derived from name)")
 	fl.StringVar(&template, "template", "", "template id (default: type's default template)")
 	fl.StringVar(&capabilities, "capabilities", "", "comma-separated capabilities, e.g. http,rpc")
-	fl.StringVar(&buildEngine, "build-engine", "", "build scaffold: bazel|vite|none (default by language: ts -> vite, else bazel; docs/design.md §14.5.5)")
-	fl.StringVar(&api, "api", "", "contract surface: grpc|rest|none - required for --type service, optional for app, unavailable elsewhere (docs/design.md §13.3.1)")
+	fl.StringVar(&buildEngine, "build-engine", "", "build scaffold: bazel|vite|none (default by language: ts -> vite, else bazel)")
+	fl.StringVar(&api, "api", "", "contract surface: grpc|rest|none - required for --type service, optional for app, unavailable elsewhere")
 	fl.BoolVar(&jsonOut, "json", false, "emit {name, path, rev, change_id} as JSON instead of a human summary")
 	return cmd
 }

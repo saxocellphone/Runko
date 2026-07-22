@@ -43,7 +43,7 @@ func InstallAgentHooks(dir string) (path string, installed bool, excludedVia str
 		return "", false, "", &clierr.Error{
 			Code: "not_a_workspace", Field: "dir",
 			Message:    fmt.Sprintf("%s is not bound to a runko workspace", dir),
-			Suggestion: "name the workspace instead of standing in it: `runko agent hooks --install -w <name>` (§12.7); or run inside a `runko workspace create/attach` checkout (--jj for a jj colocated clone)",
+			Suggestion: "name the workspace instead of standing in it: `runko agent hooks --install -w <name>`; or run inside a `runko workspace create/attach` checkout (--jj for a jj colocated clone)",
 		}
 	}
 	top, err := runGit(dir, "rev-parse", "--show-toplevel")
@@ -130,7 +130,7 @@ func invalidSettingsErr(path string) error {
 // append covers every worktree of the clone.
 func ensureSnapshotExcluded(dir string) (via string, err error) {
 	return excludeFromSnapshots(dir, agentHooksSettingsPath,
-		"# runko agent hooks --install: harness config stays out of snapshots (§12.6.1)")
+		"# runko agent hooks --install: harness config stays out of snapshots")
 }
 
 // excludeFromSnapshots is that guarantee for any local-only file runko

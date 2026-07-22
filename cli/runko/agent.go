@@ -35,12 +35,12 @@ func newAgentCmd(a *app) *cobra.Command {
 		Use:     "agent",
 		Short:   "Mint task identities, stream activity, wire hooks",
 		GroupID: "agents",
-		Long: `Agents are normal API clients with stricter defaults (§8.7): each task
+		Long: `Agents are normal API clients with stricter defaults: each task
 gets its own ephemeral identity (create), reports what it is doing to
 the workspace's live feed (event, hooks), and dies by TTL (revoke for
 sooner).`,
 		Example: `  runko agent create --task fix-rail-alignment
-  runko agent hooks --install -w <workspace>   # live activity feed (§12.6.1)
+  runko agent hooks --install -w <workspace>   # live activity feed
   runko agent list`,
 		Args: cobra.ArbitraryArgs,
 		RunE: groupRunE,
@@ -93,8 +93,8 @@ is refused (agents_cannot_mint).`,
 			// guidance `workspace create` prints once that name exists.
 			fmt.Printf("stream the work (from your repo, once its workspace exists):\n")
 			fmt.Printf("  export RUNKO_RUNKOD_URL=%s RUNKO_TOKEN=%s:%s\n", cred.URL, out.Name, out.Token)
-			fmt.Printf("  runko workspace watch -w <workspace> &        # live WIP on the workspace page (§12.6)\n")
-			fmt.Printf("  runko agent hooks --install -w <workspace>    # live activity feed (§12.6.1)\n")
+			fmt.Printf("  runko workspace watch -w <workspace> &        # live WIP on the workspace page\n")
+			fmt.Printf("  runko agent hooks --install -w <workspace>    # live activity feed\n")
 			return nil
 		},
 	}
