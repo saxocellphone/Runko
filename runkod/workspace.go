@@ -260,15 +260,34 @@ func (s *Server) validateNewPaths(base core.Revision, newPaths []string) ([]stri
 	for _, p := range indexed {
 		byPath[p.Path] = p.Name
 	}
+	rootName, hasRoot := rootProjectName(byPath)
 	var roots []string
 	for _, raw := range newPaths {
 		p := strings.TrimSuffix(raw, "/")
-		if p == "" || p == "." || p != path.Clean(p) || path.IsAbs(p) || p == ".." || strings.HasPrefix(p, "../") {
-			return nil, typedErr(http.StatusBadRequest, clierr.Error{
-				Code: "invalid_new_path", Field: "new_paths",
-				Message:    fmt.Sprintf("%q is not a clean repo-relative directory path", raw),
-				Suggestion: "use a path like services/checkout - relative, no leading /, no ..; the repo root is --project repo, never --new-path",
-			})
+		// The repo root ("."/"") is normally spelled --project <root>, but a
+		// ROOT-LESS org (no project at the root path) has no such name - so
+		// allow --new-path . there to bootstrap root affinity, the same ""
+		// path root --project <root> yields once one exists. It's the fix for
+		// gap #4: onboarding a fresh org's root files (.github/, a root
+		// PROJECT.yaml) needs an affinity handle the root-less org lacks.
+		if p == "" || p == "." {
+			// "/" trims to "" but is the absolute spelling - only the "."/""
+			// RELATIVE root reaches the bootstrap grant, not `--new-path /`.
+			if path.IsAbs(raw) {
+				return nil, invalidNewPathErr(raw)
+			}
+			if hasRoot {
+				return nil, typedErr(http.StatusBadRequest, clierr.Error{
+					Code: "invalid_new_path", Field: "new_paths",
+					Message:    fmt.Sprintf("the repo root is already project %q here", rootName),
+					Suggestion: fmt.Sprintf("use --project %s, not --new-path .", rootName),
+				})
+			}
+			roots = append(roots, "")
+			continue
+		}
+		if p != path.Clean(p) || path.IsAbs(p) || p == ".." || strings.HasPrefix(p, "../") {
+			return nil, invalidNewPathErr(raw)
 		}
 		if name, exists := byPath[p]; exists {
 			return nil, typedErr(http.StatusConflict, clierr.Error{
@@ -280,6 +299,28 @@ func (s *Server) validateNewPaths(base core.Revision, newPaths []string) ([]stri
 		roots = append(roots, p)
 	}
 	return roots, nil
+}
+
+// rootProjectName reports the project rooted at the repo root, if any -
+// the daemon's rootness rule is path "" or "." (§10.3, root-project-not-a-peer).
+func rootProjectName(byPath map[string]string) (string, bool) {
+	if n, ok := byPath[""]; ok {
+		return n, true
+	}
+	if n, ok := byPath["."]; ok {
+		return n, true
+	}
+	return "", false
+}
+
+// invalidNewPathErr is validateNewPaths' shared "not a clean relative
+// directory" refusal (§6.5); the repo-root case is handled separately.
+func invalidNewPathErr(raw string) *apiError {
+	return typedErr(http.StatusBadRequest, clierr.Error{
+		Code: "invalid_new_path", Field: "new_paths",
+		Message:    fmt.Sprintf("%q is not a clean repo-relative directory path", raw),
+		Suggestion: "use a path like services/checkout - relative, no leading /, no ..",
+	})
 }
 
 // mergePathRoots unions two sorted-ish path-root lists, deduped and sorted.
