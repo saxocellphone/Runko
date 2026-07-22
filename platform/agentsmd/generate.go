@@ -70,7 +70,7 @@ var Commands = []Command{
 	{"runko", "version [--json]", "which binary is this: vcs revision + build time + toolchain from the Go build stamp (doctor reprints it first); report this when behavior differs from the docs", "BuildIdentity"},
 	{"runko-ci", "affected --base <rev> [--head HEAD] [--engine bazel]", "compute the affected project set for a base..head range (§13.3)", "affected.Result (always JSON)"},
 	{"runko-ci", "checks --base <rev> [--head HEAD]", "resolve the affected closure's manifest-declared ci.checks for a CI executor (§14.9)", `{"run_everything","checks":[{"project","name","command"}]} (always JSON)`},
-	{"runko-ci", "images --base <rev> [--head HEAD]", "resolve which deployable images a base..head range must rebuild, with build config, for a CI executor (§14.10)", `{"run_everything","images":[{"name","context","dockerfile","build_args"}]} (always JSON)`},
+	{"runko-ci", "images --base <rev> [--head HEAD]", "resolve which deployable images a base..head range must rebuild, with build config, for a CI executor (§14.10)", `{"run_everything","images":[{"name","image_ref","context","dockerfile","build_args"}]} (always JSON)`},
 	{"runko-ci", "checkout --remote <url> --dest <dir> --rev <rev> [--json]", "partial-clone + sparse-checkout a rev for CI (§14.4.4)", `{"rev","dest"}`},
 	{"runko-ci", "report-check --url <u> --name <n> --external-id <id> --reporter <r> [--json]", "POST a CheckRun result to the Checks API (§14.4.1)", `{"name","status","external_id"}`},
 }

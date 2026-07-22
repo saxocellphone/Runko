@@ -72,6 +72,11 @@ type Manifest struct {
 	Prose            []string                `yaml:"prose,omitempty"`
 	Visibility       string                  `yaml:"visibility,omitempty"`
 	CI               *CIConfig               `yaml:"ci,omitempty"`
+	// DeployRegistry is the root-oriented registry base (§14.10):
+	// runko-ci images prefixes it to each deploy.image name to form a full
+	// image_ref. Repo-wide, read from the root project. See
+	// docs/spec/deploy/README.md.
+	DeployRegistry string `yaml:"deploy_registry,omitempty"`
 }
 
 // RootInvalidationEntry is one root_invalidation list entry (§14.5.8). YAML

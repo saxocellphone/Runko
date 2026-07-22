@@ -92,6 +92,11 @@ type IndexedProject struct {
 	// declared; raw capability_config is otherwise dropped by Scan.
 	DeployImage *ImageDecl
 	RidesImages []string
+	// DeployRegistry is the root-oriented registry base (§14.10) - the prefix
+	// runko-ci images forms each image's full ref from. Set from the
+	// manifest's top-level deploy_registry; meaningful on the ROOT project
+	// (repo-wide). Empty elsewhere / when unset.
+	DeployRegistry string
 }
 
 // ImageDecl is a project's deploy.image sub-block: it declares this project
@@ -259,6 +264,7 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		OpenAPIPresent:            openAPIPresent,
 		DeployImage:               deployImage,
 		RidesImages:               ridesImages,
+		DeployRegistry:            manifest.DeployRegistry,
 	}, nil
 }
 

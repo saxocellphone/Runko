@@ -140,12 +140,13 @@ func TestImageBuildsForAffected(t *testing.T) {
 		{Name: "web", DeployImage: &index.ImageDecl{Name: "web", Context: "web", Dockerfile: "web/Dockerfile", BuildArgs: map[string]string{"VITE_RUNKO_URL": "/"}}},
 		{Name: "mailer", RidesImages: []string{"runkod"}},
 	}
-	// a rider change carries the OWNER's build config, not the rider's.
+	// a rider change carries the OWNER's build config, not the rider's. No
+	// root deploy_registry here, so image_ref is the bare name.
 	got, err := ImageBuildsForAffected(affectedOf("mailer"), projects)
 	if err != nil {
 		t.Fatalf("mailer change: unexpected err %v", err)
 	}
-	want := []ImageBuild{{Name: "runkod", Context: ".", Dockerfile: "Dockerfile"}}
+	want := []ImageBuild{{Name: "runkod", ImageRef: "runkod", Context: ".", Dockerfile: "Dockerfile"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("mailer change: got %+v, want %+v", got, want)
 	}
@@ -160,6 +161,40 @@ func TestImageBuildsForAffected(t *testing.T) {
 	// nothing deployable affected -> nil.
 	if got, err := ImageBuildsForAffected(affectedOf("unrelated"), projects); err != nil || got != nil {
 		t.Fatalf("no image -> nil, got %+v err %v", got, err)
+	}
+}
+
+// TestImageBuildsForAffectedRegistry: a root deploy_registry prefixes every
+// image's ref (<registry>/<name>); a trailing slash on the registry is
+// trimmed; the image's own name is unchanged.
+func TestImageBuildsForAffectedRegistry(t *testing.T) {
+	projects := []index.IndexedProject{
+		{Name: "root", Path: "", DeployRegistry: "ghcr.io/acme/monorepo/"},
+		{Name: "api", DeployImage: &index.ImageDecl{Name: "api", Context: ".", Dockerfile: "Dockerfile"}},
+	}
+	got, err := ImageBuildsForAffected(affectedOf("api"), projects)
+	if err != nil {
+		t.Fatalf("unexpected err %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "api" || got[0].ImageRef != "ghcr.io/acme/monorepo/api" {
+		t.Fatalf("image_ref should be <registry>/<name>, got %+v", got)
+	}
+
+	// RunEverything shares the registry resolution path.
+	all, err := ImageBuildsForAffected(affected.Result{RunEverything: true}, projects)
+	if err != nil || len(all) != 1 || all[0].ImageRef != "ghcr.io/acme/monorepo/api" {
+		t.Fatalf("RunEverything must carry the registry ref, got %+v err %v", all, err)
+	}
+
+	// deploy_registry is ROOT-ONLY: set on a non-root project it is silently
+	// unread, so image_ref falls back to the bare name.
+	nonRoot := []index.IndexedProject{
+		{Name: "sub", Path: "sub", DeployRegistry: "ghcr.io/ignored"},
+		{Name: "api", DeployImage: &index.ImageDecl{Name: "api", Context: ".", Dockerfile: "Dockerfile"}},
+	}
+	got, err = ImageBuildsForAffected(affectedOf("api"), nonRoot)
+	if err != nil || len(got) != 1 || got[0].ImageRef != "api" {
+		t.Fatalf("a non-root deploy_registry must be ignored (bare name), got %+v err %v", got, err)
 	}
 }
 
