@@ -129,11 +129,90 @@ type workspaceResponse struct {
 func (s *Server) workspaceResponse(ws Workspace) workspaceResponse {
 	return workspaceResponse{
 		Workspace:      ws,
-		SparsePatterns: ws.WriteAllowlist,
+		SparsePatterns: s.coneClosure(ws),
 		RepoPath:       s.repoMount(),
 		TrunkRef:       s.TrunkRef,
 		Branches:       s.workspaceBranches(ws.ID),
 	}
+}
+
+// coneClosure is the READ cone a checkout materializes: the write allowlist
+// PLUS the compile-time closure of the workspace's affinity projects (their
+// transitive declared deps + consumes contract surfaces, see
+// expandConeToDeps), so it can build and test across projects without a
+// manual `git sparse-checkout add` (§12.4 transparency, 2026-07-22). It
+// widens ONLY what is materialized (SparsePatterns), never the
+// WriteAllowlist - affinity still gates the paths a push may TOUCH, so a
+// dependency you materialized to read is still refused at receive if a
+// change tries to write it (the §12.2 invariant). Best-effort: if the index
+// can't be read the allowlist alone is returned.
+//
+// Computed at ws.BaseRevision, a resolved SHA (every create path stores
+// ResolveRef's output, which the indexedProjectsAt cache keys on): a
+// long-lived workspace synced forward keeps its create-time closure until
+// recreation - acceptable for an ergonomic cone.
+func (s *Server) coneClosure(ws Workspace) []string {
+	if len(ws.ProjectAffinity) == 0 {
+		return ws.WriteAllowlist
+	}
+	indexed, err := s.indexedProjectsAt(gitstore.New(s.RepoDir), core.Revision(ws.BaseRevision))
+	if err != nil {
+		return ws.WriteAllowlist
+	}
+	return expandConeToDeps(ws.ProjectAffinity, ws.WriteAllowlist, indexed)
+}
+
+// expandConeToDeps returns allowlist widened by what the affinity projects
+// need to COMPILE: the transitive declared-dependency closure (whole trees,
+// followed transitively) PLUS, for every project reached, its `consumes`
+// providers' CONTRACT SURFACE (§13.3.1 - the committed gen stubs under the
+// provider's ContractDir, NOT its whole tree, so a client checkout never
+// drags in the whole daemon). Pure (the read-cone computation split out for
+// tests): NewPaths and the root project (empty path) in allowlist carry
+// through untouched, dangling / not-yet-indexed edges are skipped, and the
+// result is deduped + sorted.
+func expandConeToDeps(affinity, allowlist []string, indexed []index.IndexedProject) []string {
+	byName := make(map[string]index.IndexedProject, len(indexed))
+	for _, p := range indexed {
+		byName[p.Name] = p
+	}
+	paths := make(map[string]bool, len(allowlist))
+	for _, p := range allowlist {
+		paths[p] = true
+	}
+	seen := make(map[string]bool, len(affinity))
+	queue := append([]string(nil), affinity...)
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		p, ok := byName[name]
+		if !ok {
+			continue
+		}
+		if p.Path != "" {
+			paths[p.Path] = true
+		}
+		// Declared build deps: follow transitively (their whole tree).
+		queue = append(queue, p.DeclaredDependencies...)
+		// consumes: the consumer compiles against the PROVIDER's contract
+		// surface only (committed gen under ContractDir), so union that dir
+		// and do NOT enqueue the provider (no recursion into its deps).
+		for _, provider := range p.Consumes {
+			if pp, ok := byName[provider]; ok && pp.ContractDir != "" {
+				paths[pp.ContractDir] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(paths))
+	for p := range paths {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // resolveProjectPaths maps project names to their tree paths at rev (a
@@ -547,6 +626,11 @@ func (s *Server) handleSparsePatterns(w http.ResponseWriter, r *http.Request) {
 			Suggestion: "runko project list --runkod-url <url> --token <t>  # see the names indexed at trunk",
 		})
 		return
+	}
+	// Same read cone workspaceResponse materializes: widen to the affinity
+	// projects' compile-time closure so this preview matches reality.
+	if indexed, ierr := s.indexedProjectsAt(gitstore.New(s.RepoDir), base); ierr == nil {
+		paths = expandConeToDeps(names, paths, indexed)
 	}
 	writeJSON(w, http.StatusOK, map[string][]string{"patterns": paths})
 }

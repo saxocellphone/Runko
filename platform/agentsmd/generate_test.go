@@ -217,7 +217,7 @@ func TestGenerateTeachesTheGatesThatBlockAgents(t *testing.T) {
 		"COMMITS the working tree onto",  // snapshot is not out-of-band
 		"FULL content of every file",     // size caps over-count by design
 		"refuses the ENTIRE series",      // one denied path fails the push
-		"git sparse-checkout add <dir>",  // the cone does not follow build deps
+		"git sparse-checkout add <dir>",  // the fallback for an undeclared import
 		"forks from your CURRENT HEAD",   // parallel lines must fork at the base
 		"`runko workspace path <name>`",  // the escape hatch, when -w cannot serve
 		"Never `cd` into a worktree",     // worktrees stay transparent (§12.7)
