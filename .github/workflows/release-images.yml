@@ -1,30 +1,37 @@
-# Build + push the deployable images to GHCR on every push to main
-# (consumed by the k8s-cluster GitOps repo's apps/monorepo-platform),
-# then pin the new digests INTO that repo (deploy-bump below) so Argo CD
-# deploys them - no manual rollout step. Tags: :latest (dev-follow) and
-# :sha-<commit> (pinnable); the cluster runs the digest pins. Image
-# builds use the workflow's own GITHUB_TOKEN; only the k8s-cluster
-# write-back needs a PAT (K8S_CLUSTER_TOKEN).
+# Build + push the deployable images to GHCR for a landed commit, then
+# report each digest to Runko's deploy record so runko-deployer pins them
+# into the GitOps repo and Argo CD rolls (§14.10 inverted CD; no manual
+# rollout). GitHub only builds and reports; Runko drives the rollout.
 #
-# AFFECTED-SCOPED (§14.5): a `scope` job computes which projects the landed
-# range touched (runko-ci affected, the same computation the pre-land
-# checks use) and each image builds ONLY when its own inputs changed - a
-# docs-only landing rebuilds nothing, a web-only landing rebuilds only web.
-# run_everything (or a first push with no `before`) rebuilds everything.
-# Image input sets (a project + its transitive dependencies). `repo` is
-# deliberately absent: root CONTENT (README...) affects no artifact, and
-# root BUILD-SENSITIVE files (Dockerfile, go.mod, .github/**) escalate to
-# run_everything via the root manifest's root_invalidation patterns, which
-# rebuilds everything through the RunEverything branch:
-#   runkod  <- runkod, platform, internal, db, proto
-#   web     <- web, proto
-#   cli     <- cli, platform, internal, db (GitHub binary release,
-#              not an image - the rolling `cli-latest` release below)
+# DISPATCH-TRIGGERED, PER LAND (Track A A5b): runkod emits a
+# `runko-image-build` repository_dispatch on every change.landed
+# (runkod/githubdispatch.go), carrying the landed head_sha. This workflow
+# builds exactly that commit's affected images - a tight head^..head delta
+# per land, NOT a batched before..after mirror-push range (which unioned
+# multiple lands and reported to the tip, stranding intermediate lands'
+# records). It replaces the old `on: push` trigger.
+#
+# GENERIC EXECUTOR (§14.9.1): the image matrix - which images, and each
+# one's context/dockerfile/build_args - comes ENTIRELY from
+# `runko-ci images`, which reads the tree's `deploy.image` declarations.
+# This workflow names no images and no build config; adding/renaming an
+# image or changing a build arg is a single-manifest change. The daemon's
+# deploy record uses the SAME platform/deploy derivation over the same head,
+# so the built set and the record's expected set agree by construction
+# (Track A A4 landed the daemon flip first, as required).
+#
+# The `cli-latest` binary release stays `affected`-scoped: the CLI is not an
+# image, so `runko-ci images` can never express it.
+#
+# Secrets: RUNKO_URL (the org mount, e.g. https://<host>/o/runko),
+# RUNKO_CI_TOKEN.
 name: Release images
 
+run-name: "images: ${{ github.event.client_payload.change_id }}@${{ github.event.client_payload.head_sha }}"
+
 on:
-  push:
-    branches: [main]
+  repository_dispatch:
+    types: [runko-image-build]
 
 permissions:
   # contents: write is for the rolling cli-latest release (tag + assets);
@@ -32,110 +39,104 @@ permissions:
   contents: write
   packages: write
 
+# One in-flight build per landed commit; never cancel a running build - each
+# land's images must complete to fill that land's deploy record.
 concurrency:
-  group: release-images-${{ github.ref }}
+  group: release-images-${{ github.event.client_payload.head_sha }}
   cancel-in-progress: false
 
+env:
+  CHANGE_ID: ${{ github.event.client_payload.change_id }}
+  HEAD_SHA: ${{ github.event.client_payload.head_sha }}
+  RUNKO_URL: ${{ secrets.RUNKO_URL }}
+  RUNKO_CI_TOKEN: ${{ secrets.RUNKO_CI_TOKEN }}
+
 jobs:
-  scope:
+  setup:
     runs-on: ubuntu-latest
     outputs:
-      runkod: ${{ steps.affected.outputs.runkod }}
-      web: ${{ steps.affected.outputs.web }}
-      webadmin: ${{ steps.affected.outputs.webadmin }}
-      cli: ${{ steps.affected.outputs.cli }}
+      # matrix: [{name, context, dockerfile, build_args}] from runko-ci images
+      # (build_args pre-rendered to newline KEY=VALUE for build-push-action).
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      has_images: ${{ steps.resolve.outputs.has_images }}
+      cli: ${{ steps.resolve.outputs.cli }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: check out the landed head (mirror-lag retry)
+        run: |
+          # The dispatch can beat the debounced mirror push; retry until the
+          # landed commit is present, then build exactly it.
+          for i in $(seq 1 30); do
+            git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null && break
+            git fetch --quiet origin main 2>/dev/null || true
+            sleep 5
+          done
+          git checkout -q "$HEAD_SHA"
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
-      - name: which images need rebuilding
-        id: affected
+      - name: locate runko-ci
+        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
+      - name: resolve the image matrix + cli flag from the tree
+        id: resolve
         run: |
-          RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)
-          BEFORE='${{ github.event.before }}'
-          # First push to a branch, a forced push, or an unknown base: build
-          # everything. github.event.before is all-zeros in those cases.
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; echo "webadmin=true" >> "$GITHUB_OUTPUT"; echo "cli=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          AFF=$(go run "$RUNKO_CI_PKG" affected --base "$BEFORE" --head '${{ github.sha }}')
-          echo "$AFF"
+          # head^..head is the single-land delta (the payload's documented
+          # preference). runko-ci images reads deploy.image from the tree and
+          # already handles run_everything (returns every declared image);
+          # no --engine (fail closed - a narrower set than the record expects
+          # would strand the rollout). A hard failure here reports no digests,
+          # so the record stays pending - visible, never a silent wrong set.
+          #
+          # INVARIANT: the daemon's deploy record must be computed with the
+          # SAME inputs. Prod runkod leaves RUNKO_ROOT_INVALIDATION unset
+          # (tree-borne only), so this CLI call matches it. If an operator
+          # ever sets that flag, the daemon's expected set widens beyond what
+          # is built here -> stranded rollout; pass the same patterns here too.
+          BASE="$HEAD_SHA^"
+          IMAGES=$(go run "$RUNKO_CI_PKG" images --base "$BASE" --head "$HEAD_SHA")
+          echo "$IMAGES" | jq .
+          # Pre-render build_args map -> "KEY=VALUE\nKEY2=VALUE2" for
+          # docker/build-push-action; empty map -> "". `.images` is null (not
+          # []) for a non-deployable land, so coalesce before iterating.
+          MATRIX=$(echo "$IMAGES" | jq -c '[(.images // [])[] | {
+            name, context, dockerfile,
+            build_args: ((.build_args // {}) | to_entries | map("\(.key)=\(.value)") | join("\n"))
+          }]')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "has_images=$(echo "$IMAGES" | jq -r '.images | length > 0')" >> "$GITHUB_OUTPUT"
+          # The cli-latest binary release is not an image: keep affected.
+          AFF=$(go run "$RUNKO_CI_PKG" affected --base "$BASE" --head "$HEAD_SHA")
+          cli=false
           if [ "$(echo "$AFF" | jq -r '.RunEverything')" = "true" ]; then
-            echo "runkod=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; echo "webadmin=true" >> "$GITHUB_OUTPUT"; echo "cli=true" >> "$GITHUB_OUTPUT"; exit 0
+            cli=true
+          else
+            for n in $(echo "$AFF" | jq -r '[.Projects[].Name] | join(" ")'); do
+              case "$n" in cli|platform|internal|db) cli=true ;; esac
+            done
           fi
-          NAMES=$(echo "$AFF" | jq -r '[.Projects[].Name] | join(" ")')
-          runkod=false; web=false; webadmin=false; cli=false
-          for n in $NAMES; do
-            case "$n" in
-              runkod|platform|internal|db|proto|watchdog|mailer) runkod=true ;;
-            esac
-            case "$n" in
-              web|proto) web=true ;;
-            esac
-            case "$n" in
-              webadmin) webadmin=true ;;
-            esac
-            case "$n" in
-              cli|platform|internal|db) cli=true ;;
-            esac
-          done
-          echo "runkod=$runkod" >> "$GITHUB_OUTPUT"
-          echo "web=$web" >> "$GITHUB_OUTPUT"
-          echo "webadmin=$webadmin" >> "$GITHUB_OUTPUT"
           echo "cli=$cli" >> "$GITHUB_OUTPUT"
 
   images:
-    needs: scope
+    needs: setup
+    if: needs.setup.outputs.has_images == 'true'
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - name: runkod
-            context: .
-            dockerfile: Dockerfile
-            build_args: ""
-            needed: ${{ needs.scope.outputs.runkod }}
-          - name: web
-            context: web
-            dockerfile: web/Dockerfile
-            # "/" = same-origin: the cluster ingress path-routes
-            # /runko.v1.* to runkod and everything else to this image, so
-            # the deployed UI is LIVE by default (the demo stays at
-            # /demo). NEVER add VITE_RUNKO_TOKEN here - Vite inlines it
-            # into the public bundle; tokens are per-browser at runtime.
-            build_args: |
-              VITE_RUNKO_URL=/
-            needed: ${{ needs.scope.outputs.web }}
-          - name: webadmin
-            context: webadmin
-            dockerfile: webadmin/Dockerfile
-            # Same-origin live, like web: the ingress routes /admin to
-            # this image and /api to runkod. Same rule: no tokens at
-            # build time, operator credentials are per-browser.
-            build_args: |
-              VITE_RUNKO_URL=/
-            needed: ${{ needs.scope.outputs.webadmin }}
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
     steps:
-      - if: matrix.needed != 'true'
-        run: echo "::notice::${{ matrix.name }} image unaffected by this landing - skipping rebuild"
-
-      - if: matrix.needed == 'true'
-        uses: actions/checkout@v4
-
-      - if: matrix.needed == 'true'
-        uses: docker/setup-buildx-action@v3
-
-      - if: matrix.needed == 'true'
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - if: matrix.needed == 'true'
-        id: build
+      - id: build
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -144,56 +145,49 @@ jobs:
           push: true
           tags: |
             ghcr.io/saxocellphone/runko/${{ matrix.name }}:latest
-            ghcr.io/saxocellphone/runko/${{ matrix.name }}:sha-${{ github.sha }}
+            ghcr.io/saxocellphone/runko/${{ matrix.name }}:sha-${{ env.HEAD_SHA }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
-
-      # Hand the digest to the report job below. An artifact per matrix leg,
-      # not a job output - matrix legs writing the same output clobber
-      # each other.
-      - if: matrix.needed == 'true'
-        name: record image digest for the deploy report
+      # One artifact per matrix leg (legs writing the same job output clobber).
+      - name: record image digest for the deploy report
         run: |
           mkdir -p digest
           printf '%s' "${{ steps.build.outputs.digest }}" > "digest/${{ matrix.name }}"
-      - if: matrix.needed == 'true'
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: digest-${{ matrix.name }}
           path: digest/${{ matrix.name }}
 
-  # Report each built image's digest to Runko's deploy record (§14.10 inverted
-  # CD trigger): runkod opened the record on land, and once every affected
-  # image reports its digest, runkod emits deploy.images_ready - the in-cluster
-  # runko-deployer then pins the digests into k8s-cluster's kustomization and
-  # Argo CD rolls. GitHub only builds and reports; Runko drives the rollout.
-  # (The GitOps write-back moved out of CI into runko-deployer; the old
-  # deploy-bump job is retired.) github.sha here is the mirror's landed trunk
-  # commit - the deploy record's key from open-record-on-land.
+  # Report each built image's digest to the deploy record runkod opened for
+  # this land (keyed by the LANDED head_sha, not a push tip). Once every
+  # expected image reports, runkod emits deploy.images_ready -> runko-deployer
+  # pins the digests -> Argo CD rolls.
   report:
     needs: images
+    # Report even when some image legs failed (fail-fast: false), so the
+    # digests that DID build reach the record immediately; only skip when the
+    # images job was skipped entirely (a non-deployable land - no record).
+    if: ${{ !cancelled() && needs.images.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
       - uses: actions/download-artifact@v4
-        # Nothing rebuilt -> no artifacts -> the loop below is a no-op.
         continue-on-error: true
         with:
           pattern: digest-*
           path: digests
       - name: report built image digests to Runko
-        env:
-          RUNKO_URL: ${{ secrets.RUNKO_URL }}
-          RUNKO_CI_TOKEN: ${{ secrets.RUNKO_CI_TOKEN }}
         run: |
           shopt -s nullglob
           for f in digests/digest-*/*; do
             name=$(basename "$f"); digest=$(cat "$f")
             [ -n "$digest" ] || continue
             go run ./cli/runko-ci report-image \
-              --url "$RUNKO_URL/api/deploys/${GITHUB_SHA}/images" \
+              --url "$RUNKO_URL/api/deploys/${HEAD_SHA}/images" \
               --token "$RUNKO_CI_TOKEN" \
               --image "$name" \
               --image-ref "ghcr.io/saxocellphone/runko/${name}" \
@@ -209,11 +203,13 @@ jobs:
   # ones, so no divergence is possible). `go install .../cli/runko@latest`
   # remains the from-source alternative.
   cli-release:
-    needs: scope
-    if: needs.scope.outputs.cli == 'true'
+    needs: setup
+    if: needs.setup.outputs.cli == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
       - name: cross-compile runko + runko-ci
@@ -236,7 +232,7 @@ jobs:
         run: |
           gh release delete cli-latest --cleanup-tag -y || true
           gh release create cli-latest \
-            --target "${{ github.sha }}" \
-            --title "runko CLI (rolling, main @ ${GITHUB_SHA:0:9})" \
-            --notes "Rolling build of the \`runko\` and \`runko-ci\` CLIs from main @ ${GITHUB_SHA:0:9}. Updated automatically whenever a landing affects the CLI or its dependencies. Verify with checksums.txt. From source: \`go install github.com/saxocellphone/runko/cli/runko@latest\`." \
+            --target "${HEAD_SHA}" \
+            --title "runko CLI (rolling, main @ ${HEAD_SHA:0:9})" \
+            --notes "Rolling build of the \`runko\` and \`runko-ci\` CLIs from main @ ${HEAD_SHA:0:9}. Updated automatically whenever a landing affects the CLI or its dependencies. Verify with checksums.txt. From source: \`go install github.com/saxocellphone/runko/cli/runko@latest\`." \
             dist/*
