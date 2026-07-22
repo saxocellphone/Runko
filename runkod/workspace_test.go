@@ -239,9 +239,26 @@ func TestWorkspaceCreateWithNewPaths(t *testing.T) {
 		t.Fatalf("project-less create with a new path: expected 201, got %d: %s", resp.StatusCode, body)
 	}
 
+	// gap #4: the repo root ("."/"") is a valid --new-path in a ROOT-LESS org
+	// (this fixture has no project at ""), granting the "" root affinity a
+	// fresh org needs to author its root PROJECT.yaml / .github/ - where
+	// --project <root> has no name to resolve.
+	resp = apiDo(t, srv, http.MethodPost, "/api/workspaces",
+		`{"name": "rootless-bootstrap", "owner": "alice", "new_paths": ["."]}`)
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("root new-path in a root-less org: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+	var rootWs workspaceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rootWs); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(rootWs.WriteAllowlist) != 1 || rootWs.WriteAllowlist[0] != "" {
+		t.Fatalf("root affinity should be the \"\" path root, got %v", rootWs.WriteAllowlist)
+	}
+
 	for body, wantCode := range map[string]string{
 		`{"name": "bad-dotdot", "owner": "alice", "new_paths": ["../escape"]}`:         "invalid_new_path",
-		`{"name": "bad-root", "owner": "alice", "new_paths": ["."]}`:                   "invalid_new_path",
 		`{"name": "bad-exists", "owner": "alice", "new_paths": ["commerce/checkout"]}`: "project_exists_at_path",
 	} {
 		resp := apiDo(t, srv, http.MethodPost, "/api/workspaces", body)
@@ -291,5 +308,59 @@ func TestExpandConeToDeps(t *testing.T) {
 	}
 	if slices.Contains(got2, "runkod") || slices.Contains(got2, "web") {
 		t.Errorf("cone2 %v pulled in an unrelated project", got2)
+	}
+}
+
+// TestRootProjectName: the rootness rule (§10.3) is path "" or "." - so a
+// root project is detected under either key, and its presence is what flips
+// --new-path . from "allowed bootstrap" to "use --project <root>".
+func TestRootProjectName(t *testing.T) {
+	if n, ok := rootProjectName(map[string]string{"": "repo", "cli": "cli"}); !ok || n != "repo" {
+		t.Errorf(`byPath[""]: got (%q,%v), want ("repo",true)`, n, ok)
+	}
+	if n, ok := rootProjectName(map[string]string{".": "root"}); !ok || n != "root" {
+		t.Errorf(`byPath["."]: got (%q,%v), want ("root",true)`, n, ok)
+	}
+	if n, ok := rootProjectName(map[string]string{"hello": "hello", "app": "app"}); ok {
+		t.Errorf("root-less byPath should report no root, got (%q,%v)", n, ok)
+	}
+}
+
+// TestNewPathRootRejectedWhenRootProjectExists covers the hasRoot branch -
+// a ROOTED org must refuse a colliding --new-path . and route to the root
+// project by name. The root-less TestWorkspaceCreateWithNewPaths fixture
+// can't reach this path (Fable r-gap4 S2).
+func TestNewPathRootRejectedWhenRootProjectExists(t *testing.T) {
+	bare := newBareRepo(t)
+	repo := gitfixture.New(t)
+	repo.WriteFile("PROJECT.yaml", "schema: project/v1\nname: root\ntype: library\n") // a root project at path ""
+	repo.WriteFile("hello/PROJECT.yaml", "schema: project/v1\nname: hello\ntype: library\n")
+	repo.Commit("initial")
+	pushCommit(t, repo, bare, "refs/heads/main")
+
+	store := NewMemStore()
+	processor := &Processor{RepoDir: bare, TrunkRef: "main", Scanner: receive.NoOpScanner{}, Store: store}
+	server := &Server{RepoDir: bare, TrunkRef: "main", Store: store, Processor: processor, Token: "sekret"}
+	handler, err := server.Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp := apiDo(t, srv, http.MethodPost, "/api/workspaces",
+		`{"name": "collide-root", "owner": "alice", "new_paths": ["."]}`)
+	var ce struct {
+		Code       string `json:"code"`
+		Suggestion string `json:"suggestion"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ce); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if ce.Code != "invalid_new_path" {
+		t.Fatalf("--new-path . with a root project present: code = %q, want invalid_new_path", ce.Code)
+	}
+	if !strings.Contains(ce.Suggestion, "--project root") {
+		t.Errorf("suggestion should route to the root project by name, got %q", ce.Suggestion)
 	}
 }
