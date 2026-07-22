@@ -11,17 +11,19 @@
 # multiple lands and reported to the tip, stranding intermediate lands'
 # records). It replaces the old `on: push` trigger.
 #
-# GENERIC EXECUTOR (§14.9.1): the image matrix - which images, and each
-# one's context/dockerfile/build_args - comes ENTIRELY from
-# `runko-ci images`, which reads the tree's `deploy.image` declarations.
-# This workflow names no images and no build config; adding/renaming an
-# image or changing a build arg is a single-manifest change. The daemon's
-# deploy record uses the SAME platform/deploy derivation over the same head,
-# so the built set and the record's expected set agree by construction
-# (Track A A4 landed the daemon flip first, as required).
+# FULLY GENERIC EXECUTOR (§14.9.1): every image detail - which images, and
+# each one's FULL registry-qualified ref (image_ref), context, dockerfile,
+# build_args - comes ENTIRELY from `runko-ci images`, which reads the tree's
+# `deploy.image` declarations and the root's `deploy_registry`. This workflow
+# names no images, no registry, and no build config; adding/renaming an image,
+# changing a build arg, or moving registries is a single-manifest change. The
+# daemon's deploy record uses the SAME platform/deploy derivation over the same
+# head, so the built set and the record's expected set agree by construction.
 #
-# The `cli-latest` binary release stays `affected`-scoped: the CLI is not an
-# image, so `runko-ci images` can never express it.
+# This file hardcodes nothing repo-specific, so it doubles as the generic
+# template shipped in templates/ci/runko-images.yml. The Runko-specific
+# `cli-latest` binary release lives in its own workflow (cli-release.yml) - a
+# binary release is not an image, so `runko-ci images` cannot express it.
 #
 # Secrets: RUNKO_URL (the org mount, e.g. https://<host>/o/runko),
 # RUNKO_CI_TOKEN.
@@ -34,9 +36,8 @@ on:
     types: [runko-image-build]
 
 permissions:
-  # contents: write is for the rolling cli-latest release (tag + assets);
-  # main itself stays untouchable (the freeze ruleset targets the branch).
-  contents: write
+  # Only GHCR image push; the checkout needs contents: read (default). The
+  # cli-latest release's contents: write moved to cli-release.yml.
   packages: write
 
 # One in-flight build per landed commit; never cancel a running build - each
@@ -55,11 +56,10 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      # matrix: [{name, context, dockerfile, build_args}] from runko-ci images
-      # (build_args pre-rendered to newline KEY=VALUE for build-push-action).
+      # matrix: [{name, image_ref, context, dockerfile, build_args}] from
+      # runko-ci images (build_args pre-rendered to newline KEY=VALUE).
       matrix: ${{ steps.resolve.outputs.matrix }}
       has_images: ${{ steps.resolve.outputs.has_images }}
-      cli: ${{ steps.resolve.outputs.cli }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,22 +101,11 @@ jobs:
           # docker/build-push-action; empty map -> "". `.images` is null (not
           # []) for a non-deployable land, so coalesce before iterating.
           MATRIX=$(echo "$IMAGES" | jq -c '[(.images // [])[] | {
-            name, context, dockerfile,
+            name, image_ref, context, dockerfile,
             build_args: ((.build_args // {}) | to_entries | map("\(.key)=\(.value)") | join("\n"))
           }]')
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "has_images=$(echo "$IMAGES" | jq -r '.images | length > 0')" >> "$GITHUB_OUTPUT"
-          # The cli-latest binary release is not an image: keep affected.
-          AFF=$(go run "$RUNKO_CI_PKG" affected --base "$BASE" --head "$HEAD_SHA")
-          cli=false
-          if [ "$(echo "$AFF" | jq -r '.RunEverything')" = "true" ]; then
-            cli=true
-          else
-            for n in $(echo "$AFF" | jq -r '[.Projects[].Name] | join(" ")'); do
-              case "$n" in cli|platform|internal|db) cli=true ;; esac
-            done
-          fi
-          echo "cli=$cli" >> "$GITHUB_OUTPUT"
 
   images:
     needs: setup
@@ -144,19 +133,20 @@ jobs:
           build-args: ${{ matrix.build_args }}
           push: true
           tags: |
-            ghcr.io/saxocellphone/runko/${{ matrix.name }}:latest
-            ghcr.io/saxocellphone/runko/${{ matrix.name }}:sha-${{ env.HEAD_SHA }}
+            ${{ matrix.image_ref }}:latest
+            ${{ matrix.image_ref }}:sha-${{ env.HEAD_SHA }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
       # One artifact per matrix leg (legs writing the same job output clobber).
-      - name: record image digest for the deploy report
+      # Carries the image_ref alongside the digest so report/ needs no registry.
+      - name: record image ref + digest for the deploy report
         run: |
-          mkdir -p digest
-          printf '%s' "${{ steps.build.outputs.digest }}" > "digest/${{ matrix.name }}"
+          mkdir -p report
+          printf '%s %s' "${{ matrix.image_ref }}" "${{ steps.build.outputs.digest }}" > "report/${{ matrix.name }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ matrix.name }}
-          path: digest/${{ matrix.name }}
+          name: report-${{ matrix.name }}
+          path: report/${{ matrix.name }}
 
   # Report each built image's digest to the deploy record runkod opened for
   # this land (keyed by the LANDED head_sha, not a push tip). Once every
@@ -178,61 +168,20 @@ jobs:
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          pattern: digest-*
-          path: digests
-      - name: report built image digests to Runko
+          pattern: report-*
+          path: reports
+      - name: report built image refs + digests to Runko
         run: |
           shopt -s nullglob
-          for f in digests/digest-*/*; do
-            name=$(basename "$f"); digest=$(cat "$f")
+          for f in reports/report-*/*; do
+            name=$(basename "$f"); read -r image_ref digest < "$f"
             [ -n "$digest" ] || continue
             go run ./cli/runko-ci report-image \
               --url "$RUNKO_URL/api/deploys/${HEAD_SHA}/images" \
               --token "$RUNKO_CI_TOKEN" \
               --image "$name" \
-              --image-ref "ghcr.io/saxocellphone/runko/${name}" \
+              --image-ref "$image_ref" \
               --digest "$digest" \
               --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
               --reporter github-actions
           done
-
-  # Rolling GitHub binary release for the CLIs (runko + runko-ci): rebuilt
-  # whenever the cli input set changed, published as the `cli-latest`
-  # release with per-platform assets + checksums. The tag exists only on
-  # GitHub (the mirror pushes runko-side tags and never prunes foreign
-  # ones, so no divergence is possible). `go install .../cli/runko@latest`
-  # remains the from-source alternative.
-  cli-release:
-    needs: setup
-    if: needs.setup.outputs.cli == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.HEAD_SHA }}
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.25', cache: true }
-      - name: cross-compile runko + runko-ci
-        run: |
-          mkdir -p dist
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
-            GOOS=${target%/*}; GOARCH=${target#*/}
-            EXT=""; [ "$GOOS" = "windows" ] && EXT=".exe"
-            for bin in runko runko-ci; do
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH \
-                go build -trimpath -ldflags="-s -w" \
-                -o "dist/${bin}_${GOOS}_${GOARCH}${EXT}" "./cli/${bin}"
-            done
-          done
-          (cd dist && sha256sum * > checksums.txt)
-          ls -la dist/
-      - name: publish rolling cli-latest release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release delete cli-latest --cleanup-tag -y || true
-          gh release create cli-latest \
-            --target "${HEAD_SHA}" \
-            --title "runko CLI (rolling, main @ ${HEAD_SHA:0:9})" \
-            --notes "Rolling build of the \`runko\` and \`runko-ci\` CLIs from main @ ${HEAD_SHA:0:9}. Updated automatically whenever a landing affects the CLI or its dependencies. Verify with checksums.txt. From source: \`go install github.com/saxocellphone/runko/cli/runko@latest\`." \
-            dist/*
