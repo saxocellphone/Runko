@@ -103,6 +103,72 @@ func main() {
 	}
 }
 
+// agentTokenSecret returns the password for `workspace create --as <name>
+// --token X`. `runko agent create` prints the credential in Basic
+// "name:token" form (its "--token name:token" line), so pasting that whole
+// string as --token would send the wrong password (a bare 401). If --token
+// is "<name>:<secret>" and the name matches --as, use just the secret.
+func agentTokenSecret(as, token string) string {
+	if name, secret, ok := strings.Cut(token, ":"); ok && name == as {
+		return secret
+	}
+	return token
+}
+
+// checkPushIdentity pre-flights the workspace-owner <-> credential match
+// before a push. A workspace-bound worktree authors as its stamped
+// runko.owner (`runko workspace create`), and the server refuses a push
+// authenticated as any OTHER named principal ("workspace belongs to
+// <owner>", runkod/prereceive.go). Catch that here with the actionable fix
+// instead of an opaque pre-receive rejection (dogfood papercut, 2026-07-22).
+//
+// It checks only the STORED-LOGIN path - the one that silently
+// authenticates as the wrong principal. When an EXPLICIT override is in
+// play (a URL-embedded credential, or the RUNKO_TOKEN env the agent flow
+// documents), the push uses THAT instead (gitNetEnv's resolution order), so
+// this skips rather than second-guess a deliberate choice - never a false
+// block of a working setup.
+func checkPushIdentity(repoDir string) error {
+	owner, err := runGit(repoDir, "config", "runko.owner")
+	if err != nil {
+		return nil // not a workspace-bound worktree (or no git): nothing to check
+	}
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return nil
+	}
+	if os.Getenv("RUNKO_TOKEN") != "" {
+		return nil // env token wins over the stored login; let it (and the server) decide
+	}
+	if remote, err := runGit(repoDir, "config", "remote.origin.url"); err == nil {
+		if u, err := url.Parse(remote); err == nil && u.User != nil {
+			return nil // URL-embedded credential answers the push; we can't name it
+		}
+	}
+	cred, ok, err := loadCredential()
+	// An anonymous (bearer/deploy) login has no Name and the server's owner
+	// check bypasses it; only a NAMED login that isn't the owner is refused.
+	if err != nil || !ok || cred.Name == "" || cred.Name == owner {
+		return nil
+	}
+	return ownerCredentialMismatch(owner, cred.Name)
+}
+
+// ownerCredentialMismatch is the structured error checkPushIdentity raises.
+func ownerCredentialMismatch(owner, credName string) *clierr.Error {
+	return &clierr.Error{
+		Code:  "workspace_owner_mismatch",
+		Field: "auth",
+		Message: fmt.Sprintf(
+			"this worktree authors as %s, but your stored login is %s - the server refuses a push that claims another principal's workspace",
+			owner, credName),
+		Suggestion: fmt.Sprintf(
+			"authenticate as the owner and retry from that shell: XDG_CONFIG_HOME=<dir> runko auth login --name %s --token <tok> (the token `runko agent create` printed), or set RUNKO_TOKEN",
+			owner),
+		DocURL: "docs/cli-contract.md",
+	}
+}
+
 func printUsage() {
 	fmt.Fprintln(os.Stderr, `usage: runko <command> [flags]
 
@@ -448,6 +514,9 @@ func cmdChange(args []string) error {
 	}
 	wd, err := resolveWorkspaceDir(*ws, *repoDir)
 	if err != nil {
+		return err
+	}
+	if err := checkPushIdentity(wd); err != nil {
 		return err
 	}
 
@@ -999,7 +1068,7 @@ func cmdWorkspace(args []string) error {
 					Suggestion: "pass the token `runko agent create --task <slug>` printed, e.g. --as agent-<slug>-xxxx --token <tok>",
 				}
 			}
-			cred = Credential{URL: cred.URL, Name: *as, Secret: *token}
+			cred = Credential{URL: cred.URL, Name: *as, Secret: agentTokenSecret(*as, *token)}
 		}
 		// The stored login already says who you are (§6.10): --by stays an
 		// override, not a toll. Only the anonymous deploy token has no name

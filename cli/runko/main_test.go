@@ -231,3 +231,78 @@ func TestCmdAgentsMDCustomOut(t *testing.T) {
 		t.Fatalf("expected the skill at its fixed path regardless of --out: %v", err)
 	}
 }
+
+// TestAgentTokenSecret: `workspace create --as X --token` accepts the
+// "name:token" form `runko agent create` prints (papercut #1), while a bare
+// token and a mismatched name are left untouched.
+func TestAgentTokenSecret(t *testing.T) {
+	cases := []struct{ as, token, want string }{
+		{"agent-x", "agent-x:SECRET", "SECRET"},         // the name:token form agent create prints
+		{"agent-x", "SECRET", "SECRET"},                 // bare token unchanged
+		{"agent-x", "agent-y:SECRET", "agent-y:SECRET"}, // name mismatch: don't strip, fail honestly
+		{"", "SECRET", "SECRET"},
+	}
+	for _, c := range cases {
+		if got := agentTokenSecret(c.as, c.token); got != c.want {
+			t.Errorf("agentTokenSecret(%q,%q)=%q want %q", c.as, c.token, got, c.want)
+		}
+	}
+}
+
+// TestOwnerCredentialMismatch: the pre-flight error (papercut #2) names both
+// principals and hands back the exact login command for the owner.
+func TestOwnerCredentialMismatch(t *testing.T) {
+	err := ownerCredentialMismatch("agent-ci-init-aa0a", "admin")
+	if err.Code != "workspace_owner_mismatch" {
+		t.Fatalf("code = %q", err.Code)
+	}
+	if !strings.Contains(err.Message, "agent-ci-init-aa0a") || !strings.Contains(err.Message, "admin") {
+		t.Errorf("message should name both principals: %q", err.Message)
+	}
+	if !strings.Contains(err.Suggestion, "auth login --name agent-ci-init-aa0a") {
+		t.Errorf("suggestion should give the owner login command: %q", err.Suggestion)
+	}
+}
+
+// TestCheckPushIdentity: the pre-flight errors only on the silent
+// stored-login mismatch, and skips every case where an explicit override
+// (RUNKO_TOKEN) or no resolvable credential is in play - never a false
+// block of a working setup (Fable r4 B1).
+func TestCheckPushIdentity(t *testing.T) {
+	repo := gitfixture.New(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("RUNKO_TOKEN", "")
+
+	// No runko.owner: not a workspace-bound worktree -> skip.
+	if err := checkPushIdentity(repo.Dir); err != nil {
+		t.Fatalf("non-workspace worktree should skip: %v", err)
+	}
+	if _, err := runGit(repo.Dir, "config", "runko.owner", "agent-a-1111"); err != nil {
+		t.Fatal(err)
+	}
+	// Owner set but nothing resolvable -> skip.
+	if err := checkPushIdentity(repo.Dir); err != nil {
+		t.Fatalf("no credential should skip: %v", err)
+	}
+	// A NAMED stored login that isn't the owner: the exact refusal we catch.
+	if _, err := saveCredential(Credential{URL: "https://x.example/o/o", Name: "admin", Secret: "deadbeefdeadbeef"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkPushIdentity(repo.Dir); err == nil {
+		t.Fatal("stored admin != agent-a-1111 should error")
+	}
+	// RUNKO_TOKEN override in play: the push uses the env token, not the
+	// store, so skip (the B1 false-positive this guards against).
+	t.Setenv("RUNKO_TOKEN", "agent-a-1111:deadbeef")
+	if err := checkPushIdentity(repo.Dir); err != nil {
+		t.Fatalf("RUNKO_TOKEN override should skip the stored-login check: %v", err)
+	}
+	// Stored login IS the owner: no error.
+	t.Setenv("RUNKO_TOKEN", "")
+	if _, err := saveCredential(Credential{URL: "https://x.example/o/o", Name: "agent-a-1111", Secret: "deadbeefdeadbeef"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkPushIdentity(repo.Dir); err != nil {
+		t.Fatalf("stored owner login should pass: %v", err)
+	}
+}
