@@ -160,6 +160,17 @@ func resolveCredential(urlFlag, tokenFlag string) (Credential, error) {
 // harness inherited, and exporting two variables there is the whole
 // setup), made the uniform rule for every control-plane verb in the
 // clig.dev redesign (2026-07-22) - the app.credential() path, root.go.
+//
+// Two rules keep the documented agent exports actually working now that
+// every verb honors them (fable review, 2026-07-22):
+//   - RUNKO_TOKEN accepts the name-qualified "<name>:<token>" form `agent
+//     create` prints: it authenticates as that principal (HTTP Basic,
+//     mirroring gitUserPass's transport-side split) - sent as a bearer it
+//     could never authenticate. A bare token stays a bearer.
+//   - RUNKO_TOKEN with no URL (flag or env) borrows the stored login's
+//     control plane, the gitNetEnv rule: an exported token retargets WHO
+//     authenticates, not WHERE. Only with no stored login either is it
+//     the structured missing_url.
 func resolveCredentialEnv(urlFlag, tokenFlag string) (Credential, error) {
 	if tokenFlag == "" {
 		if envToken := os.Getenv("RUNKO_TOKEN"); envToken != "" {
@@ -168,11 +179,19 @@ func resolveCredentialEnv(urlFlag, tokenFlag string) (Credential, error) {
 				envURL = urlFlag
 			}
 			if envURL == "" {
+				if cred, found, err := loadCredential(); err == nil && found {
+					envURL = cred.URL
+				}
+			}
+			if envURL == "" {
 				return Credential{}, &clierr.Error{
 					Code: "missing_url", Field: "runkod-url",
-					Message:    "RUNKO_TOKEN is set without RUNKO_RUNKOD_URL",
-					Suggestion: "export RUNKO_RUNKOD_URL=<url> alongside RUNKO_TOKEN",
+					Message:    "RUNKO_TOKEN is set without RUNKO_RUNKOD_URL (and no stored login supplies a control plane)",
+					Suggestion: "export RUNKO_RUNKOD_URL=<url> alongside RUNKO_TOKEN, or `runko auth login` once",
 				}
+			}
+			if name, secret, ok := strings.Cut(envToken, ":"); ok {
+				return Credential{URL: envURL, Name: name, Secret: secret}, nil
 			}
 			return Credential{URL: envURL, Secret: envToken}, nil
 		}

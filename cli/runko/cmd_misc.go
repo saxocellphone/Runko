@@ -32,7 +32,7 @@ advisory pre-commit verb nudge, jj Change-Id trailers (in a jj
 workspace), and the agent skill.`,
 		Example: `  runko doctor
   runko doctor --install-hook   # wire a fresh clone`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if installHook {
 				if err := InstallChangeIDHook(repoDir); err != nil {
@@ -98,7 +98,7 @@ func newAgentsMDCmd() *cobra.Command {
 		Use:     "agents-md",
 		Short:   "(Re)generate AGENTS.md and the agent skills",
 		GroupID: "agents",
-		Args:    cobra.NoArgs,
+		Args:    noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := out
 			if !filepath.IsAbs(path) {
@@ -154,7 +154,7 @@ func newMCPCmd(a *app) *cobra.Command {
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the seven read-only MCP tools on stdio",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {

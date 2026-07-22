@@ -48,7 +48,7 @@ served by the hub, not an /o/<org> mount) and on success stores the
 credential ALREADY pointed at the created/joined org's mount. The
 password prompts hidden when --password is omitted; --email is
 optional and never prompts.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if a.runkodURL == "" || name == "" || org == "" || create == join {
 				return &clierr.Error{
@@ -85,7 +85,7 @@ func newAuthLoginCmd(a *app) *cobra.Command {
 the platform config dir, 0600. With --name the secret is a principal
 password (HTTP Basic); without it, a bare bearer token. Every
 control-plane command falls back to this stored credential.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if a.runkodURL == "" {
 				return &clierr.Error{
@@ -106,7 +106,7 @@ func newAuthStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Who am I, against which control plane",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, found, err := loadCredential()
 			if err != nil {
@@ -134,7 +134,7 @@ func newAuthLogoutCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
 		Short: "Forget the stored credential",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := credentialPath()
 			if err != nil {

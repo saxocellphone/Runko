@@ -123,7 +123,7 @@ func newChangeCommentCmd(a *app) *cobra.Command {
 server stamps the head SHA, so an amend marks the comment outdated.
 --reply-to replies in a thread (one level deep). Agent principals
 comment with the agent badge; their approvals stay refused.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if msg == "" {
 				return fmt.Errorf("change comment: -m is required")
@@ -183,7 +183,7 @@ func newChangeCommentsCmd(a *app) *cobra.Command {
 		Short: "List review threads on a Change",
 		Long: `Lists the change's review threads (§13.4.1), grouped with replies
 indented, marking [resolved]/[outdated]/[agent].`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := resolveChangeFlag(changeID, mustWorkspaceFlag(cmd), dir)
 			if err != nil {

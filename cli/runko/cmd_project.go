@@ -49,7 +49,7 @@ name argument.`,
 		Example: `  runko project create --name checkout-api --type service --api grpc
   runko project create --name docs-site --type app --lang ts
   runko project create --name tooling --type library --no-template --lang zig`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return fmt.Errorf("project create: --name is required")
@@ -109,7 +109,7 @@ func newProjectListCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List projects indexed at trunk",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cred, err := a.credential()
 			if err != nil {
@@ -159,7 +159,7 @@ func newProjectDeleteCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete --name <name>",
 		Short: "Open a server-authored Change deleting a project",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return fmt.Errorf("project delete: --name is required")

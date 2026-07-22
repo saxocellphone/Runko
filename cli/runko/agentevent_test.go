@@ -6,6 +6,7 @@ package main
 // t.Setenv for the verb-local env credential fallback.
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -137,8 +138,36 @@ func TestAgentEventEnvCredentialFallback(t *testing.T) {
 		t.Fatalf("expected the env-authed POST to land, got %v", got)
 	}
 
-	// Token without URL is the structured missing_url, not a guess.
+	// The name-qualified form `agent create` prints authenticates as that
+	// principal - HTTP Basic, mirroring gitUserPass's transport-side split
+	// (fable review, 2026-07-22: sent as a bearer it could never auth).
+	var gotBasic map[string]any
+	basicSrv := activityFakeServer(t, "/api/workspaces/obs/activity",
+		"Basic "+base64.StdEncoding.EncodeToString([]byte("agent-x:tok")), &gotBasic)
+	defer basicSrv.Close()
+	t.Setenv("RUNKO_TOKEN", "agent-x:tok")
+	t.Setenv("RUNKO_RUNKOD_URL", basicSrv.URL)
+	if err := execCLI("agent", "event", "--kind", "note", "--detail", "hi", "--dir", dir, "--json"); err != nil {
+		t.Fatalf("cmdAgentEvent with name-qualified env token: %v", err)
+	}
+	if len(gotBasic["events"].([]any)) != 1 {
+		t.Fatalf("expected the Basic-authed POST to land, got %v", gotBasic)
+	}
+
+	// Token without URL borrows the stored login's control plane (who-not-
+	// where, the gitNetEnv rule) ...
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("RUNKO_TOKEN", "env-token")
 	t.Setenv("RUNKO_RUNKOD_URL", "")
+	if _, err := saveCredential(Credential{URL: srv.URL, Name: "alice", Secret: "pw"}); err != nil {
+		t.Fatalf("saveCredential: %v", err)
+	}
+	if err := execCLI("agent", "event", "--kind", "note", "--detail", "hello again", "--dir", dir, "--json"); err != nil {
+		t.Fatalf("cmdAgentEvent env token + stored URL: %v", err)
+	}
+
+	// ... and only with no stored login either is it missing_url.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	err := execCLI("agent", "event", "--kind", "note", "--detail", "hello", "--dir", dir)
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "missing_url" {

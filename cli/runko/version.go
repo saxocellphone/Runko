@@ -85,7 +85,7 @@ func newVersionCmd() *cobra.Command {
 stamp - checkout builds carry the revision (+dirty), go install builds
 the module version, an unstamped binary says so. -v/--version on the
 root are aliases; doctor reprints the same line first.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := buildIdentity()
 			if jsonOut {

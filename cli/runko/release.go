@@ -85,7 +85,7 @@ func newReleaseCreateCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create --project <p>",
 		Short: "Cut an immutable release with a derived changelog",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if project == "" {
 				return fmt.Errorf("release create: --project is required")
@@ -122,7 +122,7 @@ func newReleaseListCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list --project <p>",
 		Short: "The project's releases, newest first",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if project == "" {
 				return fmt.Errorf("release list: --project is required")
