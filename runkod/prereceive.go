@@ -927,9 +927,13 @@ func (p *Processor) neverStreamedAdvice(ctx context.Context, wsID string) string
 	if err != nil || len(acts) > 0 {
 		return "" // hooks already wired (or store error: fail open)
 	}
+	// Name the workspace in the suggested commands (-w, §12.7): the pusher
+	// is as likely to be at their repo root as inside the materialization,
+	// and a bare verb there fails with not_a_workspace - advice that
+	// misfires on the reader who took it is worse than none.
 	return "remote: note: this workspace never streamed while the work happened - the workspace page saw nothing until this push (§12.6)\n" +
-		"remote:   -> runko workspace watch          # background auto-snapshot loop; WIP shows on the workspace page live\n" +
-		"remote:   -> runko agent hooks --install    # agents: report reads/edits/commands to the live activity feed (§12.6.1)\n"
+		"remote:   -> runko workspace watch -w " + wsID + "          # background auto-snapshot loop; WIP shows on the workspace page live\n" +
+		"remote:   -> runko agent hooks --install -w " + wsID + "    # agents: report reads/edits/commands to the live activity feed (§12.6.1)\n"
 }
 
 func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
