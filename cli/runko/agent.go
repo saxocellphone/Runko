@@ -76,10 +76,13 @@ func cmdAgent(args []string) error {
 		// The §12.6 golden-path teach (decided 2026-07-14): the streaming
 		// commands, with the exact exports hooks need - hooks inherit an
 		// environment, not flags (§12.6.1).
-		fmt.Printf("stream the work (once inside the workspace worktree):\n")
+		// -w names the workspace this identity will work in, so the teach
+		// stays runnable from the repo root (§12.7) - no cd, matching the
+		// guidance `workspace create` prints once that name exists.
+		fmt.Printf("stream the work (from your repo, once its workspace exists):\n")
 		fmt.Printf("  export RUNKO_RUNKOD_URL=%s RUNKO_TOKEN=%s:%s\n", cred.URL, out.Name, out.Token)
-		fmt.Printf("  runko workspace watch &          # live WIP on the workspace page (§12.6)\n")
-		fmt.Printf("  runko agent hooks --install      # live activity feed (§12.6.1)\n")
+		fmt.Printf("  runko workspace watch -w <workspace> &        # live WIP on the workspace page (§12.6)\n")
+		fmt.Printf("  runko agent hooks --install -w <workspace>    # live activity feed (§12.6.1)\n")
 		return nil
 
 	case "list":

@@ -57,8 +57,10 @@ an afternoon of structured rejections.
   unrelated stack on one branch ("one branch, one stack") - the fix it
   suggests is real: restack, abandon, or branch.
 - **New project? Scaffold with the verb, never by hand.** `runko
-  project create --name <n> --type <t> --lang <l> --repo .` is the §10
-  intent->files pipeline: it generates PROJECT.yaml (build capability +
+  project create --name <n> --type <t> --lang <l> --repo "$(runko
+  workspace path <ws>)"` is the §10 intent->files pipeline (this verb has
+  no `-w`; `--repo` is how it reaches a checkout): it generates
+  PROJECT.yaml (build capability +
   target patterns), README, a minimal BUILD.bazel, and a stub entrypoint.
   Do NOT hand-write a manifest by copying a sibling project - that's the
   anti-pattern the pipeline exists to delete, and it's how two services
@@ -86,9 +88,8 @@ an afternoon of structured rejections.
 
 **Never `cd` into a workspace worktree, and never tell a human to.** The
 materialization is an implementation detail (§12.7); the workspace NAME
-is the handle. Every checkout verb takes `-w <name[@branch]>` and runs
-against that workspace's registered materialization from ANYWHERE - the
-repo root included:
+is the handle. `-w <name[@branch]>` runs a verb against that workspace's
+registered materialization from ANYWHERE - the repo root included:
 
     runko change create -w <ws> -m "<what and why>"
     runko change push -w <ws>
@@ -98,11 +99,15 @@ repo root included:
     runko workspace sync -w <ws>
     runko agent hooks --install -w <ws>
 
-`-w` is on create/amend/push/requirements/land/describe, the `comment*`
-verbs, snapshot/watch/branch/sync, and `agent hooks`. The server-side
-verbs (`automerge`, `approve`, `abandon`, `list`) key off the Change-Id
-and never needed a checkout at all. `-w` and `--dir`/`--repo` are
-mutually exclusive - naming both is a contradiction and is refused.
+The full `-w` set: `change` create/amend/push/requirements/land/describe/
+comment/comments/resolve/request-review, `workspace`
+snapshot/watch/branch/sync, and `agent hooks`. Two groups deliberately
+lack it: the server-side verbs (`automerge`, `approve`, `abandon`,
+`list`) key off the Change-Id and never needed a checkout at all, while
+`project create`, `doctor`, and `agents-md` reach a checkout only through
+`--repo` - for those, `--repo "$(runko workspace path <ws>)"` is the
+transparent form. Passing `-w` together with a non-`.` `--dir`/`--repo`
+is a contradiction and is refused.
 
 Editing files is the one thing that happens at a path: use the worktree
 path for Read/Write/Edit, and keep every `runko` invocation `-w`. When

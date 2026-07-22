@@ -679,7 +679,7 @@ func WorkspaceSnapshot(dir, message string) (ref string, err error) {
 		return "", &clierr.Error{
 			Code: "not_a_workspace", Field: "dir",
 			Message:    fmt.Sprintf("%s is not a runko workspace worktree", dir),
-			Suggestion: "run inside a directory created by `runko workspace create` or `attach`",
+			Suggestion: "name the workspace instead of standing in it: `runko workspace snapshot -w <name>` (§12.7); or run inside a directory created by `runko workspace create` or `attach`",
 		}
 	}
 	if _, err := runGit(dir, "add", "-A"); err != nil {
@@ -765,7 +765,7 @@ func WorkspaceBranch(dir, name string) (ref string, err error) {
 		return "", &clierr.Error{
 			Code: "not_a_workspace", Field: "dir",
 			Message:    fmt.Sprintf("%s is not a runko workspace worktree", dir),
-			Suggestion: "run inside a directory created by `runko workspace create` or `attach`",
+			Suggestion: "name the workspace instead of standing in it: `runko workspace branch <name> -w <workspace>` (§12.7); or run inside a directory created by `runko workspace create` or `attach`",
 		}
 	}
 	if !workspaceBranchPattern.MatchString(name) {
@@ -878,10 +878,12 @@ func asClierr(err error, target **clierr.Error) bool {
 // --json callers never see it.
 func printWorkspaceStreamingGuidance(w io.Writer, workspace string) {
 	fmt.Fprintln(w, "stream the work (§12.6) - from your repo, no cd:")
-	printCommand(w, fmt.Sprintf("runko workspace watch -w %s &", workspace),
-		"auto-snapshot loop: the workspace page follows WIP live")
-	printCommand(w, fmt.Sprintf("runko agent hooks --install -w %s", workspace),
-		"agents: reads/edits/commands on the live activity feed (§12.6.1)")
+	printCommands(w, []annotatedCommand{
+		{fmt.Sprintf("runko workspace watch -w %s &", workspace),
+			"auto-snapshot loop: the workspace page follows WIP live"},
+		{fmt.Sprintf("runko agent hooks --install -w %s", workspace),
+			"agents: reads/edits/commands on the live activity feed (§12.6.1)"},
+	})
 }
 
 // printWorkspaceLoop is §6.9's three commands, printed the moment a fresh
@@ -891,17 +893,45 @@ func printWorkspaceStreamingGuidance(w io.Writer, workspace string) {
 // workspace rather than sending the reader into its worktree.
 func printWorkspaceLoop(w io.Writer, workspace string) {
 	fmt.Fprintln(w, "the loop - every verb takes -w, so run them from your repo:")
-	printCommand(w, fmt.Sprintf("runko change create -w %s -m \"<what and why>\"", workspace),
-		"commit your work as one Change")
-	printCommand(w, fmt.Sprintf("runko change push -w %s", workspace),
-		"submit it (and its stack) for review")
-	printCommand(w, fmt.Sprintf("runko change requirements -w %s", workspace),
-		"owners + checks outstanding")
+	printCommands(w, []annotatedCommand{
+		{fmt.Sprintf("runko change create -w %s -m \"<what and why>\"", workspace),
+			"commit your work as one Change"},
+		{fmt.Sprintf("runko change push -w %s", workspace),
+			"submit it (and its stack) for review"},
+		{fmt.Sprintf("runko change requirements -w %s", workspace),
+			"owners + checks outstanding"},
+	})
 }
 
-// printCommand prints one indented, comment-annotated command line. The
-// width is a hand-tuned column that keeps the comments aligned for typical
-// workspace names; a long name overflows it rather than truncating.
-func printCommand(w io.Writer, cmd, comment string) {
-	fmt.Fprintf(w, "  %-52s # %s\n", cmd, comment)
+// workspaceHandle builds the -w handle addressing a materialized workspace
+// branch. "head" is the default row and is addressed by bare name, so only
+// a non-default branch earns the @branch suffix - the same leaf rule
+// managedPaths applies to directory names (materializations.go). Note the
+// flag default is "head", not "", so an emptiness check alone would suffix
+// every attach.
+func workspaceHandle(id, branch string) string {
+	if branch != "" && branch != "head" {
+		return id + "@" + branch
+	}
+	return id
+}
+
+// annotatedCommand is one command a teach block prints, with the note that
+// explains why you would run it.
+type annotatedCommand struct{ cmd, note string }
+
+// printCommands prints an indented block with every note aligned one column
+// past the LONGEST command in that block. The width is computed per block
+// rather than fixed: workspace names vary enough (9 to 20-odd characters
+// here) that any hand-tuned column leaves one row overhanging the others.
+func printCommands(w io.Writer, rows []annotatedCommand) {
+	width := 0
+	for _, r := range rows {
+		if len(r.cmd) > width {
+			width = len(r.cmd)
+		}
+	}
+	for _, r := range rows {
+		fmt.Fprintf(w, "  %-*s  # %s\n", width, r.cmd, r.note)
+	}
 }
