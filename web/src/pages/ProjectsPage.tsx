@@ -39,7 +39,7 @@ export function ProjectsPage() {
         </div>
         <p className="page-sub">
           Everything with a PROJECT.yaml on trunk. Solid arrows are build dependencies; dashed
-          arrows are API clients (consumes, §13.3.1)
+          arrows are API clients (consumes)
           <InfoTip text="Both edge kinds are declared in PROJECT.yaml and drive affected computation - a dependent re-tests on the provider's every change, a client only when its contract surface changes. Inferred (import-scanned) deps are advisory and never appear here." />
         </p>
       </header>

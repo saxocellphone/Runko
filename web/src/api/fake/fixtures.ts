@@ -173,7 +173,7 @@ export const stackMiddle = mkChange({
   title: "checkout-api: reject invalid SKUs with a structured error",
   description:
     "Builds on the cart-side SKU type: the checkout handler now returns\n" +
-    "a structured invalid_sku error (§6.5 shape) instead of a bare 500.",
+    "a structured invalid_sku error instead of a bare 500.",
   baseSha: stackBottom.headSha,
   headSeed: "head-sku-2",
   author: val,
@@ -635,7 +635,7 @@ export const diffs = new Map<string, FileDiff[]>([
           hunk(0, 1, "", [
             "+package main",
             "+",
-            "+// invalidSKU is the §6.5 structured error shape: code, field,",
+            "+// invalidSKU is the structured error shape: code, field,",
             "+// message, suggestion - clients branch on code, never the text.",
             "+func invalidSKU(raw string, err error) apiError {",
             "+\treturn apiError{",
@@ -1089,7 +1089,7 @@ export const fsFiles: Record<string, string> = {
     "Projects live wherever their PROJECT.yaml lives. See OWNERS for the",
     "org default owner.",
   ].join("\n"),
-  OWNERS: ["# org default owners (§7.3 fallback)", "group:eng"].join("\n"),
+  OWNERS: ["# org default owners (fallback)", "group:eng"].join("\n"),
   "commerce/cart/PROJECT.yaml": [
     "name: commerce/cart",
     "type: library",
@@ -1183,7 +1183,7 @@ export const fsFiles: Record<string, string> = {
   "commerce/checkout-api/errors.go": [
     "package main",
     "",
-    "// invalidSKU is the §6.5 structured error shape: code, field,",
+    "// invalidSKU is the structured error shape: code, field,",
     "// message, suggestion - clients branch on code, never the text.",
     "func invalidSKU(raw string, err error) apiError {",
     "\treturn apiError{",
@@ -1295,7 +1295,7 @@ export const fsFiles: Record<string, string> = {
   "tools/relbot/main.go": [
     "package main",
     "",
-    "// relbot bumps image digests and lands through its bot lane (§14.10.2).",
+    "// relbot bumps image digests and lands through its bot lane.",
     "func main() {",
     "\tlane.LandDigestBump()",
     "}",
@@ -1373,7 +1373,7 @@ export const searchCorpus: SearchDoc[] = [
     lines: [
       "package main",
       "",
-      "// relbot bumps image digests and lands through its bot lane (§14.10.2).",
+      "// relbot bumps image digests and lands through its bot lane.",
       "func main() {",
       "\tlane.LandDigestBump()",
       "}",

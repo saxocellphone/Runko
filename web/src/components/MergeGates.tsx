@@ -101,7 +101,7 @@ export function MergeGates({
         <div className="gate-section">
           <p className="gate-title">
             Checks
-            <InfoTip text="Required checks, bound to this change's exact head commit. Rebasing onto a new base makes them stale and they must re-run - unless the trunk delta doesn't touch anything this change affects, in which case landing skips straight through (optimistic revalidation, §13.5)." />
+            <InfoTip text="Required checks, bound to this change's exact head commit. Rebasing onto a new base makes them stale and they must re-run - unless the trunk delta doesn't touch anything this change affects, in which case landing skips straight through (optimistic revalidation)." />
           </p>
           {checks!.required.map((name) => {
             const failing = checks!.failing.includes(name);
@@ -152,7 +152,7 @@ export function MergeGates({
         <div className="gate-section">
           <p className="gate-title">
             Attention
-            <InfoTip text="Whose turn it is (§13.4.2), derived - never hand-managed: requested reviewers and required owners who haven't approved or commented on the current version, plus the author once a reviewer has responded. An amend re-derives the whole set." />
+            <InfoTip text="Whose turn it is, derived - never hand-managed: requested reviewers and required owners who haven't approved or commented on the current version, plus the author once a reviewer has responded. An amend re-derives the whole set." />
           </p>
           {requirements.attentionSet.map((name) => (
             <div className="gate-row" key={name}>

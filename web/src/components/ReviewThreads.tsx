@@ -87,7 +87,7 @@ function CommentRow({
         {outdated && (
           <span
             className="chip chip-amber"
-            title="written against an earlier version of this change - the line it pointed at may have moved or vanished (§13.4.1)"
+            title="written against an earlier version of this change - the line it pointed at may have moved or vanished"
           >
             outdated
           </span>
