@@ -227,9 +227,43 @@ func TestDoctorReportsAgentHooksInsideWorkspaces(t *testing.T) {
 func TestWorkspaceStreamingGuidanceNamesBothVerbs(t *testing.T) {
 	var out strings.Builder
 	printWorkspaceStreamingGuidance(&out, "payments-fix")
-	for _, want := range []string{"cd payments-fix", "runko workspace watch", "runko agent hooks --install"} {
+	for _, want := range []string{
+		"runko workspace watch -w payments-fix",
+		"runko agent hooks --install -w payments-fix",
+	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("guidance missing %q:\n%s", want, out.String())
 		}
+	}
+}
+
+// The worktree is materialization detail (§12.7): every command these two
+// teach addresses the workspace by name, so neither may hand out a cd -
+// that is the habit -w exists to delete, and printing one trains it right
+// where a workspace is born.
+func TestWorkspaceGuidanceNeverTeachesCd(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		print func(*strings.Builder)
+	}{
+		{"streaming", func(b *strings.Builder) { printWorkspaceStreamingGuidance(b, "payments-fix") }},
+		{"loop", func(b *strings.Builder) { printWorkspaceLoop(b, "payments-fix") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out strings.Builder
+			tc.print(&out)
+			if strings.Contains(out.String(), "cd ") {
+				t.Fatalf("guidance sends the reader into the worktree:\n%s", out.String())
+			}
+			for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+				cmd := strings.TrimSpace(line)
+				if !strings.HasPrefix(cmd, "runko ") {
+					continue // the prose header
+				}
+				if !strings.Contains(cmd, "-w payments-fix") {
+					t.Fatalf("command does not name the workspace: %q", cmd)
+				}
+			}
+		})
 	}
 }
