@@ -12,6 +12,7 @@ go_library(
         "change.go",
         "changecreate.go",
         "changelist.go",
+        "ci.go",
         "comments.go",
         "doctor.go",
         "git.go",
@@ -46,6 +47,7 @@ go_library(
         "//platform/mcp",
         "//platform/project",
         "//platform/receive",
+        "//templates/ci",
     ],
 )
 
@@ -64,6 +66,7 @@ go_test(
         "approve_test.go",
         "auth_test.go",
         "change_test.go",
+        "ci_test.go",
         "describe_test.go",
         "doctor_test.go",
         "gitauth_test.go",
