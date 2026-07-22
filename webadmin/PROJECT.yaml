@@ -6,6 +6,19 @@ language: ts
 # flow against the dedicated /api/admin surface (webadmin/README.md).
 # Plain fetch, no proto types: no dependency edges, so the affected
 # closure never drags it into Go or proto landings.
+# deploy (§14.10, docs/spec/deploy/README.md): webadmin OWNS the webadmin
+# image. VITE_RUNKO_URL=/ is same-origin and build-time PUBLIC (never a
+# secret; no VITE_RUNKO_TOKEN - Vite inlines build args into the bundle).
+capabilities:
+  - deploy
+capability_config:
+  deploy:
+    image:
+      name: webadmin
+      context: webadmin
+      dockerfile: webadmin/Dockerfile
+      build_args:
+        VITE_RUNKO_URL: "/"
 # The command runs from the repo root (the §14.9 executor contract gives
 # checks no working-directory of their own), so it scopes itself.
 ci:

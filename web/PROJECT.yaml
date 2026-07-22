@@ -2,6 +2,21 @@ schema: project/v1
 name: web
 type: app
 language: ts
+# deploy (§14.10, docs/spec/deploy/README.md): web OWNS the web image.
+# VITE_RUNKO_URL=/ is same-origin (the ingress path-routes /runko.v1.* to
+# runkod, everything else here) - build-time and PUBLIC by definition, so
+# never a secret. NEVER put VITE_RUNKO_TOKEN in build_args: Vite inlines
+# build args into the public bundle.
+capabilities:
+  - deploy
+capability_config:
+  deploy:
+    image:
+      name: web
+      context: web
+      dockerfile: web/Dockerfile
+      build_args:
+        VITE_RUNKO_URL: "/"
 # consumes (§13.3.1): the TS client types in src/gen are GENERATED FROM
 # runkod's contract surface (runkod/proto/runko/v1, migrated from the
 # dissolved standalone proto project 2026-07-15) - web is a client of
