@@ -40,7 +40,7 @@ func TestCmdCheckoutJSONOutput(t *testing.T) {
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = cmdCheckout([]string{"--remote", repo.Dir, "--dest", dest, "--rev", head, "--json"})
+		cmdErr = execCLI("checkout", "--remote", repo.Dir, "--dest", dest, "--rev", head, "--json")
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdCheckout: %v", cmdErr)
@@ -62,10 +62,10 @@ func TestCmdReportCheckJSONOutput(t *testing.T) {
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = cmdReportCheck([]string{
+		cmdErr = execCLI("report-check",
 			"--url", server.URL, "--name", "unit", "--external-id", "job-1",
 			"--reporter", "github-actions", "--status", "completed", "--conclusion", "success", "--json",
-		})
+		)
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdReportCheck: %v", cmdErr)
