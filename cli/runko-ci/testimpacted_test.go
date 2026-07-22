@@ -238,7 +238,7 @@ func TestTestImpactedTestFailurePropagates(t *testing.T) {
 
 // The cmd layer: --universe is required, structured (§6.5).
 func TestTestImpactedRequiresUniverse(t *testing.T) {
-	err := cmdTestImpacted([]string{"--repo", t.TempDir()})
+	err := execCLI("test-impacted", "--repo", t.TempDir())
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "missing_field" || ce.Field != "--universe" {
 		t.Fatalf("want a structured missing_field error for --universe, got %v", err)
@@ -254,13 +254,13 @@ func TestTestImpactedReadsExecutorEnv(t *testing.T) {
 	t.Setenv("BASE_SHA", base)
 	t.Setenv("HEAD_SHA", head)
 
-	err := cmdTestImpacted([]string{
+	err := execCLI("test-impacted",
 		"--repo", repo.Dir,
 		"--universe", "//a/...",
 		"--bazel-bin", opts.BazelBin,
 		"--determinator-bin", opts.DeterminatorBin,
 		"--", "--test_output=errors",
-	})
+	)
 	if err != nil {
 		t.Fatalf("cmdTestImpacted: %v", err)
 	}

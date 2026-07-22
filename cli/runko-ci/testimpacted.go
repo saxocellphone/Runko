@@ -3,19 +3,20 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/platform/buildadapter"
 	"github.com/saxocellphone/runko/platform/buildadapter/bazel"
 )
 
-// cmdTestImpacted implements `runko-ci test-impacted`
+// newTestImpactedCmd implements `runko-ci test-impacted`
 // (docs/spec/build-adapter/README.md §5c): target-scoped check execution.
 // A manifest's bazel-test check command wraps itself in this verb to run
 // only the targets the §14.5.8 snapshot diff proves impacted between base
@@ -28,56 +29,69 @@ import (
 // Every scoping failure falls back to running the full universe pattern -
 // exactly the command the manifest declared before wrapping - so the
 // fail-closed floor is the status quo, never "run nothing".
-func cmdTestImpacted(args []string) error {
-	fs := flag.NewFlagSet("test-impacted", flag.ExitOnError)
-	repoDir := fs.String("repo", ".", "path to the local repo")
-	base := fs.String("base", "", "base revision (default: $BASE_SHA, the §14.4 executor payload)")
-	head := fs.String("head", "", "head revision (default: $HEAD_SHA, then HEAD)")
-	universe := fs.String("universe", "", "bazel target pattern this check owns, e.g. //runkod/... (required)")
-	engineTimeout := fs.Duration("engine-timeout", 10*time.Minute, "timeout for the snapshot diff")
-	bazelBin := fs.String("bazel-bin", "bazel", "bazel binary tests run with")
-	determinatorBin := fs.String("determinator-bin", bazel.DefaultDeterminatorBin, "target-determinator binary for the snapshot diff")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *universe == "" {
-		return &clierr.Error{
-			Code:       "missing_field",
-			Field:      "--universe",
-			Message:    "test-impacted needs the bazel target pattern this check owns",
-			Suggestion: "runko-ci test-impacted --universe //<project>/... -- <bazel test args>",
-			DocURL:     "docs/spec/build-adapter/README.md",
-		}
-	}
-	if *base == "" {
-		*base = os.Getenv("BASE_SHA")
-	}
-	if *head == "" {
-		*head = os.Getenv("HEAD_SHA")
-	}
-	if *head == "" {
-		*head = "HEAD"
-	}
+func newTestImpactedCmd() *cobra.Command {
+	var (
+		repoDir, base, head, universe, bazelBin, determinatorBin string
+		engineTimeout                                            time.Duration
+	)
+	cmd := &cobra.Command{
+		Use:   "test-impacted --universe <pattern> [-- <bazel test args>]",
+		Short: "Run a check's bazel tests scoped to the impacted targets",
+		Long: `Runs a manifest check's bazel tests scoped to the §14.5.8
+snapshot-diff-impacted targets between base and head; every scoping
+failure falls back to the full universe pattern (fail closed). Bazel's
+own exit code passes through verbatim.`,
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if universe == "" {
+				return &clierr.Error{
+					Code:       "missing_field",
+					Field:      "--universe",
+					Message:    "test-impacted needs the bazel target pattern this check owns",
+					Suggestion: "runko-ci test-impacted --universe //<project>/... -- <bazel test args>",
+					DocURL:     "docs/spec/build-adapter/README.md",
+				}
+			}
+			if base == "" {
+				base = os.Getenv("BASE_SHA")
+			}
+			if head == "" {
+				head = os.Getenv("HEAD_SHA")
+			}
+			if head == "" {
+				head = "HEAD"
+			}
 
-	code, err := TestImpacted(TestImpactedOptions{
-		RepoDir:         *repoDir,
-		Base:            *base,
-		Head:            *head,
-		Universe:        *universe,
-		EngineTimeout:   *engineTimeout,
-		BazelBin:        *bazelBin,
-		DeterminatorBin: *determinatorBin,
-		BazelArgs:       fs.Args(),
-	})
-	if err != nil {
-		return err
+			code, err := TestImpacted(TestImpactedOptions{
+				RepoDir:         repoDir,
+				Base:            base,
+				Head:            head,
+				Universe:        universe,
+				EngineTimeout:   engineTimeout,
+				BazelBin:        bazelBin,
+				DeterminatorBin: determinatorBin,
+				BazelArgs:       args,
+			})
+			if err != nil {
+				return err
+			}
+			if code != 0 {
+				// Bazel's own exit code, verbatim - the executor's shell sees the
+				// same codes an unwrapped `bazel test` would have produced.
+				os.Exit(code)
+			}
+			return nil
+		},
 	}
-	if code != 0 {
-		// Bazel's own exit code, verbatim - the executor's shell sees the
-		// same codes an unwrapped `bazel test` would have produced.
-		os.Exit(code)
-	}
-	return nil
+	fl := cmd.Flags()
+	fl.StringVar(&repoDir, "repo", ".", "path to the local repo")
+	fl.StringVar(&base, "base", "", "base revision (default: $BASE_SHA, the §14.4 executor payload)")
+	fl.StringVar(&head, "head", "", "head revision (default: $HEAD_SHA, then HEAD)")
+	fl.StringVar(&universe, "universe", "", "bazel target pattern this check owns, e.g. //runkod/... (required)")
+	fl.DurationVar(&engineTimeout, "engine-timeout", 10*time.Minute, "timeout for the snapshot diff")
+	fl.StringVar(&bazelBin, "bazel-bin", "bazel", "bazel binary tests run with")
+	fl.StringVar(&determinatorBin, "determinator-bin", bazel.DefaultDeterminatorBin, "target-determinator binary for the snapshot diff")
+	return cmd
 }
 
 // TestImpactedOptions carries one resolved test-impacted invocation.
