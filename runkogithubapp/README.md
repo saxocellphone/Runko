@@ -41,7 +41,7 @@ README is the project's spec surface.
 ## Consumers
 
 `runkod/cmd/runkod` (mirror TokenSource wiring, `--github-app-id` /
-`--github-app-key-file` / `--github-api`) and `runkod/cmd/runko-bridge`
+`--github-app-key-file` / `--github-api`) and `runko-bridge`
 (per-dispatch minting). `platform` never imports this project.
 
 ## Checks (owned here)

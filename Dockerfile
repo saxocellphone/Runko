@@ -34,7 +34,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /out/runkod ./runkod/cmd/runkod \
     && CGO_ENABLED=0 go build -o /out/runko ./cli/runko \
     && CGO_ENABLED=0 go build -o /out/runko-ci ./cli/runko-ci \
-    && CGO_ENABLED=0 go build -o /out/runko-bridge ./runkod/cmd/runko-bridge \
+    && CGO_ENABLED=0 go build -o /out/runko-bridge ./runko-bridge \
     && CGO_ENABLED=0 go build -o /out/runko-watchdog ./watchdog \
     && CGO_ENABLED=0 go build -o /out/runko-mailer ./mailer \
     && CGO_ENABLED=0 go build -o /out/runko-deployer ./runkod/cmd/runko-deployer
