@@ -19,6 +19,10 @@
 schema: project/v1
 name: repo
 type: other
+# The registry base for this monorepo's deployable images (§14.10). runko-ci
+# images prefixes it to each deploy.image name to form the full image_ref, so
+# the image-build workflow hardcodes no registry.
+deploy_registry: ghcr.io/saxocellphone/runko
 prose:
   - "!docs/spec/**"          # contract schemas: runfiles of platform's contract tests
   - "!docs/cli-contract.md"  # agentsmd drift-test input
