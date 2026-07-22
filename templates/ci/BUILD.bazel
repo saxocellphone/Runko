@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "ci",
+    srcs = ["templates.go"],
+    embedsrcs = [
+        "README.md",
+        "runko-checks.yml",
+        "runko-images.yml",
+    ],
+    importpath = "github.com/saxocellphone/runko/templates/ci",
+    visibility = ["//visibility:public"],
+)

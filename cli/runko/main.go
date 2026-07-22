@@ -76,6 +76,8 @@ func main() {
 		err = cmdOrg(os.Args[2:])
 	case "github":
 		err = cmdGithub(os.Args[2:])
+	case "ci":
+		err = cmdCI(os.Args[2:])
 	case "release":
 		err = cmdRelease(os.Args[2:])
 	case "self-update", "update": // update: the verb people type first
@@ -109,6 +111,7 @@ commands (operate on the local repo only):
   project create --name <n> ...   create a project from an intent, on top of HEAD (§10.1) [--json]
   change push [-w <ws[@branch]>]  push HEAD to refs/for/<trunk> for review (§11.5) [--json]
   agents-md                       (re)generate AGENTS.md + the agent skill (.claude/skills/runko/) teaching this CLI to agents (§8.8) [--json]
+  ci init [--images] [--force]    scaffold the generic CI/CD GitHub Actions workflows into .github/workflows/ (§14.9.1); --images adds the CD workflow [--json]
   self-update [--check]           replace this binary with the rolling cli-latest GitHub release build, checksum-verified (§17.1) [--json]
   version                         which binary is this: vcs revision + build time + toolchain, from the Go build stamp [--json]
 
