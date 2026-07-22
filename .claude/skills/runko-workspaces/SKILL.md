@@ -80,11 +80,43 @@ an afternoon of structured rejections.
 
     runko auth login --runkod-url https://runko.victornazzaro.com/o/runko --name admin
     runko workspace create --name <your-workstream> --by admin \
-      --project <p> [--project <p2>] --clone-dir <shared> --dir <worktree>
+      --project <p> [--project <p2>]
 
-Prefer working INSIDE the created worktree: the sparse cone stops
-out-of-scope edits client-side, and `runko change push` stamps the
-origin claim from the worktree's own config.
+## The worktree is transparent - address workspaces by NAME
+
+**Never `cd` into a workspace worktree, and never tell a human to.** The
+materialization is an implementation detail (§12.7); the workspace NAME
+is the handle. Every checkout verb takes `-w <name[@branch]>` and runs
+against that workspace's registered materialization from ANYWHERE - the
+repo root included:
+
+    runko change create -w <ws> -m "<what and why>"
+    runko change push -w <ws>
+    runko change requirements -w <ws>
+    runko workspace watch -w <ws> &
+    runko workspace snapshot -w <ws>
+    runko workspace sync -w <ws>
+    runko agent hooks --install -w <ws>
+
+`-w` is on create/amend/push/requirements/land/describe, the `comment*`
+verbs, snapshot/watch/branch/sync, and `agent hooks`. The server-side
+verbs (`automerge`, `approve`, `abandon`, `list`) key off the Change-Id
+and never needed a checkout at all. `-w` and `--dir`/`--repo` are
+mutually exclusive - naming both is a contradiction and is refused.
+
+Editing files is the one thing that happens at a path: use the worktree
+path for Read/Write/Edit, and keep every `runko` invocation `-w`. When
+you genuinely need the directory (a shell one-liner, a build), ask for
+it - `runko workspace path <ws>` - rather than hardcoding or `cd`-ing.
+
+The reason it matters: a `cd` moves the whole session into a checkout
+that is a *different* materialization of the same repo, and everything
+after it silently inherits that cwd - builds, greps, unrelated commands.
+Handing that path to a human is worse: it leaks a private detail of how
+Runko materializes work and trains them out of the flag that exists to
+hide it. Sparse-cone protection and the origin claim `change push`
+stamps come from the WORKSPACE, not from your cwd, so `-w` gives up
+nothing.
 
 jj is SURGICAL-ONLY (§21, repositioned 2026-07-11): the basic loop -
 create/push/land/snapshot - is runko in every checkout. Reach for jj
@@ -115,8 +147,14 @@ branch` refuses (a parallel line = a second checkout via
   is one command: `runko workspace create --by agent-x --as agent-x
   --token <tok>` (admin mints the token with `runko agent create`; `--as`
   authenticates AS the agent for this command without storing or
-  clobbering a login). Authoring inside the worktree then resolves that
-  identity by itself.
+  clobbering a login). `-w` resolves that same binding, so authoring
+  from the repo root picks up the agent identity exactly as authoring
+  inside the worktree would.
+- **The cone holds only your `--project` dirs.** Reading or compiling
+  across projects needs `git sparse-checkout add <dir>` in the worktree
+  first (`platform internal runkod proto db` covers a Go build). That is
+  safe: affinity gates the paths a push TOUCHES, never what you
+  materialized to read.
 - **Never build binaries into the worktree.** `go build` with no `-o`
   drops a multi-MB executable at the repo root, and `change create`
   stages the WHOLE tree - that is how a 7.5MB junk blob (plus phantom
@@ -141,33 +179,33 @@ branch` refuses (a parallel line = a second checkout via
 
 ## The loop
 
-1. Edit. **Stream as you work**: start `runko workspace watch &` once
-   at task start - out-of-band auto-snapshots (durable, secret-scanned;
-   a killed session loses nothing) and the workspace page follows WIP
-   live. Wire the activity feed once per worktree with
-   `runko agent hooks --install` (needs RUNKO_RUNKOD_URL/RUNKO_TOKEN in
-   the harness env, or a stored login). `runko workspace snapshot -m
-   "wip"` remains the manual form. The server nudges the first change
-   push from a workspace that never streamed - following this bullet
-   keeps pushes quiet.
+1. Edit. **Stream as you work**: start `runko workspace watch -w <ws> &`
+   once at task start - out-of-band auto-snapshots (durable,
+   secret-scanned; a killed session loses nothing) and the workspace
+   page follows WIP live. Wire the activity feed once per workspace with
+   `runko agent hooks --install -w <ws>` (needs RUNKO_RUNKOD_URL/
+   RUNKO_TOKEN in the harness env, or a stored login).
+   `runko workspace snapshot -w <ws> -m "wip"` remains the manual form.
+   The server nudges the first change push from a workspace that never
+   streamed - following this bullet keeps pushes quiet.
 2. **Added, moved, or deleted a Go file? Run `bazel run //:gazelle`
    BEFORE committing** - BUILD.bazel files are generated, a stale srcs
    list fails the required `bazel-check` gate, and this is the single
    most common avoidable check failure in this repo. `make check-bazel`
    reproduces the whole gate locally (build + drift + adapter test)
    when you want certainty before pushing.
-3. Submit: `runko change create -m "<title>..."`, then
-   `runko change push`. One push updates the WHOLE stack (series
+3. Submit: `runko change create -w <ws> -m "<title>..."`, then
+   `runko change push -w <ws>`. One push updates the WHOLE stack (series
    receive) - after surgically editing a stack's root with jj, jj
    auto-rebases descendants and one push restacks the server.
 4. Gate: `runko change requirements --change <Id>` until mergeable.
    A stacked child is NOT mergeable until its parent lands - land
    bottom-up.
-5. Land: `runko change land --change <Id> --repo <checkout>`. On
-   "trunk has moved" (optimistic revalidation) it recovers BY ITSELF:
-   sync onto trunk, re-push, wait for checks, retry (bounded; see
-   --sync-timeout). `runko workspace sync` is the manual form, and
-   `change push` already auto-syncs a stale base before pushing.
+5. Land: `runko change land --change <Id> -w <ws>`. On "trunk has
+   moved" (optimistic revalidation) it recovers BY ITSELF: sync onto
+   trunk, re-push, wait for checks, retry (bounded; see
+   --sync-timeout). `runko workspace sync -w <ws>` is the manual form,
+   and `change push` already auto-syncs a stale base before pushing.
    Keep the change's touched-path footprint small: fewer required
    checks = a smaller race window.
 6. Deploy (this repo): landing mirrors trunk to GitHub, Release images
