@@ -6,11 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
+	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/receive"
 )
 
@@ -249,5 +251,45 @@ func TestWorkspaceCreateWithNewPaths(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&ce); err != nil || ce.Code != wantCode {
 			t.Fatalf("body %s: code = %q (status %d, err %v), want %s", body, ce.Code, resp.StatusCode, err, wantCode)
 		}
+	}
+}
+
+// TestExpandConeToDeps: the READ cone auto-widens to the transitive
+// declared-dependency closure of the affinity projects (so a checkout can
+// build across projects with no manual `git sparse-checkout add`), while
+// unrelated projects stay out and NewPaths / dangling edges carry through.
+func TestExpandConeToDeps(t *testing.T) {
+	indexed := []index.IndexedProject{
+		{Name: "runkod", Path: "runkod", DeclaredDependencies: []string{"platform", "db"}, ContractDir: "runkod/proto"},
+		{Name: "platform", Path: "platform", DeclaredDependencies: []string{"internal"}},
+		{Name: "internal", Path: "internal"},
+		{Name: "db", Path: "db"},
+		{Name: "mailer", Path: "mailer", Consumes: []string{"runkod"}}, // consumes-only, no deps
+		{Name: "web", Path: "web"},                                     // unrelated - must NOT enter the cone
+	}
+
+	// affinity runkod -> runkod + its transitive deps, never web.
+	got := expandConeToDeps([]string{"runkod"}, []string{"runkod"}, indexed)
+	if want := []string{"db", "internal", "platform", "runkod"}; !slices.Equal(got, want) {
+		t.Fatalf("cone = %v, want %v", got, want)
+	}
+
+	// A consumes-only project gets ONLY the provider's contract surface
+	// (ContractDir), never runkod's whole tree or its build deps (§13.3.1).
+	got3 := expandConeToDeps([]string{"mailer"}, []string{"mailer"}, indexed)
+	if want := []string{"mailer", "runkod/proto"}; !slices.Equal(got3, want) {
+		t.Fatalf("consumes cone = %v, want %v", got3, want)
+	}
+
+	// A NewPath allowlist entry (no indexed project) and a dangling affinity
+	// name both survive without breaking the walk.
+	got2 := expandConeToDeps([]string{"platform", "notindexed"}, []string{"platform", "services/new"}, indexed)
+	for _, want := range []string{"platform", "internal", "services/new"} {
+		if !slices.Contains(got2, want) {
+			t.Errorf("cone2 %v missing %q", got2, want)
+		}
+	}
+	if slices.Contains(got2, "runkod") || slices.Contains(got2, "web") {
+		t.Errorf("cone2 %v pulled in an unrelated project", got2)
 	}
 }
