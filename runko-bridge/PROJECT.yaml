@@ -1,0 +1,48 @@
+# runko-bridge - the reference §14.4 "Mode C" CI plugin for GitHub Actions:
+# it translates runkod's HMAC-signed webhook envelopes into GitHub
+# repository_dispatch events (GitHub Actions cannot trigger on runko's
+# refs/changes/*, and the dispatch API speaks a different body/auth than
+# the §14.4.1 envelope), 2xx to the outbox only after GitHub's 204
+# (backoff re-drives failures). One shared, multi-tenant instance routes
+# every org's events to its own connected mirror repo.
+#
+# Carved out of runkod/cmd/ into its own project (2026-07-22): a standalone
+# deployable binary, like its peers mailer/ and watchdog/. build + checks
+# are OWNED here, scoped //runko-bridge/... .
+#
+# deploy (§14.10, docs/spec/deploy/README.md): the bridge owns no image -
+# its binary ships INSIDE the runkod image (the root Dockerfile builds it),
+# so it RIDES that image. This rider edge is what still rebuilds the runkod
+# image on a bridge-only change now that its source no longer lives under
+# runkod/ (runkod's manifest previously relied on that in-boundary coverage).
+#
+# No consumes edge: the bridge imports the webhook envelope TYPE from
+# platform (a dependency) and mints tokens via runkogithubapp - it holds no
+# runkod-generated rpc/REST client to sanction, so runkod's in-boundary
+# contract surface is not its edge. A webhook-envelope change is a platform
+# change and reaches it through dependencies below.
+schema: project/v1
+name: runko-bridge
+type: service
+language: go
+capabilities:
+  - build
+  - deploy
+capability_config:
+  build:
+    engine: bazel
+    target_patterns:
+      - //runko-bridge/...
+  deploy:
+    workloads:
+      - name: runko-bridge
+        image: runkod
+dependencies:
+  - platform
+  - runkogithubapp
+ci:
+  checks:
+    - name: bridge-test
+      command: bazel test --test_output=errors //runko-bridge/...
+    - name: bazel-check
+      command: make check-bazel

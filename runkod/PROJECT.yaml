@@ -1,6 +1,7 @@
 # The write-path daemon (smart-HTTP git, pre-receive funnel, REST/Connect
 # APIs, webhook outbox, mirror worker) plus its binaries under cmd/
-# (runkod itself and the runko-bridge CI shim).
+# (runkod itself and the runko-deployer GitOps pinner; the runko-bridge CI
+# shim was carved into its own top-level project 2026-07-22).
 #
 # Checks are OWNED here (§14.9): scoped to //runkod/..., pg tests ride
 # runkod-test via the DSN passthrough. -race matters here - the daemon is
@@ -24,9 +25,10 @@ capability_config:
   # deploy (§14.10, docs/spec/deploy/README.md): runkod OWNS the runkod
   # image - a multi-binary image. The mailer and watchdog binaries ship
   # inside it, so those projects RIDE this image (each declares a workload
-  # with image: runkod). runko-bridge and runko-deployer ship in it too but
-  # live inside runkod's OWN boundary (no separate project), so their
-  # changes are runkod changes already - no rider edge needed.
+  # with image: runkod). runko-bridge now RIDES it the same way from its own
+  # project. runko-deployer ships in it too but lives inside runkod's OWN
+  # boundary (no separate project), so its changes are runkod changes
+  # already - no rider edge needed.
   deploy:
     image:
       name: runkod

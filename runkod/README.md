@@ -42,9 +42,9 @@ before 2026-07-16 lives in the frozen [`docs/design.md`](../docs/design.md)
   ephemeral task-agent identities (TTL-bound, can't mint or approve),
   signup with operator-fulfilled invite requests (§15.1).
 
-`cmd/runkod` is the entrypoint (serve + hook); `cmd/runko-bridge` is
-the webhook → GitHub `repository_dispatch` shim for self-hosted CI
-(§14.4 Mode C).
+`cmd/runkod` is the entrypoint (serve + hook). The webhook → GitHub
+`repository_dispatch` shim for self-hosted CI (§14.4 Mode C) is now its
+own top-level project, `runko-bridge/`.
 
 ## Decided constraints
 

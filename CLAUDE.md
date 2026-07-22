@@ -172,7 +172,7 @@ platform/mirror/    # outbound mirror to any git host (git protocol only; docs/m
 platform/agentsmd/  # AGENTS.md generator for Runko-managed monorepos (`runko agents-md`)
 runkod/             # the daemon: Store, pre-receive Processor, smart-HTTP, REST + Connect APIs, outbox, org hub
 runkod/cmd/runkod/  # daemon entrypoint (serve + hidden hook pre-receive subcommand)
-runkod/cmd/runko-bridge/ # webhook -> GitHub repository_dispatch shim (§14.4 Mode C; self-host CI)
+runko-bridge/       # webhook -> GitHub repository_dispatch shim, its own project (§14.4 Mode C; self-host CI)
 cli/runko/          # human/agent CLI (see docs/cli-contract.md for every command's output contract)
 cli/runko-ci/       # CI-facing CLI: affected, checks, checkout, report-check
 web/                # web UI: React+TS+Vite+Connect-ES over runkod/proto/runko/v1 (web/README.md); src/gen committed
