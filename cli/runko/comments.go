@@ -8,13 +8,14 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // ActorInfo mirrors the wire's Actor shape (§7.5).
@@ -108,96 +109,118 @@ func resolveChangeFlag(changeID, workspace, dir string) (string, error) {
 	return headChangeID(wd)
 }
 
-func cmdChangeComment(args []string) error {
-	fs := flag.NewFlagSet("change comment", flag.ExitOnError)
-	runkodURL := fs.String("runkod-url", "", "runkod base URL")
-	token := fs.String("token", "", "deploy token")
-	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
-	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
-	ws := addWorkspaceFlag(fs)
-	msg := fs.String("m", "", "comment body (required)")
-	file := fs.String("file", "", "file-level or line-level anchor path")
-	line := fs.Int("line", 0, "line anchor (needs --file)")
-	side := fs.String("side", "", "line anchor side: head (default) or base")
-	replyTo := fs.String("reply-to", "", "thread root comment id to reply to (replies inherit its anchor)")
-	jsonOut := fs.Bool("json", false, "emit the created comment as JSON")
-	if err := fs.Parse(args); err != nil {
-		return err
+func newChangeCommentCmd(a *app) *cobra.Command {
+	var (
+		changeID, dir, msg, file, side, replyTo string
+		line                                    int
+		jsonOut                                 bool
+	)
+	cmd := &cobra.Command{
+		Use:   "comment -m <text>",
+		Short: "Leave an anchored review comment",
+		Long: `Comments on a change (§13.4.1): change-level (no --file), file-level
+(--file), or line-level (--file --line; --side defaults to head). The
+server stamps the head SHA, so an amend marks the comment outdated.
+--reply-to replies in a thread (one level deep). Agent principals
+comment with the agent badge; their approvals stay refused.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if msg == "" {
+				return fmt.Errorf("change comment: -m is required")
+			}
+			id, err := resolveChangeFlag(changeID, mustWorkspaceFlag(cmd), dir)
+			if err != nil {
+				return err
+			}
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
+			body := map[string]any{"body": msg}
+			if file != "" {
+				body["path"] = file
+			}
+			if line != 0 {
+				body["line"] = line
+			}
+			if side != "" {
+				body["side"] = side
+			}
+			if replyTo != "" {
+				body["parent_id"] = replyTo
+			}
+			comment, err := CreateComment(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, body)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(comment)
+			}
+			fmt.Printf("commented on %s (%s)\n", id, comment.ID)
+			return nil
+		},
 	}
-	if *msg == "" {
-		return fmt.Errorf("change comment: -m is required")
-	}
-	id, err := resolveChangeFlag(*changeID, *ws, *dir)
-	if err != nil {
-		return err
-	}
-	cred, err := resolveCredential(*runkodURL, *token)
-	if err != nil {
-		return err
-	}
-	body := map[string]any{"body": *msg}
-	if *file != "" {
-		body["path"] = *file
-	}
-	if *line != 0 {
-		body["line"] = *line
-	}
-	if *side != "" {
-		body["side"] = *side
-	}
-	if *replyTo != "" {
-		body["parent_id"] = *replyTo
-	}
-	comment, err := CreateComment(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, body)
-	if err != nil {
-		return err
-	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(comment)
-	}
-	fmt.Printf("commented on %s (%s)\n", id, comment.ID)
-	return nil
+	fl := cmd.Flags()
+	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
+	addWorkspaceFlag(cmd)
+	fl.StringVarP(&msg, "message", "m", "", "comment body (required)")
+	fl.StringVar(&file, "file", "", "file-level or line-level anchor path")
+	fl.IntVar(&line, "line", 0, "line anchor (needs --file)")
+	fl.StringVar(&side, "side", "", "line anchor side: head (default) or base")
+	fl.StringVar(&replyTo, "reply-to", "", "thread root comment id to reply to (replies inherit its anchor)")
+	fl.BoolVar(&jsonOut, "json", false, "emit the created comment as JSON")
+	return cmd
 }
 
-func cmdChangeComments(args []string) error {
-	fs := flag.NewFlagSet("change comments", flag.ExitOnError)
-	runkodURL := fs.String("runkod-url", "", "runkod base URL")
-	token := fs.String("token", "", "deploy token")
-	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
-	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
-	ws := addWorkspaceFlag(fs)
-	jsonOut := fs.Bool("json", false, "emit {comments, next_page_token} as JSON")
-	if err := fs.Parse(args); err != nil {
-		return err
+func newChangeCommentsCmd(a *app) *cobra.Command {
+	var (
+		changeID, dir string
+		jsonOut       bool
+	)
+	cmd := &cobra.Command{
+		Use:   "comments",
+		Short: "List review threads on a Change",
+		Long: `Lists the change's review threads (§13.4.1), grouped with replies
+indented, marking [resolved]/[outdated]/[agent].`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := resolveChangeFlag(changeID, mustWorkspaceFlag(cmd), dir)
+			if err != nil {
+				return err
+			}
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
+			ctx := context.Background()
+			page, err := ListComments(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(page)
+			}
+			if len(page.Comments) == 0 {
+				fmt.Printf("%s: no comments\n", id)
+				return nil
+			}
+			// Outdated = written against an older head (§13.4.1 - marked, never
+			// repositioned). Degrade to no marking if the change fetch fails.
+			currentHead := ""
+			if change, err := GetChangeInfo(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id); err == nil {
+				currentHead = change.HeadSHA
+			}
+			printCommentThreads(id, page.Comments, currentHead)
+			return nil
+		},
 	}
-	id, err := resolveChangeFlag(*changeID, *ws, *dir)
-	if err != nil {
-		return err
-	}
-	cred, err := resolveCredential(*runkodURL, *token)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	page, err := ListComments(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id)
-	if err != nil {
-		return err
-	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(page)
-	}
-	if len(page.Comments) == 0 {
-		fmt.Printf("%s: no comments\n", id)
-		return nil
-	}
-	// Outdated = written against an older head (§13.4.1 - marked, never
-	// repositioned). Degrade to no marking if the change fetch fails.
-	currentHead := ""
-	if change, err := GetChangeInfo(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id); err == nil {
-		currentHead = change.HeadSHA
-	}
-	printCommentThreads(id, page.Comments, currentHead)
-	return nil
+	fl := cmd.Flags()
+	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
+	addWorkspaceFlag(cmd)
+	fl.BoolVar(&jsonOut, "json", false, "emit {comments, next_page_token} as JSON")
+	return cmd
 }
 
 // printCommentThreads renders roots in creation order with their replies
@@ -241,83 +264,94 @@ func formatComment(c CommentInfo, currentHead, indent string) string {
 	return fmt.Sprintf("%s%s  %s%s%s\n%s    %s", indent, c.ID, c.Author.ID, anchor, mark, indent, c.Body)
 }
 
-func cmdChangeResolve(args []string) error {
-	fs := flag.NewFlagSet("change resolve", flag.ExitOnError)
-	runkodURL := fs.String("runkod-url", "", "runkod base URL")
-	token := fs.String("token", "", "deploy token")
-	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
-	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
-	ws := addWorkspaceFlag(fs)
-	undo := fs.Bool("undo", false, "reopen the thread instead of resolving it")
-	jsonOut := fs.Bool("json", false, "emit the updated comment as JSON")
-	// Positional comment id, flags after: `runko change resolve <id> [--undo]`.
-	var commentID string
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		commentID = args[0]
-		args = args[1:]
+func newChangeResolveCmd(a *app) *cobra.Command {
+	var (
+		changeID, dir string
+		undo, jsonOut bool
+	)
+	cmd := &cobra.Command{
+		Use:   "resolve <comment-id>",
+		Short: "Resolve or reopen a review thread",
+		Long: `Resolves a thread root (§13.4.1) - allowed for the thread author, the
+change author, an owner of the anchored path, or an admin. --undo
+reopens.`,
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			commentID, err := requireArg(cmd, args, "comment id")
+			if err != nil {
+				return err
+			}
+			id, err := resolveChangeFlag(changeID, mustWorkspaceFlag(cmd), dir)
+			if err != nil {
+				return err
+			}
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
+			comment, err := ResolveComment(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, commentID, !undo)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(comment)
+			}
+			if comment.Resolved {
+				fmt.Printf("resolved thread %s on %s\n", commentID, id)
+			} else {
+				fmt.Printf("reopened thread %s on %s\n", commentID, id)
+			}
+			return nil
+		},
 	}
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if commentID == "" {
-		return usageError("usage: runko change resolve <comment-id> [--undo] [--change <Id>]")
-	}
-	id, err := resolveChangeFlag(*changeID, *ws, *dir)
-	if err != nil {
-		return err
-	}
-	cred, err := resolveCredential(*runkodURL, *token)
-	if err != nil {
-		return err
-	}
-	comment, err := ResolveComment(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, commentID, !*undo)
-	if err != nil {
-		return err
-	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(comment)
-	}
-	if comment.Resolved {
-		fmt.Printf("resolved thread %s on %s\n", commentID, id)
-	} else {
-		fmt.Printf("reopened thread %s on %s\n", commentID, id)
-	}
-	return nil
+	fl := cmd.Flags()
+	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
+	addWorkspaceFlag(cmd)
+	fl.BoolVar(&undo, "undo", false, "reopen the thread instead of resolving it")
+	fl.BoolVar(&jsonOut, "json", false, "emit the updated comment as JSON")
+	return cmd
 }
 
-func cmdChangeRequestReview(args []string) error {
-	fs := flag.NewFlagSet("change request-review", flag.ExitOnError)
-	runkodURL := fs.String("runkod-url", "", "runkod base URL")
-	token := fs.String("token", "", "deploy token")
-	changeID := fs.String("change", "", "Change-Id (default: HEAD's Change-Id trailer)")
-	dir := fs.String("dir", ".", "repository directory (for the HEAD default)")
-	ws := addWorkspaceFlag(fs)
-	jsonOut := fs.Bool("json", false, "emit {reviewer} as JSON")
-	var reviewer string
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		reviewer = args[0]
-		args = args[1:]
+func newChangeRequestReviewCmd(a *app) *cobra.Command {
+	var (
+		changeID, dir string
+		jsonOut       bool
+	)
+	cmd := &cobra.Command{
+		Use:   "request-review <principal|group:name>",
+		Short: "Ask a principal or group to review",
+		Long: `Records the review request (idempotent) and puts the reviewer in the
+derived attention set (§13.4.2) until they approve or comment at the
+current head.`,
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reviewer, err := requireArg(cmd, args, "reviewer")
+			if err != nil {
+				return err
+			}
+			id, err := resolveChangeFlag(changeID, mustWorkspaceFlag(cmd), dir)
+			if err != nil {
+				return err
+			}
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
+			if err := RequestReview(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, reviewer); err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(map[string]string{"reviewer": reviewer})
+			}
+			fmt.Printf("requested review from %s on %s - they enter the attention set (§13.4.2)\n", reviewer, id)
+			return nil
+		},
 	}
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if reviewer == "" {
-		return usageError("usage: runko change request-review <principal|group:name> [--change <Id>]")
-	}
-	id, err := resolveChangeFlag(*changeID, *ws, *dir)
-	if err != nil {
-		return err
-	}
-	cred, err := resolveCredential(*runkodURL, *token)
-	if err != nil {
-		return err
-	}
-	if err := RequestReview(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, reviewer); err != nil {
-		return err
-	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(map[string]string{"reviewer": reviewer})
-	}
-	fmt.Printf("requested review from %s on %s - they enter the attention set (§13.4.2)\n", reviewer, id)
-	return nil
+	fl := cmd.Flags()
+	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
+	addWorkspaceFlag(cmd)
+	fl.BoolVar(&jsonOut, "json", false, "emit {reviewer} as JSON")
+	return cmd
 }

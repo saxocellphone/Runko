@@ -16,7 +16,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +23,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/spf13/cobra"
 
 	"github.com/saxocellphone/runko/internal/clierr"
 )
@@ -307,51 +308,67 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func cmdSelfUpdate(args []string) error {
-	fs := flag.NewFlagSet("self-update", flag.ExitOnError)
-	repo := fs.String("repo", defaultReleaseRepo, "GitHub repo (owner/name) publishing the rolling "+releaseTag+" release")
-	check := fs.Bool("check", false, "report whether an update is available; install nothing")
-	jsonOut := fs.Bool("json", false, "emit the UpdateOutcome as JSON")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
+func newSelfUpdateCmd() *cobra.Command {
+	var (
+		repo           string
+		check, jsonOut bool
+	)
+	cmd := &cobra.Command{
+		Use:     "self-update",
+		Aliases: []string{"update"}, // the verb people type first
+		Short:   "Replace this binary with the latest release build",
+		GroupID: "start",
+		Long: `Replaces the running binary with the rolling ` + releaseTag + ` GitHub
+release build (§17.1). Identity is content, not a version string: up
+to date iff the binary's sha256 matches the release's checksums.txt
+entry for this platform, so a from-source build reads as stale and is
+replaced. The download is checksum-verified before an atomic swap.`,
+		Example: `  runko self-update --check   # report only; exit 0 either way
+  runko self-update`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			exe, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("self-update: locate the running binary: %w", err)
+			}
+			// Follow a symlinked install (~/bin/runko -> .../runko) and replace the
+			// target, not the link - otherwise the "update" would orphan the real
+			// binary and turn the link into a regular file.
+			if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+				exe = resolved
+			}
 
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("self-update: locate the running binary: %w", err)
+			outcome, err := SelfUpdate(context.Background(), updateConfig{
+				client:  http.DefaultClient,
+				apiBase: githubAPIBase,
+				repo:    repo,
+				goos:    runtime.GOOS,
+				goarch:  runtime.GOARCH,
+				exePath: exe,
+				check:   check,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(outcome)
+			}
+			switch {
+			case outcome.UpToDate:
+				fmt.Printf("already up to date: %s matches %s (main @ %.9s)\n", outcome.Path, releaseTag, outcome.ReleaseCommit)
+			case check:
+				fmt.Printf("update available: %s differs from %s (main @ %.9s)\n  -> runko self-update   # install it\n", outcome.Path, releaseTag, outcome.ReleaseCommit)
+			default:
+				fmt.Printf("updated %s to %s (main @ %.9s)\n", outcome.Path, releaseTag, outcome.ReleaseCommit)
+				if runtime.GOOS == "windows" {
+					fmt.Printf("note: the previous binary was left at %s.old (Windows keeps a running image locked); delete it at your leisure\n", outcome.Path)
+				}
+			}
+			return nil
+		},
 	}
-	// Follow a symlinked install (~/bin/runko -> .../runko) and replace the
-	// target, not the link - otherwise the "update" would orphan the real
-	// binary and turn the link into a regular file.
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
-	}
-
-	outcome, err := SelfUpdate(context.Background(), updateConfig{
-		client:  http.DefaultClient,
-		apiBase: githubAPIBase,
-		repo:    *repo,
-		goos:    runtime.GOOS,
-		goarch:  runtime.GOARCH,
-		exePath: exe,
-		check:   *check,
-	})
-	if err != nil {
-		return err
-	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(outcome)
-	}
-	switch {
-	case outcome.UpToDate:
-		fmt.Printf("already up to date: %s matches %s (main @ %.9s)\n", outcome.Path, releaseTag, outcome.ReleaseCommit)
-	case *check:
-		fmt.Printf("update available: %s differs from %s (main @ %.9s)\n  -> runko self-update   # install it\n", outcome.Path, releaseTag, outcome.ReleaseCommit)
-	default:
-		fmt.Printf("updated %s to %s (main @ %.9s)\n", outcome.Path, releaseTag, outcome.ReleaseCommit)
-		if runtime.GOOS == "windows" {
-			fmt.Printf("note: the previous binary was left at %s.old (Windows keeps a running image locked); delete it at your leisure\n", outcome.Path)
-		}
-	}
-	return nil
+	cmd.Flags().StringVar(&repo, "repo", defaultReleaseRepo, "GitHub repo (owner/name) publishing the rolling "+releaseTag+" release")
+	cmd.Flags().BoolVar(&check, "check", false, "report whether an update is available; install nothing")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the UpdateOutcome as JSON")
+	return cmd
 }

@@ -16,7 +16,7 @@ import (
 )
 
 func TestCmdProjectWrongSubcommandIsUsageError(t *testing.T) {
-	err := cmdProject([]string{"destroy"})
+	err := execCLI("project", "destroy")
 	if err == nil {
 		t.Fatalf("expected an error for an unrecognized project subcommand")
 	}
@@ -27,7 +27,7 @@ func TestCmdProjectWrongSubcommandIsUsageError(t *testing.T) {
 }
 
 func TestCmdChangeWrongSubcommandIsUsageError(t *testing.T) {
-	err := cmdChange([]string{"pull"})
+	err := execCLI("change", "pull")
 	if err == nil {
 		t.Fatalf("expected an error for an unrecognized change subcommand")
 	}
@@ -45,7 +45,7 @@ func TestCmdProjectMissingNameIsNotUsageError(t *testing.T) {
 	repo.WriteFile("README.md", "hi\n")
 	repo.Commit("initial")
 
-	err := cmdProject([]string{"create", "--repo", repo.Dir})
+	err := execCLI("project", "create", "--repo", repo.Dir)
 	if err == nil {
 		t.Fatalf("expected an error when --name is omitted")
 	}
@@ -81,7 +81,7 @@ func TestCmdDoctorJSONOutput(t *testing.T) {
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = cmdDoctor([]string{"--repo", repo.Dir, "--json"})
+		cmdErr = execCLI("doctor", "--repo", repo.Dir, "--json")
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdDoctor: %v", cmdErr)
@@ -102,7 +102,7 @@ func TestCmdProjectJSONOutput(t *testing.T) {
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = cmdProject([]string{"create", "--repo", repo.Dir, "--name", "checkout-api", "--type", "service", "--api", "none", "--json"})
+		cmdErr = execCLI("project", "create", "--repo", repo.Dir, "--name", "checkout-api", "--type", "service", "--api", "none", "--json")
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdProject: %v", cmdErr)
@@ -131,7 +131,7 @@ func TestCmdChangeJSONOutput(t *testing.T) {
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = cmdChange([]string{"push", "--repo", repo.Dir, "--json"})
+		cmdErr = execCLI("change", "push", "--repo", repo.Dir, "--json")
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdChange: %v", cmdErr)
@@ -150,7 +150,7 @@ func TestCmdAgentsMDWritesFile(t *testing.T) {
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = cmdAgentsMD([]string{"--repo", dir})
+		cmdErr = execCLI("agents-md", "--repo", dir)
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdAgentsMD: %v", cmdErr)
@@ -181,7 +181,7 @@ func TestCmdAgentsMDJSONOutput(t *testing.T) {
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = cmdAgentsMD([]string{"--repo", dir, "--json"})
+		cmdErr = execCLI("agents-md", "--repo", dir, "--json")
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdAgentsMD: %v", cmdErr)
@@ -219,7 +219,7 @@ func TestCmdAgentsMDJSONOutput(t *testing.T) {
 func TestCmdAgentsMDCustomOut(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := cmdAgentsMD([]string{"--repo", dir, "--out", "TEACHING.md"}); err != nil {
+	if err := execCLI("agents-md", "--repo", dir, "--out", "TEACHING.md"); err != nil {
 		t.Fatalf("cmdAgentsMD: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "TEACHING.md")); err != nil {

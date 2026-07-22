@@ -134,7 +134,7 @@ func TestResolveWorkspaceDirRunsVerbsFromAnywhere(t *testing.T) {
 	// The whole verb through the flag wiring: change create -w from the
 	// unrelated cwd commits IN the workspace's worktree.
 	writeFile(t, dir, "commerce/checkout/anywhere.txt", "hi\n")
-	if err := cmdChangeCreate([]string{"-m", "from anywhere", "-w", "anywhere-ws"}); err != nil {
+	if err := execCLI("change", "create", "-m", "from anywhere", "-w", "anywhere-ws"); err != nil {
 		t.Fatalf("change create -w from an unrelated cwd: %v", err)
 	}
 	if subject := mustGit(t, dir, "log", "-1", "--format=%s"); subject != "from anywhere" {

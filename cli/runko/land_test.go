@@ -72,7 +72,7 @@ func TestLandChangeNotFoundIsStructuredError(t *testing.T) {
 }
 
 func TestCmdChangeLandRequiresFlags(t *testing.T) {
-	err := cmdChangeLand([]string{"--change", "Ichg1"})
+	err := execCLI("change", "land", "--change", "Ichg1")
 	if err == nil {
 		t.Fatalf("expected an error when --runkod-url/--token are missing")
 	}
@@ -90,7 +90,7 @@ func TestCmdChangeLandJSONOutput(t *testing.T) {
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = cmdChangeLand([]string{"--runkod-url", server.URL, "--token", "sekret", "--change", "Ichg1", "--json"})
+		cmdErr = execCLI("change", "land", "--runkod-url", server.URL, "--token", "sekret", "--change", "Ichg1", "--json")
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdChangeLand: %v", cmdErr)

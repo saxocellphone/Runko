@@ -5,19 +5,21 @@
 // so a future spooler is an API no-op). The workspace comes from the
 // worktree's own runko.workspace config, the watch.go rule; credentials
 // fall back to RUNKO_RUNKOD_URL/RUNKO_TOKEN env because hooks inherit an
-// environment, not flags.
+// environment, not flags - the rule resolveCredentialEnv (auth.go) now
+// applies to every control-plane verb.
 package main
 
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/saxocellphone/runko/internal/clierr"
 )
@@ -66,101 +68,87 @@ func eventFromHook(in hookInput) (kind, detail string) {
 	}
 }
 
-// resolveAgentEventCredential is resolveCredential plus a verb-local env
-// fallback (flags > RUNKO_RUNKOD_URL/RUNKO_TOKEN > stored login): a hook
-// runs in whatever environment the harness inherited, and exporting two
-// variables there is the whole setup.
-func resolveAgentEventCredential(urlFlag, tokenFlag string) (Credential, error) {
-	if tokenFlag == "" {
-		if envToken := os.Getenv("RUNKO_TOKEN"); envToken != "" {
-			envURL := os.Getenv("RUNKO_RUNKOD_URL")
-			if urlFlag != "" {
-				envURL = urlFlag
-			}
-			if envURL == "" {
-				return Credential{}, &clierr.Error{
-					Code: "missing_url", Field: "runkod-url",
-					Message:    "RUNKO_TOKEN is set without RUNKO_RUNKOD_URL",
-					Suggestion: "export RUNKO_RUNKOD_URL=<url> alongside RUNKO_TOKEN",
+func newAgentEventCmd(a *app) *cobra.Command {
+	var (
+		kind, detail, session, dir string
+		fromHook, jsonOut          bool
+	)
+	cmd := &cobra.Command{
+		Use:   "event --kind <kind> --detail <text>",
+		Short: "Report one activity event to the workspace feed",
+		Long: `Reports what the agent is doing (kind read|edit|command|search|note +
+detail) to the workspace's §12.6.1 live feed. --from-hook derives
+kind/detail/session from a post-tool-use hook JSON on stdin - the form
+` + "`runko agent hooks`" + ` wires. Observability only; it never gates.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if fromHook {
+				var in hookInput
+				if err := json.NewDecoder(io.LimitReader(os.Stdin, 1<<20)).Decode(&in); err != nil {
+					return &clierr.Error{
+						Code: "invalid_hook_input", Field: "stdin",
+						Message:    fmt.Sprintf("stdin is not a post-tool-use hook JSON: %v", err),
+						Suggestion: "wire this via `runko agent hooks`, or pass --kind/--detail explicitly",
+					}
+				}
+				hookKind, hookDetail := eventFromHook(in)
+				if kind == "" {
+					kind = hookKind
+				}
+				if detail == "" {
+					detail = hookDetail
+				}
+				if session == "" {
+					session = in.SessionID
 				}
 			}
-			return Credential{URL: envURL, Secret: envToken}, nil
-		}
-	}
-	return resolveCredential(urlFlag, tokenFlag)
-}
-
-func cmdAgentEvent(rest []string) error {
-	fs := flag.NewFlagSet("agent event", flag.ExitOnError)
-	kind := fs.String("kind", "", "event kind: read|edit|command|search|note")
-	detail := fs.String("detail", "", "what happened: a path, a command line")
-	session := fs.String("session", "", "harness coding-session id (§7.2 audit link)")
-	fromHook := fs.Bool("from-hook", false, "read a post-tool-use hook JSON from stdin and derive kind/detail/session from it")
-	dir := fs.String("dir", ".", "workspace worktree to report for")
-	runkodURL := fs.String("runkod-url", "", "runkod base URL")
-	token := fs.String("token", "", "deploy token")
-	jsonOut := fs.Bool("json", false, "emit the result as JSON")
-	if err := fs.Parse(rest); err != nil {
-		return err
-	}
-
-	if *fromHook {
-		var in hookInput
-		if err := json.NewDecoder(io.LimitReader(os.Stdin, 1<<20)).Decode(&in); err != nil {
-			return &clierr.Error{
-				Code: "invalid_hook_input", Field: "stdin",
-				Message:    fmt.Sprintf("stdin is not a post-tool-use hook JSON: %v", err),
-				Suggestion: "wire this via `runko agent hooks`, or pass --kind/--detail explicitly",
+			if kind == "" || detail == "" {
+				return usageError("usage: runko agent event --kind <read|edit|command|search|note> --detail <text>  (or --from-hook with hook JSON on stdin)")
 			}
-		}
-		hookKind, hookDetail := eventFromHook(in)
-		if *kind == "" {
-			*kind = hookKind
-		}
-		if *detail == "" {
-			*detail = hookDetail
-		}
-		if *session == "" {
-			*session = in.SessionID
-		}
-	}
-	if *kind == "" || *detail == "" {
-		return usageError("usage: runko agent event --kind <read|edit|command|search|note> --detail <text>  (or --from-hook with hook JSON on stdin)")
-	}
-	if r := []rune(*detail); len(r) > agentEventDetailMax {
-		*detail = string(r[:agentEventDetailMax])
-	}
+			if r := []rune(detail); len(r) > agentEventDetailMax {
+				detail = string(r[:agentEventDetailMax])
+			}
 
-	id, _ := runGit(*dir, "config", "runko.workspace")
-	if id == "" {
-		return &clierr.Error{
-			Code: "not_a_workspace", Field: "dir",
-			Message:    fmt.Sprintf("%s is not bound to a runko workspace", *dir),
-			Suggestion: "run inside a `runko workspace create/attach` checkout (--jj for a jj colocated clone), or bind one with `git config runko.workspace <id>`",
-		}
-	}
-	cred, err := resolveAgentEventCredential(*runkodURL, *token)
-	if err != nil {
-		return err
-	}
+			id, _ := runGit(dir, "config", "runko.workspace")
+			if id == "" {
+				return &clierr.Error{
+					Code: "not_a_workspace", Field: "dir",
+					Message:    fmt.Sprintf("%s is not bound to a runko workspace", dir),
+					Suggestion: "run inside a `runko workspace create/attach` checkout (--jj for a jj colocated clone), or bind one with `git config runko.workspace <id>`",
+				}
+			}
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
 
-	ctx, cancel := context.WithTimeout(context.Background(), agentEventTimeout)
-	defer cancel()
-	var out struct {
-		Recorded int `json:"recorded"`
+			ctx, cancel := context.WithTimeout(context.Background(), agentEventTimeout)
+			defer cancel()
+			var out struct {
+				Recorded int `json:"recorded"`
+			}
+			if err := apiJSON(ctx, http.DefaultClient, http.MethodPost,
+				strings.TrimSuffix(cred.URL, "/")+"/api/workspaces/"+id+"/activity", cred.AuthHeader(),
+				map[string]any{"events": []map[string]string{{
+					"kind": kind, "detail": detail, "session_id": session,
+				}}}, &out); err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(out)
+			}
+			fmt.Printf("reported %s: %s\n", kind, detail)
+			return nil
+		},
 	}
-	if err := apiJSON(ctx, http.DefaultClient, http.MethodPost,
-		strings.TrimSuffix(cred.URL, "/")+"/api/workspaces/"+id+"/activity", cred.AuthHeader(),
-		map[string]any{"events": []map[string]string{{
-			"kind": *kind, "detail": *detail, "session_id": *session,
-		}}}, &out); err != nil {
-		return err
-	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(out)
-	}
-	fmt.Printf("reported %s: %s\n", *kind, *detail)
-	return nil
+	fl := cmd.Flags()
+	fl.StringVar(&kind, "kind", "", "event kind: read|edit|command|search|note")
+	fl.StringVar(&detail, "detail", "", "what happened: a path, a command line")
+	fl.StringVar(&session, "session", "", "harness coding-session id (§7.2 audit link)")
+	fl.BoolVar(&fromHook, "from-hook", false, "read a post-tool-use hook JSON from stdin and derive kind/detail/session from it")
+	fl.StringVar(&dir, "dir", ".", "workspace worktree to report for")
+	fl.BoolVar(&jsonOut, "json", false, "emit the result as JSON")
+	return cmd
 }
 
 // agentHooksSnippet is the ready-to-paste harness hooks config `runko
@@ -181,55 +169,68 @@ const agentHooksSnippet = `{
   }
 }`
 
-func cmdAgentHooks(rest []string) error {
-	fs := flag.NewFlagSet("agent hooks", flag.ExitOnError)
-	install := fs.Bool("install", false, "merge the snippet into this worktree's .claude/settings.local.json (Claude Code; other harnesses paste the printed snippet)")
-	dir := fs.String("dir", ".", "workspace worktree to install into")
-	ws := addWorkspaceFlag(fs)
-	jsonOut := fs.Bool("json", false, "with --install: emit {path,installed} as JSON")
-	if err := fs.Parse(rest); err != nil {
-		return err
-	}
-	if !*install {
-		// Prerequisites go to stderr so `runko agent hooks > hooks.json`
-		// captures pure JSON.
-		fmt.Fprintln(os.Stderr, "merge this into your harness settings (Claude Code: `runko agent hooks --install`")
-		fmt.Fprintln(os.Stderr, "does it for you, into .claude/settings.local.json).")
-		fmt.Fprintln(os.Stderr, "prerequisites: runko on PATH; RUNKO_RUNKOD_URL + RUNKO_TOKEN exported in the")
-		fmt.Fprintln(os.Stderr, "harness environment (or a stored `runko auth login`); name the workspace with")
-		fmt.Fprintln(os.Stderr, "-w (or run inside its worktree). events feed the workspace page's live Agent")
-		fmt.Fprintln(os.Stderr, "activity card (§12.6.1).")
-		fmt.Println(agentHooksSnippet)
-		return nil
-	}
+func newAgentHooksCmd() *cobra.Command {
+	var (
+		install, jsonOut bool
+		dir              string
+	)
+	cmd := &cobra.Command{
+		Use:   "hooks [--install]",
+		Short: "Print or install the harness hooks snippet",
+		Long: `Prints the ready-to-paste harness hooks JSON (prerequisites on
+stderr, snippet on stdout). --install merges it into the worktree's
+Claude Code .claude/settings.local.json instead: foreign keys survive,
+an already-wired file no-ops, and the file is excluded from snapshots.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !install {
+				// Prerequisites go to stderr so `runko agent hooks > hooks.json`
+				// captures pure JSON.
+				fmt.Fprintln(os.Stderr, "merge this into your harness settings (Claude Code: `runko agent hooks --install`")
+				fmt.Fprintln(os.Stderr, "does it for you, into .claude/settings.local.json).")
+				fmt.Fprintln(os.Stderr, "prerequisites: runko on PATH; RUNKO_RUNKOD_URL + RUNKO_TOKEN exported in the")
+				fmt.Fprintln(os.Stderr, "harness environment (or a stored `runko auth login`); name the workspace with")
+				fmt.Fprintln(os.Stderr, "-w (or run inside its worktree). events feed the workspace page's live Agent")
+				fmt.Fprintln(os.Stderr, "activity card (§12.6.1).")
+				fmt.Println(agentHooksSnippet)
+				return nil
+			}
 
-	// -w installs into the named workspace's materialization, so wiring a
-	// worktree never costs a cd into it (§12.7).
-	wd, err := resolveWorkspaceDir(*ws, *dir)
-	if err != nil {
-		return err
+			// -w installs into the named workspace's materialization, so wiring a
+			// worktree never costs a cd into it (§12.7).
+			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), dir)
+			if err != nil {
+				return err
+			}
+			path, installed, excludedVia, err := InstallAgentHooks(wd)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(map[string]any{"path": path, "installed": installed})
+			}
+			if installed {
+				fmt.Printf("installed PostToolUse hook -> %s   (merged; other settings untouched)\n", path)
+			} else {
+				fmt.Printf("hook already wired -> %s\n", path)
+			}
+			fmt.Printf("excluded from snapshots via %s\n", excludedVia)
+			// The installer cannot fix the harness environment - hooks inherit
+			// env, not flags (§12.6.1) - but it can say exactly what's missing.
+			if _, err := resolveCredentialEnv("", ""); err != nil {
+				fmt.Println("credentials: none resolve - export these in the harness environment:")
+				fmt.Println("  export RUNKO_RUNKOD_URL=<your runkod url>")
+				fmt.Println("  export RUNKO_TOKEN=<name>:<token>")
+			} else {
+				fmt.Println("credentials: ok (env or stored login) - hooks will authenticate")
+			}
+			return nil
+		},
 	}
-	path, installed, excludedVia, err := InstallAgentHooks(wd)
-	if err != nil {
-		return err
-	}
-	if *jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{"path": path, "installed": installed})
-	}
-	if installed {
-		fmt.Printf("installed PostToolUse hook -> %s   (merged; other settings untouched)\n", path)
-	} else {
-		fmt.Printf("hook already wired -> %s\n", path)
-	}
-	fmt.Printf("excluded from snapshots via %s\n", excludedVia)
-	// The installer cannot fix the harness environment - hooks inherit
-	// env, not flags (§12.6.1) - but it can say exactly what's missing.
-	if _, err := resolveAgentEventCredential("", ""); err != nil {
-		fmt.Println("credentials: none resolve - export these in the harness environment:")
-		fmt.Println("  export RUNKO_RUNKOD_URL=<your runkod url>")
-		fmt.Println("  export RUNKO_TOKEN=<name>:<token>")
-	} else {
-		fmt.Println("credentials: ok (env or stored login) - hooks will authenticate")
-	}
-	return nil
+	fl := cmd.Flags()
+	fl.BoolVar(&install, "install", false, "merge the snippet into this worktree's .claude/settings.local.json (Claude Code; other harnesses paste the printed snippet)")
+	fl.StringVar(&dir, "dir", ".", "workspace worktree to install into")
+	addWorkspaceFlag(cmd)
+	fl.BoolVar(&jsonOut, "json", false, "with --install: emit {path,installed} as JSON")
+	return cmd
 }

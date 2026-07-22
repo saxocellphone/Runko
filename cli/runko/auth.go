@@ -154,6 +154,32 @@ func resolveCredential(urlFlag, tokenFlag string) (Credential, error) {
 	return cred, nil
 }
 
+// resolveCredentialEnv is resolveCredential plus the env fallback: flags >
+// RUNKO_RUNKOD_URL/RUNKO_TOKEN > stored login. Born as agent event's
+// verb-local rule (§12.6.1: a hook runs in whatever environment the
+// harness inherited, and exporting two variables there is the whole
+// setup), made the uniform rule for every control-plane verb in the
+// clig.dev redesign (2026-07-22) - the app.credential() path, root.go.
+func resolveCredentialEnv(urlFlag, tokenFlag string) (Credential, error) {
+	if tokenFlag == "" {
+		if envToken := os.Getenv("RUNKO_TOKEN"); envToken != "" {
+			envURL := os.Getenv("RUNKO_RUNKOD_URL")
+			if urlFlag != "" {
+				envURL = urlFlag
+			}
+			if envURL == "" {
+				return Credential{}, &clierr.Error{
+					Code: "missing_url", Field: "runkod-url",
+					Message:    "RUNKO_TOKEN is set without RUNKO_RUNKOD_URL",
+					Suggestion: "export RUNKO_RUNKOD_URL=<url> alongside RUNKO_TOKEN",
+				}
+			}
+			return Credential{URL: envURL, Secret: envToken}, nil
+		}
+	}
+	return resolveCredential(urlFlag, tokenFlag)
+}
+
 // decodeStructuredErr decodes a §6.5-shaped control-plane error body into
 // a *clierr.Error; nil when the body is not one (plain-text surfaces).
 func decodeStructuredErr(r io.Reader) *clierr.Error {

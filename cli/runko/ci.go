@@ -10,25 +10,26 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/cobra"
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	citemplates "github.com/saxocellphone/runko/templates/ci"
 )
 
-func cmdCI(args []string) error {
-	if len(args) < 1 {
-		return usageError("usage: runko ci init [--dir .] [--images] [--force] [--executor github] [--json]")
+func newCICmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "ci",
+		Short:   "Scaffold the generic CI/CD workflows",
+		GroupID: "agents",
+		Args:    cobra.ArbitraryArgs,
+		RunE:    groupRunE,
 	}
-	switch args[0] {
-	case "init":
-		return ciInit(args[1:])
-	default:
-		return usageError("usage: runko ci init [--dir .] [--images] [--force] [--executor github] [--json]")
-	}
+	cmd.AddCommand(newCIInitCmd())
+	return cmd
 }
 
 // ciInitResult is the --json shape: the files written and the manual
@@ -40,64 +41,80 @@ type ciInitResult struct {
 	NextSteps []string `json:"next_steps"`
 }
 
-func ciInit(args []string) error {
-	fs := flag.NewFlagSet("ci init", flag.ExitOnError)
-	dir := fs.String("dir", ".", "target repo directory; its .github/workflows/ receives the files")
-	images := fs.Bool("images", false, "also write the post-land image-build (CD) workflow")
-	force := fs.Bool("force", false, "overwrite existing workflow files")
-	executor := fs.String("executor", "github", "CI executor to scaffold for (only \"github\" is supported today)")
-	jsonOut := fs.Bool("json", false, "emit the result as JSON")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *executor != "github" {
-		return &clierr.Error{
-			Code:       "unsupported_executor",
-			Field:      "executor",
-			Message:    fmt.Sprintf("executor %q is not supported; only \"github\" (GitHub Actions) is available today", *executor),
-			Suggestion: "runko ci init --executor github",
-		}
-	}
-
-	wfDir := filepath.Join(*dir, ".github", "workflows")
-	if err := os.MkdirAll(wfDir, 0o755); err != nil {
-		return fmt.Errorf("ci init: create %s: %w", wfDir, err)
-	}
-
-	names := []string{"runko-checks.yml"}
-	if *images {
-		names = append(names, "runko-images.yml")
-	}
-	// Pre-check for clobber BEFORE writing anything, so a partial scaffold
-	// never leaves one file new and another refused.
-	if !*force {
-		for _, name := range names {
-			dst := filepath.Join(wfDir, name)
-			if _, err := os.Stat(dst); err == nil {
+func newCIInitCmd() *cobra.Command {
+	var (
+		dir, executor          string
+		images, force, jsonOut bool
+	)
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Write the generic Runko CI workflows into a repo",
+		Long: `Scaffolds the generic Runko CI/CD GitHub Actions workflows into
+.github/workflows/ (§14.9.1) - a LOCAL file-writer you review and
+commit through your normal change flow. The files download runko-ci
+and read all project/check/image/registry facts from the tree, so this
+command names none of them. --images adds the post-land CD workflow.`,
+		Example: `  runko ci init
+  runko ci init --images --force`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if executor != "github" {
 				return &clierr.Error{
-					Code:       "workflow_exists",
-					Field:      "force",
-					Message:    fmt.Sprintf("%s already exists", dst),
-					Suggestion: "rerun with --force to overwrite it",
+					Code:       "unsupported_executor",
+					Field:      "executor",
+					Message:    fmt.Sprintf("executor %q is not supported; only \"github\" (GitHub Actions) is available today", executor),
+					Suggestion: "runko ci init --executor github",
 				}
 			}
-		}
-	}
 
-	written := make([]string, 0, len(names))
-	for _, name := range names {
-		content, err := citemplates.FS.ReadFile(name)
-		if err != nil {
-			return fmt.Errorf("ci init: read embedded template %s: %w", name, err)
-		}
-		dst := filepath.Join(wfDir, name)
-		if err := os.WriteFile(dst, content, 0o644); err != nil {
-			return fmt.Errorf("ci init: write %s: %w", dst, err)
-		}
-		written = append(written, dst)
-	}
+			wfDir := filepath.Join(dir, ".github", "workflows")
+			if err := os.MkdirAll(wfDir, 0o755); err != nil {
+				return fmt.Errorf("ci init: create %s: %w", wfDir, err)
+			}
 
-	return ciInitReport(written, *images, *jsonOut)
+			names := []string{"runko-checks.yml"}
+			if images {
+				names = append(names, "runko-images.yml")
+			}
+			// Pre-check for clobber BEFORE writing anything, so a partial scaffold
+			// never leaves one file new and another refused.
+			if !force {
+				for _, name := range names {
+					dst := filepath.Join(wfDir, name)
+					if _, err := os.Stat(dst); err == nil {
+						return &clierr.Error{
+							Code:       "workflow_exists",
+							Field:      "force",
+							Message:    fmt.Sprintf("%s already exists", dst),
+							Suggestion: "rerun with --force to overwrite it",
+						}
+					}
+				}
+			}
+
+			written := make([]string, 0, len(names))
+			for _, name := range names {
+				content, err := citemplates.FS.ReadFile(name)
+				if err != nil {
+					return fmt.Errorf("ci init: read embedded template %s: %w", name, err)
+				}
+				dst := filepath.Join(wfDir, name)
+				if err := os.WriteFile(dst, content, 0o644); err != nil {
+					return fmt.Errorf("ci init: write %s: %w", dst, err)
+				}
+				written = append(written, dst)
+			}
+
+			return ciInitReport(written, images, jsonOut)
+		},
+	}
+	fl := cmd.Flags()
+	fl.StringVar(&dir, "dir", ".", "target repo directory; its .github/workflows/ receives the files")
+	fl.BoolVar(&images, "images", false, "also write the post-land image-build (CD) workflow")
+	fl.BoolVar(&force, "force", false, "overwrite existing workflow files")
+	fl.StringVar(&executor, "executor", "github", "CI executor to scaffold for (only \"github\" is supported today)")
+	fl.BoolVar(&jsonOut, "json", false, "emit the result as JSON")
+	return cmd
 }
 
 func ciInitReport(written []string, images, jsonOut bool) error {

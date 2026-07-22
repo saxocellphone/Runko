@@ -21,7 +21,7 @@ func readWorkflow(t *testing.T, dir, name string) string {
 
 func TestCIInitScaffoldsChecks(t *testing.T) {
 	dir := t.TempDir()
-	if err := cmdCI([]string{"init", "--dir", dir}); err != nil {
+	if err := execCLI("ci", "init", "--dir", dir); err != nil {
 		t.Fatalf("ci init: %v", err)
 	}
 	checks := readWorkflow(t, dir, "runko-checks.yml")
@@ -53,7 +53,7 @@ func TestCIInitScaffoldsChecks(t *testing.T) {
 
 func TestCIInitImages(t *testing.T) {
 	dir := t.TempDir()
-	if err := cmdCI([]string{"init", "--dir", dir, "--images"}); err != nil {
+	if err := execCLI("ci", "init", "--dir", dir, "--images"); err != nil {
 		t.Fatalf("ci init --images: %v", err)
 	}
 	images := readWorkflow(t, dir, "runko-images.yml")
@@ -77,7 +77,7 @@ func TestCIInitNoClobberThenForce(t *testing.T) {
 	}
 
 	// No --force: refuse, structured, and leave the file untouched.
-	err := cmdCI([]string{"init", "--dir", dir})
+	err := execCLI("ci", "init", "--dir", dir)
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "workflow_exists" {
 		t.Fatalf("want workflow_exists clierr, got %v", err)
@@ -87,7 +87,7 @@ func TestCIInitNoClobberThenForce(t *testing.T) {
 	}
 
 	// --force: overwrite.
-	if err := cmdCI([]string{"init", "--dir", dir, "--force"}); err != nil {
+	if err := execCLI("ci", "init", "--dir", dir, "--force"); err != nil {
 		t.Fatalf("ci init --force: %v", err)
 	}
 	if got := readWorkflow(t, dir, "runko-checks.yml"); got == sentinel {
@@ -96,7 +96,7 @@ func TestCIInitNoClobberThenForce(t *testing.T) {
 }
 
 func TestCIInitUnsupportedExecutor(t *testing.T) {
-	err := cmdCI([]string{"init", "--dir", t.TempDir(), "--executor", "gitlab"})
+	err := execCLI("ci", "init", "--dir", t.TempDir(), "--executor", "gitlab")
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "unsupported_executor" {
 		t.Fatalf("want unsupported_executor clierr, got %v", err)
