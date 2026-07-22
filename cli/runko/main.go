@@ -124,17 +124,18 @@ commands (need a live runkod instance, §28.3 stages 11b/11c/12b):
   workspace list --runkod-url <url> --token <t>              my workstreams, cones, base revisions [--json]
   workspace attach <id> --runkod-url <url> --token <t> [--branch <b>] [--jj]   restore a workspace branch from its snapshot ref [--json]
   workspace delete <id> --runkod-url <url> --token <t>       delete the registry row + snapshot refs (refused while it has open changes) [--json]
-  workspace path [<name>]                                     print a workspace's local directory: cd $(runko workspace path <name>) (§12.7) [--json]
+  workspace path [<name>]                                     print a workspace's local directory - scripting glue for the rare case -w cannot cover (§12.7) [--json]
   workspace gc [--apply] [--idle <dur>] [--scan <store>]...   reclaim closed+synced materializations; plan-only by default (§12.7) [--json]
   agent create --task <slug> --runkod-url <url> --token <t> [--ttl 8h]   mint an ephemeral task identity (agent-<task>-<x>); token printed ONCE [--json]
   agent list --runkod-url <url> --token <t>                  live and expired agent identities [--json]
   agent revoke <name> --runkod-url <url> --token <t>         kill an agent credential immediately [--json]
   agent event --kind <k> --detail <text> [--from-hook] [--session <id>]   report what the agent is doing to the workspace's live feed (§12.6.1) [--json]
-  agent hooks [--install [--dir .]] [--json]                  print the harness hooks snippet; --install merges it into the worktree's .claude/settings.local.json
-  workspace snapshot [--dir . | -w <ws>] [-m <msg>]          WIP -> commit -> refs/workspaces/<id>/<branch> [--json]\n  workspace branch <name> [--dir . | -w <ws>]                 fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
+  agent hooks [--install [--dir . | -w <ws>]] [--json]        print the harness hooks snippet; --install merges it into the worktree's .claude/settings.local.json
+  workspace snapshot [--dir . | -w <ws>] [-m <msg>]           WIP -> commit -> refs/workspaces/<id>/<branch> [--json]
+  workspace branch <name> [--dir . | -w <ws>]                 fork a parallel line: snapshots now target refs/workspaces/<id>/<name> [--json]
   workspace sync [--dir . | -w <ws>]                          sync onto the trunk tip - fetch + rebase, jj-aware (update-base is an alias) [--json]
 
-  -w/--workspace <name[@branch]> on checkout verbs (create/push/land/requirements/describe/comment*/snapshot/watch/branch/sync):
+  -w/--workspace <name[@branch]> on checkout verbs (create/push/land/requirements/describe/comment*/snapshot/watch/branch/sync/agent hooks):
   run against that workspace's registered materialization from ANYWHERE - no cd into the worktree (§12.7; workspace list shows what's local)
   mcp serve --runkod-url <url> --token <t>                    MCP stdio adapter: seven read-only tools (§8.3, §17.4)
 
@@ -1022,8 +1023,8 @@ func cmdWorkspace(args []string) error {
 			mode = "jj colocated, "
 		}
 		fmt.Printf("workspace %s ready at %s (%sbase %s, cone: %s)\n", info.ID, wsDir, mode, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
-		printWorkspaceStreamingGuidance(os.Stdout, wsDir)
-		printWorkspaceLoop(os.Stdout)
+		printWorkspaceStreamingGuidance(os.Stdout, info.ID)
+		printWorkspaceLoop(os.Stdout, info.ID)
 		return nil
 
 	case "delete":
@@ -1141,7 +1142,13 @@ func cmdWorkspace(args []string) error {
 			mode = " (jj colocated)"
 		}
 		fmt.Printf("workspace %s restored at %s%s\n", info.ID, wsDir, mode)
-		printWorkspaceStreamingGuidance(os.Stdout, wsDir)
+		// A branch attach materializes that branch's own row, so the -w
+		// handle it teaches has to carry it (name@branch, §12.7).
+		handle := info.ID
+		if *branch != "" {
+			handle += "@" + *branch
+		}
+		printWorkspaceStreamingGuidance(os.Stdout, handle)
 		return nil
 
 	case "gc":

@@ -185,6 +185,7 @@ func cmdAgentHooks(rest []string) error {
 	fs := flag.NewFlagSet("agent hooks", flag.ExitOnError)
 	install := fs.Bool("install", false, "merge the snippet into this worktree's .claude/settings.local.json (Claude Code; other harnesses paste the printed snippet)")
 	dir := fs.String("dir", ".", "workspace worktree to install into")
+	ws := addWorkspaceFlag(fs)
 	jsonOut := fs.Bool("json", false, "with --install: emit {path,installed} as JSON")
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -195,13 +196,20 @@ func cmdAgentHooks(rest []string) error {
 		fmt.Fprintln(os.Stderr, "merge this into your harness settings (Claude Code: `runko agent hooks --install`")
 		fmt.Fprintln(os.Stderr, "does it for you, into .claude/settings.local.json).")
 		fmt.Fprintln(os.Stderr, "prerequisites: runko on PATH; RUNKO_RUNKOD_URL + RUNKO_TOKEN exported in the")
-		fmt.Fprintln(os.Stderr, "harness environment (or a stored `runko auth login`); run inside a workspace")
-		fmt.Fprintln(os.Stderr, "worktree. events feed the workspace page's live Agent activity card (§12.6.1).")
+		fmt.Fprintln(os.Stderr, "harness environment (or a stored `runko auth login`); name the workspace with")
+		fmt.Fprintln(os.Stderr, "-w (or run inside its worktree). events feed the workspace page's live Agent")
+		fmt.Fprintln(os.Stderr, "activity card (§12.6.1).")
 		fmt.Println(agentHooksSnippet)
 		return nil
 	}
 
-	path, installed, excludedVia, err := InstallAgentHooks(*dir)
+	// -w installs into the named workspace's materialization, so wiring a
+	// worktree never costs a cd into it (§12.7).
+	wd, err := resolveWorkspaceDir(*ws, *dir)
+	if err != nil {
+		return err
+	}
+	path, installed, excludedVia, err := InstallAgentHooks(wd)
 	if err != nil {
 		return err
 	}

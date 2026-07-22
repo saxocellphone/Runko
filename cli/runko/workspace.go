@@ -872,21 +872,36 @@ func asClierr(err error, target **clierr.Error) bool {
 // printWorkspaceStreamingGuidance is the §12.6 golden-path teach (decided
 // 2026-07-14): the exact next commands that make this worktree's work
 // visible live - §6.9's script pattern, printed at the moment the worktree
-// is born. Human output only; --json callers never see it.
-func printWorkspaceStreamingGuidance(w io.Writer, dir string) {
-	fmt.Fprintln(w, "stream the work (§12.6) - run inside the worktree:")
-	fmt.Fprintf(w, "  cd %s\n", dir)
-	fmt.Fprintln(w, "  runko workspace watch &          # auto-snapshot loop: the workspace page follows WIP live")
-	fmt.Fprintln(w, "  runko agent hooks --install      # agents: reads/edits/commands on the live activity feed (§12.6.1)")
+// is born. It addresses the workspace by NAME with -w (§12.7): the
+// materialization is an implementation detail, so printing `cd <dir>` here
+// would teach the very habit -w exists to delete. Human output only;
+// --json callers never see it.
+func printWorkspaceStreamingGuidance(w io.Writer, workspace string) {
+	fmt.Fprintln(w, "stream the work (§12.6) - from your repo, no cd:")
+	printCommand(w, fmt.Sprintf("runko workspace watch -w %s &", workspace),
+		"auto-snapshot loop: the workspace page follows WIP live")
+	printCommand(w, fmt.Sprintf("runko agent hooks --install -w %s", workspace),
+		"agents: reads/edits/commands on the live activity feed (§12.6.1)")
 }
 
 // printWorkspaceLoop is §6.9's three commands, printed the moment a fresh
 // checkout exists (§6.10) - the same script CONTRIBUTING.md and doctor's
 // cheat-sheet teach, delivered when it is actually needed instead of
-// waiting to be asked for.
-func printWorkspaceLoop(w io.Writer) {
-	fmt.Fprintln(w, "the loop:")
-	fmt.Fprintln(w, "  runko change create -m \"<what and why>\"   # commit your work as one Change")
-	fmt.Fprintln(w, "  runko change push                          # submit it (and its stack) for review")
-	fmt.Fprintln(w, "  runko change requirements                  # owners + checks outstanding")
+// waiting to be asked for. Like the streaming teach above, it names the
+// workspace rather than sending the reader into its worktree.
+func printWorkspaceLoop(w io.Writer, workspace string) {
+	fmt.Fprintln(w, "the loop - every verb takes -w, so run them from your repo:")
+	printCommand(w, fmt.Sprintf("runko change create -w %s -m \"<what and why>\"", workspace),
+		"commit your work as one Change")
+	printCommand(w, fmt.Sprintf("runko change push -w %s", workspace),
+		"submit it (and its stack) for review")
+	printCommand(w, fmt.Sprintf("runko change requirements -w %s", workspace),
+		"owners + checks outstanding")
+}
+
+// printCommand prints one indented, comment-annotated command line. The
+// width is a hand-tuned column that keeps the comments aligned for typical
+// workspace names; a long name overflows it rather than truncating.
+func printCommand(w io.Writer, cmd, comment string) {
+	fmt.Fprintf(w, "  %-52s # %s\n", cmd, comment)
 }
