@@ -48,19 +48,21 @@ go install github.com/saxocellphone/runko/cli/runko@latest
 #    login (signup IS login; it prompts for a password)
 runko auth signup --runkod-url https://runko.example.com --name val --org acme --join
 
-# 3. A workspace: your slice of the monorepo, from one shared clone
+# 3. A workspace: your slice of the monorepo, from one shared clone.
+#    Where it materializes is our business — you name it with -w and
+#    work from wherever you already are.
 runko workspace create --name day-one --project repo
-#    …then cd into the directory it prints
 
 # 4. Your first project — generated, opened as a change for review
-runko project create --name hello --type service --api rest
-runko change push          # -> review; checks scoped to what changed
-runko change land          # rebase-lands once the gates are green
+runko project create --name hello --type service --api rest \
+  --repo "$(runko workspace path day-one)"
+runko change push -w day-one   # -> review; checks scoped to what changed
+runko change land -w day-one   # rebase-lands once the gates are green
 
 # 5. The steady-state loop, forever after
-$EDITOR hello/main.go
-runko change create -m "hello: describe the edit"
-runko change push && runko change land
+$EDITOR "$(runko workspace path day-one)"/hello/main.go
+runko change create -w day-one -m "hello: describe the edit"
+runko change push -w day-one && runko change land -w day-one
 ```
 
 Every gate you meet along the way — owners, required checks, agent
