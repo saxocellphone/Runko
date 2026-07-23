@@ -428,6 +428,9 @@ type AgentPolicy struct {
 	CanEnableCapabilities    []string           `json:"can_enable_capabilities"`
 	DenylistPaths            []string           `json:"denylist_paths"`
 	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	RequireDescription       bool               `json:"require_description"`
+	UpdatedBy                string             `json:"updated_by"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
 }
 
 type AgentPrincipal struct {

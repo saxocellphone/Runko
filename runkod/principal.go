@@ -82,17 +82,43 @@ func (s *Server) agentPolicyForAuthor(ctx context.Context, name string) (receive
 	}
 	for i := range s.Principals {
 		if s.Principals[i].Name == name {
-			return s.Principals[i].Policy, s.Principals[i].IsAgent
+			// A static agent's policy is resolved from the org too, so the
+			// merge gate and the receive gate enforce the SAME policy - but an
+			// org WITHOUT an override falls back to the principal's OWN policy
+			// (its flag/boot baseline), not the global default.
+			if s.Principals[i].IsAgent {
+				return agentPolicyForOr(ctx, s.Directory, s.SettingsOrg, s.Principals[i].Policy), true
+			}
+			return s.Principals[i].Policy, false
 		}
 	}
 	if s.Store != nil {
 		if _, found, err := s.Store.GetAgentPrincipalByName(ctx, name); err == nil && found {
-			// Ephemeral agents always carry the default policy (§8.7,
-			// agentprincipal.go's principal()).
-			return receive.DefaultAgentPolicy(), true
+			return agentPolicyFor(ctx, s.Directory, s.SettingsOrg), true
 		}
 	}
 	return receive.AgentPolicy{}, false
+}
+
+// agentPolicyForOr is the SINGLE agent-policy resolution point (§8.7): an org's
+// operator-set override if one exists, else the caller's fallback. Every
+// agent-policy read (receive-time via principalByName/ap.principal, merge-time
+// via agentPolicyForAuthor) routes through it, so one org policy governs both.
+// Fails safe to the fallback on any lookup error.
+func agentPolicyForOr(ctx context.Context, dir Directory, org string, fallback receive.AgentPolicy) receive.AgentPolicy {
+	if dir != nil && org != "" {
+		if pol, ok, err := dir.GetAgentPolicy(ctx, org, ""); err == nil && ok {
+			return pol
+		}
+	}
+	return fallback
+}
+
+// agentPolicyFor resolves an org's policy, defaulting to the safe
+// DefaultAgentPolicy() when the org has no override (the ephemeral-agent case,
+// which carries no baked policy). A fresh org stays locked down.
+func agentPolicyFor(ctx context.Context, dir Directory, org string) receive.AgentPolicy {
+	return agentPolicyForOr(ctx, dir, org, receive.DefaultAgentPolicy())
 }
 
 // principalByName is the Processor-side lookup: by the time a push reaches
@@ -105,6 +131,14 @@ func (p *Processor) principalByName(name string) *Principal {
 	}
 	for i := range p.Principals {
 		if p.Principals[i].Name == name {
+			// A static agent's policy is resolved from the org at enforcement,
+			// falling back to its OWN policy (its boot baseline) when the org
+			// has no override. Copy so the shared slice element is never mutated.
+			if p.Principals[i].IsAgent {
+				cp := p.Principals[i]
+				cp.Policy = agentPolicyForOr(context.Background(), p.Directory, p.OrgName, cp.Policy)
+				return &cp
+			}
 			return &p.Principals[i]
 		}
 	}
@@ -133,7 +167,7 @@ func (p *Processor) principalByName(name string) *Principal {
 	// DAG nudge) under the agent's task-named identity.
 	if p.Store != nil {
 		if ap, found, err := p.Store.GetAgentPrincipalByName(context.Background(), name); err == nil && found && ap.Live(time.Now()) {
-			return ap.principal()
+			return ap.principal(agentPolicyFor(context.Background(), p.Directory, p.OrgName))
 		}
 	}
 	return nil

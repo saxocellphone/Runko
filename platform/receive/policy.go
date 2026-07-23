@@ -11,7 +11,7 @@ import (
 // table is the persisted form of the same shape). Keep in sync by hand until
 // codegen exists (same debt as project.Manifest, see project/doc.go).
 type AgentPolicy struct {
-	RequireWorkspaceAffinity bool
+	RequireWorkspaceAffinity bool `json:"require_workspace_affinity"`
 	// RequireDescription makes the §8.6 change description (`runko change
 	// describe`) mandatory for an agent's changes: its absence becomes a
 	// MERGE blocker (runkod's mergeRequirements, §8.7 gate on §8.6 state) -
@@ -19,14 +19,14 @@ type AgentPolicy struct {
 	// Unlike the size caps this is NOT a receive-time gate (the blurb is set
 	// after the push, and never derived from the commit message, §8.6); it
 	// is evaluated at land/merge-requirements time against change.Description.
-	RequireDescription    bool
-	MaxChangedFiles       int
-	MaxDiffBytes          int64
-	CanCreateProjects     bool
-	CanLandChanges        bool
-	CanModifyOwners       bool
-	CanEnableCapabilities []string
-	DenylistPaths         []string // glob patterns, affected.MatchPath syntax
+	RequireDescription    bool     `json:"require_description"`
+	MaxChangedFiles       int      `json:"max_changed_files"`
+	MaxDiffBytes          int64    `json:"max_diff_bytes"`
+	CanCreateProjects     bool     `json:"can_create_projects"`
+	CanLandChanges        bool     `json:"can_land_changes"`
+	CanModifyOwners       bool     `json:"can_modify_owners"`
+	CanEnableCapabilities []string `json:"can_enable_capabilities"`
+	DenylistPaths         []string `json:"denylist_paths"` // glob patterns, affected.MatchPath syntax
 }
 
 // DefaultAgentPolicy mirrors the illustrative org defaults in §8.7.

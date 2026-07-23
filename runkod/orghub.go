@@ -34,6 +34,7 @@ import (
 	"github.com/saxocellphone/runko/platform/core"
 	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/land"
+	"github.com/saxocellphone/runko/platform/receive"
 	"regexp"
 	"sort"
 	"strings"
@@ -73,6 +74,14 @@ type Directory interface {
 	// GetOrgSettings returns the zero value for an org with nothing set.
 	GetOrgSettings(ctx context.Context, orgName string) (OrgSettings, error)
 	UpdateOrgSettings(ctx context.Context, orgName string, settings OrgSettings) error
+	// GetAgentPolicy returns an org's stored agent-policy override and whether
+	// one exists (false -> receive.DefaultAgentPolicy() applies, so a fresh org
+	// stays locked down). name is "" for the org-wide policy. SetAgentPolicy
+	// upserts it (operator-only, gated at the API layer - never an agent);
+	// DeleteAgentPolicy drops it back to the default (§8.7).
+	GetAgentPolicy(ctx context.Context, orgName, name string) (receive.AgentPolicy, bool, error)
+	SetAgentPolicy(ctx context.Context, orgName, name string, policy receive.AgentPolicy, updatedBy string) error
+	DeleteAgentPolicy(ctx context.Context, orgName, name string) error
 }
 
 // OrgMember is one account's membership in one org.

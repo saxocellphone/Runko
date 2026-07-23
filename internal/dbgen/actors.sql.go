@@ -18,7 +18,7 @@ INSERT INTO agent_policies (
     can_create_projects, can_land_changes, can_modify_owners, can_enable_capabilities, denylist_paths
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, org_id, name, require_workspace_affinity, max_changed_files, max_diff_bytes, can_create_projects, can_land_changes, can_modify_owners, can_enable_capabilities, denylist_paths, created_at
+) RETURNING id, org_id, name, require_workspace_affinity, max_changed_files, max_diff_bytes, can_create_projects, can_land_changes, can_modify_owners, can_enable_capabilities, denylist_paths, created_at, require_description, updated_by, updated_at
 `
 
 type CreateAgentPolicyParams struct {
@@ -61,6 +61,9 @@ func (q *Queries) CreateAgentPolicy(ctx context.Context, db DBTX, arg CreateAgen
 		&i.CanEnableCapabilities,
 		&i.DenylistPaths,
 		&i.CreatedAt,
+		&i.RequireDescription,
+		&i.UpdatedBy,
+		&i.UpdatedAt,
 	)
 	return &i, err
 }
@@ -149,7 +152,7 @@ func (q *Queries) GetActorsByIDs(ctx context.Context, db DBTX, ids []uuid.UUID) 
 }
 
 const getAgentPolicy = `-- name: GetAgentPolicy :one
-SELECT id, org_id, name, require_workspace_affinity, max_changed_files, max_diff_bytes, can_create_projects, can_land_changes, can_modify_owners, can_enable_capabilities, denylist_paths, created_at FROM agent_policies WHERE id = $1
+SELECT id, org_id, name, require_workspace_affinity, max_changed_files, max_diff_bytes, can_create_projects, can_land_changes, can_modify_owners, can_enable_capabilities, denylist_paths, created_at, require_description, updated_by, updated_at FROM agent_policies WHERE id = $1
 `
 
 func (q *Queries) GetAgentPolicy(ctx context.Context, db DBTX, id uuid.UUID) (*AgentPolicy, error) {
@@ -168,12 +171,15 @@ func (q *Queries) GetAgentPolicy(ctx context.Context, db DBTX, id uuid.UUID) (*A
 		&i.CanEnableCapabilities,
 		&i.DenylistPaths,
 		&i.CreatedAt,
+		&i.RequireDescription,
+		&i.UpdatedBy,
+		&i.UpdatedAt,
 	)
 	return &i, err
 }
 
 const getAgentPolicyByName = `-- name: GetAgentPolicyByName :one
-SELECT id, org_id, name, require_workspace_affinity, max_changed_files, max_diff_bytes, can_create_projects, can_land_changes, can_modify_owners, can_enable_capabilities, denylist_paths, created_at FROM agent_policies WHERE org_id = $1 AND name = $2
+SELECT id, org_id, name, require_workspace_affinity, max_changed_files, max_diff_bytes, can_create_projects, can_land_changes, can_modify_owners, can_enable_capabilities, denylist_paths, created_at, require_description, updated_by, updated_at FROM agent_policies WHERE org_id = $1 AND name = $2
 `
 
 type GetAgentPolicyByNameParams struct {
@@ -197,6 +203,9 @@ func (q *Queries) GetAgentPolicyByName(ctx context.Context, db DBTX, arg GetAgen
 		&i.CanEnableCapabilities,
 		&i.DenylistPaths,
 		&i.CreatedAt,
+		&i.RequireDescription,
+		&i.UpdatedBy,
+		&i.UpdatedAt,
 	)
 	return &i, err
 }
