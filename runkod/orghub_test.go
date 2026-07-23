@@ -1008,3 +1008,65 @@ func TestOrglessHubServesInviteFeed(t *testing.T) {
 		t.Fatalf("acked rows still due: %v", left)
 	}
 }
+
+// TestAgentPolicyAdminAPI covers the operator-only per-org agent-policy surface
+// (§8.7): the operator round-trips an override, an unknown org is 404, and a
+// non-operator (store account) or an agent is refused - the policy that governs
+// agents is never agent-settable.
+func TestAgentPolicyAdminAPI(t *testing.T) {
+	agent := Principal{Name: "botsy", Token: "agent-token", IsAgent: true}
+	srv, _ := newTestHub(t, true, agent)
+	hubSignup(t, srv, "alice", "alicepw123")
+	if status, _ := hubDo(t, srv, "POST", "/api/orgs", "alice", "alicepw123", "", map[string]string{"name": "acme"}); status != http.StatusCreated {
+		t.Fatalf("create acme failed")
+	}
+
+	// Operator GET: no override yet -> the default (carries the workflow denylist).
+	status, body := hubDo(t, srv, "GET", "/api/admin/orgs/acme/agent-policy", "", "", "sekret", nil)
+	if status != http.StatusOK || body["overridden"] != false {
+		t.Fatalf("default GET: %d %v", status, body)
+	}
+	if pol := body["policy"].(map[string]any); len(pol["denylist_paths"].([]any)) == 0 {
+		t.Fatalf("default policy must carry the denylist, got %v", pol)
+	}
+
+	// Operator PUT a loosened policy (no denylist, owners editable).
+	loose := receive.DefaultAgentPolicy()
+	loose.DenylistPaths = nil
+	loose.CanModifyOwners = true
+	if status, body = hubDo(t, srv, "PUT", "/api/admin/orgs/acme/agent-policy", "", "", "sekret", loose); status != http.StatusOK {
+		t.Fatalf("operator PUT: %d %v", status, body)
+	}
+
+	// GET reflects the override.
+	status, body = hubDo(t, srv, "GET", "/api/admin/orgs/acme/agent-policy", "", "", "sekret", nil)
+	if status != http.StatusOK || body["overridden"] != true {
+		t.Fatalf("overridden GET: %d %v", status, body)
+	}
+	pol := body["policy"].(map[string]any)
+	dl, _ := pol["denylist_paths"].([]any) // nil (JSON null) once the denylist is dropped
+	if len(dl) != 0 || pol["can_modify_owners"] != true {
+		t.Fatalf("override not applied: %v", pol)
+	}
+
+	// Unknown org -> 404.
+	if status, _ = hubDo(t, srv, "GET", "/api/admin/orgs/nope/agent-policy", "", "", "sekret", nil); status != http.StatusNotFound {
+		t.Fatalf("unknown org: %d", status)
+	}
+	// A store account (even an org admin) is NOT an operator.
+	if status, body = hubDo(t, srv, "GET", "/api/admin/orgs/acme/agent-policy", "alice", "alicepw123", "", nil); status != http.StatusForbidden || body["Code"] != "operator_only" {
+		t.Fatalf("store account on policy surface: %d %v", status, body)
+	}
+	// An agent is refused too (it never passes the operator gate).
+	if status, _ = hubDo(t, srv, "PUT", "/api/admin/orgs/acme/agent-policy", "botsy", "agent-token", "", loose); status != http.StatusForbidden {
+		t.Fatalf("agent on policy surface must be refused, got %d", status)
+	}
+
+	// Defense-in-depth: the handler refuses an agent caller explicitly.
+	if !agentPolicyDenied(httptest.NewRecorder(), caller{principal: &Principal{IsAgent: true}}) {
+		t.Fatal("agentPolicyDenied must refuse an agent caller")
+	}
+	if agentPolicyDenied(httptest.NewRecorder(), caller{principal: &Principal{}}) {
+		t.Fatal("agentPolicyDenied must allow a non-agent caller")
+	}
+}

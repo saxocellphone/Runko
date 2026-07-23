@@ -290,6 +290,13 @@ func (h *OrgHub) Handler() (http.Handler, error) {
 	mux.Handle("/api/admin/orgs/{org}/unarchive", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
 		http.MethodPost: h.archiveHandler(false),
 	})))
+	// Per-org agent policy (§8.7): operator-only. GET reads the effective
+	// policy, PUT sets a complete override, DELETE resets to the default.
+	mux.Handle("/api/admin/orgs/{org}/agent-policy", h.Default.rpcMiddlewareGlobal(byMethod(map[string]http.HandlerFunc{
+		http.MethodGet:    h.handleGetAgentPolicy,
+		http.MethodPut:    h.handleSetAgentPolicy,
+		http.MethodDelete: h.handleDeleteAgentPolicy,
+	})))
 	// Sign-up at the hub level supersedes the default server's own
 	// handler (more-specific mux pattern): the standard SaaS shape is
 	// account + org in ONE step, and org assembly is the hub's job. The
@@ -1374,6 +1381,98 @@ func (h *OrgHub) archiveHandler(archive bool) http.HandlerFunc {
 		h.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "archived": archive})
 	}
+}
+
+// agentPolicyDenied is defense-in-depth for the agent-policy surface (§8.7): an
+// agent principal may never read or set agent policy. It should never pass
+// requireOperator either, but a policy that GOVERNS agents must never be
+// agent-settable, and this one line survives future gate refactors.
+func agentPolicyDenied(w http.ResponseWriter, c caller) bool {
+	if c.principal != nil && c.principal.IsAgent {
+		writeAPIError(w, typedErr(http.StatusForbidden, clierr.Error{
+			Code: "agents_cannot_set_policy", Field: "principal",
+			Message: "an agent may not read or set agent policy",
+		}))
+		return true
+	}
+	return false
+}
+
+// agentPolicyOrg validates the operator + org for the agent-policy handlers and
+// returns the org name. The default org (the runko root mount) IS settable here -
+// unlike archive - because loosening the deployment's own org is the point.
+func (h *OrgHub) agentPolicyOrg(w http.ResponseWriter, r *http.Request) (caller, string, bool) {
+	c, ok := h.requireOperator(w, r)
+	if !ok {
+		return c, "", false
+	}
+	if agentPolicyDenied(w, c) {
+		return c, "", false
+	}
+	orgName := r.PathValue("org")
+	if !h.knownOrg(orgName) {
+		writeAPIError(w, typedErr(http.StatusNotFound, clierr.Error{
+			Code: "unknown_org", Field: "org", Message: fmt.Sprintf("no org named %q", orgName),
+		}))
+		return c, "", false
+	}
+	return c, orgName, true
+}
+
+// handleGetAgentPolicy: the org's EFFECTIVE agent policy (its stored override or
+// the default) and whether an override exists.
+func (h *OrgHub) handleGetAgentPolicy(w http.ResponseWriter, r *http.Request) {
+	_, orgName, ok := h.agentPolicyOrg(w, r)
+	if !ok {
+		return
+	}
+	pol, overridden, err := h.Directory.GetAgentPolicy(r.Context(), orgName, "")
+	if err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
+	if !overridden {
+		pol = receive.DefaultAgentPolicy()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "overridden": overridden, "policy": pol})
+}
+
+// handleSetAgentPolicy: store a COMPLETE policy for the org (the CLI does a
+// read-modify-write, so every field is set).
+func (h *OrgHub) handleSetAgentPolicy(w http.ResponseWriter, r *http.Request) {
+	c, orgName, ok := h.agentPolicyOrg(w, r)
+	if !ok {
+		return
+	}
+	var pol receive.AgentPolicy
+	if err := json.NewDecoder(r.Body).Decode(&pol); err != nil {
+		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "bad_policy", Field: "body", Message: fmt.Sprintf("decode agent policy: %v", err),
+		}))
+		return
+	}
+	var updatedBy string
+	if c.principal != nil {
+		updatedBy = c.principal.Name
+	}
+	if err := h.Directory.SetAgentPolicy(r.Context(), orgName, "", pol, updatedBy); err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "overridden": true, "policy": pol})
+}
+
+// handleDeleteAgentPolicy: drop the override so DefaultAgentPolicy() applies.
+func (h *OrgHub) handleDeleteAgentPolicy(w http.ResponseWriter, r *http.Request) {
+	_, orgName, ok := h.agentPolicyOrg(w, r)
+	if !ok {
+		return
+	}
+	if err := h.Directory.DeleteAgentPolicy(r.Context(), orgName, ""); err != nil {
+		writeAPIError(w, internalErr(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"org": orgName, "overridden": false, "policy": receive.DefaultAgentPolicy()})
 }
 
 // restrictedProjects lists trunk-manifest projects declaring
