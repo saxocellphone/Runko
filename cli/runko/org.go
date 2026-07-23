@@ -99,7 +99,7 @@ hub-level surface only.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: groupRunE,
 	}
-	cmd.AddCommand(newOrgCreateCmd(a), newOrgListCmd(a), newOrgAddMemberCmd(a), newOrgBootstrapCmd(a))
+	cmd.AddCommand(newOrgCreateCmd(a), newOrgListCmd(a), newOrgAddMemberCmd(a), newOrgBootstrapCmd(a), newOrgAgentPolicyCmd(a))
 	return cmd
 }
 
