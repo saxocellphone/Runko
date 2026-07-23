@@ -760,6 +760,13 @@ func (s *PostgresStore) OpenDeployRecord(ctx context.Context, trunkSHA, changeKe
 	})
 }
 
+func (s *PostgresStore) PruneStalePendingDeployRecords(ctx context.Context, olderThan time.Time) (int64, error) {
+	return s.Queries.PruneStalePendingDeployRecords(ctx, s.Pool, dbgen.PruneStalePendingDeployRecordsParams{
+		MonorepoID: s.MonorepoID,
+		CreatedAt:  pgtype.Timestamptz{Time: olderThan, Valid: true},
+	})
+}
+
 func (s *PostgresStore) RecordDeployImage(ctx context.Context, trunkSHA string, img DeployImageRow) (DeployRecord, bool, bool, error) {
 	// Unknown sha (no record opened at land) -> ok=false, not an error.
 	if _, err := s.Queries.GetDeployRecord(ctx, s.Pool, dbgen.GetDeployRecordParams{

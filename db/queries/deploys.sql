@@ -9,6 +9,15 @@ INSERT INTO deploy_records (monorepo_id, trunk_sha, change_key, expected, proven
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (monorepo_id, trunk_sha) DO NOTHING;
 
+-- name: PruneStalePendingDeployRecords :execrows
+-- Drop pending records older than the cutoff. An org whose CD pins image
+-- digests in CI (not via report-image) never reports, so its records never
+-- flip to 'ready'; without this they accrue unbounded. The cutoff is generous
+-- (well past any real post-land build), so an in-flight report is never lost.
+-- deploy_images cascade-delete with the record (FK ON DELETE CASCADE).
+DELETE FROM deploy_records
+WHERE monorepo_id = $1 AND state = 'pending' AND created_at < $2;
+
 -- name: GetDeployRecord :one
 SELECT * FROM deploy_records WHERE monorepo_id = $1 AND trunk_sha = $2;
 

@@ -3,9 +3,17 @@ package runkod
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/saxocellphone/runko/platform/deploy"
 )
+
+// deployRecordTTL bounds how long a 'pending' deploy record may sit before
+// it's pruned as never-going-to-complete. An org that pins image digests in CI
+// (not via report-image) never reports, so its records never flip to 'ready';
+// this keeps them from accruing. Generous - well past any real post-land build
+// - so a genuinely in-flight report is never dropped.
+const deployRecordTTL = 24 * time.Hour
 
 // openDeployRecordForLand opens the deploy record for a just-landed commit
 // (§14.10): it computes the deployable images the landed range affects -
@@ -40,6 +48,15 @@ func (s *Server) openDeployRecordForLand(ctx context.Context, change Change, lan
 	images := deploy.ImagesForAffected(result, indexed)
 	if len(images) == 0 {
 		return // docs-only / non-deployable land: no images, no rollout
+	}
+	// Opportunistically drop this org's stale pending records before opening a
+	// new one: an org that pins digests in CI (not report-image) never
+	// completes a record, so without a prune they accrue. Best-effort - a
+	// failure here must never fail an already-durable land.
+	if n, err := s.Store.PruneStalePendingDeployRecords(ctx, time.Now().Add(-deployRecordTTL)); err != nil {
+		log.Printf("runkod: %s: prune stale deploy records: %v", change.ChangeKey, err)
+	} else if n > 0 {
+		log.Printf("runkod: pruned %d stale pending deploy record(s)", n)
 	}
 	if err := s.Store.OpenDeployRecord(ctx, landedSHA, change.ChangeKey, "runko change "+change.ChangeKey, images); err != nil {
 		log.Printf("runkod: %s: open deploy record: %v", change.ChangeKey, err)

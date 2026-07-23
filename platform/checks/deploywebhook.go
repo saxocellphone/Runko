@@ -6,9 +6,9 @@ import "time"
 // docs/spec/webhooks/deploy-images-ready.schema.json - a standalone shape,
 // NOT the change-event envelope: it is keyed by the landed trunk sha, not a
 // change. Emitted once every affected image for a landed commit has reported
-// its built digest (via runko-ci report-image); the runko-deployer consumes
-// it to pin the digests into the GitOps repo and let Argo CD roll - the
-// inverted CD trigger (GitHub only builds and reports, Runko rolls).
+// its built digest (via runko-ci report-image); a CD consumer pins the
+// digests into the deployment's GitOps repo and lets its CD (e.g. Argo CD)
+// roll - the inverted CD trigger (GitHub only builds and reports, Runko rolls).
 // Delivery rides the same outbox/HMAC/retry machinery as the change
 // envelope. Same keep-in-sync-by-hand debt as WebhookEnvelope.
 type DeployImagesReadyWebhook struct {
