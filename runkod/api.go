@@ -12,6 +12,7 @@ import (
 	"net/http/cgi"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1541,6 +1542,11 @@ type deployImageReport struct {
 // the runko-deployer pins the digests into the GitOps repo and Argo CD rolls.
 // A report for a sha with no open record is 404: the expected set is only
 // known at land (an unaffected/docs-only land opens no record).
+// deployDigestPattern is a registry content digest: sha256:<64 lowercase hex>.
+// handlePostDeployImage rejects anything else so a malformed digest can never
+// reach a deploy record (which drives the GitOps rollout).
+var deployDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
 func (s *Server) handlePostDeployImage(w http.ResponseWriter, r *http.Request) {
 	sha := r.PathValue("sha")
 	var report deployImageReport
@@ -1550,6 +1556,14 @@ func (s *Server) handlePostDeployImage(w http.ResponseWriter, r *http.Request) {
 	}
 	if report.Image == "" || report.Digest == "" {
 		http.Error(w, "image and digest are required", http.StatusBadRequest)
+		return
+	}
+	// Reject a malformed digest before it reaches a deploy record: the record
+	// is a GitOps rollout trigger, so a bogus digest (e.g. a hand-typed
+	// diagnostic value) pins an unpullable image and takes the deployment down.
+	// A registry content digest is always sha256:<64 lowercase hex>.
+	if !deployDigestPattern.MatchString(report.Digest) {
+		http.Error(w, "digest must be sha256:<64 hex>", http.StatusBadRequest)
 		return
 	}
 	rec, ok, nowReady, err := s.Store.RecordDeployImage(r.Context(), sha, DeployImageRow{

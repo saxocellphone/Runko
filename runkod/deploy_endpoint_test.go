@@ -32,8 +32,12 @@ func TestDeployImageEndpointEmitsImagesReadyOnce(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 
+	// Well-formed registry content digests (sha256:<64 hex>).
+	digestRunkod := "sha256:" + strings.Repeat("a", 64)
+	digestWeb := "sha256:" + strings.Repeat("b", 64)
+
 	// First of two images: 201, nothing ready yet.
-	if rr := postDeployImage(t, srv, "sha1", `{"image":"runkod","image_ref":"ghcr.io/x/runkod","digest":"sha256:aaa","reporter":"gha"}`); rr.Code != http.StatusCreated {
+	if rr := postDeployImage(t, srv, "sha1", `{"image":"runkod","image_ref":"ghcr.io/x/runkod","digest":"`+digestRunkod+`","reporter":"gha"}`); rr.Code != http.StatusCreated {
 		t.Fatalf("first report: got %d, body %q", rr.Code, rr.Body.String())
 	}
 	if due, _ := mem.ListDueWebhookDeliveries(ctx, time.Now().Add(time.Hour)); len(due) != 0 {
@@ -41,7 +45,7 @@ func TestDeployImageEndpointEmitsImagesReadyOnce(t *testing.T) {
 	}
 
 	// Completing image: 201 + exactly one deploy.images_ready enqueued.
-	if rr := postDeployImage(t, srv, "sha1", `{"image":"web","digest":"sha256:bbb"}`); rr.Code != http.StatusCreated {
+	if rr := postDeployImage(t, srv, "sha1", `{"image":"web","digest":"`+digestWeb+`"}`); rr.Code != http.StatusCreated {
 		t.Fatalf("second report: got %d", rr.Code)
 	}
 	due, err := mem.ListDueWebhookDeliveries(ctx, time.Now().Add(time.Hour))
@@ -60,7 +64,7 @@ func TestDeployImageEndpointEmitsImagesReadyOnce(t *testing.T) {
 	}
 
 	// A late duplicate report must NOT re-emit (Argo rolls once).
-	if rr := postDeployImage(t, srv, "sha1", `{"image":"runkod","digest":"sha256:aaa"}`); rr.Code != http.StatusCreated {
+	if rr := postDeployImage(t, srv, "sha1", `{"image":"runkod","digest":"`+digestRunkod+`"}`); rr.Code != http.StatusCreated {
 		t.Fatalf("dup report: got %d", rr.Code)
 	}
 	if due, _ := mem.ListDueWebhookDeliveries(ctx, time.Now().Add(time.Hour)); len(due) != 1 {
@@ -68,12 +72,48 @@ func TestDeployImageEndpointEmitsImagesReadyOnce(t *testing.T) {
 	}
 
 	// A report for a sha with no open record is 404 (expected set unknown).
-	if rr := postDeployImage(t, srv, "nope", `{"image":"runkod","digest":"z"}`); rr.Code != http.StatusNotFound {
+	if rr := postDeployImage(t, srv, "nope", `{"image":"runkod","digest":"`+digestRunkod+`"}`); rr.Code != http.StatusNotFound {
 		t.Fatalf("unknown sha: got %d", rr.Code)
 	}
 
 	// Missing required fields: 400.
 	if rr := postDeployImage(t, srv, "sha1", `{"image":"runkod"}`); rr.Code != http.StatusBadRequest {
 		t.Fatalf("missing digest: got %d", rr.Code)
+	}
+}
+
+// TestDeployImageEndpointRejectsMalformedDigest guards the input-validation gap
+// that turned a hand-typed diagnostic value (sha256:diagnostic) into an
+// unpullable image pin and an outage: a digest that is not sha256:<64 hex> must
+// be rejected with 400 BEFORE it can reach a deploy record, even when a record
+// is open for the commit.
+func TestDeployImageEndpointRejectsMalformedDigest(t *testing.T) {
+	mem := NewMemStore()
+	srv := &Server{Store: mem, SettingsOrg: "org"}
+	ctx := context.Background()
+	if err := mem.OpenDeployRecord(ctx, "sha1", "Ichange", "https://ci/run/1", []string{"runkod"}); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	bad := []string{
+		"sha256:diagnostic",                 // the outage value
+		"sha256:aaa",                        // too short
+		"sha256:" + strings.Repeat("a", 63), // 63 hex, off by one
+		"sha256:" + strings.Repeat("a", 65), // 65 hex, off by one
+		"sha256:" + strings.Repeat("A", 64), // uppercase hex
+		"sha256:" + strings.Repeat("g", 64), // non-hex
+		strings.Repeat("a", 64),             // missing algorithm prefix
+		"sha512:" + strings.Repeat("a", 64), // wrong algorithm
+	}
+	for _, d := range bad {
+		rr := postDeployImage(t, srv, "sha1", `{"image":"runkod","digest":"`+d+`"}`)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("digest %q: got %d, want 400", d, rr.Code)
+		}
+	}
+
+	// The rejected reports must not have opened/advanced the record: nothing ready.
+	if due, _ := mem.ListDueWebhookDeliveries(ctx, time.Now().Add(time.Hour)); len(due) != 0 {
+		t.Fatalf("malformed reports must not emit a webhook, got %d", len(due))
 	}
 }
