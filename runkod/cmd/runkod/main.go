@@ -852,6 +852,10 @@ func parsePrincipal(v string) (runkod.Principal, error) {
 			principal.Token = val
 		case key == "agent" && (!hasVal || val == "true"):
 			principal.IsAgent = true
+			// Boot-time SAFE BASELINE only: no Directory exists yet to resolve
+			// an org override. Enforcement (principalByName / agentPolicyForAuthor)
+			// re-resolves this static agent's policy from the org via
+			// agentPolicyFor, so a per-org override still governs it (§8.7).
 			principal.Policy = receive.DefaultAgentPolicy()
 		case key == "admin" && (!hasVal || val == "true"):
 			principal.Admin = true

@@ -86,6 +86,7 @@ go_test(
     srcs = [
         "activity_test.go",
         "affectedcache_test.go",
+        "agentpolicy_test.go",
         "agentprincipal_test.go",
         "api_test.go",
         "approve_test.go",

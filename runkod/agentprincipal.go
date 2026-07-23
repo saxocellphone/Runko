@@ -42,11 +42,11 @@ func (ap AgentPrincipal) Live(now time.Time) bool {
 	return !ap.Revoked && now.Before(ap.ExpiresAt)
 }
 
-// principal projects the row onto the enforcement type every guard
-// consumes. Ephemeral agents always carry the default §8.7 policy in v1;
-// named policy attachment waits until agent_policies rows are creatable.
-func (ap AgentPrincipal) principal() *Principal {
-	return &Principal{Name: ap.Name, IsAgent: true, Policy: receive.DefaultAgentPolicy()}
+// principal projects the row onto the enforcement type every guard consumes.
+// The caller resolves policy via agentPolicyFor (the org's stored override, or
+// DefaultAgentPolicy() when none) - so a per-org policy governs this agent.
+func (ap AgentPrincipal) principal(policy receive.AgentPolicy) *Principal {
+	return &Principal{Name: ap.Name, IsAgent: true, Policy: policy}
 }
 
 const (
@@ -210,7 +210,7 @@ func (s *Server) agentByToken(token string) *Principal {
 	if err != nil || !ok || !ap.Live(time.Now()) {
 		return nil
 	}
-	return ap.principal()
+	return ap.principal(agentPolicyFor(context.Background(), s.Directory, s.SettingsOrg))
 }
 
 // agentByBasic resolves a name+token Basic pair to a LIVE agent principal
@@ -226,5 +226,5 @@ func (s *Server) agentByBasic(user, pass string) *Principal {
 	if !constantTimeEquals(hashAgentToken(pass), ap.TokenHash) {
 		return nil
 	}
-	return ap.principal()
+	return ap.principal(agentPolicyFor(context.Background(), s.Directory, s.SettingsOrg))
 }

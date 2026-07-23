@@ -4,6 +4,7 @@ go_library(
     name = "dbgen",
     srcs = [
         "actors.sql.go",
+        "agent_policies.sql.go",
         "agentprincipals.sql.go",
         "changes.sql.go",
         "checks.sql.go",

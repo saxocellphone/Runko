@@ -225,3 +225,26 @@ func TestEvaluatePolicyProjectCreateNamingOthersPasses(t *testing.T) {
 		t.Fatalf("expected no violations for a create naming the minting human, got %+v", v)
 	}
 }
+
+// TestPolicyResponsiveToConfig is the per-org-configurable-policy contract: the
+// SAME denylisted + owners-touching push is refused under the default policy and
+// permitted once the policy is loosened, so an org override genuinely changes
+// what an agent may write (§8.7).
+func TestPolicyResponsiveToConfig(t *testing.T) {
+	summary := PushSummary{
+		ChangedFiles:      []string{".github/workflows/ci.yml", "platform/OWNERS"},
+		WorkspaceAffinity: []string{""}, // root affinity so affinity never fires
+		ModifiesOwners:    true,
+	}
+	def := violationCodes(EvaluatePolicy(DefaultAgentPolicy(), summary))
+	if !def["denylist_path"] || !def["owners_modification_denied"] {
+		t.Fatalf("default policy must refuse workflows + owners, got %v", def)
+	}
+	loose := DefaultAgentPolicy()
+	loose.DenylistPaths = nil
+	loose.CanModifyOwners = true
+	got := violationCodes(EvaluatePolicy(loose, summary))
+	if got["denylist_path"] || got["owners_modification_denied"] {
+		t.Fatalf("loosened policy must permit workflows + owners, got %v", got)
+	}
+}

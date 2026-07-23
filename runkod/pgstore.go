@@ -1577,6 +1577,62 @@ func (s *PostgresStore) UpdateOrgSettings(ctx context.Context, orgName string, s
 	return nil
 }
 
+// agentPolicyFromRow maps a stored agent_policies row onto the enforcement
+// type. The row is a COMPLETE policy (every field is a column), so no merge:
+// a future AgentPolicy field is a new column with a safe migration default.
+func agentPolicyFromRow(row *dbgen.AgentPolicy) receive.AgentPolicy {
+	return receive.AgentPolicy{
+		RequireWorkspaceAffinity: row.RequireWorkspaceAffinity,
+		RequireDescription:       row.RequireDescription,
+		MaxChangedFiles:          int(row.MaxChangedFiles),
+		MaxDiffBytes:             row.MaxDiffBytes,
+		CanCreateProjects:        row.CanCreateProjects,
+		CanLandChanges:           row.CanLandChanges,
+		CanModifyOwners:          row.CanModifyOwners,
+		CanEnableCapabilities:    row.CanEnableCapabilities,
+		DenylistPaths:            row.DenylistPaths,
+	}
+}
+
+func (s *PostgresStore) GetAgentPolicy(ctx context.Context, orgName, name string) (receive.AgentPolicy, bool, error) {
+	row, err := s.Queries.GetAgentPolicyForOrg(ctx, s.Pool, dbgen.GetAgentPolicyForOrgParams{OrgName: orgName, Name: name})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return receive.AgentPolicy{}, false, nil
+	}
+	if err != nil {
+		return receive.AgentPolicy{}, false, fmt.Errorf("runkod: agent policy of %q: %w", orgName, err)
+	}
+	return agentPolicyFromRow(row), true, nil
+}
+
+func (s *PostgresStore) SetAgentPolicy(ctx context.Context, orgName, name string, p receive.AgentPolicy, updatedBy string) error {
+	err := s.Queries.UpsertAgentPolicyForOrg(ctx, s.Pool, dbgen.UpsertAgentPolicyForOrgParams{
+		OrgName:                  orgName,
+		Name:                     name,
+		RequireWorkspaceAffinity: p.RequireWorkspaceAffinity,
+		RequireDescription:       p.RequireDescription,
+		MaxChangedFiles:          int32(p.MaxChangedFiles),
+		MaxDiffBytes:             p.MaxDiffBytes,
+		CanCreateProjects:        p.CanCreateProjects,
+		CanLandChanges:           p.CanLandChanges,
+		CanModifyOwners:          p.CanModifyOwners,
+		CanEnableCapabilities:    p.CanEnableCapabilities,
+		DenylistPaths:            p.DenylistPaths,
+		UpdatedBy:                updatedBy,
+	})
+	if err != nil {
+		return fmt.Errorf("runkod: set agent policy of %q: %w", orgName, err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) DeleteAgentPolicy(ctx context.Context, orgName, name string) error {
+	if err := s.Queries.DeleteAgentPolicyForOrg(ctx, s.Pool, dbgen.DeleteAgentPolicyForOrgParams{OrgName: orgName, Name: name}); err != nil {
+		return fmt.Errorf("runkod: delete agent policy of %q: %w", orgName, err)
+	}
+	return nil
+}
+
 func (s *PostgresStore) ListOrgRecords(ctx context.Context) ([]OrgRecord, error) {
 	rows, err := s.Queries.ListOrgs(ctx, s.Pool)
 	if err != nil {

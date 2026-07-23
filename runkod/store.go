@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/saxocellphone/runko/platform/checks"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 // Change is runkod's in-daemon view of a Change - independent of
@@ -541,11 +542,12 @@ type MemStore struct {
 	// Directory state (orghub.go): org registry + memberships + settings.
 	// Only the hub's designated directory store (the default org's)
 	// carries these - per-org MemStores leave them empty.
-	orgNames    []string
-	orgMembers  map[string]map[string]string // org -> principal -> role
-	orgSettings map[string]OrgSettings
-	orgArchived map[string]bool
-	nextID      int
+	orgNames      []string
+	orgMembers    map[string]map[string]string // org -> principal -> role
+	orgSettings   map[string]OrgSettings
+	agentPolicies map[string]receive.AgentPolicy // key: orgName+"\x00"+policyName
+	orgArchived   map[string]bool
+	nextID        int
 	// Now overrides the clock check-run timestamps use; nil means time.Now
 	// (tests inject a fake clock to exercise §14.4.2 staleness).
 	Now func() time.Time
@@ -1606,5 +1608,31 @@ func (s *MemStore) UpdateOrgSettings(ctx context.Context, orgName string, settin
 		s.orgSettings = map[string]OrgSettings{}
 	}
 	s.orgSettings[orgName] = settings
+	return nil
+}
+
+func agentPolicyKey(orgName, name string) string { return orgName + "\x00" + name }
+
+func (s *MemStore) GetAgentPolicy(ctx context.Context, orgName, name string) (receive.AgentPolicy, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.agentPolicies[agentPolicyKey(orgName, name)]
+	return p, ok, nil
+}
+
+func (s *MemStore) SetAgentPolicy(ctx context.Context, orgName, name string, p receive.AgentPolicy, updatedBy string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.agentPolicies == nil {
+		s.agentPolicies = map[string]receive.AgentPolicy{}
+	}
+	s.agentPolicies[agentPolicyKey(orgName, name)] = p
+	return nil
+}
+
+func (s *MemStore) DeleteAgentPolicy(ctx context.Context, orgName, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.agentPolicies, agentPolicyKey(orgName, name))
 	return nil
 }
