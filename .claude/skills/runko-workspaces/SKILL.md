@@ -45,8 +45,7 @@ handle: `-w <name[@branch]>` runs a checkout verb against that
 workspace's materialization from ANYWHERE - your repo root included.
 
 ```
-runko change create -w <ws> -m "<what and why>"
-runko change push -w <ws>
+runko change create -w <ws> -m "<what and why>" && runko change push -w <ws>
 runko workspace watch -w <ws> &
 ```
 

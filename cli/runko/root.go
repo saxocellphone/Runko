@@ -108,6 +108,7 @@ The loop:
 		newVersionCmd(),
 		newSelfUpdateCmd(),
 		// The daily loop.
+		newStatusCmd(a),
 		newChangeCmd(a),
 		newWorkspaceCmd(a),
 		// Repo & org management.

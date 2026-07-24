@@ -41,8 +41,7 @@ handle: `-w <name[@branch]>` runs a checkout verb against that
 workspace's materialization from ANYWHERE - your repo root included.
 
 ```
-runko change create -w <ws> -m "<what and why>"
-runko change push -w <ws>
+runko change create -w <ws> -m "<what and why>" && runko change push -w <ws>
 runko workspace watch -w <ws> &
 ```
 
@@ -68,6 +67,7 @@ Each of these is a real refusal or silent trap, with the fix that clears it:
 | Command | Does | `--json` output |
 |---|---|---|
 | `runko doctor [--install-hook] [--json]` | check remotes/hooks, print a cheat-sheet | `DoctorReport` |
+| `runko status [--dir . | -w <ws>] [--json]` | where this checkout stands: workspace binding + server state, signed-in principal, stale-base warning, dirty-path count, and the local stack bottom->top with each change's gates (ready|blocked|landed|abandoned|not_pushed); local facts still answer with no reachable control plane | `StatusReport` |
 | `runko project create --name <n> --type <t> [--lang l] [--no-template] [--owners a,b] [--json]` | create a project from an intent; --lang: go|python|ts|rust|java|cpp, others need --no-template | `{"name","path","rev"}` |
 | `runko project list --runkod-url <url> --token <t> [--json]` | list projects indexed at trunk - needs a live runkod | `[]IndexedProject` |
 | `runko project delete --name <p> [--json]` | open the deletion change: subtree removed, every other manifest's edges to it stripped - needs a live runkod | `{"change_id","title"}` |

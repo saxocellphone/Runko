@@ -19,6 +19,7 @@ type Command struct {
 // TestCommandsMatchesCLIContract, which fails if the two ever drift.
 var Commands = []Command{
 	{"runko", "doctor [--install-hook] [--json]", "check remotes/hooks, print a cheat-sheet", "DoctorReport"},
+	{"runko", "status [--dir . | -w <ws>] [--json]", "where this checkout stands: workspace binding + server state, signed-in principal, stale-base warning, dirty-path count, and the local stack bottom->top with each change's gates (ready|blocked|landed|abandoned|not_pushed); local facts still answer with no reachable control plane", "StatusReport"},
 	{"runko", "project create --name <n> --type <t> [--lang l] [--no-template] [--owners a,b] [--json]", "create a project from an intent; --lang: go|python|ts|rust|java|cpp, others need --no-template", `{"name","path","rev"}`},
 	{"runko", "project list --runkod-url <url> --token <t> [--json]", "list projects indexed at trunk - needs a live runkod", "[]IndexedProject"},
 	{"runko", "project delete --name <p> [--json]", "open the deletion change: subtree removed, every other manifest's edges to it stripped - needs a live runkod", `{"change_id","title"}`},
@@ -191,8 +192,8 @@ func writeTransparency(b *strings.Builder, verbose bool) {
 	b.WriteString("WHERE is an implementation detail. The workspace NAME is the\n")
 	b.WriteString("handle: `-w <name[@branch]>` runs a checkout verb against that\n")
 	b.WriteString("workspace's materialization from ANYWHERE - your repo root included.\n\n")
-	b.WriteString("```\nrunko change create -w <ws> -m \"<what and why>\"\n")
-	b.WriteString("runko change push -w <ws>\nrunko workspace watch -w <ws> &\n```\n\n")
+	b.WriteString("```\nrunko change create -w <ws> -m \"<what and why>\" && runko change push -w <ws>\n")
+	b.WriteString("runko workspace watch -w <ws> &\n```\n\n")
 	b.WriteString("**Never `cd` into a worktree, and never hand a human its path.** A `cd`\n")
 	b.WriteString("silently rebinds the working directory for everything that follows, and\n")
 	b.WriteString("a path passed onward teaches someone to depend on a layout that is ours\n")
