@@ -17,6 +17,7 @@ export function MergeGates({
   onApprove,
   onRerun,
   onRequestReview,
+  onAckPolicy,
 }: {
   requirements: MergeRequirements;
   state: ChangeState;
@@ -24,6 +25,7 @@ export function MergeGates({
   onApprove: (ownerRef: string, approvedBy: string) => void;
   onRerun: (checkName: string) => void;
   onRequestReview?: (reviewer: string) => void;
+  onAckPolicy?: () => void;
 }) {
   const [approveAs, setApproveAs] = useState("user:demo");
   const [reviewer, setReviewer] = useState("");
@@ -133,11 +135,25 @@ export function MergeGates({
                     {name}
                   </span>
                 )}
-                {failing && actionable && (
+                {failing && actionable && name === "agent-policy" && onAckPolicy ? (
+                  // The reserved check no CI reruns: an agent change's
+                  // policy findings (denylisted paths, size caps, owners
+                  // edits - detailed in the blockers below), waiting on a
+                  // human with approve rights to accept them. Agents are
+                  // refused server-side.
+                  <button
+                    className="btn btn-sm"
+                    disabled={busy}
+                    title="Accept this agent change's policy findings - completes the agent-policy check"
+                    onClick={() => onAckPolicy()}
+                  >
+                    Acknowledge
+                  </button>
+                ) : failing && actionable ? (
                   <button className="btn btn-sm" disabled={busy} onClick={() => onRerun(name)}>
                     Rerun
                   </button>
-                )}
+                ) : null}
               </div>
             );
           })}
