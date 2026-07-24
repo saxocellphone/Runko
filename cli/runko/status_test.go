@@ -201,6 +201,27 @@ func TestRunStatusNoTrunkRefReportsNilStack(t *testing.T) {
 	}
 }
 
+// TestRunStatusTrailerlessCommitIsNotAChange: a commit with no Change-Id
+// (jj's undescribed working-copy commit, a raw git commit in an unhooked
+// checkout) is not a Change at all - it must say so, not "unknown", which
+// reads like a lookup failure (dogfood feedback, 2026-07-23).
+func TestRunStatusTrailerlessCommitIsNotAChange(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("base")
+	repo.Run("update-ref refs/remotes/origin/main HEAD")
+	repo.WriteFile("scratch.txt", "wip\n")
+	repo.Commit("scratch commit, no trailer")
+
+	r, err := RunStatus(context.Background(), http.DefaultClient, nil, "no stored credential", repo.Dir, "origin", "main")
+	if err != nil {
+		t.Fatalf("RunStatus: %v", err)
+	}
+	if len(r.Stack) != 1 || r.Stack[0].Status != "not_a_change" || r.Stack[0].ChangeID != "" {
+		t.Fatalf("expected one not_a_change entry, got %+v", r.Stack)
+	}
+}
+
 func TestRunStatusNotARepo(t *testing.T) {
 	_, err := RunStatus(context.Background(), http.DefaultClient, nil, "", t.TempDir(), "origin", "main")
 	var ce *clierr.Error
@@ -278,6 +299,29 @@ func TestPrintStatusEmptyStackDirtyTreeStillDrawsTheGraph(t *testing.T) {
 	out := b.String()
 	if !strings.Contains(out, "@  1 uncommitted path(s)") || !strings.Contains(out, "◆  aaaabbbbcccc origin/main") {
 		t.Fatalf("expected the @ working-tree node over the ◆ base:\n%s", out)
+	}
+}
+
+// TestPrintStatusTrailerlessCommitRendersSHAAndHint: with no Change-Id
+// there is no identity to print - the node shows the commit's short SHA,
+// jj's own wording for an empty subject, and the actionable hint instead
+// of "? unknown".
+func TestPrintStatusTrailerlessCommitRendersSHAAndHint(t *testing.T) {
+	r := statusPrintFixture()
+	r.Stack = []StackEntry{{SHA: "abcdef012345678901234567890123456789abcd", Status: "not_a_change"}}
+	var b strings.Builder
+	PrintStatus(&b, r)
+	out := b.String()
+	for _, want := range []string{
+		"@  abcdef012345  (no description set)  (not a change yet - `runko change push` stamps its Change-Id)",
+		"◆  aaaabbbbcccc origin/main",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "unknown") {
+		t.Fatalf("a trailer-less commit must not read as unknown:\n%s", out)
 	}
 }
 
