@@ -150,6 +150,24 @@ jobs:
     if: ${{ !cancelled() && needs.images.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
+      # Full-history checkout of THIS repo: the ancestry guard below compares
+      # the landed head against the sha the GitOps repo was last pinned from
+      # (merge-base --is-ancestor), so stacked lands whose builds finish out of
+      # order can never regress a pin. Must be the FIRST step - checkout cleans
+      # the workspace, so it precedes the artifact download.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: wait for the landed head on the mirror (ancestry guard input)
+        run: |
+          for i in $(seq 1 12); do
+            git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null && exit 0
+            git fetch --quiet origin main 2>/dev/null || true
+            sleep 5
+          done
+          # Never block a deploy on mirror lag: without the head the guard
+          # fails open (pins anyway), which is today's behavior.
+          echo "::warning::landed head $HEAD_SHA not on the mirror yet; ancestry guard will fail open"
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -182,6 +200,11 @@ jobs:
       - name: pin the built digests into the GitOps repo and push
         env:
           KUST: apps/monorepo-platform/kustomization.yaml
+          # PINFROM records the FULL runko sha the digests were pinned from -
+          # a plain file beside the kustomization (kustomize/Argo ignore it),
+          # so a `git revert` of a stale pin restores it along with the
+          # digests, unlike anything parsed from commit messages.
+          PINFROM: apps/monorepo-platform/.pinned-from
         run: |
           shopt -s nullglob
           cd k8s-cluster
@@ -215,12 +238,29 @@ jobs:
           for attempt in 1 2 3 4 5; do
             git fetch --quiet origin main
             git reset --quiet --hard origin/main
+            # ANCESTRY GUARD - re-checked on EVERY attempt, against the state
+            # just fetched: if the GitOps repo is already pinned from a runko
+            # commit that is NOT an ancestor of this run's head, a newer land
+            # already pinned (stacked lands' builds finish out of order) -
+            # skip rather than regress the deployment. Equal shas pass
+            # (idempotent re-run). Unknown shas fail OPEN (pin anyway):
+            # a missing/garbled .pinned-from must never block deploys.
+            prev=$(cat "$PINFROM" 2>/dev/null || true)
+            if [ -n "$prev" ] \
+              && git -C "$GITHUB_WORKSPACE" cat-file -e "$prev^{commit}" 2>/dev/null \
+              && git -C "$GITHUB_WORKSPACE" cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+              if ! git -C "$GITHUB_WORKSPACE" merge-base --is-ancestor "$prev" "$HEAD_SHA"; then
+                echo "::notice::skipping pin: GitOps repo already pinned from $prev, which is newer than this run's $HEAD_SHA"
+                exit 0
+              fi
+            fi
             for i in "${!digests[@]}"; do
               n=$(yq "[.images[] | select(.name == \"${refs[$i]}\")] | length" "$KUST")
               [ "$n" = "1" ] || { echo "::error::${refs[$i]} has no entry in $KUST images: block - add one"; exit 1; }
               yq -i "(.images[] | select(.name == \"${refs[$i]}\").digest) = \"${digests[$i]}\"" "$KUST"
             done
-            git add "$KUST"
+            printf '%s\n' "$HEAD_SHA" > "$PINFROM"
+            git add "$KUST" "$PINFROM"
             if git diff --cached --quiet; then
               echo "digests already current at origin/main - nothing to push"
               break
