@@ -33,7 +33,8 @@ onto trunk once the merge gates are green.`,
 		Example: `  runko change create -m "checkout: validate address up front"
   runko change push
   runko change requirements            # what still blocks HEAD's Change
-  runko change automerge --change <Id> # land it when the gates go green`,
+  runko change automerge               # land HEAD's Change when the gates go green
+  runko change land                    # land HEAD's Change once green`,
 		Args: cobra.ArbitraryArgs,
 		RunE: groupRunE,
 	}
@@ -234,24 +235,29 @@ func newChangeLandCmd(a *app) *cobra.Command {
 		syncTimeout                      time.Duration
 	)
 	cmd := &cobra.Command{
-		Use:   "land --change <Change-Id>",
+		Use:   "land [--change <Change-Id>]",
 		Short: "Land a mergeable Change onto trunk",
-		Long: `Rebase-lands a mergeable Change. On requires_revalidation
-(trunk moved under it) the default --sync recovery loop runs right
-here: sync onto trunk, re-push, wait for checks, retry - bounded by
---sync-timeout. --force is the admin override: bypasses owner/check
-gates and revalidation (server-authorized; never conflicts or stacking
-order), audited as landed_forced.`,
-		Example: `  runko change land --change I6a3f...
-  runko change land --change I6a3f... -w my-workstream   # recovery checkout by name`,
+		Long: `Rebase-lands a mergeable Change. --change defaults to HEAD's
+Change-Id trailer. On requires_revalidation (trunk moved under it) the
+default --sync recovery loop runs right here: sync onto trunk, re-push,
+wait for checks, retry - bounded by --sync-timeout. --force is the admin
+override: bypasses owner/check gates and revalidation (server-authorized;
+never conflicts or stacking order), audited as landed_forced.`,
+		Example: `  runko change land                              # land HEAD's Change
+  runko change land --change I6a3f...
+  runko change land -w my-workstream              # recovery checkout by name`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if changeID == "" {
-				return fmt.Errorf("change land: --change is required")
-			}
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), repoDir)
 			if err != nil {
 				return err
+			}
+			id := changeID
+			if id == "" {
+				if id, err = headChangeID(wd); err != nil {
+					return err
+				}
+				fmt.Fprintf(warnWriter, "landing HEAD's change %s\n", id)
 			}
 			cred, err := a.credential()
 			if err != nil {
@@ -261,9 +267,9 @@ order), audited as landed_forced.`,
 			// --force, which bypasses revalidation anyway) land is a single shot.
 			var outcome land.Outcome
 			if _, gitErr := runGit(wd, "rev-parse", "--git-dir"); sync && !force && gitErr == nil {
-				outcome, err = LandWithSync(context.Background(), http.DefaultClient, cred, changeID, wd, remote, trunk, syncTimeout, os.Stderr)
+				outcome, err = LandWithSync(context.Background(), http.DefaultClient, cred, id, wd, remote, trunk, syncTimeout, os.Stderr)
 			} else {
-				outcome, err = LandChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), changeID, force)
+				outcome, err = LandChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, force)
 			}
 			if err != nil {
 				return err
@@ -273,9 +279,9 @@ order), audited as landed_forced.`,
 			}
 			if outcome.Landed {
 				if force {
-					fmt.Printf("FORCE-landed %s at %s (merge gates bypassed - audited as landed_forced)\n", changeID, outcome.LandedSHA)
+					fmt.Printf("FORCE-landed %s at %s (merge gates bypassed - audited as landed_forced)\n", id, outcome.LandedSHA)
 				} else {
-					fmt.Printf("landed %s at %s\n", changeID, outcome.LandedSHA)
+					fmt.Printf("landed %s at %s\n", id, outcome.LandedSHA)
 				}
 			} else {
 				fmt.Printf("not landed: %+v\n", outcome)
@@ -284,9 +290,9 @@ order), audited as landed_forced.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id to land")
+	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
 	fl.BoolVar(&force, "force", false, "admin override: bypass owner/check gates and revalidation; audited as landed_forced")
-	fl.StringVar(&repoDir, "repo", ".", "local checkout used by --sync to rebase and re-push on requires_revalidation")
+	fl.StringVar(&repoDir, "repo", ".", "local checkout used by --sync to rebase and re-push on requires_revalidation (and for the HEAD default)")
 	addWorkspaceFlag(cmd)
 	fl.StringVar(&remote, "remote", "origin", "git remote --sync pushes to")
 	fl.StringVar(&trunk, "trunk", "main", "trunk ref name")
@@ -310,7 +316,7 @@ func newChangeApproveCmd(a *app) *cobra.Command {
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if changeID == "" || ownerRef == "" {
-				return fmt.Errorf("change approve: --change and --owner are required")
+				return fmt.Errorf("change approve: --change and --owner are required\n  -> runko change approve --change <Id> --owner <ref>   # e.g. --owner group:eng")
 			}
 			cred, err := a.credential()
 			if err != nil {
@@ -397,7 +403,8 @@ func newChangeAbandonCmd(a *app) *cobra.Command {
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if changeID == "" {
-				return fmt.Errorf("change abandon: --change is required")
+				// Stay explicit: abandon is destructive and must not default to HEAD.
+				return fmt.Errorf("change abandon: --change is required\n  -> pass --change <Id> explicitly (find it with `runko change list` or `runko status`)")
 			}
 			cred, err := a.credential()
 			if err != nil {
@@ -483,21 +490,33 @@ flag preserves the stored value, an explicit "" clears it.`,
 
 func newChangeAutomergeCmd(a *app) *cobra.Command {
 	var (
-		changeID string
-		disable  bool
-		jsonOut  bool
+		changeID, dir string
+		disable       bool
+		jsonOut       bool
 	)
 	cmd := &cobra.Command{
-		Use:   "automerge --change <Change-Id>",
+		Use:   "automerge [--change <Change-Id>]",
 		Short: "Arm the when-ready land",
 		Long: `Arms automerge: the server lands the change automatically the
 moment its checks and approvals go green, attributed to the armer,
 surviving amends (gates reset and re-gate). The alternative to
-poll-and-land loops. --disable disarms.`,
+poll-and-land loops. --change defaults to HEAD's Change-Id trailer.
+--disable disarms.`,
+		Example: `  runko change automerge                      # arm HEAD's Change
+  runko change automerge --change I6a3f...
+  runko change automerge --disable`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := resolveChangeFlag(changeID, mustWorkspaceFlag(cmd), dir)
+			if err != nil {
+				return err
+			}
 			if changeID == "" {
-				return fmt.Errorf("change automerge: --change is required")
+				verb := "arming"
+				if disable {
+					verb = "disarming"
+				}
+				fmt.Fprintf(warnWriter, "%s automerge for HEAD's change %s\n", verb, id)
 			}
 			cred, err := a.credential()
 			if err != nil {
@@ -510,7 +529,7 @@ poll-and-land loops. --disable disarms.`,
 				AutomergeBy string
 			}
 			err = apiJSON(context.Background(), http.DefaultClient, http.MethodPost,
-				strings.TrimSuffix(cred.URL, "/")+"/api/changes/"+changeID+"/automerge", cred.AuthHeader(),
+				strings.TrimSuffix(cred.URL, "/")+"/api/changes/"+id+"/automerge", cred.AuthHeader(),
 				map[string]bool{"enabled": !disable}, &change)
 			if err != nil {
 				return err
@@ -526,9 +545,12 @@ poll-and-land loops. --disable disarms.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&changeID, "change", "", "Change-Id to arm")
-	cmd.Flags().BoolVar(&disable, "disable", false, "disarm instead")
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the change as JSON")
+	fl := cmd.Flags()
+	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
+	addWorkspaceFlag(cmd)
+	fl.BoolVar(&disable, "disable", false, "disarm instead")
+	fl.BoolVar(&jsonOut, "json", false, "emit the change as JSON")
 	return cmd
 }
 
@@ -543,7 +565,7 @@ func newChangeRerunCheckCmd(a *app) *cobra.Command {
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if changeID == "" || name == "" {
-				return fmt.Errorf("change rerun-check: --change and --name are required")
+				return fmt.Errorf("change rerun-check: --change and --name are required\n  -> runko change rerun-check --change <Id> --name <check>")
 			}
 			cred, err := a.credential()
 			if err != nil {

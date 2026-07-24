@@ -88,7 +88,7 @@ func newReleaseCreateCmd(a *app) *cobra.Command {
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if project == "" {
-				return fmt.Errorf("release create: --project is required")
+				return fmt.Errorf("release create: --project is required\n  -> runko release create --project <name>")
 			}
 			cred, err := a.credential()
 			if err != nil {
@@ -125,7 +125,7 @@ func newReleaseListCmd(a *app) *cobra.Command {
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if project == "" {
-				return fmt.Errorf("release list: --project is required")
+				return fmt.Errorf("release list: --project is required\n  -> runko release list --project <name>")
 			}
 			cred, err := a.credential()
 			if err != nil {

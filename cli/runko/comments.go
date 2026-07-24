@@ -126,7 +126,7 @@ comment with the agent badge; their approvals stay refused.`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if msg == "" {
-				return fmt.Errorf("change comment: -m is required")
+				return fmt.Errorf("change comment: -m is required\n  -> runko change comment -m \"your review note\"")
 			}
 			id, err := resolveChangeFlag(changeID, mustWorkspaceFlag(cmd), dir)
 			if err != nil {
