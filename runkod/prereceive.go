@@ -1459,14 +1459,15 @@ func contractProjects(indexed []index.IndexedProject) []contract.Project {
 	out := make([]contract.Project, len(indexed))
 	for i, ip := range indexed {
 		out[i] = contract.Project{
-			Name:           ip.Name,
-			Path:           ip.Path,
-			Dependencies:   ip.DeclaredDependencies,
-			Consumes:       ip.Consumes,
-			ContractGenDir: ip.ContractGenDir,
-			DeclaresHTTP:   ip.OpenAPIPath != "",
-			OpenAPIPath:    ip.OpenAPIPath,
-			OpenAPIPresent: ip.OpenAPIPresent,
+			Name:             ip.Name,
+			Path:             ip.Path,
+			Dependencies:     ip.DeclaredDependencies,
+			TestDependencies: ip.TestDependencies,
+			Consumes:         ip.Consumes,
+			ContractGenDir:   ip.ContractGenDir,
+			DeclaresHTTP:     ip.OpenAPIPath != "",
+			OpenAPIPath:      ip.OpenAPIPath,
+			OpenAPIPresent:   ip.OpenAPIPresent,
 		}
 	}
 	return out

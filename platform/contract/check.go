@@ -26,7 +26,12 @@ type Project struct {
 	Name         string
 	Path         string   // repo-relative project root; "" or "." for the root project
 	Dependencies []string // declared build-grade edges (§13.3)
-	Consumes     []string // declared server/client edges (§13.3.1) - the recommended sanction for contract consumption
+	// TestDependencies are the non-transitive build-grade edges (2026-07-24):
+	// what this project's own checks build or run. They sanction a reference
+	// exactly like Dependencies - the distinction is closure propagation, not
+	// whether the edge was declared.
+	TestDependencies []string
+	Consumes         []string // declared server/client edges (§13.3.1) - the recommended sanction for contract consumption
 
 	// ContractGenDir is the repo-relative directory of the project's
 	// committed contract codegen (<path>/<rpc.path>/gen), "" when the

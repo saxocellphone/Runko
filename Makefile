@@ -60,15 +60,23 @@ check-webadmin:
 	cd webadmin && npm install --no-audit --no-fund && npm run check
 
 # Bazel graph health (docs/migration-findings.md, §14.5.4 dogfood): the
-# graph must build, gazelle must not drift, and the rdeps recipe must work
+# graph must build, gazelle must not drift, the manifests must declare
+# every cross-project edge the graph has, and the rdeps recipe must work
 # against the genuine engine. Tests are NOT run under bazel - `check` stays
 # the test truth. Declared as the tree's `bazel-check` (PROJECT.yaml
 # ci.checks on the Go projects), reported pre-land by runko-checks.yml.
 # Needs bazel/bazelisk on PATH (this sandbox: ~/.local/bin).
+#
+# `deps` belongs to this lane because it is the same class as the gazelle
+# drift check and needs the same thing: the WHOLE tree. It runs after
+# gazelle, so it audits the build files gazelle just reconciled with the
+# imports - the manifests are then the only remaining place an edge can
+# hide (2026-07-24).
 check-bazel:
 	bazel build //...
 	bazel run //:gazelle
 	git diff --exit-code -- '**/BUILD.bazel'
+	go run ./cli/runko-ci deps
 	go test -tags bazel_integration ./platform/buildadapter/bazel/
 
 # The test suite under bazel (§14.5.4 golden path, adopted 2026-07-10:
