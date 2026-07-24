@@ -51,6 +51,11 @@ type CheckRunView struct {
 	// runs CI reported directly at the current head. Provenance only -
 	// the merge gate treats a copied success like any other.
 	CopiedFromHeadSHA string
+	// Reporter is who produced this run - a CI reporter name, "runkod" for
+	// the receive-minted agent-policy check, or the acknowledging human's
+	// principal name (the 2026-07-24 audit trail). Optional on writes
+	// (persisting layers default it); not round-tripped by every reader.
+	Reporter string
 }
 
 // CheckSetPolicy mirrors docs/spec/webhooks/checkrun.schema.json#/$defs/CheckSetPolicy.
@@ -131,3 +136,12 @@ func findRun(runs []CheckRunView, name string) (CheckRunView, bool) {
 	}
 	return CheckRunView{}, false
 }
+
+// AgentPolicyCheckName is the RESERVED check the 2026-07-24 enforcement
+// split introduces: when an agent's accepted push carries ackable policy
+// findings, the receive funnel mints a completed/failure run under this
+// name on the change head, and only a human acknowledgement (runkod's
+// ack-policy endpoint) may complete it green. External reporters
+// (report-check) and rerun-check refuse the name - CI never runs it, and
+// an agent must never be able to report its own leash green.
+const AgentPolicyCheckName = "agent-policy"

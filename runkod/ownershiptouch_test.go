@@ -86,18 +86,20 @@ func TestAgentProjectCreateNamingItselfIsRefused(t *testing.T) {
 	p := newAgentWorkspaceProcessor(t, bare)
 	result := p.Process(context.Background(),
 		RefUpdate{OldSHA: trunkSHA, NewSHA: headSHA, Ref: "refs/for/main"}, agentPushEnv)
-	if result.Accepted {
-		t.Fatal("an agent naming itself owner of its new project must be refused")
+	if !result.Accepted {
+		t.Fatalf("self-grant is ackable since 2026-07-24 - the push must be accepted, got: %s", result.Message)
 	}
-	if !strings.Contains(result.Message, "grants itself ownership") {
-		t.Fatalf("expected the owner_self_grant refusal, got: %s", result.Message)
+	if !strings.Contains(result.Message, "grants itself ownership") || !strings.Contains(result.Message, "runko change ack-policy") {
+		t.Fatalf("expected the self-grant finding + ack command in the push output, got: %s", result.Message)
 	}
 }
 
-// TestAgentTouchingExistingOwnershipIsRefused covers the three shapes that
+// TestAgentTouchingExistingOwnershipIsFlagged covers the three shapes that
 // stay owners modifications: editing an existing manifest, introducing an
-// OWNERS file, and carving a nested project out of existing content.
-func TestAgentTouchingExistingOwnershipIsRefused(t *testing.T) {
+// OWNERS file, and carving a nested project out of existing content. Since
+// the 2026-07-24 enforcement split they accept and owe the agent-policy
+// check instead of refusing.
+func TestAgentTouchingExistingOwnershipIsFlagged(t *testing.T) {
 	cases := []struct {
 		name  string
 		write func(repo *gitfixture.Repo)
@@ -127,11 +129,11 @@ func TestAgentTouchingExistingOwnershipIsRefused(t *testing.T) {
 			p := newAgentWorkspaceProcessor(t, bare)
 			result := p.Process(context.Background(),
 				RefUpdate{OldSHA: trunkSHA, NewSHA: headSHA, Ref: "refs/for/main"}, agentPushEnv)
-			if result.Accepted {
-				t.Fatal("expected the owners-modification refusal")
+			if !result.Accepted {
+				t.Fatalf("owners modification is ackable since 2026-07-24 - the push must be accepted, got: %s", result.Message)
 			}
-			if !strings.Contains(result.Message, "does not allow modifying owners") {
-				t.Fatalf("expected the owners-modification refusal, got: %s", result.Message)
+			if !strings.Contains(result.Message, "does not allow modifying owners") || !strings.Contains(result.Message, "runko change ack-policy") {
+				t.Fatalf("expected the owners finding + ack command in the push output, got: %s", result.Message)
 			}
 		})
 	}

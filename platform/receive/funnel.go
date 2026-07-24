@@ -61,6 +61,13 @@ type Decision struct {
 	SecretFindings     []SecretFinding
 	ContractViolations []contract.Violation
 
+	// AckableViolations ride an ACCEPTED decision (2026-07-24 enforcement
+	// split): content-shaped policy findings that no longer refuse at
+	// receive. The caller surfaces them as push warnings and as the
+	// reserved `agent-policy` check on the created Change - red until a
+	// human with approve rights acknowledges it.
+	AckableViolations []PolicyViolation
+
 	ChangeID      string
 	CommitMessage string // possibly amended with a new Change-Id trailer
 }
@@ -87,6 +94,7 @@ func Decide(req PushRequest, scanner SecretScanner) Decision {
 		}
 	}
 
+	var ackable []PolicyViolation
 	if req.Principal.IsAgent {
 		violations := EvaluatePolicy(req.Principal.Policy, PushSummary{
 			ChangedFiles:        req.ChangedPaths,
@@ -100,8 +108,14 @@ func Decide(req PushRequest, scanner SecretScanner) Decision {
 			Author:              req.Author,
 			NewProjectOwners:    req.NewProjectOwners,
 		})
-		if len(violations) > 0 {
-			return Decision{Accepted: false, PolicyViolations: violations}
+		// The 2026-07-24 enforcement split: only HARD violations refuse
+		// here. Ackable ones ride the accepted decision - the push lands
+		// in review where the finding is visible, diffable, and gated by
+		// the `agent-policy` check instead of vanishing into a refusal.
+		var hard []PolicyViolation
+		hard, ackable = SplitAckable(violations)
+		if len(hard) > 0 {
+			return Decision{Accepted: false, PolicyViolations: hard}
 		}
 	}
 
@@ -125,8 +139,9 @@ func Decide(req PushRequest, scanner SecretScanner) Decision {
 
 	changeID, newMessage := EnsureChangeID(req.CommitMessage, req.ChangeIDSeed)
 	return Decision{
-		Accepted:      true,
-		ChangeID:      changeID,
-		CommitMessage: newMessage,
+		Accepted:          true,
+		ChangeID:          changeID,
+		CommitMessage:     newMessage,
+		AckableViolations: ackable,
 	}
 }
