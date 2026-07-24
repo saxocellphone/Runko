@@ -54,7 +54,7 @@ func TestChecksSnapshotDiffNarrowsRefinableEscalation(t *testing.T) {
 	head := repo.Commit("bump module")
 	fakeDeterminatorOnPath(t, `echo "//a:a_test"`)
 
-	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0)
+	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0, false)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestChecksSnapshotDiffFailureKeepsRunEverything(t *testing.T) {
 	fakeDeterminatorOnPath(t, `echo "boom" >&2
 exit 1`)
 
-	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0)
+	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0, false)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestChecksSnapshotDiffNotAttemptedOnMixedEscalation(t *testing.T) {
 	// A fake that would narrow if consulted - proving it wasn't.
 	fakeDeterminatorOnPath(t, `echo "//a:a_test"`)
 
-	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0)
+	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0, false)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestChecksSnapshotDiffEmptyDiffNarrowsToOwner(t *testing.T) {
 	head := repo.Commit("comment-only bump")
 	fakeDeterminatorOnPath(t, `true`)
 
-	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0)
+	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0, false)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}
@@ -174,7 +174,7 @@ ci:
 	head := repo.Commit("module bump + a code")
 	fakeDeterminatorOnPath(t, `true`) // empty diff: the module bump impacts nothing
 
-	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0)
+	out, err := Checks(repo.Dir, base, head, nil, "bazel", "", 0, false)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestChecksWithoutEngineIgnoresRefinable(t *testing.T) {
 	repo.WriteFile("MODULE.bazel", "module(name = \"x\", version = \"5\")\n")
 	head := repo.Commit("bump module")
 
-	out, err := Checks(repo.Dir, base, head, nil, "", "", 0)
+	out, err := Checks(repo.Dir, base, head, nil, "", "", 0, false)
 	if err != nil {
 		t.Fatalf("Checks: %v", err)
 	}

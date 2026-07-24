@@ -47,7 +47,14 @@ type ChecksOutput struct {
 // narrowing of refinable-only escalations; the gate does NOT consume that
 // narrowing, so callers must only pass an engine where nothing gates on
 // the result (post-land CI) until gate-grade refinement lands (§14.5.4).
-func Checks(repoDir, base, head string, rootInvalidationPatterns []string, engineName, universePattern string, engineTimeout time.Duration) (ChecksOutput, error) {
+//
+// postLand additionally selects EVERY project's post_land-class checks
+// (index.PostLandChecks), unscoped by the affected result - that class runs
+// on every land by definition (its subject is the deployment artifact, not
+// one project's code). Only post-land CI passes it: the merge gate resolves
+// through ChecksFor, which never returns the class, so a pre-land caller
+// passing it would run checks the gate cannot credit.
+func Checks(repoDir, base, head string, rootInvalidationPatterns []string, engineName, universePattern string, engineTimeout time.Duration, postLand bool) (ChecksOutput, error) {
 	out, indexed, err := affectedRefined(repoDir, base, head, rootInvalidationPatterns, engineName, universePattern, engineTimeout, false)
 	if err != nil {
 		return ChecksOutput{}, err
@@ -79,15 +86,11 @@ func Checks(repoDir, base, head string, rootInvalidationPatterns []string, engin
 
 	seen := map[string]CheckRun{}
 	var runs []CheckRun
-	for _, sp := range scoped {
-		p := sp.p
-		// index.ChecksFor is the shared §14.5.9 rule the merge gate also
-		// resolves through (runkod requiredCheckNames) - one function, so
-		// gate and executor can never disagree on a change's check set.
-		for _, c := range index.ChecksFor(p, sp.direct) {
+	add := func(p index.IndexedProject, defs []index.CheckDef) error {
+		for _, c := range defs {
 			if prev, ok := seen[c.Name]; ok {
 				if prev.Command != c.Command {
-					return ChecksOutput{}, &clierr.Error{
+					return &clierr.Error{
 						Code: "ambiguous_check", Field: "ci.checks",
 						Message: fmt.Sprintf("check %q is declared with different commands by projects %q (%s) and %q (%s)",
 							c.Name, prev.Project, prev.Command, p.Name, c.Command),
@@ -99,6 +102,26 @@ func Checks(repoDir, base, head string, rootInvalidationPatterns []string, engin
 			run := CheckRun{Project: p.Name, Name: c.Name, Command: c.Command}
 			seen[c.Name] = run
 			runs = append(runs, run)
+		}
+		return nil
+	}
+	for _, sp := range scoped {
+		// index.ChecksFor is the shared §14.5.9 rule the merge gate also
+		// resolves through (runkod requiredCheckNames) - one function, so
+		// gate and executor can never disagree on a change's check set.
+		if err := add(sp.p, index.ChecksFor(sp.p, sp.direct)); err != nil {
+			return ChecksOutput{}, err
+		}
+	}
+	if postLand {
+		// Every project's post_land checks, not just the affected closure's:
+		// the class runs on every land. Same dedupe map, so a post_land
+		// check colliding with a gate-class name under a different command
+		// is the same ambiguous_check refusal.
+		for _, p := range indexed {
+			if err := add(p, index.PostLandChecks(p)); err != nil {
+				return ChecksOutput{}, err
+			}
 		}
 	}
 	sort.Slice(runs, func(i, j int) bool { return runs[i].Name < runs[j].Name })
