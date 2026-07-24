@@ -67,6 +67,12 @@ type Manifest struct {
 	Capabilities     []string               `yaml:"capabilities,omitempty"`
 	CapabilityConfig map[string]interface{} `yaml:"capability_config,omitempty"`
 	Dependencies     []string               `yaml:"dependencies,omitempty"`
+	// TestDependencies are build-grade edges this project's CHECKS need but
+	// its consumers do not inherit (2026-07-24): the read cone treats them
+	// exactly like Dependencies, the affected closure adds this project when
+	// they change and then STOPS instead of walking on to this project's own
+	// dependents.
+	TestDependencies []string `yaml:"test_dependencies,omitempty"`
 	// Consumes are §13.3.1's server/client edges: providers whose declared
 	// API contract this project is a client of. Contract-scoped closure,
 	// unlike the build-grade Dependencies above.

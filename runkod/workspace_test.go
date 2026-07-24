@@ -303,6 +303,19 @@ func TestExpandConeToDeps(t *testing.T) {
 		t.Fatalf("consumes cone = %v, want %v", got3, want)
 	}
 
+	// A test-grade edge materializes exactly like a dependency (the checks
+	// this project declares cannot compile without it) and is followed
+	// transitively - only the affected closure treats it as terminal.
+	testDep := []index.IndexedProject{
+		{Name: "cli", Path: "cli", TestDependencies: []string{"runkod"}},
+		{Name: "runkod", Path: "runkod", DeclaredDependencies: []string{"platform"}},
+		{Name: "platform", Path: "platform"},
+		{Name: "web", Path: "web"},
+	}
+	if got := expandConeToDeps([]string{"cli"}, []string{"cli"}, testDep); !slices.Equal(got, []string{"cli", "platform", "runkod"}) {
+		t.Fatalf("test-dep cone = %v, want [cli platform runkod]", got)
+	}
+
 	// EVERY declared contract surface widens the cone, not just the rpc one:
 	// a schemas provider contributes its schema dirs (a file-shaped entry
 	// contributes its parent dir - cone mode takes directories), an http

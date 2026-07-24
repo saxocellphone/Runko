@@ -133,7 +133,7 @@ func TestOwnersResolutionPrecedence(t *testing.T) {
 func TestScanCapabilitiesAndDependenciesPassThrough(t *testing.T) {
 	repo := gitfixture.New(t)
 	repo.WriteFile("svc/PROJECT.yaml", manifest("svc", "service",
-		"capabilities:\n  - http\n  - rpc\ndependencies:\n  - auth-lib\nvisibility: restricted\n"))
+		"capabilities:\n  - http\n  - rpc\ndependencies:\n  - auth-lib\ntest_dependencies:\n  - e2e-harness\nvisibility: restricted\n"))
 	head := repo.Commit("with capabilities")
 
 	store := gitstore.New(repo.Dir)
@@ -150,6 +150,12 @@ func TestScanCapabilitiesAndDependenciesPassThrough(t *testing.T) {
 	}
 	if len(p.DeclaredDependencies) != 1 || p.DeclaredDependencies[0] != "auth-lib" {
 		t.Fatalf("dependencies: want [auth-lib], got %v", p.DeclaredDependencies)
+	}
+	// test_dependencies ride the same pass-through, in their own field: the
+	// closure treats them as terminal edges, so they must never be folded
+	// into DeclaredDependencies on the way in.
+	if len(p.TestDependencies) != 1 || p.TestDependencies[0] != "e2e-harness" {
+		t.Fatalf("test_dependencies: want [e2e-harness], got %v", p.TestDependencies)
 	}
 	if p.Visibility != "restricted" {
 		t.Fatalf("visibility: want restricted, got %q", p.Visibility)

@@ -20,6 +20,7 @@ func AffectedProjectInfos(indexed []IndexedProject) []affected.ProjectInfo {
 			Name:                 ip.Name,
 			Path:                 ip.Path,
 			DeclaredDependencies: ip.DeclaredDependencies,
+			TestDependencies:     ip.TestDependencies,
 			Consumes:             ip.Consumes,
 		}
 		if ip.ContractDir != "" || ip.OpenAPIPath != "" || len(ip.SchemaPaths) > 0 {

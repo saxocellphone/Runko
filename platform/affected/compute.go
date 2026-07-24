@@ -33,6 +33,14 @@ type ProjectInfo struct {
 	Name                 string
 	Path                 string
 	DeclaredDependencies []string
+	// TestDependencies are declared build-grade edges that are NOT
+	// transitive (2026-07-24): projects this one's own checks build or run
+	// (an e2e suite linking another project's package, a test execing its
+	// binary) without its consumers inheriting the coupling. A change to one
+	// pulls THIS project into the closure and stops there - the dependent
+	// walk does not continue past a project entered this way, because the
+	// linkage lives in test code nothing downstream builds against.
+	TestDependencies []string
 	// Consumes are §13.3.1's declared server/client edges: providers whose
 	// API contract this project is a client of. A consumes edge joins this
 	// project into the closure ONLY when the provider's contract surface
@@ -355,9 +363,6 @@ func findOwner(projects []ProjectInfo, changedPath string) (ProjectInfo, bool) {
 	return best, found
 }
 
-// closeOverDependents returns the transitive closure of direct plus every
-// project that (transitively) declares a dependency on a project in direct,
-// following reverse edges. Safe against dependency cycles.
 // underAnyContractRoot reports whether changedPath falls under any of the
 // contract-surface roots: each entry matches itself exactly (the OpenAPI
 // document, the manifest) or as a directory prefix (the rpc path dir).
@@ -373,18 +378,40 @@ func underAnyContractRoot(changedPath string, roots []string) bool {
 	return false
 }
 
+// closeOverDependents returns the transitive closure of direct plus every
+// project that (transitively) declares a dependency on a project in direct,
+// following reverse edges. Safe against dependency cycles - mutual edges are
+// honest in a monorepo whose e2e suites link each other's code.
+//
+// TestDependencies are reverse edges too, but TERMINAL ones (2026-07-24):
+// they add their declarer and the walk stops, so a test-only coupling does
+// not masquerade as a transitive one. Modeling those as plain dependencies
+// is what over-propagates - in this repo it took a daemon change from 3
+// required checks to 8, most of them projects that never link the daemon.
 func closeOverDependents(projects []ProjectInfo, direct map[string]bool) (map[string]bool, bool) {
 	dependents := make(map[string][]string)
+	testDependents := make(map[string][]string)
 	for _, p := range projects {
 		for _, dep := range p.DeclaredDependencies {
 			dependents[dep] = append(dependents[dep], p.Name)
 		}
+		for _, dep := range p.TestDependencies {
+			testDependents[dep] = append(testDependents[dep], p.Name)
+		}
 	}
 
+	// Two sets, because membership and continuation are different questions
+	// once an edge can be terminal: `affected` is the answer, `walked` is
+	// who the reverse walk continues THROUGH. A project pulled in by a test
+	// edge is affected without being walked - but if a propagating edge
+	// reaches it later, it must still be walked, or its own dependents would
+	// be silently dropped for the accident of having been named first.
 	affected := make(map[string]bool, len(direct))
+	walked := make(map[string]bool, len(direct))
 	queue := make([]string, 0, len(direct))
 	for name := range direct {
 		affected[name] = true
+		walked[name] = true
 		queue = append(queue, name)
 	}
 
@@ -396,7 +423,21 @@ func closeOverDependents(projects []ProjectInfo, direct map[string]bool) (map[st
 			if !affected[dep] {
 				affected[dep] = true
 				sawDependent = true
+			}
+			if !walked[dep] {
+				walked[dep] = true
 				queue = append(queue, dep)
+			}
+		}
+		// Test-grade dependents join the closure but are never walked: the
+		// coupling lives in their own test code, so nothing downstream of
+		// them inherits it. Collected from every project the propagating
+		// pass reaches - a project pulled in transitively still runs its own
+		// checks, and those checks still link whatever they link.
+		for _, dep := range testDependents[cur] {
+			if !affected[dep] {
+				affected[dep] = true
+				sawDependent = true
 			}
 		}
 	}
