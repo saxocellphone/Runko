@@ -1,32 +1,30 @@
-# Build + push the deployable images to GHCR for a landed commit, then
-# report each digest to Runko's deploy record so runko-deployer pins them
-# into the GitOps repo and Argo CD rolls (§14.10 inverted CD; no manual
-# rollout). GitHub only builds and reports; Runko drives the rollout.
+# Build + push the deployable images to GHCR for a landed commit, then PIN
+# each freshly-built digest into the k8s-cluster GitOps repo. Argo CD watches
+# that repo (automated sync) and reconciles the cluster - nothing here touches
+# Kubernetes. Runko builds and records the desired digest in git; Argo deploys.
 #
-# DISPATCH-TRIGGERED, PER LAND (Track A A5b): runkod emits a
-# `runko-image-build` repository_dispatch on every change.landed
-# (runkod/githubdispatch.go), carrying the landed head_sha. This workflow
-# builds exactly that commit's affected images - a tight head^..head delta
-# per land, NOT a batched before..after mirror-push range (which unioned
-# multiple lands and reported to the tip, stranding intermediate lands'
-# records). It replaces the old `on: push` trigger.
+# This is RUNKO'S OWN deploy. It deliberately diverges from the shipped tenant
+# CD template (templates/ci/runko-images.yml), which still reports digests to a
+# runkod deploy record: this workflow instead commits the digest straight into
+# the GitOps repo, so Runko never controls k8s.
 #
-# FULLY GENERIC EXECUTOR (§14.9.1): every image detail - which images, and
-# each one's FULL registry-qualified ref (image_ref), context, dockerfile,
-# build_args - comes ENTIRELY from `runko-ci images`, which reads the tree's
-# `deploy.image` declarations and the root's `deploy_registry`. This workflow
-# names no images, no registry, and no build config; adding/renaming an image,
-# changing a build arg, or moving registries is a single-manifest change. The
-# daemon's deploy record uses the SAME platform/deploy derivation over the same
-# head, so the built set and the record's expected set agree by construction.
+# DISPATCH-TRIGGERED, PER LAND: runkod emits a `runko-image-build`
+# repository_dispatch on every change.landed (runkod/githubdispatch.go),
+# carrying the landed head_sha. This workflow builds exactly that commit's
+# affected images - a tight head^..head delta per land.
 #
-# This file hardcodes nothing repo-specific, so it doubles as the generic
-# template shipped in templates/ci/runko-images.yml. The Runko-specific
-# `cli-latest` binary release lives in its own workflow (cli-release.yml) - a
-# binary release is not an image, so `runko-ci images` cannot express it.
+# FULLY GENERIC BUILD: which images, and each one's FULL registry-qualified ref
+# (image_ref), context, dockerfile, and build_args all come from
+# `runko-ci images`, which reads the tree's `deploy.image` declarations and the
+# root's `deploy_registry`. Adding/renaming an image is a single-manifest
+# change; only the `pin` job below (GitOps write-back) is Runko-specific.
 #
-# Secrets: RUNKO_URL (the org mount, e.g. https://<host>/o/runko),
-# RUNKO_CI_TOKEN.
+# Secrets: RUNKO_GITHUB_APP_ID + RUNKO_GITHUB_APP_PRIVATE_KEY - the existing
+# runkogithubapp (already used for the outbound mirror, so it has Contents:write),
+# which must also be installed on saxocellphone/k8s-cluster. The pin job mints a
+# per-run installation token (actions/create-github-app-token) SCOPED to just
+# k8s-cluster - no long-lived PAT, no user-owned credential. GHCR push uses the
+# default GITHUB_TOKEN.
 name: Release images
 
 run-name: "images: ${{ github.event.client_payload.change_id }}@${{ github.event.client_payload.head_sha }}"
@@ -36,12 +34,12 @@ on:
     types: [runko-image-build]
 
 permissions:
-  # Only GHCR image push; the checkout needs contents: read (default). The
-  # cli-latest release's contents: write moved to cli-release.yml.
+  # GHCR image push only. The k8s-cluster checkout authenticates with a
+  # short-lived GitHub App installation token (minted in the pin job), not the
+  # workflow's GITHUB_TOKEN.
   packages: write
 
-# One in-flight build per landed commit; never cancel a running build - each
-# land's images must complete to fill that land's deploy record.
+# One in-flight build per landed commit; never cancel a running build.
 concurrency:
   group: release-images-${{ github.event.client_payload.head_sha }}
   cancel-in-progress: false
@@ -49,8 +47,6 @@ concurrency:
 env:
   CHANGE_ID: ${{ github.event.client_payload.change_id }}
   HEAD_SHA: ${{ github.event.client_payload.head_sha }}
-  RUNKO_URL: ${{ secrets.RUNKO_URL }}
-  RUNKO_CI_TOKEN: ${{ secrets.RUNKO_CI_TOKEN }}
 
 jobs:
   setup:
@@ -79,21 +75,12 @@ jobs:
         with: { go-version: '1.25', cache: true }
       - name: locate runko-ci
         run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
-      - name: resolve the image matrix + cli flag from the tree
+      - name: resolve the image matrix from the tree
         id: resolve
         run: |
-          # head^..head is the single-land delta (the payload's documented
-          # preference). runko-ci images reads deploy.image from the tree and
-          # already handles run_everything (returns every declared image);
-          # no --engine (fail closed - a narrower set than the record expects
-          # would strand the rollout). A hard failure here reports no digests,
-          # so the record stays pending - visible, never a silent wrong set.
-          #
-          # INVARIANT: the daemon's deploy record must be computed with the
-          # SAME inputs. Prod runkod leaves RUNKO_ROOT_INVALIDATION unset
-          # (tree-borne only), so this CLI call matches it. If an operator
-          # ever sets that flag, the daemon's expected set widens beyond what
-          # is built here -> stranded rollout; pass the same patterns here too.
+          # head^..head is the single-land delta. runko-ci images reads
+          # deploy.image from the tree and handles run_everything (returns every
+          # declared image); no --engine (fail closed).
           BASE="$HEAD_SHA^"
           IMAGES=$(go run "$RUNKO_CI_PKG" images --base "$BASE" --head "$HEAD_SHA")
           echo "$IMAGES" | jq .
@@ -138,50 +125,119 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
       # One artifact per matrix leg (legs writing the same job output clobber).
-      # Carries the image_ref alongside the digest so report/ needs no registry.
-      - name: record image ref + digest for the deploy report
+      # Carries image_ref alongside the digest so the pin job needs no registry.
+      - name: record image ref + digest for the digest pin
         run: |
           mkdir -p report
-          printf '%s %s' "${{ matrix.image_ref }}" "${{ steps.build.outputs.digest }}" > "report/${{ matrix.name }}"
+          # Trailing newline matters: `read` returns 1 at EOF-without-newline,
+          # and GitHub's `bash -e` then kills the consuming step instantly with
+          # no output (exactly how the retired report job silently died).
+          printf '%s %s\n' "${{ matrix.image_ref }}" "${{ steps.build.outputs.digest }}" > "report/${{ matrix.name }}"
       - uses: actions/upload-artifact@v4
         with:
           name: report-${{ matrix.name }}
           path: report/${{ matrix.name }}
 
-  # Report each built image's digest to the deploy record runkod opened for
-  # this land (keyed by the LANDED head_sha, not a push tip). Once every
-  # expected image reports, runkod emits deploy.images_ready -> runko-deployer
-  # pins the digests -> Argo CD rolls.
-  report:
+  # Pin each freshly-built digest into the k8s-cluster GitOps repo. Argo CD
+  # (automated sync, selfHeal) reconciles the cluster from git - this job never
+  # runs kubectl and holds no cluster credential, only a Contents:write PAT on
+  # the one GitOps repo. Runko records the desired digest in git; Argo deploys.
+  pin:
     needs: images
-    # Report even when some image legs failed (fail-fast: false), so the
-    # digests that DID build reach the record immediately; only skip when the
-    # images job was skipped entirely (a non-deployable land - no record).
+    # Pin even if some image legs failed (fail-fast: false), so the digests that
+    # DID build reach git; only skip when the images job was skipped entirely (a
+    # non-deployable land - nothing to pin).
     if: ${{ !cancelled() && needs.images.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.HEAD_SHA }}
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.25', cache: true }
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
           pattern: report-*
           path: reports
-      - name: report built image refs + digests to Runko
+      # Mint a short-lived installation token scoped to k8s-cluster only. No
+      # long-lived credential lives in CI - just the App's id + private key,
+      # and this token expires within the hour.
+      - name: mint a k8s-cluster installation token
+        id: app-token
+        # SHA-pinned (not @v1): this action handles the App private key, so it
+        # gets the strictest supply-chain pin. Bump deliberately.
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.RUNKO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.RUNKO_GITHUB_APP_PRIVATE_KEY }}
+          owner: saxocellphone
+          repositories: k8s-cluster
+      - name: check out the GitOps repo
+        uses: actions/checkout@v4
+        with:
+          repository: saxocellphone/k8s-cluster
+          token: ${{ steps.app-token.outputs.token }}
+          path: k8s-cluster
+          fetch-depth: 0
+      # Pin each digest by editing the images: block with yq (preinstalled on
+      # the runner) - no kustomize download, and yq preserves comments and adds
+      # no redundant newName. The runkod image is one entry shared by runkod,
+      # runko-watchdog, and runko-mailer.
+      - name: pin the built digests into the GitOps repo and push
+        env:
+          KUST: apps/monorepo-platform/kustomization.yaml
         run: |
           shopt -s nullglob
-          for f in reports/report-*/*; do
-            name=$(basename "$f"); read -r image_ref digest < "$f"
+          cd k8s-cluster
+          # Collect (name, image_ref, digest) from the per-leg artifacts,
+          # validating each digest (mirrors the runkod deploy-record guard) -
+          # a bad value must never reach git.
+          names=(); refs=(); digests=()
+          for f in "$GITHUB_WORKSPACE"/reports/report-*/*; do
+            # `|| true`: read returns 1 at EOF-without-newline while still
+            # filling the vars; without this, bash -e kills the job silently.
+            name=$(basename "$f"); read -r image_ref digest < "$f" || true
             [ -n "$digest" ] || continue
-            go run ./cli/runko-ci report-image \
-              --url "$RUNKO_URL/api/deploys/${HEAD_SHA}/images" \
-              --token "$RUNKO_CI_TOKEN" \
-              --image "$name" \
-              --image-ref "$image_ref" \
-              --digest "$digest" \
-              --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-              --reporter github-actions
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::bad digest for $name: $digest"; exit 1; }
+            names+=("$name"); refs+=("$image_ref"); digests+=("$digest")
           done
+          if [ ${#digests[@]} -eq 0 ]; then
+            echo "::warning::no image leg produced a digest (builds failed?); nothing to pin"
+            exit 0
+          fi
+
+          git config user.name "${{ steps.app-token.outputs.app-slug }}[bot]"
+          git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
+
+          # Re-apply, NEVER rebase. Rebasing a textual patch of the images:
+          # block can conflict and leave a detached HEAD that pushes vacuously -
+          # silently dropping the pin while reporting success. Instead, on every
+          # attempt reset onto the freshest origin/main and re-apply the
+          # SEMANTIC edit (set each image's digest by name; idempotent), commit,
+          # push. Rapid out-of-order lands self-correct on the next land, and
+          # :sha-<head> tags stay the manual rollback handle.
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet origin main
+            git reset --quiet --hard origin/main
+            for i in "${!digests[@]}"; do
+              n=$(yq "[.images[] | select(.name == \"${refs[$i]}\")] | length" "$KUST")
+              [ "$n" = "1" ] || { echo "::error::${refs[$i]} has no entry in $KUST images: block - add one"; exit 1; }
+              yq -i "(.images[] | select(.name == \"${refs[$i]}\").digest) = \"${digests[$i]}\"" "$KUST"
+            done
+            git add "$KUST"
+            if git diff --cached --quiet; then
+              echo "digests already current at origin/main - nothing to push"
+              break
+            fi
+            git commit -q -m "monorepo-platform: pin ${names[*]} from runko@${HEAD_SHA:0:9}"
+            if git push origin HEAD:main; then
+              echo "pushed pin for ${names[*]}"
+              break
+            fi
+            echo "push rejected (attempt $attempt/5); re-applying onto new origin/main"
+            [ "$attempt" = 5 ] && { echo "::error::could not push digest pin after 5 attempts"; exit 1; }
+          done
+
+          # Backstop against a vacuous push exiting 0: the local kustomization
+          # (just committed+pushed, or already matching origin) MUST carry every
+          # digest we pinned.
+          for i in "${!digests[@]}"; do
+            grep -qF "${digests[$i]}" "$KUST" || { echo "::error::pin verification failed: ${names[$i]} (${digests[$i]}) absent from $KUST"; exit 1; }
+          done
+          echo "pinned + verified: ${names[*]}"
