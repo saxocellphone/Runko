@@ -9,6 +9,7 @@ package runkod
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -754,6 +755,118 @@ func (s *Server) rerunCheckCore(ctx context.Context, key string, change Change, 
 	s.enqueueRerunWebhook(ctx, change, name, requestedBy)
 
 	reqs, err := s.mergeRequirements(ctx, key, change, lane)
+	if err != nil {
+		return checks.MergeRequirements{}, internalErr(err)
+	}
+	return reqs, nil
+}
+
+// ackPolicyRequest is POST /api/changes/{key}/ack-policy's body. AckedBy is
+// client-supplied identity, trusted only from the anonymous deploy token -
+// the same §15.1 interim boundary approveRequest documents.
+type ackPolicyRequest struct {
+	AckedBy string `json:"acked_by"`
+}
+
+// handleAckPolicy completes the reserved agent-policy check (2026-07-24
+// enforcement split): the "extra button" a human with approve rights clicks
+// to accept an agent change's policy findings - denylisted paths, size-cap
+// overruns, owners edits - after reading the diff they describe.
+func (s *Server) handleAckPolicy(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	change, ok, err := s.Store.GetChange(r.Context(), key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "change not found", http.StatusNotFound)
+		return
+	}
+	var req ackPolicyRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req) // an empty body is fine for named principals
+	}
+	reqs, apiErr := s.ackPolicyCore(r.Context(), key, change, req.AckedBy, s.principalFor(r))
+	if apiErr != nil {
+		writeAPIError(w, apiErr)
+		return
+	}
+	writeJSON(w, http.StatusOK, reqs)
+}
+
+func (s *Server) ackPolicyCore(ctx context.Context, key string, change Change, ackedBy string, principal *Principal) (checks.MergeRequirements, *apiError) {
+	if apiErr := requireOpenChange(key, change, "acknowledge agent policy"); apiErr != nil {
+		return checks.MergeRequirements{}, apiErr
+	}
+	// Attribution mirrors approveChangeCore: a named principal acks as
+	// itself; agents are refused outright - an agent must never complete
+	// its own (or any) policy leash.
+	if principal != nil {
+		if principal.IsAgent {
+			return checks.MergeRequirements{}, typedErr(http.StatusForbidden, clierr.Error{
+				Code:       "agent_ack_denied",
+				Field:      "acked_by",
+				Message:    fmt.Sprintf("%q is an agent principal - agents cannot acknowledge policy findings", principal.Name),
+				Suggestion: "a human with approve rights must acknowledge (`runko change ack-policy`)",
+			})
+		}
+		if ackedBy != "" && ackedBy != principal.Name {
+			return checks.MergeRequirements{}, typedErr(http.StatusBadRequest, clierr.Error{
+				Code: "acked_by_mismatch", Field: "acked_by",
+				Message:    fmt.Sprintf("authenticated as %q but acked_by says %q", principal.Name, ackedBy),
+				Suggestion: "drop acked_by - your token already says who you are",
+			})
+		}
+		ackedBy = principal.Name
+	}
+	if ackedBy == "" {
+		return checks.MergeRequirements{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "missing_field", Field: "acked_by",
+			Message:    "acked_by is required",
+			Suggestion: `POST {"acked_by": "<you>"}`,
+		})
+	}
+
+	runs, err := s.Store.ListCheckRuns(ctx, key, change.HeadSHA)
+	if err != nil {
+		return checks.MergeRequirements{}, internalErr(err)
+	}
+	var found *checks.CheckRunView
+	for i := range runs {
+		if runs[i].Name == checks.AgentPolicyCheckName {
+			found = &runs[i]
+			break
+		}
+	}
+	if found == nil {
+		return checks.MergeRequirements{}, typedErr(http.StatusBadRequest, clierr.Error{
+			Code: "nothing_to_acknowledge", Field: "change",
+			Message:    fmt.Sprintf("change %s carries no agent-policy findings at its current head", key),
+			Suggestion: "nothing to do - the change's gates are its ordinary checks and owners",
+		})
+	}
+	if found.Status == checks.CheckStatusCompleted && found.Conclusion == checks.ConclusionSuccess {
+		return checks.MergeRequirements{}, typedErr(http.StatusConflict, clierr.Error{
+			Code: "already_acknowledged", Field: "change",
+			Message:    fmt.Sprintf("change %s's agent-policy findings are already acknowledged", key),
+			Suggestion: "an amend re-evaluates policy and resets the acknowledgement",
+		})
+	}
+
+	if err := s.Store.UpsertCheckRun(ctx, key, change.HeadSHA, checks.CheckRunView{
+		Name:       checks.AgentPolicyCheckName,
+		Status:     checks.CheckStatusCompleted,
+		Conclusion: checks.ConclusionSuccess,
+		Reporter:   ackedBy,
+	}); err != nil {
+		return checks.MergeRequirements{}, internalErr(err)
+	}
+	// The ack may have flipped mergeability - same posture as a reported
+	// check result.
+	s.KickAutomerge()
+
+	reqs, err := s.mergeRequirements(ctx, key, change, nil)
 	if err != nil {
 		return checks.MergeRequirements{}, internalErr(err)
 	}

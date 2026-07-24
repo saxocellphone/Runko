@@ -346,6 +346,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /api/changes/{key}/checks", s.requireAuth(s.handlePostCheck))
 	mux.HandleFunc("POST /api/deploys/{sha}/images", s.requireAuth(s.handlePostDeployImage))
 	mux.HandleFunc("POST /api/changes/{key}/approve", s.requireAuth(s.handleApproveChange))
+	mux.HandleFunc("POST /api/changes/{key}/ack-policy", s.requireAuth(s.handleAckPolicy))
 	mux.HandleFunc("POST /api/changes/{key}/automerge", s.requireAuth(s.handleSetAutomerge))
 	mux.HandleFunc("POST /api/changes/{key}/land", s.requireAuth(s.handleLandChange))
 	mux.HandleFunc("POST /api/changes/{key}/land-stack", s.requireAuth(s.handleLandStack))
@@ -1084,6 +1085,16 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	}
 	requiredNames := requiredCheckNames(result, indexed)
 	requiredNames = mergeCheckNames(requiredNames, s.effectiveGlobalChecks(ctx))
+	// The reserved agent-policy check (2026-07-24 enforcement split) is
+	// required exactly when the receive funnel minted (or a trivial rebase
+	// carried) a run under that name at this head - manifest checks and
+	// org globals never declare it; its presence IS the policy finding.
+	for _, run := range runs {
+		if run.Name == checks.AgentPolicyCheckName {
+			requiredNames = mergeCheckNames(requiredNames, []string{checks.AgentPolicyCheckName})
+			break
+		}
+	}
 
 	var owners []checks.OwnerRequirement
 	if lane != nil {
@@ -1506,6 +1517,18 @@ func (s *Server) handlePostCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	if report.Name == "" || report.ExternalID == "" || report.Reporter == "" {
 		http.Error(w, "name, external_id, and reporter are required", http.StatusBadRequest)
+		return
+	}
+	if report.Name == checks.AgentPolicyCheckName {
+		// Reserved (2026-07-24 enforcement split): the receive funnel mints
+		// it, a human acknowledgement completes it - an external reporter
+		// (or an agent holding a token) must never report its own leash
+		// green.
+		writeJSON(w, http.StatusForbidden, clierr.Error{
+			Code: "reserved_check_name", Field: "name",
+			Message:    fmt.Sprintf("%q is reserved: it records agent policy findings and only a human acknowledgement completes it", checks.AgentPolicyCheckName),
+			Suggestion: "acknowledge via `runko change ack-policy --change <Id>` (approve rights required)",
+		})
 		return
 	}
 

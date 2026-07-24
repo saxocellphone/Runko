@@ -84,6 +84,7 @@ go_library(
 go_test(
     name = "runkod_test",
     srcs = [
+        "ackpolicy_test.go",
         "activity_test.go",
         "affectedcache_test.go",
         "agentpolicy_test.go",

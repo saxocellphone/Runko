@@ -41,7 +41,7 @@ func writeN(repo *gitfixture.Repo, prefix string, n int) {
 // 2-file changes (4 files total - the OLD whole-push measurement refused
 // this) are accepted, while one 4-file change is refused BY NAME with the
 // split workflow in the message.
-func TestAgentStackOfSmallChangesPassesWhereMonolithIsRefused(t *testing.T) {
+func TestAgentStackOfSmallChangesPassesWhereMonolithIsFlagged(t *testing.T) {
 	p, repo, bare, env := stackSizeFixture(t, 3)
 	ctx := context.Background()
 
@@ -64,20 +64,21 @@ func TestAgentStackOfSmallChangesPassesWhereMonolithIsRefused(t *testing.T) {
 	oldSHA2, tip2 := pushCommit(t, repo2, bare2, "refs/for/main")
 
 	result = p2.Process(ctx, RefUpdate{OldSHA: oldSHA2, NewSHA: tip2, Ref: "refs/for/main"}, env2)
-	if result.Accepted {
-		t.Fatalf("a 4-file change must trip the 3-file per-change cap")
+	if !result.Accepted {
+		t.Fatalf("since 2026-07-24 a cap overrun accepts and owes the agent-policy check, got %+v", result)
 	}
-	for _, want := range []string{"I3333333333333333333333333333333333333333", "too big as ONE change", "split it into a stack", "jj split"} {
+	for _, want := range []string{"I3333333333333333333333333333333333333333", "changed 4 files", "split the work into a stack", "runko change ack-policy"} {
 		if !strings.Contains(result.Message, want) {
-			t.Fatalf("refusal must contain %q, got:\n%s", want, result.Message)
+			t.Fatalf("push output must contain %q, got:\n%s", want, result.Message)
 		}
 	}
 }
 
-// TestAgentStackRefusalNamesTheOversizedMember: in a stack where only the
-// MIDDLE step is too big, the refusal names that member - the agent must
-// know which step to split, not guess.
-func TestAgentStackRefusalNamesTheOversizedMember(t *testing.T) {
+// TestAgentStackFindingNamesTheOversizedMember: in a stack where only the
+// MIDDLE step is too big, the agent-policy finding lands on that member -
+// the agent must know which step to split, not guess, and the small
+// members' gates stay clean.
+func TestAgentStackFindingNamesTheOversizedMember(t *testing.T) {
 	p, repo, bare, env := stackSizeFixture(t, 3)
 	ctx := context.Background()
 
@@ -90,11 +91,15 @@ func TestAgentStackRefusalNamesTheOversizedMember(t *testing.T) {
 	oldSHA, tip := pushCommit(t, repo, bare, "refs/for/main")
 
 	result := p.Process(ctx, RefUpdate{OldSHA: oldSHA, NewSHA: tip, Ref: "refs/for/main"}, env)
-	if result.Accepted {
-		t.Fatalf("the oversized middle member must refuse the push")
+	if !result.Accepted {
+		t.Fatalf("an oversized member accepts and owes the agent-policy check, got %+v", result)
 	}
-	if !strings.Contains(result.Message, "I2222222222222222222222222222222222222222") || !strings.Contains(result.Message, "huge step") {
-		t.Fatalf("refusal must name the oversized MEMBER, got:\n%s", result.Message)
+	if !strings.Contains(result.Message, "I2222222222222222222222222222222222222222") {
+		t.Fatalf("the finding must name the oversized MEMBER, got:\n%s", result.Message)
+	}
+	if strings.Contains(result.Message, "agent-policy: change I1111111111111111111111111111111111111111") ||
+		strings.Contains(result.Message, "agent-policy: change I4444444444444444444444444444444444444444") {
+		t.Fatalf("small members must carry no finding, got:\n%s", result.Message)
 	}
 }
 

@@ -127,3 +127,17 @@ changelog.
   workflow's concurrency group). The bridge binary stays in-tree as the
   shim for PAT-only deployments; the `client_payload` shape is
   byte-compatible, so `runko-checks.yml` never notices the swap.
+- **2026-07-24** — **the reserved `agent-policy` check** (the receive→gate
+  enforcement move's server half; see `platform/README.md`): the funnel
+  accepts agent pushes carrying ackable policy findings, warns in the push
+  output, and mints `agent-policy` completed/failure at the member's head
+  (per series member — the finding lands on exactly the change that owes
+  it; a trivial-rebase carry keeps an *acknowledged* run, and an unacked
+  one re-mints so a rebase can never launder findings). The run's presence
+  joins the required set in `mergeRequirements`; `POST
+  /api/changes/{key}/ack-policy` (approve-rights humans only, agents
+  refused, `acked_by` audit in the run's reporter) completes it green and
+  kicks automerge. The name is refused on the external report surface and
+  unknown to rerun. Snapshot pushes warn instead of refusing for ackable
+  classes — retiring the trunk-drift false positive (finding I0b79457d
+  chased).

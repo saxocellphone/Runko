@@ -86,3 +86,21 @@ changelog.
 
 - **2026-07-16** — this README becomes the project's living spec;
   `docs/design.md` is retired and frozen (see [`docs/README.md`](../docs/README.md)).
+- **2026-07-24** — **agent path/size policy moves from receive-refusal to a
+  human-acknowledged check** (a prior decision reversed: §8.7's receive-time
+  enforcement of content-shaped rules). `receive.PolicyViolation` carries an
+  enforcement class: *ackable* findings (denylist paths, size caps,
+  owners/project/capability gates, self-grant) no longer refuse the push —
+  the funnel accepts it and the findings become the reserved
+  **`agent-policy`** check (`checks.AgentPolicyCheckName`) on the change,
+  minted completed/failure at receive and completable only by a human with
+  approve rights (never an agent, never an external reporter, never
+  rerun-check). *Hard* findings still refuse: workspace affinity/provenance
+  (merge-time cannot retrofit attribution) and land requests. The secret
+  scan is untouched — push is publish (the mirror ships `refs/changes/*`),
+  so it can never move to the gate. Rationale: a refused push is invisible
+  while a pushed-but-gated change is reviewable; the executor already runs
+  the change's own manifest-declared commands pre-land, so path denial at
+  receive guarded the inert surface while the live one rode the ordinary
+  gate. Per-head minting means every amend re-evaluates; a trivial-rebase
+  carry keeps an acknowledgement exactly as it keeps approvals.

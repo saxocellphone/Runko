@@ -11,6 +11,7 @@ import (
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/internal/gitfixture"
+	"github.com/saxocellphone/runko/platform/checks"
 	"github.com/saxocellphone/runko/platform/receive"
 )
 
@@ -174,18 +175,36 @@ func TestAgentPolicyEnforcedAtReceive(t *testing.T) {
 		t.Fatalf("expected a workspace-affinity violation message, got %q", result.Message)
 	}
 
-	// Affinity waived, but the §8.7 denylist still bites on security/**.
+	// Affinity waived: the §8.7 denylist is ACKABLE since 2026-07-24 - the
+	// push is accepted, the finding is warned in the push output, and the
+	// reserved agent-policy check is minted failing at the head.
 	relaxed := receive.DefaultAgentPolicy()
 	relaxed.RequireWorkspaceAffinity = false
 	processor.Principals = []Principal{{Name: "bumpbot", Token: "bot-tok", IsAgent: true, Policy: relaxed}}
 	result = processor.Process(context.Background(),
 		RefUpdate{OldSHA: zeroOID, NewSHA: headSHA, Ref: "refs/for/main"},
 		[]string{"REMOTE_USER=bumpbot"})
-	if result.Accepted {
-		t.Fatalf("expected the denylist to refuse security/**, got %+v", result)
+	if !result.Accepted {
+		t.Fatalf("an ackable denylist finding must accept the push, got %+v", result)
 	}
-	if !strings.Contains(result.Message, "security/policy.yaml") {
-		t.Fatalf("expected the denylisted path named, got %q", result.Message)
+	if !strings.Contains(result.Message, "security/policy.yaml") || !strings.Contains(result.Message, "runko change ack-policy") {
+		t.Fatalf("push output must name the finding and the ack command, got %q", result.Message)
+	}
+	runs, err := store.ListCheckRuns(context.Background(), "Iaaaabbbbccccddddeeeeffff0000111122223333", headSHA)
+	if err != nil {
+		t.Fatalf("ListCheckRuns: %v", err)
+	}
+	foundPolicy := false
+	for _, r := range runs {
+		if r.Name == checks.AgentPolicyCheckName {
+			foundPolicy = true
+			if r.Status != checks.CheckStatusCompleted || r.Conclusion != checks.ConclusionFailure {
+				t.Fatalf("agent-policy run must be minted failing, got %+v", r)
+			}
+		}
+	}
+	if !foundPolicy {
+		t.Fatalf("expected a minted agent-policy run at %s, got %+v", headSHA, runs)
 	}
 
 	// The same push by a HUMAN principal (no agent policy) is accepted -

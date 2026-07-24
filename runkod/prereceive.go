@@ -94,6 +94,11 @@ type verdict struct {
 	// where the effective-old base is already known.
 	snapAdds int
 	snapDels int
+	// memberAckable maps series-member Change-Ids to the ackable policy
+	// findings their OWN diff carries (2026-07-24 enforcement split):
+	// evaluated per member so the reserved agent-policy check lands on
+	// exactly the change that owes it, not the whole stack.
+	memberAckable map[string][]receive.PolicyViolation
 }
 
 func (v verdict) accepted() bool { return v.evalErr == "" && (v.skip || v.decision.Accepted) }
@@ -223,7 +228,7 @@ func (p *Processor) ProcessBatch(ctx context.Context, updates []RefUpdate, extra
 				})
 			}
 			results[i] = RefResult{Ref: v.update.Ref, Accepted: true,
-				Message: fmt.Sprintf("remote: workspace snapshot -> %s\n", v.update.Ref)}
+				Message: v.advice + fmt.Sprintf("remote: workspace snapshot -> %s\n", v.update.Ref)}
 		default:
 			results[i] = p.commit(ctx, v)
 		}
@@ -383,14 +388,19 @@ func (p *Processor) evaluate(ctx context.Context, u RefUpdate, extraEnv []string
 		// encourage - ten small stacked changes tripped the same wall one
 		// monolith did. Affinity/denylist/owners stay whole-push here
 		// (the union of the members' paths - equivalent and cheaper).
+		// 2026-07-24 enforcement split: the whole-push evaluation keeps
+		// only the STRUCTURAL classes (workspace affinity - hard refusals).
+		// Content classes (denylist, caps, owners/create/self-grant) are
+		// evaluated PER SERIES MEMBER in evaluatePerChangePolicy below, so
+		// each finding attaches to exactly the change that owes it as its
+		// agent-policy check.
 		wholePush := pr.Policy
 		wholePush.MaxChangedFiles, wholePush.MaxDiffBytes = 0, 0
+		wholePush.DenylistPaths = nil
+		wholePush.CanModifyOwners = true
+		wholePush.CanCreateProjects = true
 		req.Principal = receive.Principal{IsAgent: true, Policy: wholePush}
 		req.DiffBytes = totalContentBytes(files)
-		modifies, creates, newOwners := p.classifyOwnershipTouch(diffBase, u.NewSHA, changedPaths, extraEnv)
-		req.ModifiesOwners = modifies
-		req.IsProjectCreate = creates
-		req.NewProjectOwners = newOwners
 		req.Author = author
 		if originWS != "" && author != "" && originWorkspace.Owner == author {
 			req.WorkspaceAffinity = originWorkspace.WriteAllowlist
@@ -443,11 +453,17 @@ func (p *Processor) enforcePerChangeCaps(ctx context.Context, v *verdict) *verdi
 	if pr == nil || !pr.IsAgent {
 		return nil
 	}
+	// The full content policy, evaluated per series member (2026-07-24
+	// enforcement split): denylist, size caps, owners/create gates and
+	// self-grant all classify Ackable - they no longer refuse the push but
+	// accrue on the member as its reserved agent-policy check. Structural
+	// classes cannot fire here (affinity was whole-push, land is an
+	// action), so every finding collected below is ackable by
+	// construction; a non-ackable finding would be a programming error and
+	// is dropped defensively by the SplitAckable below.
+	perMember := pr.Policy
+	perMember.RequireWorkspaceAffinity = false
 	maxFiles, maxBytes := pr.Policy.MaxChangedFiles, pr.Policy.MaxDiffBytes
-	if maxFiles == 0 && maxBytes == 0 {
-		return nil
-	}
-	caps := receive.AgentPolicy{MaxChangedFiles: maxFiles, MaxDiffBytes: maxBytes}
 
 	var advice strings.Builder
 	var prev *seriesMember
@@ -480,17 +496,20 @@ func (p *Processor) enforcePerChangeCaps(ctx context.Context, v *verdict) *verdi
 		}
 		prev, prevPaths = &m, paths
 
-		if violations := receive.EvaluatePolicy(caps, receive.PushSummary{ChangedFiles: paths, DiffBytes: bytes}); len(violations) > 0 {
-			rej := *v
-			var b strings.Builder
-			fmt.Fprintf(&b, "remote: change %s (%q) is too big as ONE change (agent policy):\n", m.changeID, m.title)
-			for _, viol := range violations {
-				fmt.Fprintf(&b, "remote:   %s\n", viol.Message)
+		modifies, creates, newOwners := p.classifyOwnershipTouch(parent, m.sha, paths, v.extraEnv)
+		violations := receive.EvaluatePolicy(perMember, receive.PushSummary{
+			ChangedFiles:     paths,
+			DiffBytes:        bytes,
+			ModifiesOwners:   modifies,
+			IsProjectCreate:  creates,
+			NewProjectOwners: newOwners,
+			Author:           v.author,
+		})
+		if _, ackable := receive.SplitAckable(violations); len(ackable) > 0 {
+			if v.memberAckable == nil {
+				v.memberAckable = map[string][]receive.PolicyViolation{}
 			}
-			b.WriteString("remote:   -> split it into a stack of smaller changes - one reviewable step each (jj split, or jj new between steps)\n")
-			b.WriteString("remote:   -> one `runko change push` still pushes the whole stack; smaller changes scope checks narrower and land faster\n")
-			rej.decision = receive.Decision{Accepted: false, RejectionMessage: b.String()}
-			return &rej
+			v.memberAckable[m.changeID] = ackable
 		}
 
 		if (maxFiles > 0 && len(paths)*2 > maxFiles) || (maxBytes > 0 && bytes*2 > maxBytes) {
@@ -793,10 +812,17 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 	}
 	snapAdds, snapDels := p.numstatTotals(oldSHA, u.NewSHA, extraEnv)
 
+	var snapAdvice strings.Builder
 	if pr := p.principalByName(author); pr != nil && pr.IsAgent {
 		// A snapshot push is exactly the workspace-affine write §8.7's
 		// policy wants agents making - so it carries the workspace's own
-		// write allowlist as affinity, and the denylist/caps still apply.
+		// write allowlist as affinity. Since the 2026-07-24 enforcement
+		// split only STRUCTURAL findings refuse a snapshot; content
+		// findings (denylist, caps, owners) warn and accept - a snapshot
+		// is WIP durability, not a review object, and the gate lives on
+		// the change the work eventually becomes. (This also retires the
+		// trunk-drift false positive: a denylisted path someone ELSE
+		// landed after the workspace base no longer wedges snapshots.)
 		modifies, creates, newOwners := p.classifyOwnershipTouch(oldSHA, u.NewSHA, changedPaths, extraEnv)
 		violations := receive.EvaluatePolicy(pr.Policy, receive.PushSummary{
 			ChangedFiles:      changedPaths,
@@ -808,9 +834,13 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 			NewProjectOwners:  newOwners,
 			Author:            author,
 		})
-		if len(violations) > 0 {
+		hard, ackable := receive.SplitAckable(violations)
+		if len(hard) > 0 {
 			return verdict{update: u, isSnapshot: true, author: author,
-				decision: receive.Decision{Accepted: false, PolicyViolations: violations}}
+				decision: receive.Decision{Accepted: false, PolicyViolations: hard}}
+		}
+		for _, viol := range ackable {
+			fmt.Fprintf(&snapAdvice, "remote: agent-policy note: %s (the change this becomes will need a human acknowledgement)\n", viol.Message)
 		}
 	}
 
@@ -841,7 +871,7 @@ func (p *Processor) evaluateSnapshot(ctx context.Context, u RefUpdate, wsID stri
 	}
 
 	return verdict{update: u, isSnapshot: true, changedPaths: changedPaths, extraEnv: extraEnv, author: author,
-		snapAdds: snapAdds, snapDels: snapDels,
+		snapAdds: snapAdds, snapDels: snapDels, advice: snapAdvice.String(),
 		decision: receive.Decision{Accepted: true}}
 }
 
@@ -974,11 +1004,11 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 			return RefResult{Ref: v.update.Ref, Accepted: false, Message: fmt.Sprintf("remote: failed to record change: %v\n", err)}
 		}
 
+		covered := false
 		result, indexed, affErr := p.computeAffectedForChange(change, m.changedPaths, v.extraEnv)
 		if affErr != nil {
 			log.Printf("runkod: %s: scan projects at %s: %v", change.ChangeKey, change.HeadSHA, affErr)
 		} else {
-			covered := false
 			if existed && p.trivialRebaseOf(old, base, m.sha, v.extraEnv) {
 				covered = p.carryForwardTrivialRebase(ctx, old, change, result, indexed)
 			}
@@ -986,6 +1016,52 @@ func (p *Processor) commit(ctx context.Context, v verdict) RefResult {
 				fmt.Fprintf(&msg, "remote: %s: checks carried forward (trivial rebase of %.12s) - no CI re-run\n", change.ChangeKey, old.HeadSHA)
 			} else {
 				p.enqueueChangeUpdated(ctx, change, result)
+			}
+		}
+
+		// 2026-07-24 enforcement split: a member with ackable policy
+		// findings is ACCEPTED but owes the reserved agent-policy check -
+		// minted failing at its head, completable only by a human ack
+		// (handleAckPolicy). One exception: a trivial-rebase carry that
+		// brought an ACKNOWLEDGED (success) run to this head keeps it -
+		// same delta, same findings, the human already read them.
+		// Re-minting over the carried ack would clobber it; minting when
+		// the carry brought nothing closes the laundering hole where a
+		// trivial rebase of an UNacked change would otherwise shed its
+		// findings.
+		if vio := v.memberAckable[m.changeID]; len(vio) > 0 {
+			carriedAck := false
+			if covered {
+				if runs, err := p.Store.ListCheckRuns(ctx, change.ChangeKey, change.HeadSHA); err == nil {
+					for _, r := range runs {
+						if r.Name == checks.AgentPolicyCheckName && r.Status == checks.CheckStatusCompleted && r.Conclusion == checks.ConclusionSuccess {
+							carriedAck = true
+							break
+						}
+					}
+				}
+			}
+			if carriedAck {
+				fmt.Fprintf(&msg, "remote: agent-policy: change %s keeps its carried acknowledgement (trivial rebase)\n", change.ChangeKey)
+			} else {
+				run := checks.CheckRunView{
+					Name:       checks.AgentPolicyCheckName,
+					Status:     checks.CheckStatusCompleted,
+					Conclusion: checks.ConclusionFailure,
+					LastSeenAt: time.Now(),
+					Reporter:   "runkod",
+				}
+				if err := p.Store.UpsertCheckRun(ctx, change.ChangeKey, change.HeadSHA, run); err != nil {
+					log.Printf("runkod: %s: record agent-policy check: %v", change.ChangeKey, err)
+				}
+				fmt.Fprintf(&msg, "remote: agent-policy: change %s carries %d policy finding(s):\n", change.ChangeKey, len(vio))
+				for _, viol := range vio {
+					fmt.Fprintf(&msg, "remote:   %s\n", viol.Message)
+					if viol.Suggestion != "" {
+						fmt.Fprintf(&msg, "remote:     -> %s\n", viol.Suggestion)
+					}
+				}
+				fmt.Fprintf(&msg, "remote:   -> accepted; a human with approve rights must acknowledge before merge: runko change ack-policy --change %s\n", change.ChangeKey)
 			}
 		}
 

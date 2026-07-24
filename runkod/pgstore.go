@@ -861,10 +861,14 @@ func (s *PostgresStore) UpsertCheckRun(ctx context.Context, changeKey, headSHA s
 	if run.DetailsURL != "" {
 		detailsURL = &run.DetailsURL
 	}
+	reporter := run.Reporter
+	if reporter == "" {
+		reporter = "unknown"
+	}
 	_, err = s.Queries.UpsertCheckRunByName(ctx, s.Pool, dbgen.UpsertCheckRunByNameParams{
 		ChangeID: changeID, HeadSha: headSHA, Name: run.Name,
 		ExternalID: run.Name, Status: dbgen.CheckStatus(run.Status), Conclusion: conclusion,
-		Reporter: "unknown", TtlSeconds: checks.DefaultTTLSeconds, Attempt: attempt,
+		Reporter: reporter, TtlSeconds: checks.DefaultTTLSeconds, Attempt: attempt,
 		DetailsUrl: detailsURL,
 	})
 	return err
