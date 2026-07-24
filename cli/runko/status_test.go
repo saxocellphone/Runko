@@ -56,6 +56,9 @@ func TestRunStatusLocalOnly(t *testing.T) {
 	if r.StaleBase {
 		t.Fatalf("an unreachable/unconfigured remote must read as not-stale, got StaleBase=true")
 	}
+	if r.TrunkSHA == "" || r.TrunkTitle != "base" {
+		t.Fatalf("expected the trunk base node facts (the graph's ◆), got %q / %q", r.TrunkSHA, r.TrunkTitle)
+	}
 	if len(r.Stack) != 2 {
 		t.Fatalf("expected a 2-change stack, got %+v", r.Stack)
 	}
@@ -206,28 +209,75 @@ func TestRunStatusNotARepo(t *testing.T) {
 	}
 }
 
-func TestPrintStatusRendersStackAndBlockers(t *testing.T) {
-	var b strings.Builder
-	PrintStatus(&b, StatusReport{
+func statusPrintFixture() StatusReport {
+	return StatusReport{
 		Dir: "/w", WorkspaceID: "ws1", Branch: "head", WorkspaceStatus: "open",
 		Remote: "origin", TrunkRef: "main", Principal: "alice", ControlPlane: "http://cp",
+		TrunkSHA: "aaaabbbbccccdddd", TrunkTitle: "trunk tip subject",
 		Stack: []StackEntry{
 			{ChangeID: statusTestIDReady, Title: "bottom", Status: "ready"},
 			{ChangeID: statusTestIDBlocked, Title: "top", Status: "blocked",
 				Blockers: []string{"required owner approval outstanding: admin"}},
 		},
-	})
+	}
+}
+
+// TestPrintStatusDrawsTheJJStyleGraph: the line above trunk renders the
+// way jj log draws it - newest on top, @ on the tip (the working copy's
+// seat in a clean tree), ○ below, ◆ the trunk base, blockers on the
+// node's │ gutter.
+func TestPrintStatusDrawsTheJJStyleGraph(t *testing.T) {
+	var b strings.Builder
+	PrintStatus(&b, statusPrintFixture())
 	out := b.String()
 	for _, want := range []string{
 		"workspace:    ws1 @ head (open)",
 		"signed in:    alice @ http://cp",
-		"✓ ready",
-		"✕ blocked",
-		"-> required owner approval outstanding: admin",
+		"@  " + statusTestIDBlocked + "  top  (✕ blocked)",
+		"│      -> required owner approval outstanding: admin",
+		"○  " + statusTestIDReady + "  bottom  (✓ ready)",
+		"◆  aaaabbbbcccc origin/main  trunk tip subject",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in:\n%s", want, out)
 		}
+	}
+	if strings.Index(out, "@  "+statusTestIDBlocked) > strings.Index(out, "○  "+statusTestIDReady) {
+		t.Fatalf("the graph must render newest first (top of stack above bottom):\n%s", out)
+	}
+}
+
+// TestPrintStatusDirtyWorkingTreeTakesTheAtSeat: with uncommitted paths
+// the working tree itself is where @ sits (jj's model of the working
+// copy), and every change drops to ○.
+func TestPrintStatusDirtyWorkingTreeTakesTheAtSeat(t *testing.T) {
+	r := statusPrintFixture()
+	r.DirtyPaths = 3
+	var b strings.Builder
+	PrintStatus(&b, r)
+	out := b.String()
+	for _, want := range []string{
+		"@  3 uncommitted path(s)",
+		"○  " + statusTestIDBlocked + "  top  (✕ blocked)",
+		"○  " + statusTestIDReady + "  bottom  (✓ ready)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in:\n%s", want, out)
+		}
+	}
+}
+
+// TestPrintStatusEmptyStackDirtyTreeStillDrawsTheGraph: nothing above
+// trunk but an uncommitted working tree still has a seat for @ over ◆.
+func TestPrintStatusEmptyStackDirtyTreeStillDrawsTheGraph(t *testing.T) {
+	r := statusPrintFixture()
+	r.Stack = []StackEntry{}
+	r.DirtyPaths = 1
+	var b strings.Builder
+	PrintStatus(&b, r)
+	out := b.String()
+	if !strings.Contains(out, "@  1 uncommitted path(s)") || !strings.Contains(out, "◆  aaaabbbbcccc origin/main") {
+		t.Fatalf("expected the @ working-tree node over the ◆ base:\n%s", out)
 	}
 }
 
