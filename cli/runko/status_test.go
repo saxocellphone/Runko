@@ -288,17 +288,125 @@ func TestPrintStatusDirtyWorkingTreeTakesTheAtSeat(t *testing.T) {
 	}
 }
 
-// TestPrintStatusEmptyStackDirtyTreeStillDrawsTheGraph: nothing above
-// trunk but an uncommitted working tree still has a seat for @ over ◆.
-func TestPrintStatusEmptyStackDirtyTreeStillDrawsTheGraph(t *testing.T) {
-	r := statusPrintFixture()
-	r.Stack = []StackEntry{}
-	r.DirtyPaths = 1
+// TestPrintStatusEmptyStackSaysNothingInFlight: an empty stack (clean or
+// dirty) does not open a bare graph - dirt rides the working-tree line;
+// the stack line says nothing is in flight.
+func TestPrintStatusEmptyStackSaysNothingInFlight(t *testing.T) {
+	for _, dirty := range []int{0, 1} {
+		r := statusPrintFixture()
+		r.Stack = []StackEntry{}
+		r.DirtyPaths = dirty
+		var b strings.Builder
+		PrintStatus(&b, r)
+		out := b.String()
+		if !strings.Contains(out, "stack:        nothing in flight - HEAD is on trunk") {
+			t.Fatalf("dirty=%d: expected the nothing-in-flight line:\n%s", dirty, out)
+		}
+		if strings.Contains(out, "◆  ") || strings.Contains(out, "stack (bottom") {
+			t.Fatalf("dirty=%d: empty stack must not open a graph:\n%s", dirty, out)
+		}
+	}
+}
+
+// TestRunStatusPlainGitOnTrunkNothingInFlight: a plain-git checkout whose
+// HEAD is the remote trunk tip has an empty stack and the nothing-in-flight
+// human line (no phantom "0 change(s)" header).
+func TestRunStatusPlainGitOnTrunkNothingInFlight(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("base")
+	repo.Run("update-ref refs/remotes/origin/main HEAD")
+
+	r, err := RunStatus(context.Background(), http.DefaultClient, nil, "no stored credential", repo.Dir, "origin", "main")
+	if err != nil {
+		t.Fatalf("RunStatus: %v", err)
+	}
+	if r.IsJJWorkspace {
+		t.Fatalf("expected a plain-git checkout, got IsJJWorkspace=true")
+	}
+	if r.Stack == nil || len(r.Stack) != 0 {
+		t.Fatalf("expected empty (non-nil) stack on trunk, got %+v", r.Stack)
+	}
+	var b strings.Builder
+	PrintStatus(&b, r)
+	if !strings.Contains(b.String(), "stack:        nothing in flight - HEAD is on trunk") {
+		t.Fatalf("expected the nothing-in-flight line:\n%s", b.String())
+	}
+}
+
+// TestRunStatusJJUndescribedWorkingCopyDropped: jj-colocated on trunk with
+// a dirty undescribed @ must not list that WC commit as a stack entry -
+// its content is already on the working-tree line (dogfood, 2026-07-23).
+func TestRunStatusJJUndescribedWorkingCopyDropped(t *testing.T) {
+	requireJJ(t)
+	dir := newColocatedJJRepo(t)
+	jjCommitFile(t, dir, "README.md", "hi\n", "base")
+	base, err := runJJ(dir, "log", "--no-graph", "-r", "@-", "-T", "commit_id")
+	if err != nil {
+		t.Fatalf("resolve base: %v", err)
+	}
+	if _, err := runGit(dir, "update-ref", "refs/remotes/origin/main", base); err != nil {
+		t.Fatalf("seed origin/main: %v", err)
+	}
+	// Dirty file: jj folds it into the undescribed working-copy commit @.
+	writeTestFile(t, dir, "wip.txt", "uncommitted\n")
+
+	r, err := RunStatus(context.Background(), http.DefaultClient, nil, "no stored credential", dir, "origin", "main")
+	if err != nil {
+		t.Fatalf("RunStatus: %v", err)
+	}
+	if !r.IsJJWorkspace {
+		t.Fatalf("expected IsJJWorkspace")
+	}
+	if r.DirtyPaths < 1 {
+		t.Fatalf("expected dirty paths from wip.txt, got %d", r.DirtyPaths)
+	}
+	if len(r.Stack) != 0 {
+		t.Fatalf("undescribed jj @ must not be a stack entry, got %+v", r.Stack)
+	}
 	var b strings.Builder
 	PrintStatus(&b, r)
 	out := b.String()
-	if !strings.Contains(out, "@  1 uncommitted path(s)") || !strings.Contains(out, "◆  aaaabbbbcccc origin/main") {
-		t.Fatalf("expected the @ working-tree node over the ◆ base:\n%s", out)
+	if !strings.Contains(out, "stack:        nothing in flight - HEAD is on trunk") {
+		t.Fatalf("expected the nothing-in-flight line:\n%s", out)
+	}
+	if strings.Contains(out, "not a change yet") || strings.Contains(out, "(no description set)") {
+		t.Fatalf("must not double-report the undescribed WC as a stack node:\n%s", out)
+	}
+}
+
+// TestRunStatusJJDescribedWorkingCopyStays: a working-copy commit the user
+// wrote a message for is genuine WIP and remains on the stack.
+func TestRunStatusJJDescribedWorkingCopyStays(t *testing.T) {
+	requireJJ(t)
+	dir := newColocatedJJRepo(t)
+	jjCommitFile(t, dir, "README.md", "hi\n", "base")
+	base, err := runJJ(dir, "log", "--no-graph", "-r", "@-", "-T", "commit_id")
+	if err != nil {
+		t.Fatalf("resolve base: %v", err)
+	}
+	if _, err := runGit(dir, "update-ref", "refs/remotes/origin/main", base); err != nil {
+		t.Fatalf("seed origin/main: %v", err)
+	}
+	// Describe @ without committing: leaves a described working-copy commit.
+	if _, err := runJJ(dir, "describe", "-m", "wip: real work in progress"); err != nil {
+		t.Fatalf("jj describe: %v", err)
+	}
+	// Optional content so the WC is non-empty (matches a typical WIP seat).
+	writeTestFile(t, dir, "wip.txt", "in progress\n")
+
+	r, err := RunStatus(context.Background(), http.DefaultClient, nil, "no stored credential", dir, "origin", "main")
+	if err != nil {
+		t.Fatalf("RunStatus: %v", err)
+	}
+	if len(r.Stack) != 1 {
+		t.Fatalf("described jj @ must stay on the stack, got %+v", r.Stack)
+	}
+	if r.Stack[0].Title != "wip: real work in progress" {
+		t.Fatalf("expected the describe message as title, got %+v", r.Stack[0])
+	}
+	if r.Stack[0].ChangeID != "" || r.Stack[0].Status != "not_a_change" {
+		t.Fatalf("described but trailer-less @ is not_a_change, got %+v", r.Stack[0])
 	}
 }
 
