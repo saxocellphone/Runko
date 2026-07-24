@@ -9,10 +9,10 @@ CLI/API surface; agents get stricter, server-enforced policy. Apache-2.0.
 Runko develops on Runko. The source of record is a public instance —
 **browse the code, changes, and review history without an account**:
 
-- **Code**: <https://runko.victornazzaro.com/runko>
-- **Changes**: <https://runko.victornazzaro.com/runko/changes>
-- **Playground**: <https://runko.victornazzaro.com/demo/> — the UI on sample data, entirely in your browser
-- **Clone**: `git clone https://runko.victornazzaro.com/o/runko/repo.git` (or this mirror)
+- **Code**: <https://runkorepo.com/runko>
+- **Changes**: <https://runkorepo.com/runko/changes>
+- **Playground**: <https://runkorepo.com/demo/> — the UI on sample data, entirely in your browser
+- **Clone**: `git clone https://runkorepo.com/o/runko/repo.git` (or this mirror)
 
 This GitHub repository is the read-only mirror of that instance, updated
 automatically on every landing (including `refs/changes/*`, so any change's
@@ -30,9 +30,9 @@ constraints, and a dated Decisions section; the original design spec,
 ## Getting started
 
 The zero-cost look first: the
-[playground](https://runko.victornazzaro.com/demo/) runs the full UI on
+[playground](https://runkorepo.com/demo/) runs the full UI on
 sample data entirely in your browser, and the
-[public instance](https://runko.victornazzaro.com/runko) is browsable
+[public instance](https://runkorepo.com/runko) is browsable
 read-only with no account (joining it is invite-only — "Request an
 invite" on its landing page).
 
@@ -103,7 +103,8 @@ computation with a Bazel build-graph adapter and per-check classes
 from landed changes and tag governance at receive, code search (Zoekt), an
 MCP server, the web UI (stacked review with syntax-highlighted folding
 diffs, a code browser with history and blame, search), public read-only
-orgs, a CI watchdog, and a measured docker-compose eval loop. Expect rough
+orgs, a CI watchdog, an operator admin panel, and a measured
+docker-compose eval loop. Expect rough
 edges; hardening findings land as ordinary changes.
 
 ## Repository layout
@@ -119,11 +120,16 @@ platform/           control-plane libraries: receive, land, affected, checks,
                     index, project templates, search, mirror, build adapters, MCP
 runkod/             the daemon: pre-receive processor, smart-HTTP, REST + Connect APIs;
                     runkod/proto/ is its Connect contract (web <-> runkod), gen committed
-runkod/cmd/         runkod and runko-bridge (webhook -> GitHub Actions shim) entrypoints
+runko-bridge/       webhook -> GitHub Actions shim: turns runkod webhooks into
+                    repository_dispatch events for the CI executor
+runkogithubapp/     GitHub App installation-token minting — the deployment-wide
+                    credential for everything Runko does against GitHub
 watchdog/           runko-watchdog, the CI reconciler: force-reports finished-but-unreported
                     runs, one rescue rerun for lost dispatches
 mailer/             runko-mailer, the invite-request notifier (SMTP over the operator feed)
 web/                web UI (React + TypeScript + Vite + Connect-ES)
+webadmin/           the operator admin panel — its own sign-in and failure domain,
+                    deliberately separate from web/
 cli/runko/          human/agent-facing CLI
 cli/runko-ci/       CI-facing CLI
 ```
@@ -201,7 +207,7 @@ go install github.com/saxocellphone/runko/cli/runko-ci@latest
 ## Building and testing
 
 ```bash
-git clone https://runko.victornazzaro.com/o/runko/repo.git runko
+git clone https://runkorepo.com/o/runko/repo.git runko
 cd runko
 make check     # fmt + vet + test, all packages
 ```
