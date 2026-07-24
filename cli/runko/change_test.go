@@ -430,3 +430,152 @@ func TestTransportRejectionMapsProxyFailure(t *testing.T) {
 		t.Fatalf("an auth failure must not get the postBuffer remedy: %+v", got)
 	}
 }
+
+// installRejectHook installs a pre-receive hook on a bare remote that
+// prints msg to stderr (one line per \n) and exits 1 - the house pattern
+// for simulating a daemon policy refusal without runkod.
+func installRejectHook(t *testing.T, bare, msg string) {
+	t.Helper()
+	hook := filepath.Join(bare, "hooks", "pre-receive")
+	// Git prefixes each hook stderr line with "remote: "; do not bake that
+	// prefix into the script (matches how a shell hook would print).
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\n")
+	for _, line := range strings.Split(strings.TrimRight(msg, "\n"), "\n") {
+		b.WriteString("echo '")
+		b.WriteString(strings.ReplaceAll(line, "'", `'"'"'`))
+		b.WriteString("' >&2\n")
+	}
+	b.WriteString("exit 1\n")
+	if err := os.WriteFile(hook, []byte(b.String()), 0o755); err != nil {
+		t.Fatalf("write pre-receive hook: %v", err)
+	}
+}
+
+// TestPushChangeClosedWorkspaceTeachesCarryOver: a closed-workspace
+// refusal from the remote gains a client recovery block (fresh workspace +
+// format-patch carry + re-push) exactly once. An auto-snapshot that hits
+// the same refusal first must not double the block.
+func TestPushChangeClosedWorkspaceTeachesCarryOver(t *testing.T) {
+	remote := newBareRemote(t)
+	if _, err := runGit(remote, "config", "receive.advertisePushOptions", "true"); err != nil {
+		t.Fatalf("enable push options: %v", err)
+	}
+
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("initial")
+	repo.Run("remote add origin " + remote)
+	if _, err := runGit(repo.Dir, "push", "origin", "main"); err != nil {
+		t.Fatalf("seed remote main: %v", err)
+	}
+
+	// Refuse every subsequent push with the funnel's closed-workspace text.
+	installRejectHook(t, remote, ""+
+		`workspace "change-verb-ux" is closed - its task concluded, and one workspace carries one task`+"\n"+
+		`  -> start the new task in a fresh workspace: runko workspace create --name <new> --project <p> ... --by <you>`)
+
+	// Bind a workspace so auto-snapshot runs and also hits the closed refusal.
+	if _, err := runGit(repo.Dir, "config", "runko.workspace", "change-verb-ux"); err != nil {
+		t.Fatalf("bind workspace: %v", err)
+	}
+	repo.WriteFile("feature.txt", "v1\n")
+	repo.Commit("stacked child still local\n\nChange-Id: Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+
+	var warnBuf strings.Builder
+	prev := warnWriter
+	warnWriter = &warnBuf
+	defer func() { warnWriter = prev }()
+
+	_, err := pushChange(repo.Dir, "origin", "main", false, true)
+	if err == nil {
+		t.Fatal("expected closed-workspace push to fail")
+	}
+	combined := warnBuf.String() + "\n" + err.Error()
+	if !strings.Contains(err.Error(), `workspace "change-verb-ux" is closed`) {
+		t.Fatalf("push error must keep the remote refusal text:\n%s", err)
+	}
+	// Recovery appears once across the auto-snapshot warning + push error.
+	if n := strings.Count(combined, "git format-patch --stdout"); n != 1 {
+		t.Fatalf("want format-patch recovery exactly once, got %d in:\n%s", n, combined)
+	}
+	if !strings.Contains(err.Error(), `git format-patch --stdout origin/main..HEAD | git -C "$(runko workspace path <new-task>)" am -3`) {
+		t.Fatalf("recovery must teach format-patch carry via workspace path:\n%s", err)
+	}
+	if !strings.Contains(err.Error(), "runko workspace create --name <new-task>") {
+		t.Fatalf("recovery must name workspace create:\n%s", err)
+	}
+	if !strings.Contains(err.Error(), "runko change push -w <new-task>") {
+		t.Fatalf("recovery must name push from the new workspace:\n%s", err)
+	}
+	if strings.Contains(warnBuf.String(), "git format-patch --stdout") {
+		t.Fatalf("auto-snapshot warning must not carry the recovery block:\n%s", warnBuf.String())
+	}
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "workspace_closed" {
+		t.Fatalf("want workspace_closed clierr, got %v", err)
+	}
+}
+
+// TestPushChangeUnrelatedPolicyRefusalHasNoCarryOver: a generic policy
+// rejection must not grow the closed-workspace carry-over recovery.
+func TestPushChangeUnrelatedPolicyRefusalHasNoCarryOver(t *testing.T) {
+	remote := newBareRemote(t)
+
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("initial")
+	repo.Run("remote add origin " + remote)
+	if _, err := runGit(repo.Dir, "push", "origin", "main"); err != nil {
+		t.Fatalf("seed remote main: %v", err)
+	}
+	installRejectHook(t, remote, ""+
+		`change I123 is outside this workspace's affinity {cli}`+"\n"+
+		`error: hook declined to update refs/for/main`)
+
+	repo.WriteFile("feature.txt", "v1\n")
+	repo.Commit("feature\n\nChange-Id: Ibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+
+	_, err := pushChange(repo.Dir, "origin", "main", false, false)
+	if err == nil {
+		t.Fatal("expected policy refusal")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "git format-patch") || strings.Contains(msg, "workspace_closed") ||
+		strings.Contains(msg, "carry commits") || strings.Contains(msg, "<new-task>") {
+		t.Fatalf("unrelated policy refusal must not get closed-workspace recovery:\n%s", msg)
+	}
+	if !strings.Contains(msg, "outside this workspace's affinity") {
+		t.Fatalf("must keep the remote policy text:\n%s", msg)
+	}
+}
+
+// TestAnnotateClosedWorkspacePushUnit pins the matcher and the no-op
+// path without a full git push.
+func TestAnnotateClosedWorkspacePushUnit(t *testing.T) {
+	closed := errors.New(`git push: exit status 1: remote: workspace "done-task" is closed - its task concluded`)
+	got := annotateClosedWorkspacePush(closed, "origin", "trunk")
+	var ce *clierr.Error
+	if !errors.As(got, &ce) || ce.Code != "workspace_closed" {
+		t.Fatalf("want workspace_closed, got %v", got)
+	}
+	if !strings.Contains(got.Error(), "origin/trunk..HEAD") {
+		t.Fatalf("recovery must use the push's trunk name: %s", got)
+	}
+	// Second annotate is a no-op (single recovery block).
+	again := annotateClosedWorkspacePush(got, "origin", "trunk")
+	if strings.Count(again.Error(), "git format-patch --stdout") != 1 {
+		t.Fatalf("annotate must be idempotent:\n%s", again)
+	}
+
+	other := errors.New(`git push: exit status 1: remote: Direct pushes to "main" are disabled - trunk is closed to direct push`)
+	if got := annotateClosedWorkspacePush(other, "origin", "main"); got != other {
+		t.Fatalf("trunk-closed phrasing must not match: %v", got)
+	}
+	affinity := errors.New(`remote: change I123 is outside this workspace's affinity {cli}`)
+	if got := annotateClosedWorkspacePush(affinity, "origin", "main"); got != affinity {
+		t.Fatalf("affinity refusal must not match: %v", got)
+	}
+}

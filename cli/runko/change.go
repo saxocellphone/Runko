@@ -206,9 +206,60 @@ func pushChange(repoDir, remote, trunk string, autoSync, autoSnapshot bool) (cha
 		if te := transportRejection(err); te != nil {
 			return "", te
 		}
-		return "", fmt.Errorf("push to refs/for/%s: %w", trunk, err)
+		// Policy rejections pass through with the daemon's remote: lines
+		// intact. Closed-workspace is the one client teaches a recovery for
+		// (carry unpushed commits into a fresh workspace) - annotate only
+		// here on the final push error so an earlier auto-snapshot warning
+		// that hit the same refusal does not double the recovery block.
+		return "", annotateClosedWorkspacePush(fmt.Errorf("push to refs/for/%s: %w", trunk, err), remote, trunk)
 	}
 	return id, nil
+}
+
+// isClosedWorkspaceRefusal matches the funnel's closed-workspace rejection
+// on the quoted-name form (`workspace "<id>" is closed`) so unrelated
+// "is closed" phrasing (e.g. trunk closed to direct push) is not
+// misclassified.
+func isClosedWorkspaceRefusal(msg string) bool {
+	return strings.Contains(msg, `workspace "`) && strings.Contains(msg, `" is closed`)
+}
+
+// annotateClosedWorkspacePush appends a typeable carry-over recovery when
+// a change push was refused because the bound workspace is closed. Other
+// failures pass through unchanged. remote/trunk name the refs in the
+// format-patch command; placeholders like <new-task> stay literal so agents
+// can copy-edit. Never prints a worktree path - runko workspace path is the
+// sanctioned accessor.
+func annotateClosedWorkspacePush(err error, remote, trunk string) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if !isClosedWorkspaceRefusal(msg) {
+		return err
+	}
+	// Idempotent: if a caller already annotated (or the text was composed
+	// twice), keep a single recovery block.
+	if strings.Contains(msg, "git format-patch --stdout") {
+		return err
+	}
+	if remote == "" {
+		remote = "origin"
+	}
+	if trunk == "" {
+		trunk = "main"
+	}
+	return &clierr.Error{
+		Code:    "workspace_closed",
+		Field:   "workspace",
+		Message: msg,
+		Suggestion: fmt.Sprintf(
+			"this workspace's task concluded; local commits are safe in its checkout\n"+
+				"  -> start a fresh workspace: runko workspace create --name <new-task> --project <as before> ...\n"+
+				"  -> carry commits over: git format-patch --stdout %s/%s..HEAD | git -C \"$(runko workspace path <new-task>)\" am -3\n"+
+				"  -> push from the new workspace: runko change push -w <new-task>",
+			remote, trunk),
+	}
 }
 
 // transportRejection maps a raw git push TRANSPORT failure to the structured
