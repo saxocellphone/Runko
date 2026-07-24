@@ -557,7 +557,8 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 	if cand := autoGCAndRecycle(ctx, client, runkodURL, token, cloneDir, true); cand != nil {
 		switch err := rebindWorktree(cloneDir, *cand, dir, info, info.BaseRevision, "head", authIdent, authEnv); {
 		case err == nil:
-			fmt.Fprintf(os.Stderr, "recycled %s (ignored caches preserved)\n", cand.Path)
+			// Diagnostic only - never stdout: create --json owns that stream.
+			fmt.Fprintf(warnWriter, "recycled %s (ignored caches preserved)\n", cand.Path)
 			materialized = true
 		case errors.Is(err, errRecycleUnavailable):
 			// Fall through to a fresh worktree; the candidate stays put.

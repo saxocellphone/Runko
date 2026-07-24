@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"os"
@@ -345,4 +347,76 @@ func findCandidate(t *testing.T, plan []GCCandidate, workspace string) GCCandida
 	}
 	t.Fatalf("no plan row for %q in %+v", workspace, plan)
 	return GCCandidate{}
+}
+
+// TestWorkspaceCreateJSONStdoutIsPureWithAutoGCNotice pins the live failure
+// mode: auto-gc's "reclaimed N stale materialization(s)" notice must never
+// share stdout with create --json, or `runko workspace create ... --json >
+// ws.json` is unparseable. Notices ride warnWriter (stderr in production);
+// stdout stays one JSON document even when the notice path fires.
+func TestWorkspaceCreateJSONStdoutIsPureWithAutoGCNotice(t *testing.T) {
+	srv, _, store := startWorkspaceServerStore(t)
+	ctx := context.Background()
+
+	// Seed TWO reclaimable rows on the managed store. Keep them open while
+	// both materialize so create's auto-gc does not recycle one into the
+	// other; then close both so the next create recycles the first and
+	// reclaims the second (the notice under test).
+	for _, name := range []string{"stale-a", "stale-b"} {
+		_, dir, err := WorkspaceCreate(ctx, http.DefaultClient, srv.URL, "sekret",
+			name, "alice", []string{"checkout-api"}, nil, MaterializeOptions{})
+		if err != nil {
+			t.Fatalf("WorkspaceCreate %s: %v", name, err)
+		}
+		writeFile(t, dir, "commerce/checkout/"+name+".go", "package main\n")
+		if _, err := WorkspaceSnapshot(dir, "done"); err != nil {
+			t.Fatalf("WorkspaceSnapshot %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{"stale-a", "stale-b"} {
+		if err := store.SetWorkspaceStatus(ctx, name, "closed"); err != nil {
+			t.Fatalf("SetWorkspaceStatus %s: %v", name, err)
+		}
+	}
+
+	var warnings bytes.Buffer
+	oldWarn := warnWriter
+	warnWriter = &warnings
+	defer func() { warnWriter = oldWarn }()
+
+	var cmdErr error
+	out := captureStdout(t, func() {
+		cmdErr = execCLI("workspace", "create",
+			"--name", "fresh-json",
+			"--project", "checkout-api",
+			"--by", "alice",
+			"--json")
+	})
+	if cmdErr != nil {
+		t.Fatalf("workspace create --json: %v\nstdout=%q\nwarnings=%q", cmdErr, out, warnings.String())
+	}
+
+	// Stdout must be a single JSON document - no leading notice line.
+	var payload struct {
+		ID  string
+		Dir string
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("stdout is not pure JSON (notice polluted?): %v\nstdout=%q", err, out)
+	}
+	if payload.ID != "fresh-json" {
+		t.Fatalf("ID = %q, want fresh-json", payload.ID)
+	}
+	if payload.Dir == "" {
+		t.Fatalf("expected Dir in JSON payload, got %q", out)
+	}
+
+	// Notice path must have fired on the warn stream, not stdout.
+	warns := warnings.String()
+	if !strings.Contains(warns, "reclaimed") {
+		t.Fatalf("expected reclaimed notice on warnWriter, got %q", warns)
+	}
+	if strings.Contains(out, "reclaimed") || strings.Contains(out, "recycled") {
+		t.Fatalf("notice leaked onto stdout: %q", out)
+	}
 }
