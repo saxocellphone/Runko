@@ -171,6 +171,15 @@ func (s *Server) coneClosure(ws Workspace) []string {
 // tests): NewPaths and the root project (empty path) in allowlist carry
 // through untouched, dangling / not-yet-indexed edges are skipped, and the
 // result is deduped + sorted.
+//
+// The contract surface is EVERY surface the provider declares, not just the
+// rpc one: a `schemas` provider's SchemaPaths and an `http` provider's
+// OpenAPIPath are consumed exactly as ContractDir is (§13.3.1 lists the
+// three together), and consuming them means reading those files at build
+// time. Missing them was a real hole - `platform` declares `consumes: docs`
+// for the schema artifacts its contract tests load as runfiles, yet a
+// `--project platform` cone materialized no docs/spec, so a fresh workspace
+// could not run the very checks that project declares.
 func expandConeToDeps(affinity, allowlist []string, indexed []index.IndexedProject) []string {
 	byName := make(map[string]index.IndexedProject, len(indexed))
 	for _, p := range indexed {
@@ -199,11 +208,17 @@ func expandConeToDeps(affinity, allowlist []string, indexed []index.IndexedProje
 		// Declared build deps: follow transitively (their whole tree).
 		queue = append(queue, p.DeclaredDependencies...)
 		// consumes: the consumer compiles against the PROVIDER's contract
-		// surface only (committed gen under ContractDir), so union that dir
-		// and do NOT enqueue the provider (no recursion into its deps).
+		// surfaces only, so union those and do NOT enqueue the provider (no
+		// recursion into its deps).
 		for _, provider := range p.Consumes {
-			if pp, ok := byName[provider]; ok && pp.ContractDir != "" {
-				paths[pp.ContractDir] = true
+			pp, ok := byName[provider]
+			if !ok {
+				continue
+			}
+			for _, surface := range append([]string{pp.ContractDir, pp.OpenAPIPath}, pp.SchemaPaths...) {
+				if dir := coneDirFor(surface); dir != "" {
+					paths[dir] = true
+				}
 			}
 		}
 	}
@@ -213,6 +228,28 @@ func expandConeToDeps(affinity, allowlist []string, indexed []index.IndexedProje
 	}
 	sort.Strings(out)
 	return out
+}
+
+// coneDirFor maps one declared contract surface to the cone pattern that
+// materializes it. Cone mode takes DIRECTORIES, so a surface that names a
+// file (docs/cli-contract.md, an openapi.yaml) contributes its parent
+// directory - a hair wider than the declaration, which is the honest
+// direction for a read cone: too narrow silently fails to build, too wide
+// only costs blobs (affinity, not the cone, gates what a push may write).
+// An empty surface, or one whose parent is the repo root, contributes
+// nothing: cone mode already materializes every root-level FILE.
+func coneDirFor(surface string) string {
+	if surface == "" {
+		return ""
+	}
+	dir := surface
+	if path.Ext(surface) != "" {
+		dir = path.Dir(surface)
+	}
+	if dir == "." || dir == "/" || dir == "" {
+		return ""
+	}
+	return dir
 }
 
 // resolveProjectPaths maps project names to their tree paths at rev (a

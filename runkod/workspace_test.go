@@ -283,6 +283,11 @@ func TestExpandConeToDeps(t *testing.T) {
 		{Name: "db", Path: "db"},
 		{Name: "mailer", Path: "mailer", Consumes: []string{"runkod"}}, // consumes-only, no deps
 		{Name: "web", Path: "web"},                                     // unrelated - must NOT enter the cone
+		// A provider whose contract surface is schemas + an OpenAPI
+		// document rather than rpc gen stubs, and a consumer of it.
+		{Name: "docs", Path: "docs", SchemaPaths: []string{"docs/spec", "docs/cli-contract.md"}},
+		{Name: "checkout", Path: "checkout", OpenAPIPath: "checkout/api/openapi.yaml"},
+		{Name: "reader", Path: "reader", Consumes: []string{"docs", "checkout"}},
 	}
 
 	// affinity runkod -> runkod + its transitive deps, never web.
@@ -296,6 +301,15 @@ func TestExpandConeToDeps(t *testing.T) {
 	got3 := expandConeToDeps([]string{"mailer"}, []string{"mailer"}, indexed)
 	if want := []string{"mailer", "runkod/proto"}; !slices.Equal(got3, want) {
 		t.Fatalf("consumes cone = %v, want %v", got3, want)
+	}
+
+	// EVERY declared contract surface widens the cone, not just the rpc one:
+	// a schemas provider contributes its schema dirs (a file-shaped entry
+	// contributes its parent dir - cone mode takes directories), an http
+	// provider its OpenAPI document's dir. The provider's own tree stays out.
+	got4 := expandConeToDeps([]string{"reader"}, []string{"reader"}, indexed)
+	if want := []string{"checkout/api", "docs", "docs/spec", "reader"}; !slices.Equal(got4, want) {
+		t.Fatalf("schema/openapi consumes cone = %v, want %v", got4, want)
 	}
 
 	// A NewPath allowlist entry (no indexed project) and a dangling affinity
