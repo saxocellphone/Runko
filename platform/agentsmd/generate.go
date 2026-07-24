@@ -47,6 +47,7 @@ var Commands = []Command{
 	{"runko", "workspace attach <id> --runkod-url <url> --token <t> [--branch <b>] [--json]", "restore a workspace branch from its snapshot ref - needs a live runkod", "WorkspaceInfo"},
 	{"runko", "workspace delete <id> --runkod-url <url> --token <t> [--json]", "delete the registry row + snapshot refs - refused while the workspace has open changes; owner-only - needs a live runkod", `{"deleted"}`},
 	{"runko", "change automerge --change <id> [--disable] [--json]", "arm the when-ready land: the server lands it once the gates go green, attributed to the armer; survives amends - needs a live runkod", `{"ChangeKey", "Automerge", "AutomergeBy"}`},
+	{"runko", "change ack-policy --change <id> [--json]", "HUMANS ONLY (agents are refused): acknowledge an agent change's policy findings, completing the reserved agent-policy check - after a push warns about denylisted paths/size caps, TELL YOUR HUMAN this command, with the Change-Id", "checks.MergeRequirements"},
 	{"runko", "agent create --task <slug> --runkod-url <url> --token <t> [--ttl 8h] [--json]", "mint an ephemeral task identity (agent-<task>-<suffix>, token shown ONCE; agents cannot mint) - needs a live runkod", "AgentIdentity"},
 	{"runko", "agent list --runkod-url <url> --token <t> [--json]", "live/expired/revoked task identities - needs a live runkod", "[]AgentIdentity"},
 	{"runko", "agent revoke <name> --runkod-url <url> --token <t> [--json]", "immediate credential kill; the row survives for attribution - needs a live runkod", `{"revoked"}`},
@@ -194,10 +195,9 @@ func writeTransparency(b *strings.Builder, verbose bool) {
 	b.WriteString("workspace's materialization from ANYWHERE - your repo root included.\n\n")
 	b.WriteString("```\nrunko change create -w <ws> -m \"<what and why>\" && runko change push -w <ws>\n")
 	b.WriteString("runko workspace watch -w <ws> &\n```\n\n")
-	b.WriteString("**Never `cd` into a worktree, and never hand a human its path.** A `cd`\n")
-	b.WriteString("silently rebinds the working directory for everything that follows, and\n")
-	b.WriteString("a path passed onward teaches someone to depend on a layout that is ours\n")
-	b.WriteString("to change. `runko workspace path <name>` is the escape hatch.\n\n")
+	b.WriteString("**Never `cd` into a worktree, and never hand a human its path.** A `cd` silently\n")
+	b.WriteString("rebinds the working directory for everything that follows, and a path passed on\n")
+	b.WriteString("teaches a layout that is ours to change. `runko workspace path <name>` is the escape hatch.\n\n")
 	if !verbose {
 		return
 	}

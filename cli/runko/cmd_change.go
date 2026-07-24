@@ -40,6 +40,7 @@ onto trunk once the merge gates are green.`,
 	cmd.AddCommand(
 		newChangeCreateCmd(), newChangeAmendCmd(), newChangePushCmd(),
 		newChangeRequirementsCmd(a), newChangeLandCmd(a), newChangeApproveCmd(a),
+		newChangeAckPolicyCmd(a),
 		newChangeListCmd(a), newChangeAbandonCmd(a), newChangeDescribeCmd(a),
 		newChangeAutomergeCmd(a), newChangeRerunCheckCmd(a),
 		newChangeCommentCmd(a), newChangeCommentsCmd(a), newChangeResolveCmd(a),
@@ -341,6 +342,58 @@ func newChangeApproveCmd(a *app) *cobra.Command {
 	fl.StringVar(&changeID, "change", "", "Change-Id to approve")
 	fl.StringVar(&ownerRef, "owner", "", "owner requirement being satisfied, e.g. group:commerce-eng")
 	fl.StringVar(&by, "by", "", "who is approving (default: the signed-in principal)")
+	fl.BoolVar(&jsonOut, "json", false, "emit the merge requirements as JSON instead of a human summary")
+	return cmd
+}
+
+// newChangeAckPolicyCmd (2026-07-24 enforcement split): the "extra button"
+// - a human with approve rights acknowledges an agent change's policy
+// findings, completing the reserved agent-policy check, and sees the
+// refreshed merge requirements.
+func newChangeAckPolicyCmd(a *app) *cobra.Command {
+	var (
+		changeID, by string
+		jsonOut      bool
+	)
+	cmd := &cobra.Command{
+		Use:   "ack-policy --change <Change-Id>",
+		Short: "Acknowledge an agent change's policy findings",
+		Long: `An agent change that touched denylisted paths, blew a size cap, or
+edited ownership is accepted at push but carries the agent-policy
+check, red until a human with approve rights acknowledges the
+findings after reading the diff. This is that acknowledgement.
+An amend re-evaluates policy and resets it. Agents are refused.`,
+		Args: noArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if changeID == "" {
+				return fmt.Errorf("change ack-policy: --change is required")
+			}
+			cred, err := a.credential()
+			if err != nil {
+				return err
+			}
+			reqs, err := AckPolicy(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), changeID, by)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(reqs)
+			}
+			fmt.Printf("acknowledged agent-policy findings on %s\n", changeID)
+			if reqs.Mergeable {
+				fmt.Println("mergeable: yes")
+			} else {
+				fmt.Println("mergeable: no")
+				for _, b := range reqs.Blockers {
+					fmt.Printf("  - %s\n", b)
+				}
+			}
+			return nil
+		},
+	}
+	fl := cmd.Flags()
+	fl.StringVar(&changeID, "change", "", "Change-Id whose findings to acknowledge")
+	fl.StringVar(&by, "by", "", "who is acknowledging (default: the signed-in principal)")
 	fl.BoolVar(&jsonOut, "json", false, "emit the merge requirements as JSON instead of a human summary")
 	return cmd
 }
