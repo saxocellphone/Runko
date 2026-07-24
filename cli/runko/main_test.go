@@ -40,7 +40,8 @@ func TestCmdChangeWrongSubcommandIsUsageError(t *testing.T) {
 func TestCmdProjectMissingNameIsNotUsageError(t *testing.T) {
 	// A recognized subcommand with a missing required flag is a runtime
 	// validation failure (exit 1), not a usage error (exit 2) - it parsed
-	// fine syntactically.
+	// fine syntactically. The error keeps the bare first line and adds a
+	// next-step suggestion.
 	repo := gitfixture.New(t)
 	repo.WriteFile("README.md", "hi\n")
 	repo.Commit("initial")
@@ -52,6 +53,13 @@ func TestCmdProjectMissingNameIsNotUsageError(t *testing.T) {
 	var ue usageError
 	if errors.As(err, &ue) {
 		t.Fatalf("expected a validation error, not a usageError, got %v", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "project create: --name is required") {
+		t.Fatalf("kept first line, got %q", msg)
+	}
+	if !strings.Contains(msg, "  -> ") {
+		t.Fatalf("expected a suggestion line, got %q", msg)
 	}
 }
 

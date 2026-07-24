@@ -247,8 +247,8 @@ func AmendChange(repoDir, message string) (changeID string, err error) {
 }
 
 // headChangeID reads the Change-Id trailer from HEAD - the default target
-// for `change requirements` (and anything else change-scoped run inside a
-// checkout).
+// for change-scoped verbs run inside a checkout (requirements, land,
+// automerge, describe, comment, ...).
 func headChangeID(repoDir string) (string, error) {
 	msg, err := runGit(repoDir, "log", "-1", "--format=%B")
 	if err != nil {

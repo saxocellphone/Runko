@@ -52,7 +52,7 @@ name argument.`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
-				return fmt.Errorf("project create: --name is required")
+				return fmt.Errorf("project create: --name is required\n  -> runko project create --name <name> --type <type>")
 			}
 			intent := project.Intent{
 				Name:         name,
@@ -162,7 +162,7 @@ func newProjectDeleteCmd(a *app) *cobra.Command {
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
-				return fmt.Errorf("project delete: --name is required")
+				return fmt.Errorf("project delete: --name is required\n  -> runko project delete --name <name>")
 			}
 			cred, err := a.credential()
 			if err != nil {
