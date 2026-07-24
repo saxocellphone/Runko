@@ -182,3 +182,118 @@ func imageRef(registry, name string) string {
 	}
 	return strings.TrimRight(registry, "/") + "/" + name
 }
+
+// GitOpsTarget is the root manifest's deploy_gitops declaration in
+// `runko-ci images`'s output shape: where the image-build workflow's pin job
+// records freshly-built digests. Nil/absent when the root declares none - a
+// generic pin job skips on absence instead of failing against a target that
+// was never declared (docs/spec/deploy/README.md).
+type GitOpsTarget struct {
+	Repository    string `json:"repository"`
+	Kustomization string `json:"kustomization"`
+}
+
+// RootGitOps returns the repo-wide deploy_gitops target declared on the root
+// project, or nil when unset or no root is indexed - the rootRegistry rule,
+// applied to the CD write-back half.
+func RootGitOps(projects []index.IndexedProject) *GitOpsTarget {
+	for _, p := range projects {
+		if p.Path == "" || p.Path == "." {
+			if g := p.DeployGitOps; g != nil {
+				return &GitOpsTarget{Repository: g.Repository, Kustomization: g.Kustomization}
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+// BinaryBuild is one standalone released binary the CI executor must build:
+// the asset name and the main package to `go build`. JSON-tagged for
+// `runko-ci binaries`.
+type BinaryBuild struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// BinaryRelease is one rolling release the executor must (re)publish: its
+// tag and every binary that ships in it, merged across the projects that
+// declare the tag.
+type BinaryRelease struct {
+	Tag      string        `json:"tag"`
+	Binaries []BinaryBuild `json:"binaries"`
+}
+
+// BinaryReleasesForAffected returns the rolling binary releases a change
+// with this affected result must republish, from the tree's deploy.binaries
+// declarations. The rebuild rule is deliberately simpler than the image
+// rule: a project's binaries republish iff the project itself is in
+// result.Projects (or RunEverything - fail closed, §14.5.3). There is no
+// rider edge, and no dependency list to restate: a change to anything the
+// project builds from already places it in the result via the ordinary
+// dependents expansion - which is exactly the hand-maintained project list
+// this derivation retires from the binary-release workflow.
+//
+// Projects declaring the same tag merge into one release. The same binary
+// name under one tag with DIFFERENT paths is a structured ambiguous_binary
+// error (the ambiguous_image rule: a red, visible refusal beats publishing
+// the wrong artifact); identical duplicates dedupe. Releases sort by tag,
+// binaries by name, for determinism.
+func BinaryReleasesForAffected(result affected.Result, projects []index.IndexedProject) ([]BinaryRelease, error) {
+	touched := make(map[string]bool, len(result.Projects))
+	for _, pr := range result.Projects {
+		touched[pr.Name] = true
+	}
+
+	type ownedBinary struct {
+		build BinaryBuild
+		owner string
+	}
+	byTag := map[string]map[string]ownedBinary{}
+	for _, p := range projects {
+		if len(p.DeployBinaries) == 0 || p.DeployBinaryTag == "" {
+			continue
+		}
+		if !result.RunEverything && !touched[p.Name] {
+			continue
+		}
+		tagSet := byTag[p.DeployBinaryTag]
+		if tagSet == nil {
+			tagSet = map[string]ownedBinary{}
+			byTag[p.DeployBinaryTag] = tagSet
+		}
+		for _, b := range p.DeployBinaries {
+			build := BinaryBuild{Name: b.Name, Path: b.Path}
+			if prev, ok := tagSet[b.Name]; ok {
+				if prev.build.Path != build.Path {
+					return nil, &clierr.Error{
+						Code:       "ambiguous_binary",
+						Field:      "capability_config.deploy.binaries",
+						Message:    fmt.Sprintf("binary %q under tag %q is declared with different paths by projects %q (%s) and %q (%s)", b.Name, p.DeployBinaryTag, prev.owner, prev.build.Path, p.Name, build.Path),
+						Suggestion: "give the binaries distinct names, or align their paths - the executor must know which package to build",
+						DocURL:     "docs/spec/deploy/README.md",
+					}
+				}
+				continue
+			}
+			tagSet[b.Name] = ownedBinary{build: build, owner: p.Name}
+		}
+	}
+
+	tags := make([]string, 0, len(byTag))
+	for t := range byTag {
+		tags = append(tags, t)
+	}
+	sort.Strings(tags)
+
+	var out []BinaryRelease
+	for _, t := range tags {
+		rel := BinaryRelease{Tag: t}
+		for _, ob := range byTag[t] {
+			rel.Binaries = append(rel.Binaries, ob.build)
+		}
+		sort.Slice(rel.Binaries, func(i, j int) bool { return rel.Binaries[i].Name < rel.Binaries[j].Name })
+		out = append(out, rel)
+	}
+	return out, nil
+}

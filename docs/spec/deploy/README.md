@@ -16,11 +16,11 @@ from the tree. The runtime half (chart-served `workloads` fields — port,
 health, expose, chart values — and the GitOps rendering) and receive-time
 validation are forthcoming and are called out inline where they land.
 
-## The two sub-blocks
+## The sub-blocks
 
-`capability_config.deploy` carries two independent sub-blocks. A project may
-declare either, both, or (with the capability but neither) nothing — the last
-is a no-op and will be a receive-time refusal once validation lands.
+`capability_config.deploy` carries three independent sub-blocks. A project may
+declare any combination, or (with the capability but none of them) nothing —
+the last is a no-op and will be a receive-time refusal once validation lands.
 
 ```yaml
 capability_config:
@@ -34,6 +34,11 @@ capability_config:
     workloads:                   # "these runtime workloads run from an image"
       - name: runko-mailer       # workload id
         image: runkod            # OWN image, or ANOTHER project's (the rider edge)
+    binaries:                    # "I PRODUCE released standalone binaries"
+      tag: cli-latest            # the rolling release tag they publish under
+      items:
+        - name: runko            # path defaults to <project-path>/<name>
+        - name: runko-ci
 ```
 
 - **`image` — the owner declaration.** The project that declares
@@ -49,6 +54,23 @@ capability_config:
 
   The remaining `workloads` fields (port, health, expose, chart values) are the
   runtime/chart half and are NOT specified here yet.
+- **`binaries` — the standalone-release declaration** (2026-07-24). Artifacts
+  that are NOT images: cross-compiled binaries published as a rolling
+  host-side release (e.g. GitHub's `cli-latest`). Each item names a buildable
+  main package (`path` defaults to `<project-path>/<name>`); `tag` is the
+  rolling release they publish under and is REQUIRED — a `binaries` block
+  without a tag declares nothing (read-time normalization). The rebuild rule
+  is the project's own affected membership — `rebuild(binaries of P) iff P ∈
+  affected.Result.Projects` (or `RunEverything`) — deliberately simpler than
+  the image rule: there is no rider edge for binaries, and the dependency
+  closure already places `P` in the result when anything it builds from
+  changes. `runko-ci binaries` is the executor's resolution verb: it emits
+  `releases: [{tag, binaries: [{name, path}]}]`, so the binary-release
+  workflow hardcodes no package paths, project names, dependency lists, or
+  tags. Cross-compile targets are runner contract, not tree config. Two
+  projects declaring the same tag merge into one release; the same binary
+  name under one tag with DIFFERENT paths is a structured `ambiguous_binary`
+  refusal (the `ambiguous_image` rule, applied to binaries).
 
 ## The image-rebuild derivation
 
@@ -109,6 +131,29 @@ the registry set). This keeps the registry in the tree (manifest-first) and
 publishing config out of the workflow file — the difference between a workflow
 a Runko user can copy unchanged and one they must fork.
 
+## The GitOps pin target lives at the root too (`deploy_gitops`)
+
+The write-back half of GitOps-shaped CD — CI pins each freshly-built digest
+into a GitOps repository that a reconciler (Argo CD, Flux) deploys from — has
+the same one-per-repo character as the registry, so its target is declared
+once on the root manifest, as the top-level `deploy_gitops`:
+
+```yaml
+# root PROJECT.yaml
+deploy_gitops:
+  repository: acme/k8s-cluster                    # <owner>/<repo> on the org's git host
+  kustomization: apps/monorepo/kustomization.yaml # path within that repo
+```
+
+`runko-ci images` emits it verbatim as a top-level `gitops` object (absent
+when undeclared), so the workflow's pin job hardcodes no repository or
+kustomization path and SKIPS entirely for an org that declares none — the pin
+*mechanism* (semantic yq edit, reset-and-reapply retry, digest validation)
+stays in the workflow, the pin *target* lives in the tree, and credentials
+live in neither (the workflow's secret store owns authentication). Both
+fields are required: a partial declaration is dropped at read time (the
+schema polices authoring).
+
 ## Consumers
 
 - `platform/index` — extracts `deploy.image` / `workloads[].image` and the
@@ -120,7 +165,11 @@ a Runko user can copy unchanged and one they must fork.
 - `runkod` — opens the per-land deploy record from the derived set.
 - `runko-ci images` — the CI-facing executor form: emits `{name, image_ref,
   context, dockerfile, build_args}` (the build workflow computes the image set
-  itself; the daemon names no images to it, §14.9.1).
+  itself; the daemon names no images to it, §14.9.1), plus the root's
+  `gitops` target when declared.
+- `runko-ci binaries` — the standalone-release executor form: emits
+  `releases: [{tag, binaries}]` for the affected-scoped `deploy.binaries`
+  declarations.
 
 ## Decisions
 
@@ -131,3 +180,13 @@ a Runko user can copy unchanged and one they must fork.
   emits a registry-prefixed `image_ref`, moving the last hardcoded value out of
   the image-build workflow and making it a reusable generic template. Registry
   is one-per-repo publishing config, so it lives at the root, not per-image.
+- **2026-07-24** — `.github/` declared a generic template for any Runko-based
+  monorepo, and the last two instance-shaped surfaces move into the tree:
+  `deploy_gitops` (root-oriented, the CD write-back target `runko-ci images`
+  emits as `gitops`) and the `binaries` sub-block (+ `runko-ci binaries`),
+  replacing the binary-release workflow's hand-maintained dependency list —
+  which had already drifted from the manifest edges (it omitted the
+  `consumes: runkod` edge) — with the real affected closure. Same decision
+  adds the `post_land` check class (project.schema.json `ci.checks[].run_when`)
+  so the full-stack compose smoke is manifest-declared like every other check
+  instead of a hand-written workflow job.
