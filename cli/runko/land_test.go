@@ -86,14 +86,19 @@ func TestCmdChangeLandRequiresFlags(t *testing.T) {
 }
 
 func TestCmdChangeLandJSONOutput(t *testing.T) {
+	// Full I+40hex Change-Id: resolveChangeIDArg passes it through with no list call.
+	const fullID = "I0123456789abcdef0123456789abcdef01234567"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/changes/"+fullID+"/land" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"Landed": true, "LandedSHA": "def456"})
 	}))
 	defer server.Close()
 
 	var cmdErr error
 	out := captureStdout(t, func() {
-		cmdErr = execCLI("change", "land", "--runkod-url", server.URL, "--token", "sekret", "--change", "Ichg1", "--json")
+		cmdErr = execCLI("change", "land", "--runkod-url", server.URL, "--token", "sekret", "--change", fullID, "--json")
 	})
 	if cmdErr != nil {
 		t.Fatalf("cmdChangeLand: %v", cmdErr)

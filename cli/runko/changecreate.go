@@ -283,11 +283,7 @@ func ChangeRequirements(ctx context.Context, client *http.Client, cred Credentia
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return checks.MergeRequirements{}, &clierr.Error{
-			Code: "unknown_change", Field: "change",
-			Message:    fmt.Sprintf("the control plane has no change %s", changeID),
-			Suggestion: "did you `runko change push` yet?",
-		}
+		return checks.MergeRequirements{}, changeUnknownError(changeID)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return checks.MergeRequirements{}, decodeAPIError(resp, "merge-requirements")

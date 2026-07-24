@@ -50,7 +50,7 @@ func CreateComment(ctx context.Context, client *http.Client, runkodURL, token, c
 	endpoint := strings.TrimSuffix(runkodURL, "/") + "/api/changes/" + url.PathEscape(changeID) + "/comments"
 	var comment CommentInfo
 	if err := apiJSON(ctx, client, http.MethodPost, endpoint, token, body, &comment); err != nil {
-		return CommentInfo{}, err
+		return CommentInfo{}, rewriteChangeNotFound(err, changeID)
 	}
 	return comment, nil
 }
@@ -60,18 +60,21 @@ func ListComments(ctx context.Context, client *http.Client, runkodURL, token, ch
 	endpoint := strings.TrimSuffix(runkodURL, "/") + "/api/changes/" + url.PathEscape(changeID) + "/comments"
 	var page commentsPage
 	if err := apiJSON(ctx, client, http.MethodGet, endpoint, token, nil, &page); err != nil {
-		return commentsPage{}, err
+		return commentsPage{}, rewriteChangeNotFound(err, changeID)
 	}
 	return page, nil
 }
 
 // ResolveComment posts POST /api/changes/{id}/comments/{cid}/resolve.
+// The resolve endpoint 404s for a missing change OR a missing comment, so
+// its not-found rewrite names both (rewriteResolveNotFound) rather than
+// the change-only rewrite used by comments GET / comment POST / request-review.
 func ResolveComment(ctx context.Context, client *http.Client, runkodURL, token, changeID, commentID string, resolved bool) (CommentInfo, error) {
 	endpoint := strings.TrimSuffix(runkodURL, "/") + "/api/changes/" + url.PathEscape(changeID) +
 		"/comments/" + url.PathEscape(commentID) + "/resolve"
 	var comment CommentInfo
 	if err := apiJSON(ctx, client, http.MethodPost, endpoint, token, map[string]any{"resolved": resolved}, &comment); err != nil {
-		return CommentInfo{}, err
+		return CommentInfo{}, rewriteResolveNotFound(err, changeID, commentID)
 	}
 	return comment, nil
 }
@@ -80,7 +83,9 @@ func ResolveComment(ctx context.Context, client *http.Client, runkodURL, token, 
 func RequestReview(ctx context.Context, client *http.Client, runkodURL, token, changeID, reviewer string) error {
 	endpoint := strings.TrimSuffix(runkodURL, "/") + "/api/changes/" + url.PathEscape(changeID) + "/request-review"
 	var out map[string]any
-	return apiJSON(ctx, client, http.MethodPost, endpoint, token, map[string]any{"reviewer": reviewer}, &out)
+	return rewriteChangeNotFound(
+		apiJSON(ctx, client, http.MethodPost, endpoint, token, map[string]any{"reviewer": reviewer}, &out),
+		changeID)
 }
 
 // GetChangeInfo fetches GET /api/changes/{id} - used by `change comments` to
@@ -89,7 +94,7 @@ func GetChangeInfo(ctx context.Context, client *http.Client, runkodURL, token, c
 	endpoint := strings.TrimSuffix(runkodURL, "/") + "/api/changes/" + url.PathEscape(changeID)
 	var change ChangeInfo
 	if err := apiJSON(ctx, client, http.MethodGet, endpoint, token, nil, &change); err != nil {
-		return ChangeInfo{}, err
+		return ChangeInfo{}, rewriteChangeNotFound(err, changeID)
 	}
 	return change, nil
 }
@@ -136,6 +141,9 @@ comment with the agent badge; their approvals stay refused.`,
 			if err != nil {
 				return err
 			}
+			if id, err = resolveChangeIDArg(context.Background(), http.DefaultClient, cred, id); err != nil {
+				return err
+			}
 			body := map[string]any{"body": msg}
 			if file != "" {
 				body["path"] = file
@@ -161,7 +169,7 @@ comment with the agent badge; their approvals stay refused.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&changeID, "change", "", "Change-Id or unique prefix (default: HEAD's Change-Id trailer)")
 	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
 	addWorkspaceFlag(cmd)
 	fl.StringVarP(&msg, "message", "m", "", "comment body (required)")
@@ -194,6 +202,9 @@ indented, marking [resolved]/[outdated]/[agent].`,
 				return err
 			}
 			ctx := context.Background()
+			if id, err = resolveChangeIDArg(ctx, http.DefaultClient, cred, id); err != nil {
+				return err
+			}
 			page, err := ListComments(ctx, http.DefaultClient, cred.URL, cred.AuthHeader(), id)
 			if err != nil {
 				return err
@@ -216,7 +227,7 @@ indented, marking [resolved]/[outdated]/[agent].`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&changeID, "change", "", "Change-Id or unique prefix (default: HEAD's Change-Id trailer)")
 	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
 	addWorkspaceFlag(cmd)
 	fl.BoolVar(&jsonOut, "json", false, "emit {comments, next_page_token} as JSON")
@@ -289,6 +300,9 @@ reopens.`,
 			if err != nil {
 				return err
 			}
+			if id, err = resolveChangeIDArg(context.Background(), http.DefaultClient, cred, id); err != nil {
+				return err
+			}
 			comment, err := ResolveComment(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, commentID, !undo)
 			if err != nil {
 				return err
@@ -305,7 +319,7 @@ reopens.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&changeID, "change", "", "Change-Id or unique prefix (default: HEAD's Change-Id trailer)")
 	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
 	addWorkspaceFlag(cmd)
 	fl.BoolVar(&undo, "undo", false, "reopen the thread instead of resolving it")
@@ -338,6 +352,9 @@ current head.`,
 			if err != nil {
 				return err
 			}
+			if id, err = resolveChangeIDArg(context.Background(), http.DefaultClient, cred, id); err != nil {
+				return err
+			}
 			if err := RequestReview(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, reviewer); err != nil {
 				return err
 			}
@@ -349,7 +366,7 @@ current head.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&changeID, "change", "", "Change-Id or unique prefix (default: HEAD's Change-Id trailer)")
 	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
 	addWorkspaceFlag(cmd)
 	fl.BoolVar(&jsonOut, "json", false, "emit {reviewer} as JSON")
