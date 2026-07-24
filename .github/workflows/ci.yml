@@ -149,3 +149,4 @@ jobs:
       # image layers the timed loop just built, against a fresh stack.
       - name: compose edge cases (docs/smoke-plan.md)
         run: make check-compose-edges
+# policy-probe: agent-lane workflow-path write probe (will be abandoned or refused)
