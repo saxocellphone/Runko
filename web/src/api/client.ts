@@ -176,6 +176,33 @@ function authHeaders(): Record<string, string> {
   return {};
 }
 
+/**
+ * Acknowledge an agent change's policy findings (the 2026-07-24
+ * enforcement split): completes the reserved `agent-policy` check via the
+ * REST ack endpoint - there is no RPC for it, and the same-origin fetch
+ * carries the signed-in Basic credential. Approve-rights humans only;
+ * the server refuses agents. A no-op on demo data (the showcase mints no
+ * agent-policy checks).
+ */
+export async function ackPolicy(changeId: string): Promise<void> {
+  if (usingDemoData) return;
+  const res = await fetch(new URL(`api/changes/${encodeURIComponent(changeId)}/ack-policy`, baseUrl), {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!res.ok) {
+    let message = `ack-policy failed (${res.status})`;
+    try {
+      const d = (await res.json()) as { Message?: string; message?: string };
+      message = d.Message ?? d.message ?? message;
+    } catch {
+      // keep the status-shaped message
+    }
+    throw new Error(message);
+  }
+}
+
 /** Orgs this account can reach (the shared default org always included). */
 export async function fetchOrgs(): Promise<OrgInfo[]> {
   const res = await fetch(new URL("api/orgs", baseUrl), { headers: authHeaders() });

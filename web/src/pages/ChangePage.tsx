@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { ConnectError } from "@connectrpc/connect";
-import { authUser, publicBrowse, changesClient } from "../api/client";
+import { authUser, publicBrowse, changesClient, ackPolicy } from "../api/client";
 import { ChangeState, CommentSide, type ChangeSummary, type MergeRequirements } from "../gen/runko/v1/common_pb";
 import type { LandChangeResponse, LandStackResponse, SyncChangeResponse } from "../gen/runko/v1/changes_pb";
 import { groupThreads, partitionThreads } from "../lib/comments";
@@ -282,6 +282,7 @@ export function ChangePage() {
                 onRerun={(checkName) =>
                   act(() => changesClient.rerunCheck({ changeId, checkName }))
                 }
+                onAckPolicy={() => act(() => ackPolicy(changeId))}
                 onRequestReview={(reviewer) =>
                   act(() => changesClient.requestReview({ changeId, reviewer }))
                 }
