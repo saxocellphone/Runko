@@ -23,7 +23,7 @@ func postDeployImage(t *testing.T, srv *Server, sha, body string) *httptest.Resp
 
 // TestDeployImageEndpointEmitsImagesReadyOnce drives the CD report-back path:
 // report-image fills the record opened at land, and the completing report
-// emits deploy.images_ready exactly once (the runko-deployer's rollout signal).
+// emits deploy.images_ready exactly once (the CD consumer's rollout signal).
 func TestDeployImageEndpointEmitsImagesReadyOnce(t *testing.T) {
 	mem := NewMemStore()
 	srv := &Server{Store: mem, SettingsOrg: "org"}

@@ -1539,7 +1539,7 @@ type deployImageReport struct {
 // handlePostDeployImage records one built image's digest against a landed
 // commit's deploy record (§14.10 inverted CD trigger). When the report
 // completes the record's expected image set, it emits deploy.images_ready -
-// the runko-deployer pins the digests into the GitOps repo and Argo CD rolls.
+// a CD consumer pins the digests into the deployment's GitOps repo and rolls.
 // A report for a sha with no open record is 404: the expected set is only
 // known at land (an unaffected/docs-only land opens no record).
 // deployDigestPattern is a registry content digest: sha256:<64 lowercase hex>.

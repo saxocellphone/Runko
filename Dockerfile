@@ -36,8 +36,7 @@ RUN CGO_ENABLED=0 go build -o /out/runkod ./runkod/cmd/runkod \
     && CGO_ENABLED=0 go build -o /out/runko-ci ./cli/runko-ci \
     && CGO_ENABLED=0 go build -o /out/runko-bridge ./runko-bridge \
     && CGO_ENABLED=0 go build -o /out/runko-watchdog ./watchdog \
-    && CGO_ENABLED=0 go build -o /out/runko-mailer ./mailer \
-    && CGO_ENABLED=0 go build -o /out/runko-deployer ./runkod/cmd/runko-deployer
+    && CGO_ENABLED=0 go build -o /out/runko-mailer ./mailer
 
 # The release path drops bazel-built static binaries here (already named
 # for the image: runko-watchdog, runko-mailer, ...) - see
@@ -54,7 +53,7 @@ FROM alpine:3.21
 # write path). wget (busybox) backs the compose healthcheck.
 RUN apk add --no-cache git git-daemon ca-certificates
 COPY --from=tools /out/gitleaks /out/zoekt-git-index /usr/local/bin/
-COPY --from=build /out/runkod /out/runko /out/runko-ci /out/runko-bridge /out/runko-watchdog /out/runko-mailer /out/runko-deployer /usr/local/bin/
+COPY --from=build /out/runkod /out/runko /out/runko-ci /out/runko-bridge /out/runko-watchdog /out/runko-mailer /usr/local/bin/
 # The daemon makes commits during land (rebase) - give the process a git
 # identity so machine-generated commits never fail on a bare container.
 RUN git config --system user.name "runkod" && git config --system user.email "runkod@localhost" \

@@ -384,6 +384,12 @@ type Store interface {
 	OpenDeployRecord(ctx context.Context, trunkSHA, changeKey, provenance string, expected []string) error
 	RecordDeployImage(ctx context.Context, trunkSHA string, img DeployImageRow) (rec DeployRecord, ok, nowReady bool, err error)
 	GetDeployRecord(ctx context.Context, trunkSHA string) (DeployRecord, bool, error)
+	// PruneStalePendingDeployRecords deletes this monorepo's 'pending' records
+	// older than olderThan and returns the count. An org that pins image
+	// digests in CI (not via report-image) never completes a record, so without
+	// a prune they accrue unbounded; the land path calls this opportunistically.
+	// A generous cutoff keeps genuinely in-flight builds.
+	PruneStalePendingDeployRecords(ctx context.Context, olderThan time.Time) (int64, error)
 
 	// Mirror cursors (§18.6, outbound M1): per-(remote, ref) sync state.
 	// GetMirrorCursor's bool reports row existence; UpsertMirrorCursor
@@ -939,7 +945,7 @@ func (s *MemStore) GetLatestRelease(ctx context.Context, projectName string) (Re
 // trunk commit (§14.10, db/migrations/0021): the affected images whose digests
 // the post-land build must report, plus the digests reported so far. When
 // Reported covers Expected the record is "ready" and runkod emits
-// deploy.images_ready; the runko-deployer pins the digests and Argo CD rolls.
+// deploy.images_ready for a CD consumer to pin the digests and roll.
 type DeployRecord struct {
 	TrunkSHA   string
 	ChangeKey  string
@@ -967,6 +973,7 @@ type memDeployRecord struct {
 	provenance string
 	reported   map[string]DeployImageRow
 	state      string
+	createdAt  time.Time
 }
 
 func (s *MemStore) OpenDeployRecord(ctx context.Context, trunkSHA, changeKey, provenance string, expected []string) error {
@@ -975,14 +982,32 @@ func (s *MemStore) OpenDeployRecord(ctx context.Context, trunkSHA, changeKey, pr
 	if _, ok := s.deployRecords[trunkSHA]; ok {
 		return nil // idempotent: never reset an existing record's reported digests
 	}
+	now := time.Now()
+	if s.Now != nil {
+		now = s.Now()
+	}
 	s.deployRecords[trunkSHA] = &memDeployRecord{
 		changeKey:  changeKey,
 		expected:   append([]string(nil), expected...),
 		provenance: provenance,
 		reported:   map[string]DeployImageRow{},
 		state:      "pending",
+		createdAt:  now,
 	}
 	return nil
+}
+
+func (s *MemStore) PruneStalePendingDeployRecords(ctx context.Context, olderThan time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int64
+	for sha, r := range s.deployRecords {
+		if r.state == "pending" && r.createdAt.Before(olderThan) {
+			delete(s.deployRecords, sha)
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (s *MemStore) RecordDeployImage(ctx context.Context, trunkSHA string, img DeployImageRow) (DeployRecord, bool, bool, error) {

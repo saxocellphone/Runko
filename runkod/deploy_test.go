@@ -3,6 +3,7 @@ package runkod
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // TestDeployRecordLifecycle pins the inverted CD trigger's state machine
@@ -63,5 +64,42 @@ func TestDeployRecordLifecycle(t *testing.T) {
 	_, ok, _, err = s.RecordDeployImage(ctx, "unknown", DeployImageRow{Image: "runkod", Digest: "z"})
 	if err != nil || ok {
 		t.Fatalf("unknown sha must be ok=false: ok=%v err=%v", ok, err)
+	}
+}
+
+// TestPruneStalePendingDeployRecords covers the CI-pin residual: an org that
+// pins digests in CI never reports images, so its records stay pending forever.
+// The prune drops old pending records, keeps fresh ones (a build may still be
+// in flight) and never touches a completed ('ready') record.
+func TestPruneStalePendingDeployRecords(t *testing.T) {
+	s := NewMemStore()
+	ctx := context.Background()
+
+	for _, sha := range []string{"stale", "fresh", "done"} {
+		if err := s.OpenDeployRecord(ctx, sha, "I"+sha, "prov", []string{"runkod"}); err != nil {
+			t.Fatalf("open %s: %v", sha, err)
+		}
+	}
+	// Backdate two records well past the cutoff; complete one of them.
+	old := time.Now().Add(-48 * time.Hour)
+	s.deployRecords["stale"].createdAt = old
+	s.deployRecords["done"].createdAt = old
+	s.deployRecords["done"].state = "ready"
+
+	n, err := s.PruneStalePendingDeployRecords(ctx, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("pruned %d, want 1 (only the stale pending record)", n)
+	}
+	if _, ok := s.deployRecords["stale"]; ok {
+		t.Fatalf("stale pending record must be pruned")
+	}
+	if _, ok := s.deployRecords["fresh"]; !ok {
+		t.Fatalf("fresh pending record must survive (a build may still be in flight)")
+	}
+	if _, ok := s.deployRecords["done"]; !ok {
+		t.Fatalf("completed ('ready') record must survive regardless of age")
 	}
 }

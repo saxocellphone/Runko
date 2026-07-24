@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getDeployRecord = `-- name: GetDeployRecord :one
@@ -142,6 +143,29 @@ func (q *Queries) OpenDeployRecord(ctx context.Context, db DBTX, arg OpenDeployR
 		arg.Provenance,
 	)
 	return err
+}
+
+const pruneStalePendingDeployRecords = `-- name: PruneStalePendingDeployRecords :execrows
+DELETE FROM deploy_records
+WHERE monorepo_id = $1 AND state = 'pending' AND created_at < $2
+`
+
+type PruneStalePendingDeployRecordsParams struct {
+	MonorepoID uuid.UUID          `json:"monorepo_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+// Drop pending records older than the cutoff. An org whose CD pins image
+// digests in CI (not via report-image) never reports, so its records never
+// flip to 'ready'; without this they accrue unbounded. The cutoff is generous
+// (well past any real post-land build), so an in-flight report is never lost.
+// deploy_images cascade-delete with the record (FK ON DELETE CASCADE).
+func (q *Queries) PruneStalePendingDeployRecords(ctx context.Context, db DBTX, arg PruneStalePendingDeployRecordsParams) (int64, error) {
+	result, err := db.Exec(ctx, pruneStalePendingDeployRecords, arg.MonorepoID, arg.CreatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertDeployImage = `-- name: UpsertDeployImage :exec
