@@ -4,13 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>How Runko is designed</title>
-<meta name="description" content="The design principles behind Runko, in plain terms.">
+<meta name="description" content="What Runko is, why the GitHub model breaks once agents write most of the code, and why we think this is where source control goes next.">
+<meta property="og:title" content="How Runko is designed">
+<meta property="og:description" content="What Runko is, why the GitHub model breaks once agents write most of the code, and why we think this is where source control goes next.">
+<meta property="og:type" content="article">
+<meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131316" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
+  /* Same tokens as the landing page (and web/src/styles/global.css) so
+     the pitch, this page and the product read as one thing. Wider than
+     the landing's 620px column because this page argues rather than
+     asks - prose plus a two-column compare that stacks on mobile. */
   :root {
     --bg: #f7f7f8; --surface: #ffffff; --border: #e3e3e8;
     --text: #1a1a1f; --text-2: #5b5b66; --accent: #008a05; --accent-strong: #006e04;
-    --accent-soft: #dff6df;
+    --accent-soft: #dff6df; --stale: #8a8a96;
     --font: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
     --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   }
@@ -18,28 +27,76 @@
     :root {
       --bg: #131316; --surface: #1b1b20; --border: #2e2e36;
       --text: #ededf2; --text-2: #9a9aa7; --accent: #00c805; --accent-strong: #3fdd5a;
-      --accent-soft: #12351a;
+      --accent-soft: #12351a; --stale: #74747f;
     }
+    /* In dark, the accent is light - dark text keeps the button legible. */
+    .btn.primary, .btn.primary:hover { color: #131316; }
   }
   * { box-sizing: border-box; margin: 0; }
   body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.65; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { color: var(--accent-strong); }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 0 24px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 clamp(18px, 5vw, 28px); }
+
   header { border-bottom: 1px solid var(--border); }
-  nav { display: flex; align-items: center; gap: 12px; padding: 14px 0; }
+  header nav { display: flex; align-items: center; gap: 12px; padding: 18px 0; }
   .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); }
-  nav .back { margin-left: auto; font-size: 14px; }
-  main { padding: 56px 0 72px; }
-  h1 { font-size: clamp(28px, 4.5vw, 38px); letter-spacing: -0.02em; line-height: 1.15; }
-  p.lede { margin: 14px 0 40px; color: var(--text-2); font-size: 17px; }
-  .principle { margin: 0 0 28px; padding: 22px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
-  .principle h2 { font-size: 18px; margin-bottom: 6px; display: flex; gap: 12px; align-items: baseline; }
-  .principle h2 .n { color: var(--accent); font-family: var(--mono); font-size: 14px; }
-  .principle p { color: var(--text-2); font-size: 15px; }
-  .principle code { font-family: var(--mono); font-size: 13px; background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; color: var(--text); }
-  footer { border-top: 1px solid var(--border); padding: 24px 0 48px; color: var(--text-2); font-size: 14px; }
-  footer .wrap { display: flex; gap: 18px; flex-wrap: wrap; }
+  .logo:hover { color: var(--text); }
+  .logo svg { border-radius: 7px; display: block; }
+  nav .back { margin-left: auto; font-size: 14px; font-weight: 600; }
+
+  main { padding: clamp(40px, 8vw, 72px) 0 0; }
+  h1 { font-size: clamp(28px, 5.5vw, 40px); line-height: 1.14; letter-spacing: -0.025em; font-weight: 800; text-wrap: balance; }
+  p.lede { margin-top: 16px; color: var(--text-2); font-size: clamp(16px, 2.2vw, 17.5px); }
+
+  section { margin-top: clamp(44px, 8vw, 68px); }
+  h2 { font-size: clamp(21px, 3.2vw, 25px); letter-spacing: -0.02em; font-weight: 700; text-wrap: balance; }
+  h2 .eyebrow { display: block; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
+  section > p { margin-top: 14px; color: var(--text-2); font-size: 16px; }
+  section > p strong, li strong { color: var(--text); font-weight: 600; }
+  code { font-family: var(--mono); font-size: .88em; background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; color: var(--text); }
+
+  /* The compare: one row per break, old model beside ours. Under 640px
+     the columns stack and the labels carry the distinction. */
+  .compare { margin-top: 26px; display: grid; gap: 14px; }
+  .cmp { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .cmp h3 { font-size: 15.5px; font-weight: 700; letter-spacing: -0.01em; }
+  .cmp .cols { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; }
+  .cmp .col .tag { display: block; font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 5px; }
+  .cmp .col.was .tag { color: var(--stale); }
+  .cmp .col.now .tag { color: var(--accent); }
+  .cmp .col p { font-size: 14.5px; color: var(--text-2); line-height: 1.6; }
+  .cmp .col.now p { color: var(--text); }
+
+  .pillars { margin-top: 26px; display: grid; gap: 14px; }
+  .pillar { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; }
+  .pillar h3 { font-size: 16.5px; font-weight: 700; letter-spacing: -0.01em; display: flex; gap: 12px; align-items: baseline; }
+  .pillar h3 .n { color: var(--accent); font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .pillar p { margin-top: 7px; font-size: 15px; color: var(--text-2); }
+
+  .why { margin-top: 22px; display: grid; gap: 18px; padding: 0; list-style: none; }
+  .why li { padding-left: 18px; border-left: 2px solid var(--accent); }
+  .why li h3 { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+  .why li p { margin-top: 6px; font-size: 15px; color: var(--text-2); }
+
+  .closing { margin-top: clamp(44px, 8vw, 68px); background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: clamp(22px, 4vw, 30px); }
+  .closing h2 { font-size: 20px; }
+  .closing p { margin-top: 10px; font-size: 15.5px; color: var(--text-2); }
+  .btn { display: inline-block; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; border: 1px solid var(--border); color: var(--text); background: var(--bg); white-space: nowrap; font-family: var(--font); }
+  .btn:hover { border-color: var(--accent); color: var(--text); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-size: 15px; padding: 11px 22px; }
+  .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
+  .cta-row { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  footer { margin-top: clamp(44px, 8vw, 72px); border-top: 1px solid var(--border); padding: 24px 0 44px; color: var(--text-2); font-size: 13.5px; }
+  footer .wrap { display: flex; gap: 8px 18px; flex-wrap: wrap; align-items: center; }
+  footer .spacer { margin-left: auto; }
+
+  @media (max-width: 639px) {
+    .cmp .cols { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -47,11 +104,11 @@
 <header>
   <div class="wrap">
     <nav>
-      <a class="logo" href="/">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="7" fill="#00c805"/><line x1="16" y1="7" x2="16" y2="25" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".55"/><circle cx="16" cy="7.5" r="3.4" fill="#fff"/><circle cx="16" cy="16" r="3.4" fill="#fff"/><circle cx="16" cy="24.5" r="3.4" fill="#fff"/></svg>
+      <a class="logo" href="/landing/" aria-label="Runko home">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#00c805"/><line x1="16" y1="7" x2="16" y2="25" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".55"/><circle cx="16" cy="7.5" r="3.4" fill="#fff"/><circle cx="16" cy="16" r="3.4" fill="#fff"/><circle cx="16" cy="24.5" r="3.4" fill="#fff"/></svg>
         Runko
       </a>
-      <a class="back" href="/">← Back</a>
+      <a class="back" href="/landing/">← Back</a>
     </nav>
   </div>
 </header>
@@ -59,35 +116,139 @@
 <main>
   <div class="wrap">
     <h1>How Runko is designed</h1>
-    <p class="lede">Four pillars. Every feature follows from one of these.</p>
+    <p class="lede">Runko is a bet that the shape of source control has to change now that most code is written by machines. This page is the argument: what Runko is, where the GitHub model breaks, and why we think this is the direction the industry moves in.</p>
 
-    <div class="principle">
-      <h2><span class="n">01</span>One monorepo that feels small.</h2>
-      <p>All your code lives in one Git repository, but nobody has to carry all of it. You check out just your slice — the rest stays on the server until you need it. Projects and ownership are small files in the tree, so the repo describes itself.</p>
+    <section aria-labelledby="what-h">
+      <h2 id="what-h"><span class="eyebrow">What it is</span>A monorepo operating system, layered on Git.</h2>
+      <p>All your code lives in <strong>one Git repository</strong> — and Runko is the layer that makes that pleasant instead of punishing. It runs on your own infrastructure, it is open source under Apache-2.0, and it is aimed at teams of roughly twenty to three hundred engineers plus however many agents they point at the codebase.</p>
+      <p>Three things define it. <strong>The repo describes itself:</strong> which projects exist, who owns which paths, what depends on what, and which checks must pass are all small files in the tree — versioned and reviewed like any other code, never clicked into a settings page. <strong>The unit of work is a Change, not a branch:</strong> every change carries a stable identity that survives rebasing and amending, so review state, approvals and check results follow it as it moves. <strong>Every agent gets a real workspace:</strong> a server-tracked checkout of just the slice it needs, that you can watch live, take over, and constrain from the server side.</p>
+      <p>What Runko deliberately is <em>not</em>: a new storage engine, a virtual filesystem, or a CI runner fleet. It is plain Git underneath — you can clone it with <code>git</code>, and it mirrors out to GitHub so nothing you already own stops working.</p>
+    </section>
+
+    <section aria-labelledby="why-h">
+      <h2 id="why-h"><span class="eyebrow">Why not just GitHub</span>The old model assumed the expensive thing was writing the code.</h2>
+      <p>GitHub is excellent at what it was designed for: humans, pushing branches, opening pull requests, reviewing each other's work at human pace. Almost every part of that design assumes changes are scarce and review capacity is abundant. Once a fleet of agents is authoring, both assumptions invert — and the cracks are structural, not cosmetic.</p>
+
+      <div class="compare">
+        <div class="cmp">
+          <h3>Code split across many repositories</h3>
+          <div class="cols">
+            <div class="col was"><span class="tag">The old model</span><p>An agent can only see the repo you handed it. Cross-cutting work becomes a chain of PRs across repos, merged in the right order, with version bumps in between — and the agent silently misses the callers it was never shown.</p></div>
+            <div class="col now"><span class="tag">Runko</span><p>One repository, so a change that touches four projects is one atomic commit that reviews and lands together. Every agent gets a complete, consistent view of the code — no coordination protocol to get wrong.</p></div>
+          </div>
+        </div>
+
+        <div class="cmp">
+          <h3>Branches and pull requests as the unit of work</h3>
+          <div class="cols">
+            <div class="col was"><span class="tag">The old model</span><p>A PR is pinned to a branch. Rebase it and review context frays; stack dependent work and you are hand-managing a tower of PRs that all need re-targeting whenever the bottom one changes.</p></div>
+            <div class="col now"><span class="tag">Runko</span><p>Changes carry a stable identity across amends and rebases, so a stack is a first-class thing: rework the bottom, everything above follows, one push updates the whole series, and they land bottom-up on their own.</p></div>
+          </div>
+        </div>
+
+        <div class="cmp">
+          <h3>Guardrails that live in the prompt</h3>
+          <div class="cols">
+            <div class="col was"><span class="tag">The old model</span><p>An agent runs with a human's credential and that human's full write access. The only thing stopping it from editing the deploy config or approving its own work is instructions in a prompt — which is to say, nothing enforceable.</p></div>
+            <div class="col now"><span class="tag">Runko</span><p>Agents are real principals with their own identity and stricter defaults, enforced by the server: which paths they may touch, how large a change may be, no self-approval, no approving at all. A prompt injection cannot argue its way past a rejected push.</p></div>
+          </div>
+        </div>
+
+        <div class="cmp">
+          <h3>CI that re-runs the world</h3>
+          <div class="cols">
+            <div class="col was"><span class="tag">The old model</span><p>Either everything runs on every PR, or someone hand-maintains path filters that quietly rot. Multiply that by ten agents opening changes all day and CI becomes the bottleneck, the bill, and the reason people stop trusting a red build.</p></div>
+            <div class="col now"><span class="tag">Runko</span><p>Runko computes exactly which projects a change affects from ownership and declared dependencies in the tree, and requires only those checks. A green change whose rebase applies cleanly lands without re-running anything.</p></div>
+          </div>
+        </div>
+
+        <div class="cmp">
+          <h3>Work that only exists on someone's laptop</h3>
+          <div class="cols">
+            <div class="col was"><span class="tag">The old model</span><p>An agent's work-in-progress lives in an uncommitted working directory. The session dies, the container is reaped, and the work is simply gone — and while it ran, nobody could see what it was doing.</p></div>
+            <div class="col now"><span class="tag">Runko</span><p>Workspaces are tracked by the server and snapshot as the agent works. Nothing is lost when a session dies, you can watch ten agents at once on one page, and you can pick up any of their workspaces yourself.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="pillars-h">
+      <h2 id="pillars-h"><span class="eyebrow">The pillars</span>Four commitments every feature follows from.</h2>
+
+      <div class="pillars">
+        <div class="pillar">
+          <h3><span class="n">01</span>One monorepo that feels small.</h3>
+          <p>All your code lives in one Git repository, but nobody has to carry all of it. You check out just your slice — the rest stays on the server until you need it. Projects and ownership are small files in the tree, so the repo describes itself.</p>
+        </div>
+
+        <div class="pillar">
+          <h3><span class="n">02</span>Trunk-based development, enforced.</h3>
+          <p>There is one branch that matters, and nobody pushes to it directly — not even admins. Every change goes through the same gate: owner approval, required checks, a secret scan. If trunk moved while you waited, Runko only re-runs the checks your change could actually have broken.</p>
+        </div>
+
+        <div class="pillar">
+          <h3><span class="n">03</span>Agents work in parallel, safely.</h3>
+          <p>Run several coding agents on the same repo at once. One command gives each its own workspace — a checkout of just its slice, all sharing one clone underneath — no <code>git worktree</code> juggling. Work-in-progress snapshots to the server as it goes, so a killed agent loses nothing. And the server keeps every agent in its lane: no writing outside its assigned paths, no approving its own work.</p>
+        </div>
+
+        <div class="pillar">
+          <h3><span class="n">04</span>One CLI for the everyday, Git underneath.</h3>
+          <p>Committing, submitting, landing and snapshotting are <code>runko</code> commands in every checkout, so humans and agents learn one small set of verbs. Underneath it is ordinary Git — clone it, script it, keep your tools. When you need surgery on the middle of a stack, <a href="https://jj-vcs.github.io/jj/">Jujutsu</a> is first-class alongside it.</p>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="grow-h">
+      <h2 id="grow-h"><span class="eyebrow">Why this grows</span>The constraint is moving, and it is not going back.</h2>
+      <p>We are not betting that people will dislike GitHub. We are betting on a change in what the work looks like — and that the tools built for the old shape cannot stretch to the new one.</p>
+
+      <ul class="why">
+        <li>
+          <h3>Change volume is decoupling from headcount.</h3>
+          <p>For thirty years the number of changes a company produced tracked the number of engineers it employed, and every tool in the stack was sized for that ratio. Agents break the link: the same team now opens several times the changes. Review queues, CI budgets and merge policies were all built against the old ratio, and they fail in that order.</p>
+        </li>
+        <li>
+          <h3>When machines write the code, the gate has to be machine-checkable.</h3>
+          <p>You cannot scale "a senior engineer reads every diff" to agent volume. What does scale is enforcement the server can apply on its own: who owns this path, what does this change affect, which checks must be green, what is this identity allowed to touch. Runko puts exactly those things in the tree where they are versioned, reviewable, and cheap to evaluate.</p>
+        </li>
+        <li>
+          <h3>Agents push teams toward monorepos.</h3>
+          <p>Splitting a codebase into many repos was, in part, a way to fit each piece into a human head and a human's checkout. Agents do not have that limit — but they are genuinely bad at coordinating across boundaries they cannot see. The cheapest fix is to remove the boundary, which makes monorepo tooling a requirement rather than a Google-scale luxury.</p>
+        </li>
+        <li>
+          <h3>Adoption does not require a migration.</h3>
+          <p>Runko mirrors to any Git host, so a team can run it and keep GitHub as the place their code appears — issues, existing integrations and muscle memory intact. The front door is a mirror, not a cutover, which is how infrastructure like this actually spreads.</p>
+        </li>
+        <li>
+          <h3>Open source and self-hosted, so trusting it is cheap.</h3>
+          <p>Your source code is the most sensitive asset you have, and the platform that governs it is the last place anyone wants a black box or a vendor lock. Runko is Apache-2.0 and runs on your own infrastructure. The substrate is plain Git, so the exit is always a <code>git clone</code>.</p>
+        </li>
+        <li>
+          <h3>It is already carrying its own weight.</h3>
+          <p>Runko is developed on Runko. Every change to this platform is authored in a workspace, reviewed as a Change, gated by ownership and affected-scoped checks, and landed by the same engine you would be running — much of it by agents. The features exist because building this way surfaced the need for them.</p>
+        </li>
+      </ul>
+    </section>
+
+    <div class="closing">
+      <h2>See it for yourself.</h2>
+      <p>The instance you are reading this on hosts Runko's own development — you can browse every change that built it, no account needed. Or watch a scripted run end to end: an agent fixes a bug, a human reviews, the stack lands.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="/changes?invite=1">Request an invite</a>
+        <a class="btn" href="/demo/watch" title="A guided live run in the playground — an agent fixes a bug, a human reviews, the stack lands">▶ Watch me work</a>
+        <a class="btn" href="/runko" title="Every change here landed through Runko's own review, ownership checks, and CI">Browse the source</a>
+      </div>
     </div>
-
-    <div class="principle">
-      <h2><span class="n">02</span>Trunk-based development, enforced.</h2>
-      <p>There is one branch that matters, and nobody pushes to it directly — not even admins. Every change goes through the same gate: owner approval, required checks, a secret scan. If trunk moved while you waited, Runko only re-runs the checks your change could actually have broken.</p>
-    </div>
-
-    <div class="principle">
-      <h2><span class="n">03</span>Agents work in parallel, safely.</h2>
-      <p>Run several coding agents on the same repo at once. One command gives each its own workspace — a checkout of just its slice, all sharing one clone underneath — no <code>git worktree</code> juggling. Work-in-progress snapshots to the server as it goes, so a killed agent loses nothing. And the server keeps every agent in its lane: no writing outside its assigned paths, no approving its own work.</p>
-    </div>
-
-    <div class="principle">
-      <h2><span class="n">04</span>Built for jj, works with git.</h2>
-      <p><a href="https://jj-vcs.github.io/jj/">Jujutsu</a> is the primary client. Every change has a stable identity that survives rebasing and amending, so you can rework the bottom of a stack and everything above it follows — one push updates the whole stack. Plain <code>git</code> works too; you just do the rebasing yourself.</p>
-    </div>
-
   </div>
 </main>
 
 <footer>
   <div class="wrap">
     <span>© 2026 Runko · Apache-2.0</span>
-    <a href="/">Home</a>
+    <span class="spacer"></span>
+    <a href="/landing/">Home</a>
+    <a href="/runko">Source</a>
+    <a href="https://github.com/saxocellphone/Runko">GitHub</a>
     <a href="/demo/">Playground</a>
   </div>
 </footer>

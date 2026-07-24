@@ -36,11 +36,14 @@
 
   .wrap { max-width: 620px; margin: 0 auto; padding: 0 clamp(18px, 5vw, 28px); }
 
-  header .wrap { display: flex; align-items: center; padding-top: 22px; padding-bottom: 22px; }
+  header .wrap { display: flex; align-items: center; gap: 16px; padding-top: 22px; padding-bottom: 22px; }
   .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); }
   .logo:hover { color: var(--text); }
   .logo svg { border-radius: 7px; display: block; }
-  header .signin { margin-left: auto; }
+  /* The Design link takes the auto margin, so it and Sign in sit together
+     on the right with the logo alone on the left. */
+  header .navlink { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--text-2); }
+  header .navlink:hover { color: var(--accent); }
 
   .btn { display: inline-block; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; border: 1px solid var(--border); color: var(--text); background: var(--surface); white-space: nowrap; cursor: pointer; font-family: var(--font); }
   .btn:hover { border-color: var(--accent); color: var(--text); }
@@ -97,6 +100,7 @@
          public_read, so a signed-out visitor who has an org remembered
          lands in anonymous browsing and gets the read-only inbox
          instead of the gate (web/src/lib/orgsession.ts wantsAuthPage). -->
+    <a class="navlink" href="/landing/design.html">Design</a>
     <a class="btn signin" href="/changes?signin=1">Sign in</a>
   </div>
 </header>
@@ -114,7 +118,7 @@
              tell" this page has. -->
         <a class="btn" href="/demo/watch" title="A guided live run in the playground — an agent fixes a bug, a human reviews, the stack lands">▶ Watch me work</a>
       </div>
-      <p class="cta-note">This instance is invite-only — ask and the code arrives by email. Runko is open source and hosts its own development: <a href="/runko" title="Every change here landed through Runko's own review, ownership checks, and CI">browse this instance's own source</a>, no account needed, or explore the <a href="/demo/" title="Runs entirely in your browser on sample data">playground</a> at your own pace.</p>
+      <p class="cta-note">This instance is invite-only — ask and the code arrives by email. Runko is open source and hosts its own development: <a href="/runko" title="Every change here landed through Runko's own review, ownership checks, and CI">browse this instance's own source</a>, no account needed, or explore the <a href="/demo/" title="Runs entirely in your browser on sample data">playground</a> at your own pace. For the reasoning behind all of it, read <a href="/landing/design.html">how Runko is designed</a>.</p>
     </div>
 
     <section class="contact" id="contact" aria-labelledby="contact-h">
@@ -146,6 +150,7 @@
   <div class="wrap">
     <span>© 2026 Runko · Apache-2.0</span>
     <span class="spacer"></span>
+    <a href="/landing/design.html">Design</a>
     <a href="/runko">Source</a>
     <a href="https://github.com/saxocellphone/Runko">GitHub</a>
     <a href="/demo/">Playground</a>
