@@ -51,6 +51,9 @@ env:
   GIT_REF: ${{ github.event.client_payload.git_ref }}
   RUNKO_URL: ${{ secrets.RUNKO_URL }}
   RUNKO_CI_TOKEN: ${{ secrets.RUNKO_CI_TOKEN }}
+  # Optional (repo Settings -> Variables): release base for the runko-ci
+  # binary when this repo does not carry its source (fork/GHES mirrors).
+  RUNKO_CI_DOWNLOAD_URL: ${{ vars.RUNKO_CI_DOWNLOAD_URL }}
 
 jobs:
   setup:
@@ -69,8 +72,21 @@ jobs:
             sleep 5
           done
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
-      - name: locate runko-ci
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
+      # The one bootstrap decision: a repo carrying runko-ci's SOURCE runs
+      # the change's own copy (the dogfood property - a change editing the
+      # executor is resolved by itself); any other repo downloads the
+      # released binary (RUNKO_CI_DOWNLOAD_URL variable overrides the
+      # default release base for forks/GHES).
+      - name: resolve runko-ci (tree copy, or released binary)
+        run: |
+          if [ -d cli/runko-ci ]; then
+            echo "RUNKO_CI=go run ./cli/runko-ci" >> "$GITHUB_ENV"
+          else
+            base="${RUNKO_CI_DOWNLOAD_URL:-https://github.com/saxocellphone/Runko/releases/download/cli-latest}"
+            sudo curl -fsSL -o /usr/local/bin/runko-ci "$base/runko-ci_linux_amd64"
+            sudo chmod +x /usr/local/bin/runko-ci
+            echo "RUNKO_CI=runko-ci" >> "$GITHUB_ENV"
+          fi
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
       - name: resolve the check matrix from the manifests
@@ -80,7 +96,7 @@ jobs:
           # range; `checks` itself fails closed to run_everything on any
           # unowned path, and a hard failure here leaves the gate pending
           # (never green), so no fallback matrix is needed.
-          OUT=$(go run "$RUNKO_CI_PKG" checks --base "$BASE_SHA" --head "$HEAD_SHA")
+          OUT=$($RUNKO_CI checks --base "$BASE_SHA" --head "$HEAD_SHA")
           echo "$OUT" | jq .
           echo "matrix=$(echo "$OUT" | jq -c '.checks')" >> "$GITHUB_OUTPUT"
           echo "has_checks=$(echo "$OUT" | jq -r '.checks | length > 0')" >> "$GITHUB_OUTPUT"
@@ -122,13 +138,21 @@ jobs:
             sleep 5
           done
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
-      - name: locate runko-ci
+      - name: resolve runko-ci (tree copy, or released binary)
         # success() || failure(): the report-result step needs this even
-        # when the change-ref fetch failed - a skipped locate left
-        # RUNKO_CI_PKG empty and `go run ""` broke reporting exactly on
-        # the failure path, so runkod showed pending forever (found live).
+        # when the change-ref fetch failed - a skipped resolve left the
+        # command empty and broke reporting exactly on the failure path,
+        # so runkod showed pending forever (found live).
         if: success() || failure()
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
+        run: |
+          if [ -d cli/runko-ci ]; then
+            echo "RUNKO_CI=go run ./cli/runko-ci" >> "$GITHUB_ENV"
+          else
+            base="${RUNKO_CI_DOWNLOAD_URL:-https://github.com/saxocellphone/Runko/releases/download/cli-latest}"
+            sudo curl -fsSL -o /usr/local/bin/runko-ci "$base/runko-ci_linux_amd64"
+            sudo chmod +x /usr/local/bin/runko-ci
+            echo "RUNKO_CI=runko-ci" >> "$GITHUB_ENV"
+          fi
       - uses: actions/setup-go@v5
         if: success() || failure()
         with: { go-version: '1.25', cache: true }
@@ -143,9 +167,8 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            web/package-lock.json
-            webadmin/package-lock.json
+          # every lockfile in the tree - this file names no projects
+          cache-dependency-path: '**/package-lock.json'
       - name: install jj + ensure psql (runner contract)
         run: |
           command -v jj >/dev/null || curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.43.0/jj-v0.43.0-x86_64-unknown-linux-musl.tar.gz | sudo tar -xz -C /usr/local/bin ./jj
@@ -155,7 +178,7 @@ jobs:
       # the completed report later overwrites with the same URL.
       - name: report in_progress
         run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          $RUNKO_CI report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name "${{ matrix.name }}" --external-id "${{ github.run_id }}-${{ strategy.job-index }}" \
             --status in_progress --reporter github-actions \
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
@@ -165,7 +188,7 @@ jobs:
         # success() || failure() excludes CANCELLED (migration-findings #28).
         if: success() || failure()
         run: |
-          go run "$RUNKO_CI_PKG" report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
+          $RUNKO_CI report-check --url "$RUNKO_URL/api/changes/$CHANGE_ID/checks" \
             --token "$RUNKO_CI_TOKEN" --name "${{ matrix.name }}" --external-id "${{ github.run_id }}-${{ strategy.job-index }}" \
             --status completed --conclusion ${{ job.status == 'success' && 'success' || 'failure' }} \
             --details-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
