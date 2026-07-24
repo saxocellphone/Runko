@@ -65,6 +65,7 @@ reference.
 | `runko org list [--json]` | orgs your credential can reach (role + git URL) - needs a live runkod | `[]OrgInfo` |
 | `runko org add-member --org <org> --name <account> [--role member] [--json]` | grant an account org access (org admins/operators) - needs a live runkod | `{"org","name","role"}` |
 | `runko org bootstrap [--json]` | ownerless org (nothing can land under default-deny)? opens the self-landable root-OWNERS change naming the caller (governance retrofit) - humans/org admins only, agents suggest it to a human | `{"seeded_genesis","change_id","title"}` |
+| `runko org agent-policy <get|set|reset> [--allow-all-paths|--allow-workflows|--allow-owners|--can-land|--denylist <globs>|--from-json <src>|--org <name>]` | read (get), set (read-modify-write), or reset an org's agent policy - operator only. This is how an operator lets an org's agents edit paths the default denies (OWNERS/PROJECT.yaml, CI workflows); set warns when it loosens workflows or enables can-land | `{"org","overridden","policy"}` |
 | `runko github connect --repo <owner/name> [--json]` | wire the org to a GitHub repo in one call: the server verifies its GitHub App can push (repo reachable, App installed, token minted), persists the wiring in org settings, and arms the mirror AND native CI dispatch live (2026-07-16/17) - org admins/operators; agents are refused | `GithubConnectResult` |
 | `runko github status [--json]` | the org's outbound mirror state: target URL, per-ref cursors, freezes, last error - needs a live runkod | `MirrorStatus` |
 | `runko release create --project <p> [--version x.y.z] --runkod-url <url> --token <t> [--json]` | cut an immutable release: server-minted annotated tag + changelog derived from landed changes since the previous release - needs a live runkod | `ReleaseInfo` |
@@ -76,6 +77,7 @@ reference.
 | `runko-ci affected --base <rev> [--head HEAD] [--engine bazel]` | compute the affected project set for a base..head range | `affected.Result (always JSON)` |
 | `runko-ci checks --base <rev> [--head HEAD]` | resolve the affected closure's manifest-declared ci.checks for a CI executor | `{"run_everything","checks":[{"project","name","command"}]} (always JSON)` |
 | `runko-ci images --base <rev> [--head HEAD]` | resolve which deployable images a base..head range must rebuild, with build config, for a CI executor | `{"run_everything","images":[{"name","image_ref","context","dockerfile","build_args"}]} (always JSON)` |
+| `runko-ci binaries --base <rev> [--head HEAD]` | resolve which rolling binary releases a base..head range must republish, from the tree's deploy.binaries declarations, for a CI executor | `{"run_everything","releases":[{"tag","binaries":[{"name","path"}]}]} (always JSON)` |
 | `runko-ci checkout --remote <url> --dest <dir> --rev <rev> [--json]` | partial-clone + sparse-checkout a rev for CI | `{"rev","dest"}` |
 | `runko-ci report-check --url <u> --name <n> --external-id <id> --reporter <r> [--json]` | POST a CheckRun result to the Checks API | `{"name","status","external_id"}` |
 
