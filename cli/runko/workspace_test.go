@@ -87,7 +87,10 @@ func startWorkspaceServerStore(t *testing.T) (srv *httptest.Server, bare string,
 func writeFakeCredentialHelper(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "fake-credential-helper")
-	script := "#!/bin/sh\n[ \"$1\" = get ] || exit 0\necho username=runko\necho password=sekret\n"
+	// The real helper is a cobra command, so it takes flags before the
+	// action (`auth git-credential --principal <name> get`, the form a
+	// BOUND checkout stamps). The fake skips them the same way.
+	script := "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in --*) shift 2 ;; *) break ;; esac; done\n[ \"$1\" = get ] || exit 0\necho username=runko\necho password=sekret\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake helper: %v", err)
 	}

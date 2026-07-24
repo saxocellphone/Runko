@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -84,9 +85,19 @@ func newAuthLoginCmd(a *app) *cobra.Command {
 		Long: `Validates against GET /api/whoami, then stores {url, name?, secret} in
 the platform config dir, 0600. With --name the secret is a principal
 password (HTTP Basic); without it, a bare bearer token. Every
-control-plane command falls back to this stored credential.`,
+control-plane command falls back to this stored credential.
+
+With -w <workspace> the credential is bound to THAT checkout as its
+authoring identity instead of becoming this machine's login: the
+workspace's verbs, its pushes and raw git inside it authenticate as
+that principal, and your own stored login is left alone.`,
+		Example: `  runko auth login --runkod-url https://<host>/o/<org> --name <you>
+  runko auth login --name agent-fix-rail-a1b2 --token <tok> -w fix-rail`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if ws := mustWorkspaceFlag(cmd); ws != "" {
+				return authLoginBind(cmd, a, ws, name)
+			}
 			if a.runkodURL == "" {
 				return &clierr.Error{
 					Code: "missing_url", Field: "runkod-url",
@@ -99,7 +110,49 @@ control-plane command falls back to this stored credential.`,
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "your principal name, e.g. alice; omit to store a bare deploy token (anonymous bearer)")
+	addWorkspaceFlag(cmd)
 	return cmd
+}
+
+// authLoginBind is `auth login -w <ws>`: bind an identity to one
+// workspace's checkout rather than to the machine. The control-plane URL
+// defaults to the one the checkout already talks to, so re-binding an
+// existing workspace needs nothing but a name and a token.
+func authLoginBind(cmd *cobra.Command, a *app, ws, name string) error {
+	dir, err := resolveWorkspaceDir(ws, ".")
+	if err != nil {
+		return err
+	}
+	url := a.runkodURL
+	if url == "" {
+		url, _ = runGit(dir, "config", "runko.controlplane")
+	}
+	if url == "" {
+		if stored, found, _ := loadCredential(); found {
+			url = stored.URL
+		}
+	}
+	if url == "" {
+		return &clierr.Error{
+			Code: "missing_url", Field: "runkod-url",
+			Message:    "this checkout does not name a control plane yet, so the binding needs --runkod-url",
+			Suggestion: "runko auth login --runkod-url https://<host>/o/<org> --name <principal> --token <tok> -w " + ws,
+		}
+	}
+	secret := a.token
+	if secret == "" {
+		fmt.Fprintf(os.Stdout, "password for %s: ", name)
+		if secret, err = readSecret(bufio.NewReader(os.Stdin), os.Stdout); err != nil {
+			return fmt.Errorf("read secret: %w", err)
+		}
+	}
+	cred := Credential{URL: strings.TrimSuffix(url, "/"), Name: name, Secret: agentTokenSecret(name, secret)}
+	path, err := BindPrincipalToCheckout(cmd.Context(), http.DefaultClient, dir, cred)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("workspace %s authors as %s (credential stored in %s; your own login is unchanged)\n", ws, cred.Name, path)
+	return nil
 }
 
 func newAuthStatusCmd() *cobra.Command {
@@ -152,10 +205,14 @@ func newAuthLogoutCmd() *cobra.Command {
 // newAuthGitCredentialCmd - git's credential-helper protocol (§12.7):
 // workspace stores stamp `credential.helper = !runko auth git-credential`,
 // so raw git in any worktree resolves the INVOKING principal's stored
-// login. Called by git, not humans; get/store/erase on argv, attributes
-// on stdin - hence Hidden.
+// login. A checkout BOUND to an authoring principal stamps the same helper
+// with `--principal <name>` in worktree scope, which resolves that
+// principal's credential from the principal store instead (principal.go).
+// Called by git, not humans; get/store/erase on argv, attributes on stdin
+// - hence Hidden.
 func newAuthGitCredentialCmd() *cobra.Command {
-	return &cobra.Command{
+	var principal string
+	cmd := &cobra.Command{
 		Use:    "git-credential <get|store|erase>",
 		Short:  "Git credential-helper protocol (called by git)",
 		Hidden: true,
@@ -164,7 +221,9 @@ func newAuthGitCredentialCmd() *cobra.Command {
 			if len(args) < 1 {
 				return usageError("usage: runko auth git-credential <get|store|erase> (called by git)")
 			}
-			return AuthGitCredential(args[0], os.Stdin, os.Stdout)
+			return AuthGitCredential(args[0], principal, os.Stdin, os.Stdout)
 		},
 	}
+	cmd.Flags().StringVar(&principal, "principal", "", "answer as this bound principal when its credential resolves")
+	return cmd
 }

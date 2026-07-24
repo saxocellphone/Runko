@@ -541,6 +541,9 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 		if err := finishJJCheckout(dir, info, info.BaseRevision, "head", authIdent); err != nil {
 			return WorkspaceInfo{}, "", err
 		}
+		if err := bindCheckoutAuthoring(dir, authIdent, runkodURL); err != nil {
+			return WorkspaceInfo{}, "", err
+		}
 		_ = recordMaterialization(Materialization{
 			Workspace: info.ID, Branch: "head", Path: dir, RunkodURL: runkodURL,
 		})
@@ -570,6 +573,12 @@ func WorkspaceCreate(ctx context.Context, client *http.Client, runkodURL, token,
 		if err := materializeWorktree(cloneDir, dir, info, info.BaseRevision, "head", authIdent, authEnv); err != nil {
 			return WorkspaceInfo{}, "", err
 		}
+	}
+	// The checkout's authoring identity, bound in worktree scope: from here
+	// on, every verb and every raw git in this worktree authenticates as
+	// the workspace's owner, whoever else is logged in on this machine.
+	if err := bindCheckoutAuthoring(dir, authIdent, runkodURL); err != nil {
+		return WorkspaceInfo{}, "", err
 	}
 	// Cache, never truth (§12.7): a registry write failure must not fail
 	// the create that already did the real work.
@@ -624,6 +633,9 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 		if err := finishJJCheckout(dir, info, startPoint, branch, authIdent); err != nil {
 			return WorkspaceInfo{}, "", err
 		}
+		if err := bindCheckoutAuthoring(dir, authIdent, runkodURL); err != nil {
+			return WorkspaceInfo{}, "", err
+		}
 		_ = recordMaterialization(Materialization{
 			Workspace: info.ID, Branch: branch, Path: dir, RunkodURL: runkodURL,
 		})
@@ -646,6 +658,9 @@ func WorkspaceAttach(ctx context.Context, client *http.Client, runkodURL, token,
 		}
 	}
 	if err := materializeWorktree(cloneDir, dir, info, startPoint, branch, authIdent, authEnv); err != nil {
+		return WorkspaceInfo{}, "", err
+	}
+	if err := bindCheckoutAuthoring(dir, authIdent, runkodURL); err != nil {
 		return WorkspaceInfo{}, "", err
 	}
 	_ = recordMaterialization(Materialization{

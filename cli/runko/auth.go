@@ -94,14 +94,7 @@ func saveCredential(c Credential) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
-	}
-	b, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return path, os.WriteFile(path, append(b, '\n'), 0o600)
+	return path, writeCredentialFile(path, c)
 }
 
 func loadCredential() (Credential, bool, error) {
@@ -109,6 +102,26 @@ func loadCredential() (Credential, bool, error) {
 	if err != nil {
 		return Credential{}, false, err
 	}
+	return readCredentialFile(path)
+}
+
+// writeCredentialFile is the on-disk form both credential stores share:
+// 0600 inside a 0700 directory, the gh/netrc convention. The stored login
+// is one such file; each bound principal (principal.go) is another.
+func writeCredentialFile(path string, c Credential) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(b, '\n'), 0o600)
+}
+
+// readCredentialFile reads one back; a missing file is "not found", not an
+// error, so every caller's absent-credential path keeps the same shape.
+func readCredentialFile(path string) (Credential, bool, error) {
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return Credential{}, false, nil

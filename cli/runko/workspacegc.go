@@ -217,6 +217,11 @@ func evaluateMaterialization(m Materialization, server map[string]WorkspaceInfo,
 // is never deleted here (§12.7: object maintenance is git's job).
 func reclaimMaterialization(m Materialization) error {
 	if _, err := os.Stat(m.Path); err == nil {
+		// The credential this checkout authored with dies with it, unless
+		// another materialization still authors as the same principal
+		// (principal.go). Read it BEFORE the directory goes away - the
+		// binding lives in the worktree's own config.
+		releaseCheckoutPrincipal(m.Path)
 		if err := os.RemoveAll(m.Path); err != nil {
 			return err
 		}

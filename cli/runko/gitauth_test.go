@@ -23,7 +23,7 @@ func TestAuthGitCredentialAnswersOwnHostOnly(t *testing.T) {
 	}
 
 	var out strings.Builder
-	err := AuthGitCredential("get", strings.NewReader("protocol=http\nhost=ctrl.example:8080\n\n"), &out)
+	err := AuthGitCredential("get", "", strings.NewReader("protocol=http\nhost=ctrl.example:8080\n\n"), &out)
 	if err != nil {
 		t.Fatalf("AuthGitCredential: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestAuthGitCredentialAnswersOwnHostOnly(t *testing.T) {
 		"store action": {"store", "protocol=http\nhost=ctrl.example:8080\n\n"},
 	} {
 		out.Reset()
-		if err := AuthGitCredential(req.action, strings.NewReader(req.input), &out); err != nil {
+		if err := AuthGitCredential(req.action, "", strings.NewReader(req.input), &out); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if out.Len() != 0 {
@@ -156,14 +156,14 @@ func TestAuthGitCredentialEnvFallback(t *testing.T) {
 	t.Setenv("RUNKO_TOKEN", "env-tok")
 
 	var out strings.Builder
-	if err := AuthGitCredential("get", strings.NewReader("protocol=http\nhost=ctrl.example:8080\n\n"), &out); err != nil {
+	if err := AuthGitCredential("get", "", strings.NewReader("protocol=http\nhost=ctrl.example:8080\n\n"), &out); err != nil {
 		t.Fatalf("AuthGitCredential: %v", err)
 	}
 	if got := out.String(); got != "username=runko\npassword=env-tok\n" {
 		t.Fatalf("expected the env credential, got %q", got)
 	}
 	out.Reset()
-	if err := AuthGitCredential("get", strings.NewReader("protocol=http\nhost=elsewhere.example\n\n"), &out); err != nil || out.Len() != 0 {
+	if err := AuthGitCredential("get", "", strings.NewReader("protocol=http\nhost=elsewhere.example\n\n"), &out); err != nil || out.Len() != 0 {
 		t.Fatalf("foreign host must stay silent even with env credentials, got %q (%v)", out.String(), err)
 	}
 }
@@ -182,7 +182,7 @@ func TestNameQualifiedEnvTokenOnTheGitPath(t *testing.T) {
 
 	// The stamped helper.
 	var out strings.Builder
-	if err := AuthGitCredential("get", strings.NewReader("protocol=http\nhost=ctrl.example:8080\n\n"), &out); err != nil {
+	if err := AuthGitCredential("get", "", strings.NewReader("protocol=http\nhost=ctrl.example:8080\n\n"), &out); err != nil {
 		t.Fatalf("AuthGitCredential: %v", err)
 	}
 	if got, want := out.String(), "username=agent-fix-rail-a1b2\npassword=tok-secret\n"; got != want {

@@ -69,11 +69,14 @@ instead (full clone; jj cannot lazy-fetch promisor blobs).`,
 			if err != nil {
 				return err
 			}
-			// --as authenticates this one command as a named principal (typically
-			// the agent) without storing or clobbering a credential (FIX #3): admin
-			// mints the token, then `workspace create --by agent-x --as agent-x
-			// --token <tok>` registers AND materializes as the agent. No
-			// XDG_CONFIG_HOME, no separate `auth login`.
+			// --as authenticates as a named principal (typically the agent)
+			// without clobbering the invoker's stored login: admin mints the
+			// token, then `workspace create --by agent-x --as agent-x --token
+			// <tok>` registers AND materializes as the agent. The credential is
+			// then BOUND to the new checkout (principal.go), so it authenticates
+			// every later verb and push there too - binding it only for the
+			// duration of this one command is what forced the XDG_CONFIG_HOME
+			// re-login dance on every agent session (dogfood, 2026-07-24).
 			if as != "" {
 				if a.token == "" {
 					return &clierr.Error{
@@ -93,6 +96,15 @@ instead (full clone; jj cannot lazy-fetch promisor blobs).`,
 			if name == "" || by == "" || len(projects)+len(newPaths) == 0 {
 				return fmt.Errorf("workspace create: --name and at least one --project (or --new-path) are required (and --by, when signed in with a bare token)")
 			}
+			// File the --as credential BEFORE materializing: the materialization
+			// stamps the qualified credential helper that reads it back, and a
+			// worktree that points at a credential which isn't there yet would
+			// fall through to the invoker's login on its very first fetch.
+			if as != "" {
+				if _, err := savePrincipal(cred); err != nil {
+					return err
+				}
+			}
 			info, wsDir, err := WorkspaceCreate(cmd.Context(), http.DefaultClient, cred.URL, cred.AuthHeader(), name, by, projects, newPaths,
 				MaterializeOptions{CloneDir: cloneDir, Dir: dir, ForceNested: forceNested, JJ: jjClient})
 			if err != nil {
@@ -109,6 +121,9 @@ instead (full clone; jj cannot lazy-fetch promisor blobs).`,
 				mode = "jj colocated, "
 			}
 			fmt.Printf("workspace %s ready at %s (%sbase %s, cone: %s)\n", info.ID, wsDir, mode, short(info.BaseRevision), strings.Join(info.SparsePatterns, ", "))
+			if as != "" {
+				fmt.Printf("this checkout authors as %s - its verbs, its pushes and raw git in it all authenticate as that principal; your own login is unchanged\n", cred.Name)
+			}
 			printWorkspaceStreamingGuidance(os.Stdout, info.ID)
 			printWorkspaceLoop(os.Stdout, info.ID)
 			return nil
@@ -117,7 +132,7 @@ instead (full clone; jj cannot lazy-fetch promisor blobs).`,
 	fl := cmd.Flags()
 	fl.StringVar(&name, "name", "", "workspace name (also the snapshot-ref segment)")
 	fl.StringVar(&by, "by", "", "who owns this workspace (default: the stored login's principal)")
-	fl.StringVar(&as, "as", "", "authenticate as this named principal using --token as its password (Basic, not stored) - the no-XDG agent form")
+	fl.StringVar(&as, "as", "", "authenticate as this named principal using --token as its password, and bind it to the new checkout as its authoring identity")
 	fl.StringVar(&cloneDir, "clone-dir", "", "shared blobless clone directory (default: the managed home's .store)")
 	fl.StringVar(&dir, "dir", "", "worktree directory (default: under the managed home, ~/runko-ws)")
 	fl.BoolVar(&forceNested, "force-nested", false, "materialize inside another git checkout anyway")
@@ -171,7 +186,7 @@ func newWorkspaceListCmd(a *app) *cobra.Command {
 
 func newWorkspaceAttachCmd(a *app) *cobra.Command {
 	var (
-		cloneDir, dir, branch          string
+		cloneDir, dir, branch, as      string
 		forceNested, jjClient, jsonOut bool
 	)
 	cmd := &cobra.Command{
@@ -190,6 +205,23 @@ under the managed home).`,
 			cred, err := a.credential()
 			if err != nil {
 				return err
+			}
+			// Restoring a workspace that authors as someone else (an agent's,
+			// after a lost machine or on a second box) needs the same identity
+			// binding create makes - otherwise the restored checkout pushes as
+			// the invoker and the server refuses it as another owner's.
+			if as != "" {
+				if a.token == "" {
+					return &clierr.Error{
+						Code: "missing_token", Field: "token",
+						Message:    "--as needs --token (the principal's password)",
+						Suggestion: "pass the principal's token, e.g. --as agent-<slug>-xxxx --token <tok>",
+					}
+				}
+				cred = Credential{URL: cred.URL, Name: as, Secret: agentTokenSecret(as, a.token)}
+				if _, err := savePrincipal(cred); err != nil {
+					return err
+				}
 			}
 			info, wsDir, err := WorkspaceAttach(cmd.Context(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, branch,
 				MaterializeOptions{CloneDir: cloneDir, Dir: dir, ForceNested: forceNested, JJ: jjClient})
@@ -217,6 +249,7 @@ under the managed home).`,
 	fl.StringVar(&cloneDir, "clone-dir", "", "shared blobless clone directory (default: the managed home's .store)")
 	fl.StringVar(&dir, "dir", "", "worktree directory (default: under the managed home; branches land at <workspace>@<branch>)")
 	fl.StringVar(&branch, "branch", "head", "workspace branch to restore (parallel lines of work)")
+	fl.StringVar(&as, "as", "", "authenticate as this named principal using --token as its password, and bind it to the restored checkout")
 	fl.BoolVar(&forceNested, "force-nested", false, "materialize inside another git checkout anyway")
 	fl.BoolVar(&jjClient, "jj", false, "restore as a standalone jj colocated checkout instead of a worktree off the shared store")
 	fl.BoolVar(&jsonOut, "json", false, "emit the workspace (+ Dir) as JSON")
@@ -446,7 +479,7 @@ new base in the registry. Conflicts abort and name the files.`,
 			if err != nil {
 				return err
 			}
-			cred, err := a.credential()
+			cred, err := a.credentialAt(wd)
 			if err != nil {
 				return err
 			}
