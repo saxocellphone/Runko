@@ -95,6 +95,7 @@ go_test(
         "root_test.go",
         "status_test.go",
         "sync_test.go",
+        "testid_test.go",
         "update_test.go",
         "version_test.go",
         "watch_test.go",

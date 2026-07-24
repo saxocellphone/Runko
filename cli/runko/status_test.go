@@ -14,9 +14,9 @@ import (
 	"github.com/saxocellphone/runko/platform/checks"
 )
 
-const (
-	statusTestIDReady   = "I1111111111111111111111111111111111111111"
-	statusTestIDBlocked = "I2222222222222222222222222222222222222222"
+var (
+	statusTestIDReady   = fakeChangeID("status-ready")
+	statusTestIDBlocked = fakeChangeID("status-blocked")
 )
 
 // statusFixture builds the shape status reads: a trunk commit marked as

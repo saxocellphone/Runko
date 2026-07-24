@@ -80,7 +80,7 @@ func TestResolveChangeIDArgUniquePrefix(t *testing.T) {
 		listHits.Add(1)
 		json.NewEncoder(w).Encode([]ChangeInfo{
 			{ChangeKey: testFullID, Title: "landed fix", State: "landed"},
-			{ChangeKey: "Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Title: "other"},
+			{ChangeKey: fakeChangeID("unrelated-other"), Title: "other"},
 		})
 	}))
 	defer server.Close()
@@ -175,7 +175,7 @@ func TestResolveChangeIDArgAmbiguous(t *testing.T) {
 func TestResolveChangeIDArgZeroMatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]ChangeInfo{
-			{ChangeKey: "Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Title: "unrelated"},
+			{ChangeKey: fakeChangeID("unrelated-zero-match"), Title: "unrelated"},
 		})
 	}))
 	defer server.Close()
