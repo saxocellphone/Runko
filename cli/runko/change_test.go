@@ -97,14 +97,15 @@ func TestPushChangePreservesExistingChangeID(t *testing.T) {
 		t.Fatalf("seed remote main: %v", err)
 	}
 
+	id := fakeChangeID("push-preserves-existing")
 	repo.WriteFile("feature.txt", "v1\n")
-	repo.Commit("add feature\n\nChange-Id: I0123456789abcdef0123456789abcdef01234567")
+	repo.Commit("add feature\n\nChange-Id: " + id)
 
 	changeID, err := PushChange(repo.Dir, "origin", "main")
 	if err != nil {
 		t.Fatalf("PushChange: %v", err)
 	}
-	if changeID != "I0123456789abcdef0123456789abcdef01234567" {
+	if changeID != id {
 		t.Fatalf("expected the existing Change-Id to be preserved, got %s", changeID)
 	}
 }
@@ -247,7 +248,7 @@ func TestPushChangeRefusesWhenHeadAlreadyOnTrunk(t *testing.T) {
 	repo := gitfixture.New(t)
 	configureIdentity(t, repo.Dir)
 	repo.WriteFile("README.md", "hi\n")
-	repo.Commit("initial\n\nChange-Id: I9999999999999999999999999999999999999999")
+	repo.Commit("initial\n\nChange-Id: " + fakeChangeID("already-on-trunk"))
 	if _, err := runGit(repo.Dir, "push", remote, "HEAD:refs/heads/main"); err != nil {
 		t.Fatalf("seed trunk: %v", err)
 	}
@@ -481,7 +482,7 @@ func TestPushChangeClosedWorkspaceTeachesCarryOver(t *testing.T) {
 		t.Fatalf("bind workspace: %v", err)
 	}
 	repo.WriteFile("feature.txt", "v1\n")
-	repo.Commit("stacked child still local\n\nChange-Id: Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	repo.Commit("stacked child still local\n\nChange-Id: " + fakeChangeID("closed-workspace-stacked"))
 
 	var warnBuf strings.Builder
 	prev := warnWriter
@@ -536,7 +537,7 @@ func TestPushChangeUnrelatedPolicyRefusalHasNoCarryOver(t *testing.T) {
 		`error: hook declined to update refs/for/main`)
 
 	repo.WriteFile("feature.txt", "v1\n")
-	repo.Commit("feature\n\nChange-Id: Ibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	repo.Commit("feature\n\nChange-Id: " + fakeChangeID("unrelated-policy-refusal"))
 
 	_, err := pushChange(repo.Dir, "origin", "main", false, false)
 	if err == nil {

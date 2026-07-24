@@ -89,7 +89,7 @@ func TestCmdChangeLandRequiresFlags(t *testing.T) {
 
 func TestCmdChangeLandJSONOutput(t *testing.T) {
 	// Full I+40hex Change-Id: resolveChangeIDArg passes it through with no list call.
-	const fullID = "I0123456789abcdef0123456789abcdef01234567"
+	fullID := fakeChangeID("land-json-output")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/changes/"+fullID+"/land" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -117,7 +117,7 @@ func TestCmdChangeLandJSONOutput(t *testing.T) {
 // TestCmdChangeLandDefaultsToHEAD: the daily loop is create -> push -> land;
 // land without --change resolves HEAD's Change-Id and notes it on stderr.
 func TestCmdChangeLandDefaultsToHEAD(t *testing.T) {
-	const headID = "I6a3f0123456789abcdef0123456789abcdef0123"
+	headID := fakeChangeID("land-defaults-to-head")
 	repo := gitfixture.New(t)
 	configureIdentity(t, repo.Dir)
 	repo.WriteFile("README.md", "hi\n")
@@ -169,7 +169,7 @@ func TestCmdChangeLandDefaultsToHEAD(t *testing.T) {
 // (A clean land would return after one POST with sync on or off, so this
 // pins the off path by forcing the branch that would otherwise recover.)
 func TestCmdChangeLandNoSyncSkipsRecoveryLoop(t *testing.T) {
-	const fullID = "I0123456789abcdef0123456789abcdef01234567"
+	fullID := fakeChangeID("land-no-sync-recovery")
 	repo := gitfixture.New(t)
 	configureIdentity(t, repo.Dir)
 	repo.WriteFile("README.md", "hi\n")
@@ -290,7 +290,7 @@ func TestCmdChangeLandNoChangeIDSuggests(t *testing.T) {
 
 // TestCmdChangeAutomergeDefaultsToHEAD: same HEAD default as land/requirements.
 func TestCmdChangeAutomergeDefaultsToHEAD(t *testing.T) {
-	const headID = "Iaa3f0123456789abcdef0123456789abcdef0123"
+	headID := fakeChangeID("automerge-defaults-to-head")
 	repo := gitfixture.New(t)
 	configureIdentity(t, repo.Dir)
 	repo.WriteFile("README.md", "hi\n")
