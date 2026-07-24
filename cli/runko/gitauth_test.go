@@ -168,6 +168,59 @@ func TestAuthGitCredentialEnvFallback(t *testing.T) {
 	}
 }
 
+// TestNameQualifiedEnvTokenOnTheGitPath: RUNKO_TOKEN="<name>:<token>" -
+// the form `runko agent create` prints and `agent create`'s own export
+// line teaches - must authenticate as that principal on the GIT path too,
+// not just on the control-plane path. Both git-side sites used to hand the
+// raw env value to gitUserPass, which understands only "Basic <b64>", so
+// the pair went out as runko:<name>:<token> and every push 401ed while the
+// same export worked for `change describe` (dogfood, 2026-07-24).
+func TestNameQualifiedEnvTokenOnTheGitPath(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // no stored login
+	t.Setenv("RUNKO_RUNKOD_URL", "http://ctrl.example:8080/o/acme")
+	t.Setenv("RUNKO_TOKEN", "agent-fix-rail-a1b2:tok-secret")
+
+	// The stamped helper.
+	var out strings.Builder
+	if err := AuthGitCredential("get", strings.NewReader("protocol=http\nhost=ctrl.example:8080\n\n"), &out); err != nil {
+		t.Fatalf("AuthGitCredential: %v", err)
+	}
+	if got, want := out.String(), "username=agent-fix-rail-a1b2\npassword=tok-secret\n"; got != want {
+		t.Fatalf("helper answered %q, want %q", got, want)
+	}
+
+	// The per-invocation injection runko's own verbs push with.
+	dir := t.TempDir()
+	mustGit(t, dir, "init", "-q")
+	mustGit(t, dir, "remote", "add", "origin", "http://ctrl.example:8080/o/acme/acme/repo.git")
+	joined := strings.Join(gitNetEnv(dir), "\n")
+	if !strings.Contains(joined, "RUNKO_GIT_USER=agent-fix-rail-a1b2") || !strings.Contains(joined, "RUNKO_GIT_PASS=tok-secret") {
+		t.Fatalf("gitNetEnv must split the name-qualified token, got:\n%s", joined)
+	}
+}
+
+// TestEnvTokenBorrowsStoredControlPlane: an exported RUNKO_TOKEN with no
+// RUNKO_RUNKOD_URL retargets WHO authenticates, not WHERE (auth.go's rule).
+// The git path honors it through the same resolver.
+func TestEnvTokenBorrowsStoredControlPlane(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("RUNKO_RUNKOD_URL", "")
+	t.Setenv("RUNKO_TOKEN", "agent-x-9f9f:agent-secret")
+	if _, err := saveCredential(Credential{URL: "http://ctrl.example/o/acme", Name: "admin", Secret: "admin-pw"}); err != nil {
+		t.Fatalf("saveCredential: %v", err)
+	}
+	dir := t.TempDir()
+	mustGit(t, dir, "init", "-q")
+	mustGit(t, dir, "remote", "add", "origin", "http://ctrl.example/o/acme/acme/repo.git")
+	joined := strings.Join(gitNetEnv(dir), "\n")
+	if !strings.Contains(joined, "credential.http://ctrl.example/.helper") {
+		t.Fatalf("expected the stored login's control plane to be borrowed, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "RUNKO_GIT_USER=agent-x-9f9f") || strings.Contains(joined, "admin-pw") {
+		t.Fatalf("the env token must win over the stored login, got:\n%s", joined)
+	}
+}
+
 // TestCredentialHelperSpecOverride: RUNKO_CREDENTIAL_HELPER wins (tests,
 // unusual installs); otherwise the spec names the running binary and the
 // git-credential verb.
