@@ -207,6 +207,9 @@ Change-Id trailer.`,
 			if err != nil {
 				return err
 			}
+			if id, err = resolveChangeIDArg(context.Background(), http.DefaultClient, cred, id); err != nil {
+				return err
+			}
 			reqs, err := ChangeRequirements(context.Background(), http.DefaultClient, cred, id)
 			if err != nil {
 				return err
@@ -219,7 +222,7 @@ Change-Id trailer.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&changeID, "change", "", "Change-Id or unique prefix (default: HEAD's Change-Id trailer)")
 	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
 	addWorkspaceFlag(cmd)
 	fl.BoolVar(&jsonOut, "json", false, "emit the merge requirements as JSON")
@@ -264,6 +267,9 @@ never conflicts or stacking order), audited as landed_forced.`,
 			if err != nil {
 				return err
 			}
+			if id, err = resolveChangeIDArg(context.Background(), http.DefaultClient, cred, id); err != nil {
+				return err
+			}
 			// The recovery loop needs a checkout to rebase; without one (or with
 			// --force, which bypasses revalidation anyway) land is a single shot.
 			var outcome land.Outcome
@@ -291,7 +297,7 @@ never conflicts or stacking order), audited as landed_forced.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&changeID, "change", "", "Change-Id or unique prefix (default: HEAD's Change-Id trailer)")
 	fl.BoolVar(&force, "force", false, "admin override: bypass owner/check gates and revalidation; audited as landed_forced")
 	fl.StringVar(&repoDir, "repo", ".", "local checkout used by --sync to rebase and re-push on requires_revalidation (and for the HEAD default)")
 	addWorkspaceFlag(cmd)
@@ -323,16 +329,20 @@ func newChangeApproveCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			id, err := resolveChangeIDArg(context.Background(), http.DefaultClient, cred, changeID)
+			if err != nil {
+				return err
+			}
 			// --by stays optional for a signed-in principal: the server derives
 			// the approver from the credential (and rejects a mismatch).
-			reqs, err := ApproveChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), changeID, ownerRef, by)
+			reqs, err := ApproveChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, ownerRef, by)
 			if err != nil {
 				return err
 			}
 			if jsonOut {
 				return json.NewEncoder(os.Stdout).Encode(reqs)
 			}
-			fmt.Printf("approved %s on %s\n", ownerRef, changeID)
+			fmt.Printf("approved %s on %s\n", ownerRef, id)
 			if reqs.Mergeable {
 				fmt.Println("mergeable: yes")
 			} else {
@@ -345,7 +355,7 @@ func newChangeApproveCmd(a *app) *cobra.Command {
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id to approve")
+	fl.StringVar(&changeID, "change", "", "Change-Id or unique prefix to approve")
 	fl.StringVar(&ownerRef, "owner", "", "owner requirement being satisfied, e.g. group:commerce-eng")
 	fl.StringVar(&by, "by", "", "who is approving (default: the signed-in principal)")
 	fl.BoolVar(&jsonOut, "json", false, "emit the merge requirements as JSON instead of a human summary")
@@ -463,7 +473,11 @@ func newChangeAbandonCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			change, err := AbandonChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), changeID)
+			id, err := resolveChangeIDArg(context.Background(), http.DefaultClient, cred, changeID)
+			if err != nil {
+				return err
+			}
+			change, err := AbandonChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id)
 			if err != nil {
 				return err
 			}
@@ -474,7 +488,7 @@ func newChangeAbandonCmd(a *app) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&changeID, "change", "", "Change-Id to abandon")
+	cmd.Flags().StringVar(&changeID, "change", "", "Change-Id or unique prefix to abandon")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the abandoned change as JSON")
 	return cmd
 }
@@ -520,6 +534,9 @@ flag preserves the stored value, an explicit "" clears it.`,
 			if err != nil {
 				return err
 			}
+			if id, err = resolveChangeIDArg(context.Background(), http.DefaultClient, cred, id); err != nil {
+				return err
+			}
 			change, err := DescribeChange(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, descPtr, planPtr)
 			if err != nil {
 				return err
@@ -532,7 +549,7 @@ flag preserves the stored value, an explicit "" clears it.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&changeID, "change", "", "Change-Id or unique prefix (default: HEAD's Change-Id trailer)")
 	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
 	addWorkspaceFlag(cmd)
 	fl.StringVar(&description, "description", "", "what the change does and why")
@@ -575,6 +592,9 @@ poll-and-land loops. --change defaults to HEAD's Change-Id trailer.
 			if err != nil {
 				return err
 			}
+			if id, err = resolveChangeIDArg(context.Background(), http.DefaultClient, cred, id); err != nil {
+				return err
+			}
 			var change struct {
 				ChangeKey   string
 				Title       string
@@ -599,7 +619,7 @@ poll-and-land loops. --change defaults to HEAD's Change-Id trailer.
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&changeID, "change", "", "Change-Id (default: HEAD's Change-Id trailer)")
+	fl.StringVar(&changeID, "change", "", "Change-Id or unique prefix (default: HEAD's Change-Id trailer)")
 	fl.StringVar(&dir, "dir", ".", "repository directory (for the HEAD default)")
 	addWorkspaceFlag(cmd)
 	fl.BoolVar(&disable, "disable", false, "disarm instead")
@@ -624,21 +644,25 @@ func newChangeRerunCheckCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			reqs, err := RerunCheck(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), changeID, name)
+			id, err := resolveChangeIDArg(context.Background(), http.DefaultClient, cred, changeID)
+			if err != nil {
+				return err
+			}
+			reqs, err := RerunCheck(context.Background(), http.DefaultClient, cred.URL, cred.AuthHeader(), id, name)
 			if err != nil {
 				return err
 			}
 			if jsonOut {
 				return json.NewEncoder(os.Stdout).Encode(reqs)
 			}
-			fmt.Printf("rerun requested for %s on %s\n", name, changeID)
+			fmt.Printf("rerun requested for %s on %s\n", name, id)
 			for _, b := range reqs.Blockers {
 				fmt.Printf("  - %s\n", b)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&changeID, "change", "", "Change-Id whose check to rerun")
+	cmd.Flags().StringVar(&changeID, "change", "", "Change-Id or unique prefix whose check to rerun")
 	cmd.Flags().StringVar(&name, "name", "", "required check name to rerun")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit the refreshed merge requirements as JSON")
 	return cmd
