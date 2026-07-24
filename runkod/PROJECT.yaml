@@ -33,10 +33,22 @@ capability_config:
       name: runkod
       context: .
       dockerfile: Dockerfile
+# runkogithubapp: cmd/runkod imports it directly (the GitHub gateway the
+# mirror and dispatch paths speak through) - shipped code, so a plain
+# dependency.
 dependencies:
   - platform
   - internal
   - db
+  - runkogithubapp
+# cli: the daemon's e2e test runs the real `runko` binary, taking
+# //cli/runko as a runfiles dep (2026-07-24). A test fixture is still a
+# build-grade need - the cone has to materialize it - but nothing that
+# depends on the daemon links the CLI, so the edge is terminal. Mutual
+# with cli's own test edge here, which is the honest shape: each side's
+# e2e drives the other's binary, and the closure is cycle-safe.
+test_dependencies:
+  - cli
 ci:
   checks:
     - name: runkod-test

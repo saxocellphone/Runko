@@ -1,0 +1,19 @@
+# The generic CI/CD workflow templates `runko ci init` scaffolds into any
+# Runko-hosted repo (templates/ci/README.md is their adoption guide).
+#
+# A project of its own rather than root glue (2026-07-24): cli embeds this
+# tree verbatim through the citemplates package, so these files are SHIPPED
+# ARTIFACTS, not repo prose. As root-owned paths they were invisible to
+# every closure that matters - a --project cli workspace materialized no
+# templates/ and could not build, while a template edit required only the
+# root project's docs-check even though cli's helptext test asserts on
+# these exact bytes.
+#
+# No ci.checks on purpose (the db/ precedent): nothing here is testable in
+# isolation - the workflows are exercised by the CI that runs them and by
+# cli's embed tests, which this project's dependents pull in. Gating rides
+# cli's `dependencies: templates` edge.
+schema: project/v1
+name: templates
+type: library
+language: go

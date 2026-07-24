@@ -12,8 +12,15 @@ schema: project/v1
 name: internal
 type: library
 language: go
+# platform is a CYCLE with platform's own edge on this project, and it is
+# the honest shape (2026-07-24): gitstore implements core.MonorepoStore, so
+# internal builds against platform/core while platform builds against
+# internal. Affected computation walks reverse edges with a visited set and
+# is cycle-safe by construction; without the edge a --project internal
+# workspace could not even `go build ./internal/...`.
 dependencies:
   - db
+  - platform
 ci:
   checks:
     - name: internal-test
