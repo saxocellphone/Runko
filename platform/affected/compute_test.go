@@ -291,6 +291,72 @@ func TestRootInvalidationBeatsOwnership(t *testing.T) {
 // surface changed - never for provider internals - the client joins
 // non-direct (§14.5.9 direct-only lanes skip it), its own dependents ride
 // the ordinary closure, and consumes never chains.
+// TestTestDependenciesAreTerminal: a test-grade edge pulls its declarer in
+// and stops. The declarer's own dependents inherit nothing - the coupling
+// is in test code they never link - which is the whole reason the edge kind
+// exists (declared as a plain dependency it over-propagates).
+func TestTestDependenciesAreTerminal(t *testing.T) {
+	projects := []ProjectInfo{
+		{Name: "daemon", Path: "daemon"},
+		// platform's e2e links the daemon; runko-bridge builds against
+		// platform's library and never touches the daemon.
+		{Name: "platform", Path: "platform", TestDependencies: []string{"daemon"}},
+		{Name: "bridge", Path: "bridge", DeclaredDependencies: []string{"platform"}},
+	}
+
+	res := Compute(projects, []string{"daemon/api.go"}, Options{})
+	if got := refNames(res.Projects); !slicesEqual(got, []string{"daemon", "platform"}) {
+		t.Fatalf("test edge: want [daemon platform], got %v", got)
+	}
+	for _, ref := range res.Projects {
+		if ref.Name == "platform" && ref.Direct {
+			t.Fatalf("a project pulled in by a test edge is not direct: %+v", res.Projects)
+		}
+	}
+	if !containsString(res.ReasonCodes, ReasonDependsOn) {
+		t.Fatalf("want depends_on reason, got %v", res.ReasonCodes)
+	}
+
+	// The ordinary edge still propagates through the same project.
+	res = Compute(projects, []string{"platform/index.go"}, Options{})
+	if got := refNames(res.Projects); !slicesEqual(got, []string{"bridge", "platform"}) {
+		t.Fatalf("ordinary edge: want [bridge platform], got %v", got)
+	}
+}
+
+// TestTestDependencyDoesNotSwallowAPropagatingPath: membership via a
+// terminal edge must not stop a LATER propagating path from walking through
+// the same project - otherwise a dependent is dropped for the accident of
+// which edge named it first.
+func TestTestDependencyDoesNotSwallowAPropagatingPath(t *testing.T) {
+	projects := []ProjectInfo{
+		{Name: "core", Path: "core"},
+		// mid is reachable from core two ways: the terminal test edge, and
+		// the ordinary edge through lib. tip rides only the ordinary one.
+		{Name: "lib", Path: "lib", DeclaredDependencies: []string{"core"}},
+		{Name: "mid", Path: "mid", TestDependencies: []string{"core"}, DeclaredDependencies: []string{"lib"}},
+		{Name: "tip", Path: "tip", DeclaredDependencies: []string{"mid"}},
+	}
+
+	res := Compute(projects, []string{"core/core.go"}, Options{})
+	if got := refNames(res.Projects); !slicesEqual(got, []string{"core", "lib", "mid", "tip"}) {
+		t.Fatalf("want [core lib mid tip], got %v", got)
+	}
+}
+
+// TestTestDependencyCycleDoesNotHang: mutual test edges are the shape this
+// repo actually has (cli e2e runs the daemon, the daemon's e2e runs cli).
+func TestTestDependencyCycleDoesNotHang(t *testing.T) {
+	projects := []ProjectInfo{
+		{Name: "a", Path: "a", TestDependencies: []string{"b"}},
+		{Name: "b", Path: "b", TestDependencies: []string{"a"}},
+	}
+	res := Compute(projects, []string{"a/x.go"}, Options{})
+	if got := refNames(res.Projects); !slicesEqual(got, []string{"a", "b"}) {
+		t.Fatalf("want [a b], got %v", got)
+	}
+}
+
 func TestConsumesEdgesAreContractScoped(t *testing.T) {
 	projects := []ProjectInfo{
 		{Name: "runkod", Path: "runkod", ContractPaths: []string{"runkod/PROJECT.yaml", "runkod/proto"}},

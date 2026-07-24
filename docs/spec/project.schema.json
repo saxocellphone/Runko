@@ -60,6 +60,15 @@
       },
       "description": "L2/L3, optional, rare. Explicitly DECLARED dependency edges (other project names) that participate in affected-computation gating (§13.3). Build-grade coupling: a dependent rides the dependency's EVERY change - use it when this project builds against (or runs) the other project's code; a stub-level API client wants `consumes` instead (§13.3.1). Most dependency data should come from the async inferred-dependency indexer, which is advisory-only and never written here; promoting an inferred edge to declared is a deliberate action, not automatic sync."
     },
+    "test_dependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{1,62}$"
+      },
+      "description": "L2/L3, optional, rare. NON-TRANSITIVE build-grade edges (added 2026-07-24): other project names this project's own CHECKS build or run, but that its consumers do not inherit - an e2e suite that links the daemon's package, a test that execs another project's binary from runfiles. Two differences from `dependencies`, both deliberate: (1) the read cone materializes the target's whole tree exactly as a dependency does, because the checks genuinely cannot build without it; (2) the affected closure adds THIS project when the target changes, and STOPS - it does not continue on to this project's own dependents, because the coupling lives in test code that nothing downstream links. Declaring these as plain `dependencies` instead is the over-propagating alternative: it asserts to every dependent that they too ride the target's every change, which is false for a test-only edge and measurably inflates the required-check set (this repo: a daemon change went from 3 required checks to 8). Use `dependencies` whenever the project's SHIPPED code builds against the target - if in doubt, that is the safe direction."
+    },
     "consumes": {
       "type": "array",
       "uniqueItems": true,

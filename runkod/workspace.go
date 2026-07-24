@@ -207,6 +207,13 @@ func expandConeToDeps(affinity, allowlist []string, indexed []index.IndexedProje
 		}
 		// Declared build deps: follow transitively (their whole tree).
 		queue = append(queue, p.DeclaredDependencies...)
+		// Test deps are build-grade for MATERIALIZATION - the checks this
+		// project declares cannot compile without them - and are followed
+		// transitively for the same reason (what they need to build, this
+		// checkout needs too). Only the affected closure treats them as
+		// terminal; a cone that is too wide costs blobs, one that is too
+		// narrow costs a workspace that cannot run its own checks.
+		queue = append(queue, p.TestDependencies...)
 		// consumes: the consumer compiles against the PROVIDER's contract
 		// surfaces only, so union those and do NOT enqueue the provider (no
 		// recursion into its deps).

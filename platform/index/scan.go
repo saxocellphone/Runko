@@ -25,6 +25,11 @@ type IndexedProject struct {
 	Type                 string
 	Capabilities         []string
 	DeclaredDependencies []string
+	// TestDependencies are the manifest's non-transitive build-grade edges
+	// (2026-07-24): what this project's CHECKS build or run without its
+	// consumers inheriting the coupling. Cone-wide like a dependency,
+	// terminal in the affected closure - see affected.ProjectInfo.
+	TestDependencies []string
 	// RootInvalidation is the manifest's tree-borne §14.5.2 pattern list
 	// (root-manifest-oriented; ordered, first-match-wins, "!" exceptions
 	// per §14.5.8; see index.RootInvalidation). Not persisted by Sync -
@@ -291,6 +296,7 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		Type:                      manifest.Type,
 		Capabilities:              manifest.Capabilities,
 		DeclaredDependencies:      manifest.Dependencies,
+		TestDependencies:          manifest.TestDependencies,
 		RootInvalidation:          rootInvalidation,
 		RootInvalidationRefinable: refinable,
 		Prose:                     manifest.Prose,
