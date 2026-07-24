@@ -25,11 +25,14 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/saxocellphone/runko/internal/clierr"
 )
 
 // AuthGitCredential implements git's credential-helper protocol for the
@@ -56,21 +59,36 @@ func AuthGitCredential(action string, in io.Reader, out io.Writer) error {
 	if err := sc.Err(); err != nil {
 		return fmt.Errorf("read credential request: %w", err)
 	}
-	// Same resolution order as every networked verb: env fallback first
-	// (RUNKO_RUNKOD_URL/RUNKO_TOKEN - hooks and headless agents inherit an
-	// environment, not a login), then the stored credential.
-	if base, tok := os.Getenv("RUNKO_RUNKOD_URL"), os.Getenv("RUNKO_TOKEN"); base != "" && tok != "" {
-		if answerCredentialRequest(out, attrs, base, gitUserPassPair(tok)) {
-			return nil
+	// ONE resolver for both paths (auth.go's resolveCredentialEnv): flags,
+	// then the RUNKO_RUNKOD_URL/RUNKO_TOKEN environment (hooks and headless
+	// agents inherit an environment, not a login), then the stored login.
+	// Resolving the environment by hand here instead was the git path's
+	// silent divergence: it handed the raw RUNKO_TOKEN to gitUserPass, which
+	// understands only the "Basic <b64>" form, so the name-qualified
+	// "<name>:<token>" that every control-plane verb accepts went out as
+	// Basic runko:<name>:<token> - the remote answered a bare "unauthorized"
+	// while `runko change describe` with the same export worked (dogfood,
+	// 2026-07-24).
+	cred, err := resolveCredentialEnv("", "")
+	if err != nil {
+		if credentialAbsent(err) {
+			return nil // nothing anywhere: stay silent, git falls through
 		}
-	}
-	cred, found, err := loadCredential()
-	if err != nil || !found {
-		return err // nothing anywhere: stay silent, git falls through
+		return err
 	}
 	user, pass := cred.GitUserPass()
 	answerCredentialRequest(out, attrs, cred.URL, [2]string{user, pass})
 	return nil
+}
+
+// credentialAbsent reports whether err is resolveCredential's "there is
+// nothing to resolve" refusal rather than a real failure (an unreadable or
+// corrupt credentials.json). The helper protocol answers the former with
+// silence - git falls through to its other helpers - while the latter
+// deserves to be seen.
+func credentialAbsent(err error) bool {
+	var ce *clierr.Error
+	return errors.As(err, &ce) && (ce.Code == "not_logged_in" || ce.Code == "missing_url")
 }
 
 // answerCredentialRequest prints the username/password pair when the
@@ -85,12 +103,6 @@ func answerCredentialRequest(out io.Writer, attrs map[string]string, baseURL str
 	}
 	fmt.Fprintf(out, "username=%s\npassword=%s\n", userPass[0], userPass[1])
 	return true
-}
-
-// gitUserPassPair is gitUserPass in the array form the answerer takes.
-func gitUserPassPair(tokenOrHeader string) [2]string {
-	user, pass := gitUserPass(tokenOrHeader)
-	return [2]string{user, pass}
 }
 
 // credentialHelperSpec is the helper command stamped into a store's config
@@ -144,29 +156,24 @@ func gitAuthConfigEnv(baseURL, tokenOrHeader string) []string {
 
 // gitNetEnv resolves the invoking principal's credential (env fallback >
 // stored login, the verb-local order `agent event` set) into
-// gitAuthConfigEnv for a git command running in dir. Two silences are
-// deliberate: a remote URL that still embeds a credential (a pre-§12.7
-// clone) gets nothing - injecting a second Authorization header beside
-// URL-derived auth breaks the request - and no resolvable credential gets
-// nothing, leaving the stamped helper (or anonymity on public_read orgs)
-// to answer.
+// gitAuthConfigEnv for a git command running in dir. Resolution is
+// resolveCredentialEnv's, the same one the control-plane verbs use - a
+// push and a `change describe` from one shell must authenticate as the
+// same principal or the mismatch surfaces as an unexplainable 401.
+//
+// Two silences are deliberate: a remote URL that still embeds a credential
+// (a pre-§12.7 clone) gets nothing - injecting a second Authorization
+// header beside URL-derived auth breaks the request - and no resolvable
+// credential gets nothing, leaving the stamped helper (or anonymity on
+// public_read orgs) to answer.
 func gitNetEnv(dir string) []string {
 	if remote, err := runGit(dir, "config", "remote.origin.url"); err == nil {
 		if u, err := url.Parse(remote); err == nil && u.User != nil {
 			return nil
 		}
 	}
-	if tok := os.Getenv("RUNKO_TOKEN"); tok != "" {
-		base := os.Getenv("RUNKO_RUNKOD_URL")
-		if base == "" {
-			if cred, found, _ := loadCredential(); found {
-				base = cred.URL
-			}
-		}
-		return gitAuthConfigEnv(base, tok)
-	}
-	cred, found, err := loadCredential()
-	if err != nil || !found {
+	cred, err := resolveCredentialEnv("", "")
+	if err != nil {
 		return nil
 	}
 	return gitAuthConfigEnv(cred.URL, cred.AuthHeader())
