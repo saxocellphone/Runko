@@ -3,10 +3,12 @@
 # that repo (automated sync) and reconciles the cluster - nothing here touches
 # Kubernetes. Runko builds and records the desired digest in git; Argo deploys.
 #
-# This is RUNKO'S OWN deploy. It deliberately diverges from the shipped tenant
-# CD template (templates/ci/runko-images.yml), which still reports digests to a
-# runkod deploy record: this workflow instead commits the digest straight into
-# the GitOps repo, so Runko never controls k8s.
+# GitOps-shaped CD, fully generic: the pin TARGET (which repository, which
+# kustomization) comes from the root manifest's deploy_gitops via `runko-ci
+# images` - this file hardcodes no repository, path, or org. A repo whose
+# root declares no deploy_gitops skips the pin job entirely. (The shipped
+# tenant template, templates/ci/runko-images.yml, reports digests to a runkod
+# deploy record instead - two documented CD shapes, one build half.)
 #
 # DISPATCH-TRIGGERED, PER LAND: runkod emits a `runko-image-build`
 # repository_dispatch on every change.landed (runkod/githubdispatch.go),
@@ -56,6 +58,12 @@ jobs:
       # runko-ci images (build_args pre-rendered to newline KEY=VALUE).
       matrix: ${{ steps.resolve.outputs.matrix }}
       has_images: ${{ steps.resolve.outputs.has_images }}
+      # The pin target from the root manifest's deploy_gitops (empty -> the
+      # pin job is skipped; an org without GitOps-shaped CD declares none).
+      gitops_owner: ${{ steps.resolve.outputs.gitops_owner }}
+      gitops_name: ${{ steps.resolve.outputs.gitops_name }}
+      gitops_repository: ${{ steps.resolve.outputs.gitops_repository }}
+      gitops_kustomization: ${{ steps.resolve.outputs.gitops_kustomization }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,8 +81,16 @@ jobs:
           [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
       - uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: true }
-      - name: locate runko-ci
-        run: echo "RUNKO_CI_PKG=$([ -d cli/runko-ci ] && echo ./cli/runko-ci || echo ./cmd/runko-ci)" >> "$GITHUB_ENV"
+      - name: resolve runko-ci (tree copy, or released binary)
+        run: |
+          if [ -d cli/runko-ci ]; then
+            echo "RUNKO_CI=go run ./cli/runko-ci" >> "$GITHUB_ENV"
+          else
+            base="${RUNKO_CI_DOWNLOAD_URL:-https://github.com/saxocellphone/Runko/releases/download/cli-latest}"
+            sudo curl -fsSL -o /usr/local/bin/runko-ci "$base/runko-ci_linux_amd64"
+            sudo chmod +x /usr/local/bin/runko-ci
+            echo "RUNKO_CI=runko-ci" >> "$GITHUB_ENV"
+          fi
       - name: resolve the image matrix from the tree
         id: resolve
         run: |
@@ -82,7 +98,7 @@ jobs:
           # deploy.image from the tree and handles run_everything (returns every
           # declared image); no --engine (fail closed).
           BASE="$HEAD_SHA^"
-          IMAGES=$(go run "$RUNKO_CI_PKG" images --base "$BASE" --head "$HEAD_SHA")
+          IMAGES=$($RUNKO_CI images --base "$BASE" --head "$HEAD_SHA")
           echo "$IMAGES" | jq .
           # Pre-render build_args map -> "KEY=VALUE\nKEY2=VALUE2" for
           # docker/build-push-action; empty map -> "". `.images` is null (not
@@ -93,6 +109,11 @@ jobs:
           }]')
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "has_images=$(echo "$IMAGES" | jq -r '.images | length > 0')" >> "$GITHUB_OUTPUT"
+          GITOPS_REPO=$(echo "$IMAGES" | jq -r '.gitops.repository // empty')
+          echo "gitops_owner=${GITOPS_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "gitops_name=${GITOPS_REPO##*/}" >> "$GITHUB_OUTPUT"
+          echo "gitops_repository=$GITOPS_REPO" >> "$GITHUB_OUTPUT"
+          echo "gitops_kustomization=$(echo "$IMAGES" | jq -r '.gitops.kustomization // empty')" >> "$GITHUB_OUTPUT"
 
   images:
     needs: setup
@@ -147,7 +168,7 @@ jobs:
     # Pin even if some image legs failed (fail-fast: false), so the digests that
     # DID build reach git; only skip when the images job was skipped entirely (a
     # non-deployable land - nothing to pin).
-    if: ${{ !cancelled() && needs.images.result != 'skipped' }}
+    if: ${{ !cancelled() && needs.images.result != 'skipped' && needs.setup.outputs.gitops_repository != '' }}
     runs-on: ubuntu-latest
     steps:
       # Full-history checkout of THIS repo: the ancestry guard below compares
@@ -173,10 +194,10 @@ jobs:
         with:
           pattern: report-*
           path: reports
-      # Mint a short-lived installation token scoped to k8s-cluster only. No
-      # long-lived credential lives in CI - just the App's id + private key,
-      # and this token expires within the hour.
-      - name: mint a k8s-cluster installation token
+      # Mint a short-lived installation token scoped to the declared GitOps
+      # repository only. No long-lived credential lives in CI - just the
+      # App's id + private key, and this token expires within the hour.
+      - name: mint a GitOps-repo installation token
         id: app-token
         # SHA-pinned (not @v1): this action handles the App private key, so it
         # gets the strictest supply-chain pin. Bump deliberately.
@@ -184,30 +205,30 @@ jobs:
         with:
           app-id: ${{ secrets.RUNKO_GITHUB_APP_ID }}
           private-key: ${{ secrets.RUNKO_GITHUB_APP_PRIVATE_KEY }}
-          owner: saxocellphone
-          repositories: k8s-cluster
+          owner: ${{ needs.setup.outputs.gitops_owner }}
+          repositories: ${{ needs.setup.outputs.gitops_name }}
       - name: check out the GitOps repo
         uses: actions/checkout@v4
         with:
-          repository: saxocellphone/k8s-cluster
+          repository: ${{ needs.setup.outputs.gitops_repository }}
           token: ${{ steps.app-token.outputs.token }}
-          path: k8s-cluster
+          path: gitops
           fetch-depth: 0
       # Pin each digest by editing the images: block with yq (preinstalled on
       # the runner) - no kustomize download, and yq preserves comments and adds
-      # no redundant newName. The runkod image is one entry shared by runkod,
-      # runko-watchdog, and runko-mailer.
+      # no redundant newName. One kustomization entry may serve several
+      # projects' workloads (riders share their owner's image).
       - name: pin the built digests into the GitOps repo and push
         env:
-          KUST: apps/monorepo-platform/kustomization.yaml
-          # PINFROM records the FULL runko sha the digests were pinned from -
-          # a plain file beside the kustomization (kustomize/Argo ignore it),
-          # so a `git revert` of a stale pin restores it along with the
-          # digests, unlike anything parsed from commit messages.
-          PINFROM: apps/monorepo-platform/.pinned-from
+          KUST: ${{ needs.setup.outputs.gitops_kustomization }}
+        # .pinned-from (computed beside the kustomization below) records the
+        # FULL monorepo sha the digests were pinned from - a plain file the
+        # reconciler ignores, so a `git revert` of a stale pin restores it
+        # along with the digests, unlike anything parsed from commit messages.
         run: |
           shopt -s nullglob
-          cd k8s-cluster
+          cd gitops
+          PINFROM="$(dirname "$KUST")/.pinned-from"
           # Collect (name, image_ref, digest) from the per-leg artifacts,
           # validating each digest (mirrors the runkod deploy-record guard) -
           # a bad value must never reach git.
@@ -265,7 +286,7 @@ jobs:
               echo "digests already current at origin/main - nothing to push"
               break
             fi
-            git commit -q -m "monorepo-platform: pin ${names[*]} from runko@${HEAD_SHA:0:9}"
+            git commit -q -m "$(basename "$(dirname "$KUST")"): pin ${names[*]} from ${GITHUB_REPOSITORY##*/}@${HEAD_SHA:0:9}"
             if git push origin HEAD:main; then
               echo "pushed pin for ${names[*]}"
               break

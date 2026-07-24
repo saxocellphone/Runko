@@ -1,0 +1,131 @@
+# Rolling binary releases for a landed commit - the standalone-release half
+# of the deploy capability (docs/spec/deploy/README.md), and the GENERIC
+# replacement for the retired cli-release.yml. Which releases exist, what
+# they are tagged, and which main packages ship in each all come from
+# `runko-ci binaries`, which reads the tree's deploy.binaries declarations
+# and scopes republishing by the declaring project's own affected membership
+# - the manifest's dependency/consumes edges are the whole trigger rule.
+# This file knows NO project names, NO package paths, NO dependency lists,
+# and NO tags; its predecessor hardcoded all four (and its hand-maintained
+# closure list had already drifted from the manifests).
+#
+# Same runko-image-build dispatch as the image build (per land, carries
+# head_sha). Release tags exist only on this host (the mirror pushes
+# runko-side tags and never prunes foreign ones, so no divergence). The
+# cross-compile target set is runner contract, not tree config.
+name: Release binaries
+
+run-name: "binaries: ${{ github.event.client_payload.head_sha }}"
+
+on:
+  repository_dispatch:
+    types: [runko-image-build]
+
+permissions:
+  contents: write # the rolling release tags + assets
+
+concurrency:
+  group: release-binaries-${{ github.event.client_payload.head_sha }}
+  cancel-in-progress: false
+
+env:
+  HEAD_SHA: ${{ github.event.client_payload.head_sha }}
+  # Optional (repo Settings -> Variables): release base for the runko-ci
+  # binary when this repo does not carry its source (fork/GHES mirrors).
+  RUNKO_CI_DOWNLOAD_URL: ${{ vars.RUNKO_CI_DOWNLOAD_URL }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      # matrix: [{tag, binaries: [{name, path}]}] from runko-ci binaries.
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      has_releases: ${{ steps.resolve.outputs.has_releases }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: check out the landed head (mirror-lag retry)
+        run: |
+          for i in $(seq 1 30); do
+            git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null && break
+            git fetch --quiet origin main 2>/dev/null || true
+            sleep 5
+          done
+          git checkout -q "$HEAD_SHA"
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: resolve runko-ci (tree copy, or released binary)
+        run: |
+          if [ -d cli/runko-ci ]; then
+            echo "RUNKO_CI=go run ./cli/runko-ci" >> "$GITHUB_ENV"
+          else
+            base="${RUNKO_CI_DOWNLOAD_URL:-https://github.com/saxocellphone/Runko/releases/download/cli-latest}"
+            sudo curl -fsSL -o /usr/local/bin/runko-ci "$base/runko-ci_linux_amd64"
+            sudo chmod +x /usr/local/bin/runko-ci
+            echo "RUNKO_CI=runko-ci" >> "$GITHUB_ENV"
+          fi
+      - name: resolve the release matrix from the manifests
+        id: resolve
+        run: |
+          # head^..head is the single-land delta; run_everything republishes
+          # every declared release (fail closed). No --engine, same as
+          # images: a release set must never be narrowed by refinement.
+          OUT=$($RUNKO_CI binaries --base "$HEAD_SHA^" --head "$HEAD_SHA")
+          echo "$OUT" | jq .
+          echo "matrix=$(echo "$OUT" | jq -c '.releases // []')" >> "$GITHUB_OUTPUT"
+          echo "has_releases=$(echo "$OUT" | jq -r '(.releases // []) | length > 0')" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: setup
+    if: needs.setup.outputs.has_releases == 'true'
+    name: ${{ matrix.tag }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: check out the landed head (mirror-lag retry)
+        run: |
+          for i in $(seq 1 30); do
+            git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null && break
+            git fetch --quiet origin main 2>/dev/null || true
+            sleep 5
+          done
+          git checkout -q "$HEAD_SHA"
+          [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ]
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: true }
+      - name: cross-compile every declared binary (runner-contract target set)
+        run: |
+          mkdir -p dist
+          MODULE=$(go list -m)
+          echo "MODULE=$MODULE" >> "$GITHUB_ENV"
+          while IFS=$'\t' read -r name pkgpath; do
+            for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+              GOOS=${target%/*}; GOARCH=${target#*/}
+              EXT=""; [ "$GOOS" = "windows" ] && EXT=".exe"
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH \
+                go build -trimpath -ldflags="-s -w" \
+                -o "dist/${name}_${GOOS}_${GOARCH}${EXT}" "./${pkgpath}"
+            done
+          done < <(echo '${{ toJSON(matrix.binaries) }}' | jq -r '.[] | [.name, .path] | @tsv')
+          (cd dist && sha256sum * > checksums.txt)
+          ls -la dist/
+      - name: publish the rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ matrix.tag }}
+        run: |
+          NAMES=$(echo '${{ toJSON(matrix.binaries) }}' | jq -r '[.[].name] | join(", ")')
+          gh release delete "$TAG" --cleanup-tag -y || true
+          gh release create "$TAG" \
+            --target "${HEAD_SHA}" \
+            --title "${NAMES} (rolling, main @ ${HEAD_SHA:0:9})" \
+            --notes "Rolling build of ${NAMES} from main @ ${HEAD_SHA:0:9}, republished automatically whenever a landing affects a declaring project (its manifest's deploy.binaries). Verify with checksums.txt. From source: \`go install ${MODULE}/<package>@latest\`." \
+            dist/*
