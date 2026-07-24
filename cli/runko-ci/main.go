@@ -67,7 +67,7 @@ they exist to be consumed by pipelines, not read.`,
 		return usageError(fmt.Sprintf("%v\nRun '%s --help' for usage.", err, cmd.CommandPath()))
 	})
 	root.AddCommand(
-		newAffectedCmd(), newChecksCmd(), newImagesCmd(),
+		newAffectedCmd(), newChecksCmd(), newImagesCmd(), newBinariesCmd(),
 		newCheckoutCmd(), newReportCheckCmd(), newReportImageCmd(),
 		newTestImpactedCmd(),
 	)
@@ -141,6 +141,7 @@ func newChecksCmd() *cobra.Command {
 	var (
 		repoDir, base, head, rootPatterns, engine, universe string
 		engineTimeout                                       time.Duration
+		postLand                                            bool
 	)
 	cmd := &cobra.Command{
 		Use:   "checks --base <rev>",
@@ -153,7 +154,7 @@ verb only resolves them for a generic executor to run.`,
 			if base == "" {
 				return fmt.Errorf("checks: --base is required")
 			}
-			result, err := Checks(repoDir, base, head, splitNonEmpty(rootPatterns), engine, universe, engineTimeout)
+			result, err := Checks(repoDir, base, head, splitNonEmpty(rootPatterns), engine, universe, engineTimeout, postLand)
 			if err != nil {
 				return err
 			}
@@ -170,6 +171,7 @@ verb only resolves them for a generic executor to run.`,
 	fl.StringVar(&engine, "engine", "", "optional build-graph adapter engine: enables snapshot-diff narrowing of refinable-only escalations - pass ONLY where nothing gates on the output (post-land CI)")
 	fl.StringVar(&universe, "universe", "", "build-graph universe pattern, e.g. //... (default when --engine is set)")
 	fl.DurationVar(&engineTimeout, "engine-timeout", 10*time.Minute, "timeout for the build-graph engine query")
+	fl.BoolVar(&postLand, "post-land", false, "also include every project's post_land-class checks (that class runs on every land, unscoped) - pass ONLY from post-land CI: the merge gate never requires it")
 	return cmd
 }
 
@@ -184,6 +186,37 @@ func newImagesCmd() *cobra.Command {
 				return fmt.Errorf("images: --base is required")
 			}
 			result, err := Images(repoDir, base, head, splitNonEmpty(rootPatterns))
+			if err != nil {
+				return err
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(result)
+		},
+	}
+	fl := cmd.Flags()
+	fl.StringVar(&repoDir, "repo", ".", "path to the local repo")
+	fl.StringVar(&base, "base", "", "base revision")
+	fl.StringVar(&head, "head", "HEAD", "head revision")
+	fl.StringVar(&rootPatterns, "root-invalidation", "", "comma-separated root-invalidation glob patterns (additive to the tree's)")
+	return cmd
+}
+
+func newBinariesCmd() *cobra.Command {
+	var repoDir, base, head, rootPatterns string
+	cmd := &cobra.Command{
+		Use:   "binaries --base <rev>",
+		Short: "Resolve which rolling binary releases a range must republish (JSON always)",
+		Long: `The standalone-release half of the deploy capability: the affected
+projects' deploy.binaries declarations, grouped into releases by tag -
+so a binary-release workflow hardcodes no package paths, project
+names, dependency lists, or release tags.`,
+		Args: noArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if base == "" {
+				return fmt.Errorf("binaries: --base is required")
+			}
+			result, err := Binaries(repoDir, base, head, splitNonEmpty(rootPatterns))
 			if err != nil {
 				return err
 			}

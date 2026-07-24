@@ -4,6 +4,7 @@ go_library(
     name = "runko-ci_lib",
     srcs = [
         "affected.go",
+        "binaries.go",
         "checkout.go",
         "checks.go",
         "git.go",
@@ -38,6 +39,7 @@ go_test(
     name = "runko-ci_test",
     srcs = [
         "affected_test.go",
+        "binaries_test.go",
         "checkout_test.go",
         "checks_test.go",
         "exec_test.go",

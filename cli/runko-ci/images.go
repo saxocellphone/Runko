@@ -21,10 +21,14 @@ import (
 // ImagesOutput is what `runko-ci images` prints (always JSON, like affected
 // and checks). RunEverything rebuilds every declared image (fail closed,
 // §14.5.3); Images is empty for a landing that touches no deployable image
-// (docs-only, a library, an org that declares none).
+// (docs-only, a library, an org that declares none). GitOps is the root
+// manifest's deploy_gitops write-back target, absent when undeclared - the
+// pin job reads its repository/kustomization from here and skips on
+// absence, so the workflow hardcodes neither (docs/spec/deploy/README.md).
 type ImagesOutput struct {
-	RunEverything bool                `json:"run_everything"`
-	Images        []deploy.ImageBuild `json:"images"`
+	RunEverything bool                 `json:"run_everything"`
+	Images        []deploy.ImageBuild  `json:"images"`
+	GitOps        *deploy.GitOpsTarget `json:"gitops,omitempty"`
 }
 
 // Images computes the image-build matrix for a base..head range: the affected
@@ -47,5 +51,5 @@ func Images(repoDir, base, head string, rootInvalidationPatterns []string) (Imag
 	if err != nil {
 		return ImagesOutput{}, err
 	}
-	return ImagesOutput{RunEverything: out.Result.RunEverything, Images: builds}, nil
+	return ImagesOutput{RunEverything: out.Result.RunEverything, Images: builds, GitOps: deploy.RootGitOps(indexed)}, nil
 }

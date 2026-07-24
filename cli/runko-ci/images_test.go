@@ -126,3 +126,23 @@ func TestImagesEmptyForNonDeployChange(t *testing.T) {
 		t.Fatalf("non-deploy change must yield no images, got %+v", out)
 	}
 }
+
+// TestImagesEmitsRootGitOpsTarget: the root's deploy_gitops rides the
+// images output (the pin job's config source); absent when undeclared so a
+// generic pin job skips instead of failing against nothing.
+func TestImagesEmitsRootGitOpsTarget(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("PROJECT.yaml", "schema: project/v1\nname: repo\ntype: other\ndeploy_gitops:\n  repository: acme/k8s-cluster\n  kustomization: apps/mono/kustomization.yaml\n")
+	repo.WriteFile("api/PROJECT.yaml", "schema: project/v1\nname: api\ntype: service\ncapabilities:\n  - deploy\ncapability_config:\n  deploy:\n    image:\n      name: api\n      context: .\n      dockerfile: Dockerfile\n")
+	base := repo.Commit("seed")
+	repo.WriteFile("api/main.go", "package main\n")
+	head := repo.Commit("touch api")
+
+	out, err := Images(repo.Dir, base, head, nil)
+	if err != nil {
+		t.Fatalf("Images: %v", err)
+	}
+	if out.GitOps == nil || out.GitOps.Repository != "acme/k8s-cluster" || out.GitOps.Kustomization != "apps/mono/kustomization.yaml" {
+		t.Fatalf("gitops target should ride the images output, got %+v", out.GitOps)
+	}
+}
