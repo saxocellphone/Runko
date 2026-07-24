@@ -498,7 +498,7 @@ func TestAmendChangeFoldsWorkKeepsChangeID(t *testing.T) {
 	}
 
 	repo.WriteFile("proj/b.go", "package proj // folded in\n")
-	got, err := AmendChange(repo.Dir, "")
+	got, err := AmendChange(repo.Dir, "", false)
 	if err != nil {
 		t.Fatalf("AmendChange: %v", err)
 	}

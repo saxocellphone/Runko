@@ -19,6 +19,13 @@ consumed by tests as runfiles; keep it in lockstep with
   in every checkout, jj-colocated included. jj is the surgical client
   for mid-stack rework (`jj edit`/`jj squash`/`jj split`) and
   diagnosis (§21, repositioned 2026-07-11).
+- **In a colocated checkout, jj owns the working copy** (2026-07-24).
+  The local verbs drive jj there rather than git: `change create`
+  describes `@`, `change amend` squashes into it, and Change identity
+  DERIVES from jj's change id. Transport, the daemon, the git wire
+  protocol, CI checkout, and workspace materialization stay pure git —
+  the split is working copy versus everything else, not client versus
+  server.
 - **Structured errors everywhere** (§6.5): `{code, field, message,
   suggestion, doc_url}` with a suggestion the user can type; exit
   codes 0 (success) / 1 (recognized failure) / 2 (usage).
@@ -79,3 +86,27 @@ description and `docs/cli-contract.md`, never here (see
   a cobra/pflag command tree per clig.dev (the first sanctioned CLI
   framework dependency); the output contract survives byte-for-byte,
   single-dash long flags (`-json`) do not.
+- **2026-07-24** — **jj owns the working copy in a colocated
+  checkout.** The local working-copy verbs stop shelling git there and
+  drive jj instead: `change create` describes `@` and opens a fresh
+  working copy above it, `change amend` folds `@` into the change
+  below with `jj squash` (it used to refuse jj outright), and
+  `status`'s dirty count reads `@`'s own diff. Change identity is
+  DERIVED from jj's change id rather than minted client-side — jj
+  replaces a foreign `Change-Id` trailer with its own on any rewrite,
+  so a git-minted id split one piece of work across two Changes the
+  first time an author ran `jj describe`. The verbs also refuse, as
+  `outside_sparse_cone` / `suspect_artifact`, work jj cannot see
+  (outside `jj sparse`) or declined to snapshot (over
+  `snapshot.max-new-file-size`), both of which jj otherwise omits from
+  the commit with only a warning on stderr and a zero exit.
+
+  The boundary is the working copy, NOT client-versus-server:
+  transport (`push`/`fetch`/`ls-remote`), the daemon's bare-repo
+  plumbing, `git http-backend`, server-side rebase via `merge-tree`,
+  the outbound mirror, and `runko-ci checkout` all stay pure git and
+  have no jj counterpart. Workspace MATERIALIZATION also stays git:
+  jj 0.43 cannot read a partial clone (it fails to fetch from the
+  promisor remote rather than lazily fetching), so adopting it there
+  would cost `--filter=blob:none` machine-wide — revisit if jj gains
+  promisor support.
