@@ -19,7 +19,7 @@ type Command struct {
 // TestCommandsMatchesCLIContract, which fails if the two ever drift.
 var Commands = []Command{
 	{"runko", "doctor [--install-hook] [--json]", "check remotes/hooks, print a cheat-sheet", "DoctorReport"},
-	{"runko", "status [--dir . | -w <ws>] [--json]", "where this checkout stands: workspace binding + server state, signed-in principal, stale-base warning, dirty-path count, and the line above trunk drawn jj-style (@ = the working copy's seat, ○ = each change with its gates ready|blocked|landed|abandoned|not_pushed, ◆ = trunk base); local facts still answer with no reachable control plane", "StatusReport"},
+	{"runko", "status [--dir . | -w <ws>] [--json]", "where this checkout stands: workspace binding + server state, signed-in principal, stale-base warning, dirty-path count, and the line above trunk drawn jj-style (@ = the working copy's seat, ○ = each change with its gates ready|blocked|landed|abandoned|not_pushed|not_a_change, ◆ = trunk base); local facts still answer with no reachable control plane", "StatusReport"},
 	{"runko", "project create --name <n> --type <t> [--lang l] [--no-template] [--owners a,b] [--json]", "create a project from an intent; --lang: go|python|ts|rust|java|cpp, others need --no-template", `{"name","path","rev"}`},
 	{"runko", "project list --runkod-url <url> --token <t> [--json]", "list projects indexed at trunk - needs a live runkod", "[]IndexedProject"},
 	{"runko", "project delete --name <p> [--json]", "open the deletion change: subtree removed, every other manifest's edges to it stripped - needs a live runkod", `{"change_id","title"}`},

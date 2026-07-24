@@ -40,8 +40,10 @@ type StackEntry struct {
 	// outstanding - see Blockers), "landed"/"abandoned" (the server's own
 	// state - landed entries mean this line still carries commits trunk
 	// already has, e.g. a stale local trunk ref), "not_pushed" (the
-	// control plane has no such change), "unknown" (server state
-	// unavailable, or no Change-Id to ask about).
+	// control plane has no such change), "not_a_change" (no Change-Id
+	// trailer yet - jj's undescribed working-copy commit, or a raw git
+	// commit in an unhooked checkout; there is nothing to ask the server
+	// about), "unknown" (server state unavailable).
 	Status   string
 	Blockers []string
 }
@@ -198,13 +200,18 @@ func statusStack(dir, base string, jj bool) []StackEntry {
 		if len(parts) < 3 {
 			continue
 		}
+		// A commit without a Change-Id trailer is not a Change at all -
+		// "not_a_change" says so up front, instead of the "unknown" that
+		// reads like a lookup failure (dogfood feedback, 2026-07-23: jj's
+		// undescribed working-copy commit rendered as "? unknown").
 		e := StackEntry{
 			SHA:    strings.TrimSpace(parts[0]),
 			Title:  strings.TrimSpace(parts[1]),
-			Status: "unknown",
+			Status: "not_a_change",
 		}
 		if id, ok := receive.ParseChangeID(parts[2]); ok {
 			e.ChangeID = id
+			e.Status = "unknown"
 		}
 		stack = append(stack, e)
 	}
@@ -282,9 +289,15 @@ func printStatusGraph(w io.Writer, r StatusReport) {
 		e := r.Stack[i]
 		id := e.ChangeID
 		if id == "" {
-			id = "(no Change-Id yet - `runko change push` stamps one)"
+			// No Change-Id means no stable identity to print - the commit
+			// SHA is the only true name it has.
+			id = short(e.SHA)
 		}
-		fmt.Fprintf(w, "%s  %s  %s  (%s)\n", mark, id, e.Title, statusMark(e.Status))
+		title := e.Title
+		if title == "" {
+			title = "(no description set)"
+		}
+		fmt.Fprintf(w, "%s  %s  %s  (%s)\n", mark, id, title, statusMark(e.Status))
 		for _, b := range e.Blockers {
 			fmt.Fprintf(w, "│      -> %s\n", b)
 		}
@@ -303,6 +316,8 @@ func statusMark(status string) string {
 		return "· " + status
 	case "not_pushed":
 		return "○ not pushed"
+	case "not_a_change":
+		return "not a change yet - `runko change push` stamps its Change-Id"
 	default:
 		return "? unknown"
 	}
