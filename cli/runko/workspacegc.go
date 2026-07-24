@@ -278,7 +278,9 @@ func autoGCAndRecycle(ctx context.Context, client *http.Client, runkodURL, token
 		}
 	}
 	if reclaimed > 0 {
-		fmt.Fprintf(os.Stderr, "reclaimed %d stale materialization(s) on %s (runko workspace gc to review the rest)\n", reclaimed, storeAbs)
+		// Diagnostic only - never stdout: create/attach --json owns that stream
+		// (same rule as warnWriter in change.go; shelling `> ws.json` must stay pure JSON).
+		fmt.Fprintf(warnWriter, "reclaimed %d stale materialization(s) on %s (runko workspace gc to review the rest)\n", reclaimed, storeAbs)
 	}
 	return recycle
 }
