@@ -14,10 +14,10 @@ language: go
 # derived from the landed Changes touching this folder.
 # deploy.binaries (docs/spec/deploy/README.md, 2026-07-24): the rolling
 # cli-latest GitHub release. `runko-ci binaries` republishes it whenever
-# THIS project is in the affected closure - the manifest's dependency and
-# consumes edges above are the whole trigger rule, replacing the
-# binary-release workflow's hand-maintained project list (paths default
-# to cli/runko and cli/runko-ci).
+# THIS project is in the affected closure - the manifest's dependency
+# edges below are the whole trigger rule, replacing the binary-release
+# workflow's hand-maintained project list (paths default to cli/runko and
+# cli/runko-ci).
 capabilities:
   - release
   - deploy
@@ -28,16 +28,23 @@ capability_config:
       items:
         - name: runko
         - name: runko-ci
+# templates: `runko ci init` writes the workflow templates by embedding
+# the templates/ci package verbatim, so this binary does not build without
+# that tree - a build-grade edge, and the reason a --project cli workspace
+# used to be born unbuildable (2026-07-24).
 dependencies:
   - platform
   - internal
-# consumes (§13.3.1, 2026-07-14 re-evaluation): both binaries are REST
-# clients of the daemon (docs/cli-contract.md pins the surface). Until
-# runkod carries an OpenAPI artifact for its REST API (recorded
-# follow-up), this edge triggers on runkod/proto/** and runkod's
-# manifest only - declared now for honest topology, real closure value
-# when the artifact lands.
-consumes:
+  - templates
+# runkod was `consumes` until 2026-07-24 (the REST-client reading of
+# §13.3.1) - but cli's e2e tests import and RUN the daemon package, and no
+# contract-scoped closure covers that: a --project cli workspace
+# materialized runkod/proto and nothing else, so those tests could not
+# build. A test_dependency rather than a dependency because ONLY cli's own
+# checks link the daemon - the shipped binaries speak to it over HTTP - so
+# a daemon change requires cli-test without dragging in everything that
+# depends on cli.
+test_dependencies:
   - runkod
 ci:
   checks:

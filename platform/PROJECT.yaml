@@ -16,6 +16,14 @@ type: library
 language: go
 dependencies:
   - internal
+# runkod: platform/mcp's test drives a REAL daemon (the MCP tools are read
+# models over runkod's REST API), so this project's TESTS link runkod's
+# package while the libraries here - the ones runkod itself imports - do
+# not. Terminal by construction (2026-07-24): as a plain dependency it
+# would put every project downstream of platform on every daemon change,
+# through a coupling that exists only in our test binary.
+test_dependencies:
+  - runkod
 # consumes (§13.3.1, test encapsulation 2026-07-14): three suites here
 # (checks, mcp, agentsmd) carry data = ["//docs:contracts"] - they consume
 # docs' declared schema surface (spec/ + cli-contract.md). This edge is
