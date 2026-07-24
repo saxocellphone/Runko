@@ -540,7 +540,7 @@ flag preserves the stored value, an explicit "" clears it.`,
 					return err
 				}
 			}
-			cred, err := a.credential()
+			cred, err := a.credentialAt(wd)
 			if err != nil {
 				return err
 			}
@@ -728,6 +728,12 @@ func checkPushIdentity(repoDir string) error {
 			return nil // URL-embedded credential answers the push; we can't name it
 		}
 	}
+	// The checkout carries the owner's own credential (principal.go): the
+	// push authenticates as the owner no matter who is logged in here, which
+	// is the whole point of the binding.
+	if bound, ok := checkoutPrincipal(repoDir); ok && bound.Name == owner {
+		return nil
+	}
 	cred, ok, err := loadCredential()
 	// An anonymous (bearer/deploy) login has no Name and the server's owner
 	// check bypasses it; only a NAMED login that isn't the owner is refused.
@@ -746,7 +752,7 @@ func ownerCredentialMismatch(owner, credName string) *clierr.Error {
 			"this worktree authors as %s, but your stored login is %s - the server refuses a push that claims another principal's workspace",
 			owner, credName),
 		Suggestion: fmt.Sprintf(
-			"authenticate as the owner and retry from that shell: XDG_CONFIG_HOME=<dir> runko auth login --name %s --token <tok> (the token `runko agent create` printed), or set RUNKO_TOKEN",
+			"bind the owner's credential to this checkout once - `runko auth login --name %s --token <tok> -w <workspace>` (the token `runko agent create` printed); it authenticates this checkout from then on and leaves your own login alone",
 			owner),
 		DocURL: "docs/cli-contract.md",
 	}

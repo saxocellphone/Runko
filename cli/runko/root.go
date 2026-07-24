@@ -38,6 +38,17 @@ func (a *app) credential() (Credential, error) {
 	return resolveCredentialEnv(a.runkodURL, a.token)
 }
 
+// credentialAt is credential() for the verbs that act as a CHECKOUT's
+// authoring identity - the ones a workspace's owner runs against their own
+// workspace (describe, sync, agent event) - so they authenticate as
+// whoever that checkout authors as (principal.go) rather than as whoever
+// is logged in on the machine. The review lane (land, approve, abandon)
+// deliberately keeps credential(): a human landing an agent's change from
+// its workspace is still landing it as themselves.
+func (a *app) credentialAt(dir string) (Credential, error) {
+	return resolveCredentialAt(dir, a.runkodURL, a.token)
+}
+
 // errUsageShown is the sentinel for "help was already printed to stderr,
 // just exit 2" - main prints nothing for an empty usageError.
 var errUsageShown = usageError("")

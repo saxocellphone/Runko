@@ -117,7 +117,7 @@ kind/detail/session from a post-tool-use hook JSON on stdin - the form
 					Suggestion: "run inside a `runko workspace create/attach` checkout (--jj for a jj colocated clone), or bind one with `git config runko.workspace <id>`",
 				}
 			}
-			cred, err := a.credential()
+			cred, err := a.credentialAt(dir)
 			if err != nil {
 				return err
 			}

@@ -38,10 +38,18 @@ import (
 // AuthGitCredential implements git's credential-helper protocol for the
 // stamped helper. Only `get` answers; `store` and `erase` are silent
 // no-ops (the stored login is runko's to manage, not git's). A request
-// whose host doesn't match the stored login's control plane gets no
-// output - git then falls through to its other helpers, so a foreign
-// remote is never fed runko's credential.
-func AuthGitCredential(action string, in io.Reader, out io.Writer) error {
+// whose host doesn't match the resolved control plane gets no output - git
+// then falls through to its other helpers, so a foreign remote is never
+// fed runko's credential.
+//
+// principal is the --principal a BOUND checkout's helper carries
+// (principal.go): raw git in a workspace worktree then authenticates as
+// the checkout's author instead of as whoever the ambient login names. It
+// is a preference, not a demand - an unresolvable principal falls through
+// to the normal resolution rather than going silent, so a human's
+// ordinary checkout keeps working when its expired agent credential is
+// swept.
+func AuthGitCredential(action, principal string, in io.Reader, out io.Writer) error {
 	if action != "get" {
 		return nil
 	}
@@ -58,6 +66,16 @@ func AuthGitCredential(action string, in io.Reader, out io.Writer) error {
 	}
 	if err := sc.Err(); err != nil {
 		return fmt.Errorf("read credential request: %w", err)
+	}
+	// The checkout's own authoring identity, when this helper was stamped
+	// for one and no explicit environment override outranks it.
+	if principal != "" && os.Getenv("RUNKO_TOKEN") == "" {
+		if cred, ok := principalForHost(principal, attrs["host"]); ok {
+			user, pass := cred.GitUserPass()
+			if answerCredentialRequest(out, attrs, cred.URL, [2]string{user, pass}) {
+				return nil
+			}
+		}
 	}
 	// ONE resolver for both paths (auth.go's resolveCredentialEnv): flags,
 	// then the RUNKO_RUNKOD_URL/RUNKO_TOKEN environment (hooks and headless
@@ -154,12 +172,14 @@ func gitAuthConfigEnv(baseURL, tokenOrHeader string) []string {
 	}
 }
 
-// gitNetEnv resolves the invoking principal's credential (env fallback >
-// stored login, the verb-local order `agent event` set) into
-// gitAuthConfigEnv for a git command running in dir. Resolution is
-// resolveCredentialEnv's, the same one the control-plane verbs use - a
-// push and a `change describe` from one shell must authenticate as the
-// same principal or the mismatch surfaces as an unexplainable 401.
+// gitNetEnv resolves the credential a git command running in dir should
+// use (flags > RUNKO_* env > the checkout's bound principal > the stored
+// login) into gitAuthConfigEnv. Resolution is resolveCredentialAt's, the
+// same one the control-plane verbs use - a push and a `change describe`
+// from one shell must authenticate as the same principal or the mismatch
+// surfaces as an unexplainable 401. This is where a workspace's own
+// authoring identity reaches the push: `change create`/`push`/`snapshot`
+// never touch the control-plane API at all, so the binding lands here.
 //
 // Two silences are deliberate: a remote URL that still embeds a credential
 // (a pre-§12.7 clone) gets nothing - injecting a second Authorization
@@ -172,7 +192,7 @@ func gitNetEnv(dir string) []string {
 			return nil
 		}
 	}
-	cred, err := resolveCredentialEnv("", "")
+	cred, err := resolveCredentialAt(dir, "", "")
 	if err != nil {
 		return nil
 	}

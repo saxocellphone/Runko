@@ -74,6 +74,10 @@ type StatusReport struct {
 	Principal    string
 	ControlPlane string
 	ServerError  string
+	// AuthorsAs is the checkout's bound authoring identity (runko.owner
+	// with a credential to back it, principal.go) - who this checkout
+	// pushes as regardless of the machine's login. "" when unbound.
+	AuthorsAs string
 	// TrunkSHA/TrunkTitle: the local remote-tracking trunk ref the stack
 	// diffs against (the ◆ base node of the human graph). May lag the
 	// real remote tip - that is what StaleBase reports.
@@ -109,6 +113,9 @@ func RunStatus(ctx context.Context, client *http.Client, cred *Credential, credE
 	}
 	if out, err := runGit(dir, "status", "--porcelain", "-uall"); err == nil {
 		r.DirtyPaths = countLines(out)
+	}
+	if bound, ok := checkoutPrincipal(dir); ok {
+		r.AuthorsAs = bound.Name
 	}
 	r.StaleBase = staleBase(dir, remote, trunk)
 	if base, err := runGit(dir, "rev-parse", "--verify", "refs/remotes/"+remote+"/"+trunk); err == nil {
@@ -269,6 +276,11 @@ func PrintStatus(w io.Writer, r StatusReport) {
 		fmt.Fprintf(w, "  signed in:    %s @ %s\n", r.Principal, r.ControlPlane)
 	case r.ServerError != "":
 		fmt.Fprintf(w, "  signed in:    unknown - %s (server state omitted)\n", r.ServerError)
+	}
+	// Only worth a line when it differs from the ambient login: a checkout
+	// that authors as the person already signed in is the unremarkable case.
+	if r.AuthorsAs != "" && r.AuthorsAs != r.Principal {
+		fmt.Fprintf(w, "  authors as:   %s - this checkout's own credential, used for its pushes\n", r.AuthorsAs)
 	}
 	if r.StaleBase {
 		fmt.Fprintf(w, "  trunk:        %s/%s has new commits this line is missing - `runko workspace sync` (or let `change push` auto-sync)\n", r.Remote, r.TrunkRef)
