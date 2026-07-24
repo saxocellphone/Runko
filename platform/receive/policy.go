@@ -84,12 +84,41 @@ type PolicyViolation struct {
 	Code       string
 	Message    string
 	Suggestion string
+	// Ackable classifies the violation for the 2026-07-24 enforcement
+	// split (platform/README.md Decisions): an ackable violation no longer
+	// refuses the push - the change is accepted and the finding becomes the
+	// reserved `agent-policy` check on it, red until a human with approve
+	// rights acknowledges it. Hard (non-ackable) violations still refuse at
+	// receive: they are structural (provenance/affinity - merge-time cannot
+	// retrofit attribution onto objects that arrived without it) or
+	// action-shaped (a land request), not content a reviewer can weigh.
+	Ackable bool
+}
+
+// SplitAckable partitions violations into the receive-refusing hard set and
+// the accept-then-gate ackable set.
+func SplitAckable(violations []PolicyViolation) (hard, ackable []PolicyViolation) {
+	for _, v := range violations {
+		if v.Ackable {
+			ackable = append(ackable, v)
+		} else {
+			hard = append(hard, v)
+		}
+	}
+	return hard, ackable
 }
 
 // EvaluatePolicy enforces AgentPolicy against a push - server-side, since
 // that's the only enforcement that counts (§8.4, §15.3: "never trust
 // client-claimed affinity alone"). It only applies to agent principals;
 // human pushes are governed by owners/branch protection, not AgentPolicy.
+//
+// Since 2026-07-24 each violation carries its enforcement class (Ackable):
+// content-shaped findings (denylist, size caps, owners/project/capability
+// gates, self-grant) mark Ackable and no longer refuse at receive - the
+// funnel accepts the push and the finding becomes the reserved
+// `agent-policy` check a human must acknowledge before merge. Structural
+// findings (affinity/provenance) and action requests (land) stay hard.
 func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 	var v []PolicyViolation
 
@@ -123,6 +152,7 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 			Code:       "max_changed_files_exceeded",
 			Message:    fmt.Sprintf("changed %d files, agent policy allows at most %d", len(summary.ChangedFiles), policy.MaxChangedFiles),
 			Suggestion: "split the work into a stack of smaller changes - one reviewable step each; a single push carries the whole stack",
+			Ackable:    true,
 		})
 	}
 
@@ -131,6 +161,7 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 			Code:       "max_diff_bytes_exceeded",
 			Message:    fmt.Sprintf("diff is %d bytes, agent policy allows at most %d", summary.DiffBytes, policy.MaxDiffBytes),
 			Suggestion: "split the work into a stack of smaller changes - one reviewable step each; a single push carries the whole stack",
+			Ackable:    true,
 		})
 	}
 
@@ -139,6 +170,7 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 			v = append(v, PolicyViolation{
 				Code:    "denylist_path",
 				Message: fmt.Sprintf("%s matches denylisted pattern %q for agent writes", f, pattern),
+				Ackable: true,
 			})
 		}
 	}
@@ -147,6 +179,7 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 		v = append(v, PolicyViolation{
 			Code:    "owners_modification_denied",
 			Message: "this agent policy does not allow modifying owners",
+			Ackable: true,
 		})
 	}
 
@@ -154,6 +187,7 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 		v = append(v, PolicyViolation{
 			Code:    "project_create_denied",
 			Message: "this agent policy does not allow creating projects",
+			Ackable: true,
 		})
 	}
 
@@ -164,6 +198,7 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 					Code:       "owner_self_grant",
 					Message:    fmt.Sprintf("the new project's owners name the pushing agent (%s) - an agent never grants itself ownership", o),
 					Suggestion: "name your minting human in owners:, or leave owners empty to inherit",
+					Ackable:    true,
 				})
 				break
 			}
@@ -187,6 +222,7 @@ func EvaluatePolicy(policy AgentPolicy, summary PushSummary) []PolicyViolation {
 			v = append(v, PolicyViolation{
 				Code:    "capability_denied",
 				Message: fmt.Sprintf("this agent policy does not allow enabling capability %q", c),
+				Ackable: true,
 			})
 		}
 	}

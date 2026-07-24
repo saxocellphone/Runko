@@ -162,3 +162,81 @@ func TestDecideContractCheck(t *testing.T) {
 		t.Fatalf("nil Projects must skip the contract check: %+v", d)
 	}
 }
+
+// TestDecideAcceptsAckableViolations pins the 2026-07-24 enforcement split:
+// a content-shaped finding (denylisted path, within affinity) no longer
+// refuses - the decision is ACCEPTED and carries the finding for the caller
+// to mint as the reserved agent-policy check. Hard findings still refuse.
+func TestDecideAcceptsAckableViolations(t *testing.T) {
+	req := baseRequest()
+	req.Principal = Principal{IsAgent: true, Policy: DefaultAgentPolicy()}
+	req.WorkspaceAffinity = []string{""} // root affinity: every path in scope
+	req.ChangedPaths = []string{".github/workflows/ci.yml"}
+
+	d := Decide(req, NoOpScanner{})
+	if !d.Accepted {
+		t.Fatalf("ackable-only violations must accept, got %+v", d)
+	}
+	if len(d.AckableViolations) != 1 || d.AckableViolations[0].Code != "denylist_path" {
+		t.Fatalf("accepted decision must carry the ackable finding, got %+v", d.AckableViolations)
+	}
+	if d.ChangeID == "" {
+		t.Fatalf("accepted decision must still mint a Change-Id")
+	}
+
+	// Hard + ackable together: the hard one refuses, and the refusal names
+	// ONLY the hard class (the ackable finding is not a refusal reason).
+	req2 := baseRequest()
+	req2.Principal = Principal{IsAgent: true, Policy: DefaultAgentPolicy()}
+	req2.WorkspaceAffinity = nil // hard: affinity required
+	req2.ChangedPaths = []string{".github/workflows/ci.yml"}
+	d2 := Decide(req2, NoOpScanner{})
+	if d2.Accepted {
+		t.Fatalf("hard violation must still refuse")
+	}
+	for _, v := range d2.PolicyViolations {
+		if v.Ackable {
+			t.Fatalf("refusal must carry only hard violations, got %+v", d2.PolicyViolations)
+		}
+	}
+}
+
+// TestSplitAckableClasses pins which codes belong to which enforcement
+// class - moving one is a policy decision, not a refactor.
+func TestSplitAckableClasses(t *testing.T) {
+	policy := DefaultAgentPolicy()
+	policy.CanModifyOwners = false
+	policy.CanCreateProjects = false
+	policy.MaxChangedFiles = 1
+	policy.MaxDiffBytes = 1
+
+	v := EvaluatePolicy(policy, PushSummary{
+		ChangedFiles:        []string{"a.go", ".github/workflows/x.yml"},
+		DiffBytes:           2,
+		WorkspaceAffinity:   nil, // hard
+		ModifiesOwners:      true,
+		IsLandRequest:       true, // hard
+		EnabledCapabilities: []string{"data_store"},
+	})
+	class := map[string]bool{} // code -> ackable
+	for _, x := range v {
+		class[x.Code] = x.Ackable
+	}
+	for code, wantAckable := range map[string]bool{
+		"workspace_affinity_required": false,
+		"land_denied":                 false,
+		"denylist_path":               true,
+		"max_changed_files_exceeded":  true,
+		"max_diff_bytes_exceeded":     true,
+		"owners_modification_denied":  true,
+		"capability_denied":           true,
+	} {
+		got, present := class[code]
+		if !present {
+			t.Fatalf("expected violation %s, got %+v", code, v)
+		}
+		if got != wantAckable {
+			t.Fatalf("%s: ackable=%v, want %v", code, got, wantAckable)
+		}
+	}
+}
