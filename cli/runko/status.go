@@ -41,7 +41,7 @@ type StackEntry struct {
 	// state - landed entries mean this line still carries commits trunk
 	// already has, e.g. a stale local trunk ref), "not_pushed" (the
 	// control plane has no such change), "not_a_change" (no Change-Id
-	// trailer yet - jj's undescribed working-copy commit, or a raw git
+	// trailer yet - a described jj working-copy commit, or a raw git
 	// commit in an unhooked checkout; there is nothing to ask the server
 	// about), "unknown" (server state unavailable).
 	Status   string
@@ -81,7 +81,8 @@ type StatusReport struct {
 	TrunkTitle string
 	// Stack is the local line above the remote trunk ref, bottom -> top.
 	// Nil when no refs/remotes/<remote>/<trunk> exists locally to diff
-	// against; empty when the line is fully landed.
+	// against; empty when nothing is in flight (fully landed, or only
+	// jj's undescribed working-copy commit which is reported via DirtyPaths).
 	Stack []StackEntry
 }
 
@@ -179,16 +180,24 @@ func RunStatus(ctx context.Context, client *http.Client, cred *Credential, credE
 
 // statusStack lists the commits above base, bottom -> top. jj checkouts
 // resolve the tip from jj's working copy (git HEAD is detached in
-// colocated repos); an empty undescribed @ is already skipped by
-// jjTipCommit.
+// colocated repos). An empty undescribed @ is already skipped by
+// jjTipCommit; a non-empty undescribed @ (dirty WC with no message) is
+// still the tip for push purposes but is dropped here - its content is
+// already on the working-tree line, and listing it double-reports.
 func statusStack(dir, base string, jj bool) []StackEntry {
 	tip := "HEAD"
+	wcSHA := ""
 	if jj {
 		t, err := jjTipCommit(dir)
 		if err != nil {
 			return nil
 		}
 		tip = t
+		// Resolve @ so we can drop the ephemeral undescribed WC commit
+		// even when jjTipCommit keeps it (non-empty tree, empty description).
+		if at, err := runJJ(dir, "log", "--no-graph", "-r", "@", "-T", "commit_id"); err == nil {
+			wcSHA = strings.TrimSpace(at)
+		}
 	}
 	out, err := runGit(dir, "log", "--reverse", "--format=%H%x1f%s%x1f%B%x1e", base+".."+tip)
 	if err != nil {
@@ -214,6 +223,15 @@ func statusStack(dir, base string, jj bool) []StackEntry {
 			e.Status = "unknown"
 		}
 		stack = append(stack, e)
+	}
+	// jj's undescribed working-copy commit: no Change-Id and no description
+	// means the dirty content (if any) is already covered by DirtyPaths; a
+	// described @ is genuine WIP and stays in the stack.
+	if jj && wcSHA != "" && len(stack) > 0 {
+		top := stack[len(stack)-1]
+		if top.SHA == wcSHA && top.ChangeID == "" && top.Title == "" {
+			stack = stack[:len(stack)-1]
+		}
 	}
 	return stack
 }
@@ -266,8 +284,10 @@ func PrintStatus(w io.Writer, r StatusReport) {
 	switch {
 	case r.Stack == nil:
 		fmt.Fprintf(w, "  stack:        unknown - no local %s/%s ref to compare against (fetch first)\n", r.Remote, r.TrunkRef)
-	case len(r.Stack) == 0 && r.DirtyPaths == 0:
-		fmt.Fprintln(w, "  stack:        empty - nothing above trunk")
+	case len(r.Stack) == 0:
+		// Empty (not nil): line is fully landed / nothing to push. Dirty
+		// paths ride the working-tree line only - do not open an empty graph.
+		fmt.Fprintln(w, "  stack:        nothing in flight - HEAD is on trunk")
 	default:
 		fmt.Fprintln(w)
 		printStatusGraph(w, r)
