@@ -12,8 +12,22 @@ language: go
 # release (§14.10.3): the CLI is the platform's first released project -
 # `runko release create --project cli` cuts cli/vX.Y.Z with a changelog
 # derived from the landed Changes touching this folder.
+# deploy.binaries (docs/spec/deploy/README.md, 2026-07-24): the rolling
+# cli-latest GitHub release. `runko-ci binaries` republishes it whenever
+# THIS project is in the affected closure - the manifest's dependency and
+# consumes edges above are the whole trigger rule, replacing the
+# binary-release workflow's hand-maintained project list (paths default
+# to cli/runko and cli/runko-ci).
 capabilities:
   - release
+  - deploy
+capability_config:
+  deploy:
+    binaries:
+      tag: cli-latest
+      items:
+        - name: runko
+        - name: runko-ci
 dependencies:
   - platform
   - internal
