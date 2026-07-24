@@ -235,7 +235,7 @@ Change-Id trailer.`,
 func newChangeLandCmd(a *app) *cobra.Command {
 	var (
 		changeID, repoDir, remote, trunk string
-		force, sync, jsonOut             bool
+		force, sync, noSync, jsonOut     bool
 		syncTimeout                      time.Duration
 	)
 	cmd := &cobra.Command{
@@ -244,14 +244,23 @@ func newChangeLandCmd(a *app) *cobra.Command {
 		Long: `Rebase-lands a mergeable Change. --change defaults to HEAD's
 Change-Id trailer. On requires_revalidation (trunk moved under it) the
 default --sync recovery loop runs right here: sync onto trunk, re-push,
-wait for checks, retry - bounded by --sync-timeout. --force is the admin
-override: bypasses owner/check gates and revalidation (server-authorized;
-never conflicts or stacking order), audited as landed_forced.`,
+wait for checks, retry - bounded by --sync-timeout. --no-sync skips the
+loop (same as --sync=false). --force is the admin override: bypasses
+owner/check gates and revalidation (server-authorized; never conflicts
+or stacking order), audited as landed_forced.`,
 		Example: `  runko change land                              # land HEAD's Change
   runko change land --change I6a3f...
   runko change land -w my-workstream              # recovery checkout by name`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if noSync {
+				// Explicit --sync (or --sync=true) with --no-sync is a contradiction;
+				// --sync=false --no-sync both mean off and is fine.
+				if cmd.Flags().Changed("sync") && sync {
+					return fmt.Errorf("change land: explicit --sync/--sync=true conflicts with --no-sync\n  -> pick one: drop --no-sync to keep the recovery loop, or pass only --no-sync to skip it")
+				}
+				sync = false
+			}
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), repoDir)
 			if err != nil {
 				return err
@@ -303,7 +312,8 @@ never conflicts or stacking order), audited as landed_forced.`,
 	addWorkspaceFlag(cmd)
 	fl.StringVar(&remote, "remote", "origin", "git remote --sync pushes to")
 	fl.StringVar(&trunk, "trunk", "main", "trunk ref name")
-	fl.BoolVar(&sync, "sync", true, "on requires_revalidation, run the 13.5 recovery loop here: sync onto trunk, re-push, wait for checks, retry")
+	fl.BoolVar(&sync, "sync", true, "on requires_revalidation, run the recovery loop here: sync onto trunk, re-push, wait for checks, retry")
+	fl.BoolVar(&noSync, "no-sync", false, "skip the --sync recovery loop (same as --sync=false)")
 	fl.DurationVar(&syncTimeout, "sync-timeout", 15*time.Minute, "wall-clock bound on the --sync recovery loop")
 	fl.BoolVar(&jsonOut, "json", false, "emit the land.Outcome as JSON instead of a human summary")
 	return cmd

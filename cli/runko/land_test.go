@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -158,6 +160,103 @@ func TestCmdChangeLandDefaultsToHEAD(t *testing.T) {
 	}
 	if !outcome.Landed {
 		t.Fatalf("expected landed outcome, got %+v", outcome)
+	}
+}
+
+// TestCmdChangeLandNoSyncSkipsRecoveryLoop: --no-sync is the discoverable form
+// of --sync=false. On requires_revalidation the recovery loop must NOT run:
+// one POST, un-landed outcome, no "trunk moved - syncing" progress line.
+// (A clean land would return after one POST with sync on or off, so this
+// pins the off path by forcing the branch that would otherwise recover.)
+func TestCmdChangeLandNoSyncSkipsRecoveryLoop(t *testing.T) {
+	const fullID = "I0123456789abcdef0123456789abcdef01234567"
+	repo := gitfixture.New(t)
+	configureIdentity(t, repo.Dir)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("feature\n\nChange-Id: " + fullID)
+
+	var posts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/changes/"+fullID+"/land" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		posts++
+		// With sync ON, LandWithSync would print the recovery progress line
+		// and attempt SyncToTrunk; --no-sync must return this outcome as-is.
+		json.NewEncoder(w).Encode(map[string]interface{}{"RequiresRevalidation": true})
+	}))
+	defer server.Close()
+
+	// LandWithSync writes progress to os.Stderr; capture it so a stray
+	// recovery attempt fails the test even if SyncToTrunk errors out first.
+	oldStderr := os.Stderr
+	rErr, wErr, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = wErr
+
+	var cmdErr error
+	out := captureStdout(t, func() {
+		cmdErr = execCLI("change", "land", "--runkod-url", server.URL, "--token", "sekret",
+			"--change", fullID, "--repo", repo.Dir, "--no-sync", "--json")
+	})
+	wErr.Close()
+	os.Stderr = oldStderr
+	var stderrBuf bytes.Buffer
+	io.Copy(&stderrBuf, rErr)
+	stderr := stderrBuf.String()
+
+	if cmdErr != nil {
+		t.Fatalf("cmdChangeLand --no-sync: %v\nstderr: %s", cmdErr, stderr)
+	}
+	if posts != 1 {
+		t.Fatalf("--no-sync must stop after a single POST (no recovery), got %d", posts)
+	}
+	if strings.Contains(stderr, "trunk moved - syncing") {
+		t.Fatalf("--no-sync must not print the recovery progress line, stderr: %q", stderr)
+	}
+	var outcome land.Outcome
+	if err := json.Unmarshal([]byte(out), &outcome); err != nil {
+		t.Fatalf("expected valid JSON output, got %q: %v", out, err)
+	}
+	if outcome.Landed || !outcome.RequiresRevalidation {
+		t.Fatalf("expected un-landed RequiresRevalidation outcome, got %+v", outcome)
+	}
+}
+
+// TestCmdChangeLandSyncAndNoSyncContradiction: --sync with --no-sync is refused
+// (house "  -> " suggestion); --sync=true --no-sync is the same refusal.
+func TestCmdChangeLandSyncAndNoSyncContradiction(t *testing.T) {
+	for _, args := range [][]string{
+		{"change", "land", "--change", "Ichg1", "--sync", "--no-sync"},
+		{"change", "land", "--change", "Ichg1", "--sync=true", "--no-sync"},
+	} {
+		err := execCLI(args...)
+		if err == nil {
+			t.Fatalf("expected contradiction for %v", args)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "explicit --sync/--sync=true conflicts with --no-sync") {
+			t.Fatalf("expected contradiction message, got %q", msg)
+		}
+		if !strings.Contains(msg, "\n  -> ") {
+			t.Fatalf("expected a suggestion line, got %q", msg)
+		}
+		var ue usageError
+		if errors.As(err, &ue) {
+			t.Fatalf("expected exit-1 validation error, not usageError: %v", err)
+		}
+	}
+
+	// --sync=false --no-sync both mean off: not a contradiction. It still needs
+	// credentials, so the next failure is the missing control plane, not flags.
+	err := execCLI("change", "land", "--change", "Ichg1", "--sync=false", "--no-sync")
+	if err == nil {
+		t.Fatal("expected a later error (missing credential), not success")
+	}
+	if strings.Contains(err.Error(), "conflicts with --no-sync") {
+		t.Fatalf("--sync=false --no-sync must not be a contradiction, got %v", err)
 	}
 }
 
