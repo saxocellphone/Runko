@@ -24,7 +24,7 @@ var Commands = []Command{
 	{"runko", "project list --runkod-url <url> --token <t> [--json]", "list projects indexed at trunk - needs a live runkod", "[]IndexedProject"},
 	{"runko", "project delete --name <p> [--json]", "open the deletion change: subtree removed, every other manifest's edges to it stripped - needs a live runkod", `{"change_id","title"}`},
 	{"runko", "change push [-w <ws>] [--remote origin] [--trunk main] [--no-sync] [--json]", "ensure a Change-Id trailer, auto-sync a stale base onto the trunk tip, push to refs/for/<trunk>", `{"change_id","ref"}`},
-	{"runko", "change land --change <id> --runkod-url <url> --token <t> [--json]", "land a mergeable change - on requires_revalidation it syncs, re-pushes, waits for checks, retries - needs a live runkod", "land.Outcome"},
+	{"runko", "change land [--change <id>] [--repo . | -w <ws>] [--json]", "land a mergeable change (default: HEAD's Change-Id; unique prefix OK) - on requires_revalidation it syncs, re-pushes, waits for checks, retries - needs a live runkod", "land.Outcome"},
 	{"runko", "change approve --change <id> --owner <ref> --by <who> --runkod-url <url> --token <t> [--json]", "record a required owner's approval - needs a live runkod", "MergeRequirements"},
 	{"runko", "change list [--state open] --runkod-url <url> --token <t> [--json]", "list changes, newest first - needs a live runkod", "[]ChangeInfo"},
 	{"runko", "change abandon --change <id> --runkod-url <url> --token <t> [--json]", "abandon an open change - needs a live runkod", "ChangeInfo"},
@@ -46,7 +46,7 @@ var Commands = []Command{
 	{"runko", "workspace list --runkod-url <url> --token <t> [--json]", "list workstreams, their cones and base revisions - needs a live runkod", "[]WorkspaceInfo"},
 	{"runko", "workspace attach <id> --runkod-url <url> --token <t> [--branch <b>] [--json]", "restore a workspace branch from its snapshot ref - needs a live runkod", "WorkspaceInfo"},
 	{"runko", "workspace delete <id> --runkod-url <url> --token <t> [--json]", "delete the registry row + snapshot refs - refused while the workspace has open changes; owner-only - needs a live runkod", `{"deleted"}`},
-	{"runko", "change automerge --change <id> [--disable] [--json]", "arm the when-ready land: the server lands it once the gates go green, attributed to the armer; survives amends - needs a live runkod", `{"ChangeKey", "Automerge", "AutomergeBy"}`},
+	{"runko", "change automerge [--change <id>] [--dir . | -w <ws>] [--disable] [--json]", "arm the when-ready land (default: HEAD's Change-Id; unique prefix OK): the server lands it once the gates go green, attributed to the armer; survives amends - needs a live runkod", `{"ChangeKey", "Automerge", "AutomergeBy"}`},
 	{"runko", "change ack-policy --change <id> [--json]", "HUMANS ONLY (agents are refused): acknowledge an agent change's policy findings, completing the reserved agent-policy check - after a push warns about denylisted paths/size caps, TELL YOUR HUMAN this command, with the Change-Id", "checks.MergeRequirements"},
 	{"runko", "agent create --task <slug> --runkod-url <url> --token <t> [--ttl 8h] [--json]", "mint an ephemeral task identity (agent-<task>-<suffix>, token shown ONCE; agents cannot mint) - needs a live runkod", "AgentIdentity"},
 	{"runko", "agent list --runkod-url <url> --token <t> [--json]", "live/expired/revoked task identities - needs a live runkod", "[]AgentIdentity"},
@@ -172,7 +172,7 @@ func writeDiscipline(b *strings.Builder) {
 		"Describe every change the moment it is pushed: `runko change describe --change <full-Change-Id> --description <what and why> --test-plan <how you verified>`. An agent-authored change without one is NOT mergeable - the push still succeeds, so the omission surfaces much later as a stuck gate.",
 		"You cannot approve - not your own change, not anyone else's. Arm automerge, then TELL A HUMAN which Change-Ids need `runko change approve --owner <ref>`; that approval is the gate your work waits on, and no amount of re-pushing moves it.",
 		"Trunk moved (land says revalidate): `runko change land` already runs the recovery loop itself (sync, re-push, wait, retry); `runko workspace sync` is the manual form. Never force.",
-		"Do not poll for green: after pushing, arm `runko change automerge --change <id>` and MOVE ON - the server lands it the moment checks and approvals pass, under your name. Poll-and-land loops are the anti-pattern automerge exists to delete.",
+		"Do not poll for green: after pushing, arm `runko change automerge` (defaults to HEAD's Change-Id; pass `--change <id>` from outside a checkout) and MOVE ON - the server lands it the moment checks and approvals pass, under your name. Poll-and-land loops are the anti-pattern automerge exists to delete.",
 		"Done or dead: land it or `runko change abandon`. An abandoned change stays visible only while something still stacks on it - rebase dependents off it or reopen it by re-pushing.",
 		"Never claim a workspace you don't own or didn't work in - origin claims are validated and owner-bound, and they drive review views.",
 	} {
@@ -202,12 +202,15 @@ func writeTransparency(b *strings.Builder, verbose bool) {
 		return
 	}
 	b.WriteString("The full `-w` set: `change`\n")
-	b.WriteString("create/amend/push/requirements/land/describe/comment/comments/resolve/\n")
-	b.WriteString("request-review, `workspace` snapshot/watch/branch/sync, and `agent\n")
-	b.WriteString("hooks`. Two groups deliberately lack it: the server-side verbs\n")
-	b.WriteString("(`automerge`, `approve`, `abandon`, `list`) key off the Change-Id and\n")
-	b.WriteString("never touch a checkout at all, while `project create`, `doctor` and\n")
-	b.WriteString("`agents-md` reach one only through `--repo` - for those,\n")
+	b.WriteString("create/amend/push/requirements/land/automerge/describe/comment/comments/\n")
+	b.WriteString("resolve/request-review, `workspace` snapshot/watch/branch/sync, and\n")
+	b.WriteString("`agent hooks`. For `land`/`automerge`, `--change` defaults to HEAD's\n")
+	b.WriteString("Change-Id inside a checkout (`-w <ws>` works); pass `--change` (or a\n")
+	b.WriteString("unique prefix) for the checkout-free form. The pure server-side verbs\n")
+	b.WriteString("(`approve`, `abandon`, `list`) still key off the Change-Id and never\n")
+	b.WriteString("touch a checkout (`abandon` stays deliberately explicit), while\n")
+	b.WriteString("`project create`, `doctor` and `agents-md` reach one only through\n")
+	b.WriteString("`--repo` - for those,\n")
 	b.WriteString("`--repo \"$(runko workspace path <ws>)\"` is the transparent form.\n")
 	b.WriteString("Passing `-w` together with a non-`.` `--dir`/`--repo` is a\n")
 	b.WriteString("contradiction and is refused.\n\n")
