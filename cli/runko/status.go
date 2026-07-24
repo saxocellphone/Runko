@@ -72,6 +72,11 @@ type StatusReport struct {
 	Principal    string
 	ControlPlane string
 	ServerError  string
+	// TrunkSHA/TrunkTitle: the local remote-tracking trunk ref the stack
+	// diffs against (the ◆ base node of the human graph). May lag the
+	// real remote tip - that is what StaleBase reports.
+	TrunkSHA   string
+	TrunkTitle string
 	// Stack is the local line above the remote trunk ref, bottom -> top.
 	// Nil when no refs/remotes/<remote>/<trunk> exists locally to diff
 	// against; empty when the line is fully landed.
@@ -103,7 +108,11 @@ func RunStatus(ctx context.Context, client *http.Client, cred *Credential, credE
 		r.DirtyPaths = countLines(out)
 	}
 	r.StaleBase = staleBase(dir, remote, trunk)
-	r.Stack = statusStack(dir, remote, trunk, r.IsJJWorkspace)
+	if base, err := runGit(dir, "rev-parse", "--verify", "refs/remotes/"+remote+"/"+trunk); err == nil {
+		r.TrunkSHA = base
+		r.TrunkTitle, _ = runGit(dir, "log", "-1", "--format=%s", base)
+		r.Stack = statusStack(dir, base, r.IsJJWorkspace)
+	}
 
 	if cred == nil {
 		return r, nil
@@ -166,13 +175,11 @@ func RunStatus(ctx context.Context, client *http.Client, cred *Credential, credE
 	return r, nil
 }
 
-// statusStack lists the commits above the local remote-tracking trunk
-// ref, bottom -> top. jj checkouts resolve the tip from jj's working copy
-// (git HEAD is detached in colocated repos); an empty undescribed @ is
-// already skipped by jjTipCommit. Nil when the trunk ref isn't resolvable
-// locally - a diff against nothing would misreport the whole history as
-// a stack.
-func statusStack(dir, remote, trunk string, jj bool) []StackEntry {
+// statusStack lists the commits above base, bottom -> top. jj checkouts
+// resolve the tip from jj's working copy (git HEAD is detached in
+// colocated repos); an empty undescribed @ is already skipped by
+// jjTipCommit.
+func statusStack(dir, base string, jj bool) []StackEntry {
 	tip := "HEAD"
 	if jj {
 		t, err := jjTipCommit(dir)
@@ -180,10 +187,6 @@ func statusStack(dir, remote, trunk string, jj bool) []StackEntry {
 			return nil
 		}
 		tip = t
-	}
-	base, err := runGit(dir, "rev-parse", "--verify", "refs/remotes/"+remote+"/"+trunk)
-	if err != nil {
-		return nil
 	}
 	out, err := runGit(dir, "log", "--reverse", "--format=%H%x1f%s%x1f%B%x1e", base+".."+tip)
 	if err != nil {
@@ -219,7 +222,7 @@ func countLines(s string) int {
 }
 
 // PrintStatus renders the report in doctor's aligned-label style: the
-// checkout's standing, then the stack with one mark per change.
+// checkout's standing, then the line above trunk as a jj-style graph.
 func PrintStatus(w io.Writer, r StatusReport) {
 	fmt.Fprintln(w, "runko status")
 	if r.WorkspaceID != "" {
@@ -256,21 +259,38 @@ func PrintStatus(w io.Writer, r StatusReport) {
 	switch {
 	case r.Stack == nil:
 		fmt.Fprintf(w, "  stack:        unknown - no local %s/%s ref to compare against (fetch first)\n", r.Remote, r.TrunkRef)
-	case len(r.Stack) == 0:
+	case len(r.Stack) == 0 && r.DirtyPaths == 0:
 		fmt.Fprintln(w, "  stack:        empty - nothing above trunk")
 	default:
-		fmt.Fprintf(w, "\nstack (bottom -> top, %d change(s)):\n", len(r.Stack))
-		for _, e := range r.Stack {
-			id := e.ChangeID
-			if id == "" {
-				id = "(no Change-Id yet - `runko change push` stamps one)"
-			}
-			fmt.Fprintf(w, "  %-12s %s  %s\n", statusMark(e.Status), id, e.Title)
-			for _, b := range e.Blockers {
-				fmt.Fprintf(w, "      -> %s\n", b)
-			}
-		}
+		fmt.Fprintln(w)
+		printStatusGraph(w, r)
 	}
+}
+
+// printStatusGraph draws the line above trunk the way jj log draws it:
+// newest on top, @ where the working copy sits (the uncommitted working
+// tree when there is one, else the tip change), ○ each change under it,
+// ◆ the immutable trunk base. A node's blockers ride its │ gutter, so
+// they read as part of the node.
+func printStatusGraph(w io.Writer, r StatusReport) {
+	mark := "@"
+	if r.DirtyPaths > 0 {
+		fmt.Fprintf(w, "@  %d uncommitted path(s) - the next `runko change create` sweeps ALL of them\n", r.DirtyPaths)
+		mark = "○"
+	}
+	for i := len(r.Stack) - 1; i >= 0; i-- {
+		e := r.Stack[i]
+		id := e.ChangeID
+		if id == "" {
+			id = "(no Change-Id yet - `runko change push` stamps one)"
+		}
+		fmt.Fprintf(w, "%s  %s  %s  (%s)\n", mark, id, e.Title, statusMark(e.Status))
+		for _, b := range e.Blockers {
+			fmt.Fprintf(w, "│      -> %s\n", b)
+		}
+		mark = "○"
+	}
+	fmt.Fprintf(w, "◆  %.12s %s/%s  %s\n", r.TrunkSHA, r.Remote, r.TrunkRef, r.TrunkTitle)
 }
 
 func statusMark(status string) string {
