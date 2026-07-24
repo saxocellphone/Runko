@@ -227,3 +227,92 @@ func TestImageBuildsForAffectedDuplicateOwners(t *testing.T) {
 		t.Fatalf("an unaffected conflict must not fail the build, got %v", err)
 	}
 }
+
+// TestBinaryReleasesForAffected pins the standalone-release rule
+// (2026-07-24): a project's binaries republish iff the project itself is
+// affected - the dependency closure already carries "anything it builds
+// from changed", which is exactly the hand-maintained project list this
+// retires from the binary-release workflow.
+func TestBinaryReleasesForAffected(t *testing.T) {
+	projects := []index.IndexedProject{
+		{Name: "cli", DeployBinaryTag: "cli-latest", DeployBinaries: []index.BinaryDecl{
+			{Name: "runko", Path: "cli/runko"}, {Name: "runko-ci", Path: "cli/runko-ci"}}},
+		{Name: "platform"},
+	}
+
+	for _, tc := range []struct {
+		name string
+		res  affected.Result
+		want int // releases
+	}{
+		{"cli affected directly", affectedOf("cli"), 1},
+		{"cli in closure only", affectedOf("platform", "cli"), 1},
+		{"unrelated change", affectedOf("platform"), 0},
+		{"run_everything fail closed", affected.Result{RunEverything: true}, 1},
+	} {
+		got, err := BinaryReleasesForAffected(tc.res, projects)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if len(got) != tc.want {
+			t.Fatalf("%s: want %d releases, got %+v", tc.name, tc.want, got)
+		}
+		if tc.want == 1 {
+			rel := got[0]
+			if rel.Tag != "cli-latest" || len(rel.Binaries) != 2 || rel.Binaries[0].Name != "runko" || rel.Binaries[1].Name != "runko-ci" {
+				t.Fatalf("%s: release wrong: %+v", tc.name, rel)
+			}
+		}
+	}
+}
+
+// TestBinaryReleasesMergeAndAmbiguity: two projects under one tag merge into
+// one release; the same name with different paths is ambiguous_binary
+// (identical duplicates dedupe - the ambiguous_image posture).
+func TestBinaryReleasesMergeAndAmbiguity(t *testing.T) {
+	merge := []index.IndexedProject{
+		{Name: "a", DeployBinaryTag: "tools-latest", DeployBinaries: []index.BinaryDecl{{Name: "one", Path: "a/one"}}},
+		{Name: "b", DeployBinaryTag: "tools-latest", DeployBinaries: []index.BinaryDecl{{Name: "two", Path: "b/two"}, {Name: "one", Path: "a/one"}}},
+	}
+	got, err := BinaryReleasesForAffected(affectedOf("a", "b"), merge)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if len(got) != 1 || len(got[0].Binaries) != 2 {
+		t.Fatalf("merge: want one release with two binaries, got %+v", got)
+	}
+
+	conflict := []index.IndexedProject{
+		{Name: "a", DeployBinaryTag: "tools-latest", DeployBinaries: []index.BinaryDecl{{Name: "one", Path: "a/one"}}},
+		{Name: "b", DeployBinaryTag: "tools-latest", DeployBinaries: []index.BinaryDecl{{Name: "one", Path: "b/one"}}},
+	}
+	_, err = BinaryReleasesForAffected(affectedOf("a", "b"), conflict)
+	if err == nil {
+		t.Fatal("conflicting duplicate binaries must be an ambiguous_binary error")
+	} else if ce, ok := err.(*clierr.Error); !ok || ce.Code != "ambiguous_binary" {
+		t.Fatalf("want ambiguous_binary clierr, got %T %v", err, err)
+	}
+	// An unaffected conflict never fails an unrelated release.
+	if _, err := BinaryReleasesForAffected(affectedOf("a"), conflict); err != nil {
+		t.Fatalf("unaffected conflict must not fail: %v", err)
+	}
+}
+
+// TestRootGitOps: the deploy_gitops target resolves from the root project
+// only (the rootRegistry rule applied to the write-back half).
+func TestRootGitOps(t *testing.T) {
+	withRoot := []index.IndexedProject{
+		{Name: "svc", Path: "svc", DeployGitOps: &index.GitOpsDecl{Repository: "wrong/place", Kustomization: "x.yaml"}},
+		{Name: "repo", Path: "", DeployGitOps: &index.GitOpsDecl{Repository: "acme/k8s-cluster", Kustomization: "apps/mono/kustomization.yaml"}},
+	}
+	got := RootGitOps(withRoot)
+	if got == nil || got.Repository != "acme/k8s-cluster" || got.Kustomization != "apps/mono/kustomization.yaml" {
+		t.Fatalf("RootGitOps: got %+v", got)
+	}
+	if RootGitOps([]index.IndexedProject{{Name: "repo", Path: ""}}) != nil {
+		t.Fatal("root without deploy_gitops must resolve nil")
+	}
+	if RootGitOps(withRoot[:1]) != nil {
+		t.Fatal("no root indexed must resolve nil - a non-root declaration never leaks")
+	}
+}

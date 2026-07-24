@@ -46,9 +46,12 @@ type CICheck struct {
 	Name    string `yaml:"name"`
 	Command string `yaml:"command"`
 	// RunWhen is §14.5.9's check class: "affected" (default - runs
-	// whenever this project is in the affected closure) or "direct" (runs
+	// whenever this project is in the affected closure), "direct" (runs
 	// only when this project's own paths were touched, not when it's
-	// pulled in via depends_on edges - the unit-lane class).
+	// pulled in via depends_on edges - the unit-lane class), or
+	// "post_land" (never resolved pre-land, never gate-required; runs on
+	// every land via `runko-ci checks --post-land` - the class for checks
+	// whose subject is the deployment artifact, not one project's code).
 	RunWhen string `yaml:"run_when,omitempty"`
 }
 
@@ -77,6 +80,21 @@ type Manifest struct {
 	// image_ref. Repo-wide, read from the root project. See
 	// docs/spec/deploy/README.md.
 	DeployRegistry string `yaml:"deploy_registry,omitempty"`
+	// DeployGitOps is deploy_registry's CD write-back sibling (2026-07-24):
+	// the GitOps repository + kustomization path the generic image-build
+	// workflow pins built digests into, emitted by `runko-ci images` as its
+	// `gitops` object. Root-oriented like DeployRegistry; absent means the
+	// pin job skips. See docs/spec/deploy/README.md.
+	DeployGitOps *DeployGitOps `yaml:"deploy_gitops,omitempty"`
+}
+
+// DeployGitOps is the root manifest's deploy_gitops block: where CI records
+// freshly-built image digests for a GitOps reconciler to deploy. Both fields
+// are required for the declaration to count (read-time normalization drops a
+// partial one - the schema polices authoring).
+type DeployGitOps struct {
+	Repository    string `yaml:"repository"`
+	Kustomization string `yaml:"kustomization"`
 }
 
 // RootInvalidationEntry is one root_invalidation list entry (§14.5.8). YAML

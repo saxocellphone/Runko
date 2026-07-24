@@ -97,6 +97,20 @@ type IndexedProject struct {
 	// manifest's top-level deploy_registry; meaningful on the ROOT project
 	// (repo-wide). Empty elsewhere / when unset.
 	DeployRegistry string
+	// DeployGitOps is DeployRegistry's CD write-back sibling (2026-07-24):
+	// the GitOps repository + kustomization path the image-build workflow
+	// pins built digests into, from the manifest's top-level deploy_gitops.
+	// Root-oriented like DeployRegistry; nil when unset or partial (both
+	// fields are required - read-time normalization drops half a target
+	// rather than emitting one the pin job would fail against).
+	DeployGitOps *GitOpsDecl
+	// DeployBinaries + DeployBinaryTag are the deploy.binaries sub-block
+	// (docs/spec/deploy/README.md, 2026-07-24): standalone released
+	// binaries this project produces, published under the rolling release
+	// tag whenever the project is affected. Zero-valued unless the deploy
+	// capability declares a tagged binaries block.
+	DeployBinaries  []BinaryDecl
+	DeployBinaryTag string
 }
 
 // ImageDecl is a project's deploy.image sub-block: it declares this project
@@ -106,6 +120,21 @@ type ImageDecl struct {
 	Context    string
 	Dockerfile string
 	BuildArgs  map[string]string
+}
+
+// GitOpsDecl is the root manifest's deploy_gitops target: the repository
+// (<owner>/<repo>) and in-repo kustomization path CI pins built image
+// digests into for a GitOps reconciler to deploy.
+type GitOpsDecl struct {
+	Repository    string
+	Kustomization string
+}
+
+// BinaryDecl is one deploy.binaries item: a buildable main package released
+// as a standalone binary. Path defaults to <project dir>/<name>.
+type BinaryDecl struct {
+	Name string
+	Path string
 }
 
 // Scan walks the tree at rev, finds every PROJECT.yaml, and resolves its
@@ -198,14 +227,20 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 	var checks []CheckDef
 	if manifest.CI != nil {
 		for _, c := range manifest.CI.Checks {
-			requiredChecks = append(requiredChecks, c.Name)
 			// Unknown run_when values normalize to the affected default at
 			// read time (§14.5.9): the schema polices authoring; the
 			// scanner feeds the merge gate and must fail closed (running a
 			// check too often is safe, silently dropping one is not).
+			// post_land is the one class the gate must NOT require - it is
+			// recognized here (not defaulted) precisely so ChecksFor can
+			// exclude it; a post_land check also stays out of
+			// RequiredChecks, the names-only "gate may require" view.
 			runWhen := c.RunWhen
-			if runWhen != RunWhenDirect {
+			if runWhen != RunWhenDirect && runWhen != RunWhenPostLand {
 				runWhen = RunWhenAffected
+			}
+			if runWhen != RunWhenPostLand {
+				requiredChecks = append(requiredChecks, c.Name)
 			}
 			checks = append(checks, CheckDef{Name: c.Name, Command: c.Command, RunWhen: runWhen})
 		}
@@ -238,9 +273,16 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 	}
 	var deployImage *ImageDecl
 	var ridesImages []string
+	var deployBinaries []BinaryDecl
+	var deployBinaryTag string
 	if hasCapability(manifest.Capabilities, "deploy") {
 		deployImage = deployImageDecl(manifest.CapabilityConfig, dir)
 		ridesImages = deployRiderImages(manifest.CapabilityConfig)
+		deployBinaries, deployBinaryTag = deployBinariesDecl(manifest.CapabilityConfig, dir)
+	}
+	var deployGitOps *GitOpsDecl
+	if g := manifest.DeployGitOps; g != nil && g.Repository != "" && g.Kustomization != "" {
+		deployGitOps = &GitOpsDecl{Repository: g.Repository, Kustomization: g.Kustomization}
 	}
 
 	return IndexedProject{
@@ -265,6 +307,9 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		DeployImage:               deployImage,
 		RidesImages:               ridesImages,
 		DeployRegistry:            manifest.DeployRegistry,
+		DeployGitOps:              deployGitOps,
+		DeployBinaries:            deployBinaries,
+		DeployBinaryTag:           deployBinaryTag,
 	}, nil
 }
 
@@ -335,6 +380,37 @@ func deployImageDecl(cfg map[string]interface{}, dir string) *ImageDecl {
 		}
 	}
 	return &ImageDecl{Name: name, Context: ctx, Dockerfile: dockerfile, BuildArgs: buildArgs}
+}
+
+// deployBinariesDecl reads capability_config.deploy.binaries into BinaryDecls
+// plus the release tag they publish under. A block without a tag, or with no
+// well-formed item, declares nothing (read-time normalization - the schema
+// polices authoring). Item paths default to <project dir>/<name>.
+func deployBinariesDecl(cfg map[string]interface{}, dir string) ([]BinaryDecl, string) {
+	deploy, _ := cfg["deploy"].(map[string]interface{})
+	bins, _ := deploy["binaries"].(map[string]interface{})
+	tag, _ := bins["tag"].(string)
+	if tag == "" {
+		return nil, ""
+	}
+	raw, _ := bins["items"].([]interface{})
+	var out []BinaryDecl
+	for _, it := range raw {
+		im, _ := it.(map[string]interface{})
+		name, _ := im["name"].(string)
+		if name == "" {
+			continue
+		}
+		p, _ := im["path"].(string)
+		if p == "" {
+			p = path.Join(dir, name)
+		}
+		out = append(out, BinaryDecl{Name: name, Path: p})
+	}
+	if len(out) == 0 {
+		return nil, ""
+	}
+	return out, tag
 }
 
 // deployRiderImages reads the distinct image names capability_config.deploy.
@@ -476,7 +552,7 @@ type CheckDef struct {
 	Name    string
 	Command string
 	// RunWhen is the §14.5.9 check class, normalized at scan time to
-	// exactly RunWhenAffected or RunWhenDirect.
+	// exactly RunWhenAffected, RunWhenDirect, or RunWhenPostLand.
 	RunWhen string
 }
 
@@ -491,6 +567,15 @@ const (
 	// - the unit-lane class. Declaring it is the project's assertion that
 	// this lane doesn't guard cross-project behavior.
 	RunWhenDirect = "direct"
+	// RunWhenPostLand (2026-07-24): the check never runs pre-land and the
+	// merge gate never requires it - ChecksFor excludes it in BOTH
+	// branches, so gate and pre-land executor stay in lockstep by the
+	// same shared function. It is selected only by PostLandChecks (via
+	// `runko-ci checks --post-land`), where it runs on EVERY land
+	// regardless of affected scoping: the class for checks whose subject
+	// is the deployment artifact rather than any one project's code (the
+	// compose smoke), which no affected computation can scope honestly.
+	RunWhenPostLand = "post_land"
 )
 
 // ChecksFor is THE run_when rule (§14.5.9), shared by the merge gate
@@ -499,14 +584,31 @@ const (
 // deadlocks changes as required-but-never-run (§14.9.1's lockstep
 // requirement, now with a second axis). direct says whether p's own paths
 // were touched; callers MUST pass true for every project under
-// run_everything (fail closed: both classes run).
+// run_everything (fail closed: both classes run). post_land-class checks
+// are never returned - not even under direct/run_everything: they are not
+// gate material, and a pre-land runner running one anyway would report a
+// check the gate never asked for.
 func ChecksFor(p IndexedProject, direct bool) []CheckDef {
-	if direct {
-		return p.Checks
-	}
 	var out []CheckDef
 	for _, c := range p.Checks {
-		if c.RunWhen != RunWhenDirect {
+		if c.RunWhen == RunWhenPostLand {
+			continue
+		}
+		if !direct && c.RunWhen == RunWhenDirect {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// PostLandChecks is RunWhenPostLand's selection rule: the post_land-class
+// checks p declares, regardless of any affected result - post-land CI runs
+// them on every land (`runko-ci checks --post-land`).
+func PostLandChecks(p IndexedProject) []CheckDef {
+	var out []CheckDef
+	for _, c := range p.Checks {
+		if c.RunWhen == RunWhenPostLand {
 			out = append(out, c)
 		}
 	}

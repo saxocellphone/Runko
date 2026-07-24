@@ -429,3 +429,53 @@ func TestScanSchemasCapability(t *testing.T) {
 		}
 	}
 }
+
+// TestScanDeployGitOpsAndBinaries pins the 2026-07-24 additions to the
+// deploy surface: the root's deploy_gitops target (both fields required -
+// half a target is dropped, not emitted for a pin job to fail against) and
+// the deploy.binaries sub-block (tag required; item paths default to
+// <project dir>/<name>).
+func TestScanDeployGitOpsAndBinaries(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("PROJECT.yaml", manifest("repo", "other",
+		"deploy_gitops:\n  repository: acme/k8s-cluster\n  kustomization: apps/mono/kustomization.yaml\n"))
+	repo.WriteFile("cli/PROJECT.yaml", manifest("cli", "app",
+		"capabilities:\n  - deploy\ncapability_config:\n  deploy:\n    binaries:\n      tag: cli-latest\n      items:\n        - name: runko\n        - name: runko-ci\n          path: cli/custom-ci\n"))
+	// A binaries block with no tag declares nothing (read-time normalization).
+	repo.WriteFile("untagged/PROJECT.yaml", manifest("untagged", "app",
+		"capabilities:\n  - deploy\ncapability_config:\n  deploy:\n    binaries:\n      items:\n        - name: stray\n"))
+	// Half a gitops target (no kustomization) is dropped, not surfaced.
+	repo.WriteFile("half/PROJECT.yaml", manifest("half", "other",
+		"deploy_gitops:\n  repository: acme/other\n"))
+	head := repo.Commit("gitops + binaries manifests")
+
+	projects, err := Scan(gitstore.New(repo.Dir), core.Revision(head), nil)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	byName := map[string]IndexedProject{}
+	for _, p := range projects {
+		byName[p.Name] = p
+	}
+
+	root := byName["repo"]
+	if root.DeployGitOps == nil || root.DeployGitOps.Repository != "acme/k8s-cluster" || root.DeployGitOps.Kustomization != "apps/mono/kustomization.yaml" {
+		t.Fatalf("root gitops: got %+v", root.DeployGitOps)
+	}
+
+	cli := byName["cli"]
+	if cli.DeployBinaryTag != "cli-latest" {
+		t.Fatalf("cli binary tag: got %q", cli.DeployBinaryTag)
+	}
+	want := []BinaryDecl{{Name: "runko", Path: "cli/runko"}, {Name: "runko-ci", Path: "cli/custom-ci"}}
+	if len(cli.DeployBinaries) != 2 || cli.DeployBinaries[0] != want[0] || cli.DeployBinaries[1] != want[1] {
+		t.Fatalf("cli binaries: default path must be <dir>/<name>, explicit path kept; got %+v", cli.DeployBinaries)
+	}
+
+	if u := byName["untagged"]; u.DeployBinaryTag != "" || len(u.DeployBinaries) != 0 {
+		t.Fatalf("untagged binaries block must declare nothing, got tag=%q items=%v", u.DeployBinaryTag, u.DeployBinaries)
+	}
+	if h := byName["half"]; h.DeployGitOps != nil {
+		t.Fatalf("partial deploy_gitops must be dropped, got %+v", h.DeployGitOps)
+	}
+}
