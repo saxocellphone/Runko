@@ -69,7 +69,7 @@ they exist to be consumed by pipelines, not read.`,
 	root.AddCommand(
 		newAffectedCmd(), newChecksCmd(), newImagesCmd(), newBinariesCmd(),
 		newCheckoutCmd(), newReportCheckCmd(), newReportImageCmd(),
-		newTestImpactedCmd(),
+		newTestImpactedCmd(), newDepsCmd(),
 	)
 	return root
 }

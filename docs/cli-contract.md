@@ -185,6 +185,25 @@ wrappers over the same runkod REST API the commands above use (§8.3, §17.4,
 schemas - the schema-of-record convergence the section below describes,
 already real for this surface.
 
+`runko-ci deps [--repo .] [--json]` (2026-07-24) is deliberately outside
+the table as well: it is a repo-MAINTENANCE lane verb, not an agent or
+executor surface, and the table doubles as the agent-facing command
+inventory (which carries a hard line budget). It audits the manifests
+against the build graph - every Bazel label reference crossing a project
+boundary under `--repo`, flagged with whether a `dependencies` /
+`test_dependencies` / `consumes` edge declares it - and reads the WORKING
+TREE, not a revision, so a manifest edit is audited beside the build file
+that needs it. Strict-deps: the referencing project must declare the
+referenced one DIRECTLY, any of the three kinds. An undeclared edge is
+invisible to BOTH affected computation and the workspace cone (the class
+that left four of this repo's projects with unbuildable fresh workspaces
+until 2026-07-24), so the verb exits 1 with
+`undeclared_project_dependency` naming the manifest to edit. `--json`
+emits `{"projects", "build_files", "edges": [{"File", "From", "To",
+"Label", "Declared"}], "undeclared": [{"code", "path", "message",
+"suggestion"}]}`. Wired into `make check-bazel`, the `bazel-check` lane:
+like the gazelle drift check it is repo-wide by nature.
+
 Commands not listed here (`runko auth` - stubbed, needs a live control
 plane not built in this environment) have no output contract yet.
 

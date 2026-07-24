@@ -2,13 +2,19 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "contract",
-    srcs = ["check.go"],
+    srcs = [
+        "buildlabels.go",
+        "check.go",
+    ],
     importpath = "github.com/saxocellphone/runko/platform/contract",
     visibility = ["//visibility:public"],
 )
 
 go_test(
     name = "contract_test",
-    srcs = ["check_test.go"],
+    srcs = [
+        "buildlabels_test.go",
+        "check_test.go",
+    ],
     embed = [":contract"],
 )
