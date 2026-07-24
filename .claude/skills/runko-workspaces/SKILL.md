@@ -33,7 +33,7 @@ that declares no registered workspace origin. The model:
 - Describe every change the moment it is pushed: `runko change describe --change <full-Change-Id> --description <what and why> --test-plan <how you verified>`. An agent-authored change without one is NOT mergeable - the push still succeeds, so the omission surfaces much later as a stuck gate.
 - You cannot approve - not your own change, not anyone else's. Arm automerge, then TELL A HUMAN which Change-Ids need `runko change approve --owner <ref>`; that approval is the gate your work waits on, and no amount of re-pushing moves it.
 - Trunk moved (land says revalidate): `runko change land` already runs the recovery loop itself (sync, re-push, wait, retry); `runko workspace sync` is the manual form. Never force.
-- Do not poll for green: after pushing, arm `runko change automerge --change <id>` and MOVE ON - the server lands it the moment checks and approvals pass, under your name. Poll-and-land loops are the anti-pattern automerge exists to delete.
+- Do not poll for green: after pushing, arm `runko change automerge` (defaults to HEAD's Change-Id; pass `--change <id>` from outside a checkout) and MOVE ON - the server lands it the moment checks and approvals pass, under your name. Poll-and-land loops are the anti-pattern automerge exists to delete.
 - Done or dead: land it or `runko change abandon`. An abandoned change stays visible only while something still stacks on it - rebase dependents off it or reopen it by re-pushing.
 - Never claim a workspace you don't own or didn't work in - origin claims are validated and owner-bound, and they drive review views.
 
@@ -49,18 +49,20 @@ runko change create -w <ws> -m "<what and why>" && runko change push -w <ws>
 runko workspace watch -w <ws> &
 ```
 
-**Never `cd` into a worktree, and never hand a human its path.** A `cd`
-silently rebinds the working directory for everything that follows, and
-a path passed onward teaches someone to depend on a layout that is ours
-to change. `runko workspace path <name>` is the escape hatch.
+**Never `cd` into a worktree, and never hand a human its path.** A `cd` silently
+rebinds the working directory for everything that follows, and a path passed on
+teaches a layout that is ours to change. `runko workspace path <name>` is the escape hatch.
 
 The full `-w` set: `change`
-create/amend/push/requirements/land/describe/comment/comments/resolve/
-request-review, `workspace` snapshot/watch/branch/sync, and `agent
-hooks`. Two groups deliberately lack it: the server-side verbs
-(`automerge`, `approve`, `abandon`, `list`) key off the Change-Id and
-never touch a checkout at all, while `project create`, `doctor` and
-`agents-md` reach one only through `--repo` - for those,
+create/amend/push/requirements/land/automerge/describe/comment/comments/
+resolve/request-review, `workspace` snapshot/watch/branch/sync, and
+`agent hooks`. For `land`/`automerge`, `--change` defaults to HEAD's
+Change-Id inside a checkout (`-w <ws>` works); pass `--change` (or a
+unique prefix) for the checkout-free form. The pure server-side verbs
+(`approve`, `abandon`, `list`) still key off the Change-Id and never
+touch a checkout (`abandon` stays deliberately explicit), while
+`project create`, `doctor` and `agents-md` reach one only through
+`--repo` - for those,
 `--repo "$(runko workspace path <ws>)"` is the transparent form.
 Passing `-w` together with a non-`.` `--dir`/`--repo` is a
 contradiction and is refused.
