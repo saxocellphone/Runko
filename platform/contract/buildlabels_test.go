@@ -92,3 +92,29 @@ go_test(deps = ["//templates/ci", "//templates/ci"])`)},
 		t.Fatalf("want 1 undeclared edge, got %d: %+v", undeclared, edges)
 	}
 }
+
+// TestBuildLabelsQuoteStylesAndComments: Starlark takes either quote
+// style, so a single-quoted label must be seen (missing one is a silent
+// false negative - the direction that lets an unbuildable workspace ship);
+// a commented-out dep must NOT be, or the rule demands a manifest edge for
+// a dependency that does not exist.
+func TestBuildLabelsQuoteStylesAndComments(t *testing.T) {
+	single := []File{{Path: "cli/BUILD.bazel", Content: []byte(`go_library(deps = ['//templates/ci'])`)}}
+	if v := CheckBuildLabels(labelProjects(), single); len(v) != 1 {
+		t.Fatalf("single-quoted label must be scanned, got %+v", v)
+	}
+
+	commented := []File{{Path: "cli/BUILD.bazel", Content: []byte("# deps = [\"//templates/ci\"],\ngo_library(name = \"runko\")")}}
+	if v := CheckBuildLabels(labelProjects(), commented); len(v) != 0 {
+		t.Fatalf("a commented-out dep is not an edge, got %+v", v)
+	}
+
+	// A '#' inside a string is content: the label on the same line, and on
+	// the next, must both survive.
+	inString := []File{{Path: "cli/BUILD.bazel", Content: []byte(`genrule(cmd = "sed 's/#x/y/' $<", tools = ["//templates/ci"])
+go_library(deps = ["//daemon"])`)}}
+	edges := BuildLabelEdges(labelProjects(), inString)
+	if len(edges) != 2 {
+		t.Fatalf("want both edges past the in-string '#', got %+v", edges)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -63,25 +64,92 @@ cannot build. Exits 1 when any edge is undeclared.`,
 type DepsResult struct {
 	Projects   int                  `json:"projects"`
 	BuildFiles int                  `json:"build_files"`
+	FromIndex  int                  `json:"from_index"`
 	Edges      []contract.LabelEdge `json:"edges"`
 	Undeclared []contract.Violation `json:"undeclared"`
 }
 
-// Deps walks repoDir's working tree - not a revision: a local run must see
-// the manifest edit you just made beside the BUILD file that needs it - and
-// returns every cross-project build edge with its declared status.
+// Deps returns every cross-project build edge with its declared status.
+//
+// The working tree is the primary source - a local run must see the
+// manifest edit you just made beside the build file that needs it - but a
+// tree is not always fully materialized, and an audit that silently skips
+// what it cannot see is worse than no audit. So any manifest or build file
+// the INDEX knows and the disk lacks is read from HEAD instead
+// (FromIndex counts them). That is not a corner case here: a sparse
+// workspace is the normal way to work in this monorepo, and running the
+// guard in one used to report a confident "0 undeclared" after examining
+// two thirds of the projects.
 func Deps(repoDir string) (DepsResult, error) {
 	projects, buildFiles, err := scanTree(repoDir)
 	if err != nil {
 		return DepsResult{}, err
 	}
+	projects, buildFiles, fromIndex := addUnmaterialized(repoDir, projects, buildFiles)
 	res := DepsResult{
 		Projects:   len(projects),
 		BuildFiles: len(buildFiles),
+		FromIndex:  fromIndex,
 		Edges:      contract.BuildLabelEdges(projects, buildFiles),
 		Undeclared: contract.CheckBuildLabels(projects, buildFiles),
 	}
 	return res, nil
+}
+
+// addUnmaterialized fills in the files git tracks but the working tree does
+// not hold (a sparse cone, or a plain `rm`), reading each from HEAD. A
+// non-git directory, or any git failure, degrades to the on-disk answer:
+// this widens coverage, so it must never be the reason the verb fails.
+func addUnmaterialized(repoDir string, projects []contract.Project, buildFiles []contract.File) ([]contract.Project, []contract.File, int) {
+	tracked, err := runGit(repoDir, "ls-files", "--", "*PROJECT.yaml", "*BUILD.bazel", "*BUILD")
+	if err != nil || tracked == "" {
+		return projects, buildFiles, 0
+	}
+	onDisk := make(map[string]bool, len(projects)+len(buildFiles))
+	for _, p := range projects {
+		onDisk[path.Join(p.Path, "PROJECT.yaml")] = true
+	}
+	for _, f := range buildFiles {
+		onDisk[f.Path] = true
+	}
+	added := 0
+	for _, rel := range strings.Split(tracked, "\n") {
+		if rel == "" || onDisk[rel] {
+			continue
+		}
+		content, err := runGit(repoDir, "show", "HEAD:"+rel)
+		if err != nil {
+			continue
+		}
+		base := path.Base(rel)
+		if base == "PROJECT.yaml" {
+			p, err := parseManifest(rel, []byte(content))
+			if err != nil {
+				continue
+			}
+			projects = append(projects, p)
+		} else {
+			buildFiles = append(buildFiles, contract.File{Path: rel, Content: []byte(content)})
+		}
+		added++
+	}
+	return projects, buildFiles, added
+}
+
+// parseManifest maps one PROJECT.yaml to the checker's project shape. The
+// project's path is its manifest's directory - "" for the root project.
+func parseManifest(rel string, content []byte) (contract.Project, error) {
+	var m project.Manifest
+	if err := yaml.Unmarshal(content, &m); err != nil {
+		return contract.Project{}, fmt.Errorf("parse %s: %w", rel, err)
+	}
+	return contract.Project{
+		Name:             m.Name,
+		Path:             strings.TrimSuffix(strings.TrimSuffix(rel, "PROJECT.yaml"), "/"),
+		Dependencies:     m.Dependencies,
+		TestDependencies: m.TestDependencies,
+		Consumes:         m.Consumes,
+	}, nil
 }
 
 // scanTree collects the manifests and build files under repoDir. Bazel's
@@ -113,17 +181,11 @@ func scanTree(repoDir string) ([]contract.Project, []contract.File, error) {
 			if err != nil {
 				return err
 			}
-			var m project.Manifest
-			if err := yaml.Unmarshal(content, &m); err != nil {
-				return fmt.Errorf("parse %s: %w", rel, err)
+			parsed, err := parseManifest(rel, content)
+			if err != nil {
+				return err
 			}
-			projects = append(projects, contract.Project{
-				Name:             m.Name,
-				Path:             strings.TrimSuffix(strings.TrimSuffix(rel, "PROJECT.yaml"), "/"),
-				Dependencies:     m.Dependencies,
-				TestDependencies: m.TestDependencies,
-				Consumes:         m.Consumes,
-			})
+			projects = append(projects, parsed)
 		case "BUILD.bazel", "BUILD":
 			content, err := os.ReadFile(p)
 			if err != nil {
@@ -166,5 +228,8 @@ func printDeps(res DepsResult, asJSON bool) error {
 	}
 	fmt.Printf("\n%d projects, %d build files, %d cross-project edges, %d undeclared\n",
 		res.Projects, res.BuildFiles, len(res.Edges), len(res.Undeclared))
+	if res.FromIndex > 0 {
+		fmt.Printf("(%d file(s) not materialized in this checkout, read from HEAD)\n", res.FromIndex)
+	}
 	return nil
 }
