@@ -1510,6 +1510,12 @@ func protoProjectDetail(p index.IndexedProject) *runkov1.ProjectDetail {
 			Declared: p.DeclaredDependencies,
 			Inferred: []string{}, // always empty in v1 (§13.3)
 			Consumes: p.Consumes, // §13.3.1 server/client edges
+			// Terminal build-grade edges (2026-07-24). Omitting them let
+			// the graph a human READS disagree with the graph that GATES:
+			// cli's edge on runkod moved here from consumes and simply
+			// vanished from the UI, while two genuinely new couplings
+			// (platform -> runkod, runkod -> cli) never appeared at all.
+			TestDependencies: p.TestDependencies,
 		},
 	}
 }

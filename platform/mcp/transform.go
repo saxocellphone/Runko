@@ -40,12 +40,18 @@ type ProjectDetail struct {
 	Dependencies    Dependencies `json:"dependencies"`
 }
 
-// Dependencies is ProjectDetail's declared/inferred split. Inferred deps
-// are advisory-only and not computed anywhere yet (§13.3) - always empty
-// in v1, present in the shape so callers can rely on the field existing.
+// Dependencies is ProjectDetail's edge split. Inferred deps are
+// advisory-only and not computed anywhere yet (§13.3) - always empty in
+// v1, present in the shape so callers can rely on the field existing.
+// Consumes and TestDependencies are the other two DECLARED kinds
+// (common.schema.json carries all four): an agent reading this to decide
+// what a change touches was otherwise seeing a strictly narrower graph
+// than the one the merge gate keys on.
 type Dependencies struct {
-	Declared []string `json:"declared"`
-	Inferred []string `json:"inferred"`
+	Declared         []string `json:"declared"`
+	Inferred         []string `json:"inferred"`
+	Consumes         []string `json:"consumes,omitempty"`
+	TestDependencies []string `json:"test_dependencies,omitempty"`
 }
 
 // OwnersResult is common.schema.json#/$defs/OwnersResult.
@@ -104,8 +110,10 @@ func projectDetail(p index.IndexedProject) ProjectDetail {
 		EffectiveOwners: ownerRefs(p),
 		Capabilities:    nonNil(p.Capabilities),
 		Dependencies: Dependencies{
-			Declared: nonNil(p.DeclaredDependencies),
-			Inferred: []string{},
+			Declared:         nonNil(p.DeclaredDependencies),
+			Inferred:         []string{},
+			Consumes:         p.Consumes,
+			TestDependencies: p.TestDependencies,
 		},
 	}
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 
+	"github.com/saxocellphone/runko/platform/index"
 	"github.com/saxocellphone/runko/platform/receive"
 	"github.com/saxocellphone/runko/platform/search"
 	"github.com/saxocellphone/runko/runkod"
@@ -579,4 +580,36 @@ func TestMCPPagination(t *testing.T) {
 	if len(filtered.Projects) != 1 || filtered.Projects[0].Name != "money-lib" {
 		t.Fatalf("expected the path filter to match only money-lib, got %+v", filtered.Projects)
 	}
+}
+
+// TestProjectDetailCarriesEveryDeclaredEdgeKind: the read model an agent
+// uses to decide what a change touches must not be narrower than the graph
+// the merge gate keys on. It was: consumes existed in the schema but was
+// never filled, and test_dependencies (2026-07-24) had nowhere to go, so a
+// project's build-grade coupling could be invisible here while gating on it.
+func TestProjectDetailCarriesEveryDeclaredEdgeKind(t *testing.T) {
+	detail := projectDetail(index.IndexedProject{
+		Name: "cli", Path: "cli", Type: "app", Visibility: "default",
+		Owners:               []index.OwnerEntry{{Ref: "group:platform-eng", Source: "manifest"}},
+		DeclaredDependencies: []string{"platform"},
+		TestDependencies:     []string{"runkod"},
+		Consumes:             []string{"docs"},
+	})
+	if len(detail.Dependencies.Declared) != 1 || detail.Dependencies.Declared[0] != "platform" {
+		t.Fatalf("declared: %+v", detail.Dependencies)
+	}
+	if len(detail.Dependencies.TestDependencies) != 1 || detail.Dependencies.TestDependencies[0] != "runkod" {
+		t.Fatalf("test_dependencies: %+v", detail.Dependencies)
+	}
+	if len(detail.Dependencies.Consumes) != 1 || detail.Dependencies.Consumes[0] != "docs" {
+		t.Fatalf("consumes: %+v", detail.Dependencies)
+	}
+
+	// The shape still validates against the schema of record - both new
+	// fields are declared there, and the object is additionalProperties:false.
+	payload, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	validatePayload(t, "get_project", payload)
 }

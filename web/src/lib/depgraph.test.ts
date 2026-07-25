@@ -101,3 +101,55 @@ describe("consumes edges (§13.3.1)", () => {
     expect(dependencyClosure(items, "mailer").has("platform")).toBe(true);
   });
 });
+
+describe("test-only edges (2026-07-24)", () => {
+  // platform's e2e links the daemon; bridge builds against platform's
+  // library and never touches the daemon. cli and runkod drive each
+  // other's binaries - a mutual pair, which the layering must survive.
+  const items = [
+    { name: "daemon", deps: [] },
+    { name: "platform", deps: [], testDeps: ["daemon"] },
+    { name: "bridge", deps: ["platform"] },
+    { name: "cli", deps: [], testDeps: ["daemon"] },
+  ];
+
+  it("emits its own edge kind, outranked by a build edge on the same pair", () => {
+    const kinds = layoutDag(items).edges.map((e) => `${e.from}->${e.to}:${e.kind}`);
+    expect(kinds).toContain("platform->daemon:test");
+    const both = layoutDag([
+      { name: "daemon", deps: [] },
+      { name: "dual", deps: ["daemon"], testDeps: ["daemon"] },
+    ]).edges.map((e) => `${e.from}->${e.to}:${e.kind}`);
+    expect(both).toEqual(["dual->daemon:dep"]);
+  });
+
+  it("stops the dependent closure at its declarer", () => {
+    // The whole point: platform re-tests when the daemon changes, bridge
+    // does not - it never links what platform's tests link.
+    const affected = dependentClosure(items, "daemon");
+    expect(affected.has("platform")).toBe(true);
+    expect(affected.has("cli")).toBe(true);
+    expect(affected.has("bridge")).toBe(false);
+  });
+
+  it("still propagates through a project a build edge also reaches", () => {
+    // mid is reachable from core two ways; tip rides only the build path,
+    // and must not be dropped for the accident of arrival order.
+    const graph = [
+      { name: "core", deps: [] },
+      { name: "lib", deps: ["core"] },
+      { name: "mid", deps: ["lib"], testDeps: ["core"] },
+      { name: "tip", deps: ["mid"] },
+    ];
+    expect(dependentClosure(graph, "core")).toEqual(new Set(["lib", "mid", "tip"]));
+  });
+
+  it("survives a mutual test-edge pair without hanging", () => {
+    const mutual = [
+      { name: "a", deps: [], testDeps: ["b"] },
+      { name: "b", deps: [], testDeps: ["a"] },
+    ];
+    expect(() => layoutDag(mutual)).not.toThrow();
+    expect(dependentClosure(mutual, "a")).toEqual(new Set(["b"]));
+  });
+});

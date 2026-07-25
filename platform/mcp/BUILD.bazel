@@ -28,6 +28,7 @@ go_test(
     data = ["//docs:contracts"],
     embed = [":mcp"],
     deps = [
+        "//platform/index",
         "//platform/receive",
         "//platform/search",
         "//runkod",
