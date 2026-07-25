@@ -78,6 +78,7 @@ message Dependencies {
   repeated string declared = 1;  // gates affected computation (§13.3)
   repeated string inferred = 2;  // advisory-only, never gates merges (§13.3); always empty in v1
   repeated string consumes = 3;  // §13.3.1 server/client edges: providers this project is a contract CLIENT of; contract-scoped closure, distinct from build-grade declared
+  repeated string test_dependencies = 4;  // non-transitive build-grade edges: what this project's own CHECKS build or run; cone-wide like declared, terminal in the closure (consumers do not inherit)
 }
 
 // Full effective view (GetProject; see proto/README.md item 3 on why this

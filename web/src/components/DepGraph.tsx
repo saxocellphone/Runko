@@ -30,6 +30,7 @@ export function useGraphProjects(): RpcState<GraphProject[]> {
           name: detail.name,
           deps: detail.dependencies?.declared ?? [],
           consumes: detail.dependencies?.consumes ?? [],
+          testDeps: detail.dependencies?.testDependencies ?? [],
           type: detail.type,
           owners: detail.effectiveOwners,
           path: detail.path,
@@ -44,6 +45,7 @@ export function GraphLegend() {
     <>
       <span className="chip graph-legend-deps">dependencies</span>
       <span className="chip graph-legend-consumes">consumes (client)</span>
+      <span className="chip graph-legend-test">test-only</span>
       <span className="chip graph-legend-rdeps">dependents (affected)</span>
     </>
   );
@@ -119,7 +121,7 @@ export function DepGraph({
         {layout.edges.map((e) => (
           <path
             key={`${e.from}->${e.to}`}
-            className={edgeClass(e.from, e.to) + (e.kind === "consumes" ? " consumes" : "")}
+            className={edgeClass(e.from, e.to) + (e.kind === "dep" ? "" : " " + e.kind)}
             d={`M ${e.x1} ${e.y1} C ${e.x1} ${e.y1 + 40}, ${e.x2} ${e.y2 - 40}, ${e.x2} ${e.y2 - 3}`}
             markerEnd="url(#arrow)"
           />

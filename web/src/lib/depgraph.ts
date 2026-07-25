@@ -17,6 +17,12 @@ export interface DepGraphInput {
   // provider; it re-tests when the provider's contract changes), drawn
   // dashed to keep the two edge kinds distinguishable.
   consumes?: string[];
+  // Non-transitive build-grade edges (2026-07-24): projects this one's own
+  // CHECKS build or run. Layered like a dep - the coupling is real, and a
+  // checkout materializes it - but TERMINAL for the dependent direction:
+  // nothing downstream of this project inherits it, so `dependentClosure`
+  // stops here. Drawn dotted, its own third kind.
+  testDeps?: string[];
 }
 
 export interface DagNode {
@@ -29,7 +35,7 @@ export interface DagNode {
 }
 
 export interface DagEdge {
-  kind: "dep" | "consumes";
+  kind: "dep" | "consumes" | "test";
   from: string; // dependent / client
   to: string; // dependency / provider
   x1: number; // bottom-center of `from`
@@ -54,14 +60,19 @@ export function nodeWidth(name: string): number {
   return Math.min(280, Math.max(120, 26 + name.length * 7.4));
 }
 
-// Longest path to a no-dependency node; unknown deps are ignored, cycles
-// (which declared deps should never form, §13.3) are broken by treating
-// the back-edge's target as layer 0 rather than recursing forever.
-// edgesOf unifies both edge kinds for layering/ordering/closures - the
-// KIND only matters for rendering.
+// Longest path to a no-dependency node; unknown deps are ignored, and
+// cycles are broken by treating the back-edge's target as layer 0 rather
+// than recursing forever. Cycles are NOT hypothetical: mutual test edges
+// are the honest shape of two projects whose e2e suites drive each
+// other's binaries, and a library implementing an interface its own
+// consumer defines closes a loop too.
+// edgesOf unifies every edge kind for layering/ordering - a coupling is a
+// coupling when deciding who sits above whom. The KIND matters for
+// rendering, and for the DEPENDENT direction, where a test edge is
+// terminal (see dependentClosure).
 function edgesOf(item: DepGraphInput | undefined): string[] {
   if (!item) return [];
-  return [...new Set([...item.deps, ...(item.consumes ?? [])])];
+  return [...new Set([...item.deps, ...(item.consumes ?? []), ...(item.testDeps ?? [])])];
 }
 
 export function assignLayers(items: DepGraphInput[]): Map<string, number> {
@@ -147,7 +158,7 @@ export function layoutDag(items: DepGraphInput[]): DagLayout {
   // inputs, not their order.
   for (const p of [...items].sort((a, b) => a.name.localeCompare(b.name))) {
     const from = nodes.get(p.name)!;
-    const push = (d: string, kind: "dep" | "consumes") => {
+    const push = (d: string, kind: "dep" | "consumes" | "test") => {
       const to = nodes.get(d);
       if (!to || d === p.name) return;
       edges.push({
@@ -161,8 +172,12 @@ export function layoutDag(items: DepGraphInput[]): DagLayout {
       });
     };
     for (const d of p.deps) push(d, "dep");
-    // A pair with both kinds keeps only the build edge - one arrow per pair.
-    for (const d of (p.consumes ?? []).filter((c) => !p.deps.includes(c))) push(d, "consumes");
+    // A pair with several kinds keeps the strongest one - one arrow per
+    // pair, and `dep` (whole-tree, propagating) outranks `test` (terminal),
+    // which outranks `consumes` (contract-scoped).
+    for (const d of (p.testDeps ?? []).filter((c) => !p.deps.includes(c))) push(d, "test");
+    for (const d of (p.consumes ?? []).filter((c) => !p.deps.includes(c) && !(p.testDeps ?? []).includes(c)))
+      push(d, "consumes");
   }
 
   return { nodes: [...nodes.values()], edges, width, height };
@@ -186,14 +201,36 @@ export function dependencyClosure(items: DepGraphInput[], name: string): Set<str
   return out;
 }
 
+// The dependent direction answers "what re-tests when this changes", so it
+// mirrors the server's closure exactly (platform/affected): propagating
+// edges continue, test edges are TERMINAL. A project reached only through
+// someone's test edge is highlighted, but nothing beyond it is - its
+// consumers never link that coupling. Membership and continuation are
+// tracked separately for the same reason the server does it: a project
+// first reached by a terminal edge must still propagate if a build edge
+// reaches it too.
 export function dependentClosure(items: DepGraphInput[], name: string): Set<string> {
   const out = new Set<string>();
+  const walked = new Set<string>([name]);
   let grew = true;
   while (grew) {
     grew = false;
     for (const p of items) {
-      if (out.has(p.name) || p.name === name) continue;
-      if (edgesOf(p).some((d) => d === name || out.has(d))) {
+      if (p.name === name) continue;
+      const buildEdges = [...new Set([...p.deps, ...(p.consumes ?? [])])];
+      const reaches = (d: string) => d === name || walked.has(d);
+      if (buildEdges.some(reaches)) {
+        if (!out.has(p.name)) {
+          out.add(p.name);
+          grew = true;
+        }
+        if (!walked.has(p.name)) {
+          walked.add(p.name);
+          grew = true;
+        }
+        continue;
+      }
+      if ((p.testDeps ?? []).some(reaches) && !out.has(p.name)) {
         out.add(p.name);
         grew = true;
       }

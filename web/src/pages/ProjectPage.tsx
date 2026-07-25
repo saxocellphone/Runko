@@ -85,6 +85,19 @@ export function ProjectPage() {
           </dd>
 
           <dt>
+            Test-only deps
+            <InfoTip text="Projects this one's own checks build or run - an end-to-end suite linking another project's package, a test executing its binary - declared in PROJECT.yaml. A workspace scoped here materializes them like any dependency, and this project re-tests when they change. What makes them different: projects that depend on THIS one do not re-test, because the coupling lives in test code they never link." />
+          </dt>
+          <dd className="chip-row">
+            {(p.dependencies?.testDependencies.length ?? 0) === 0 && <span className="chip">none</span>}
+            {p.dependencies?.testDependencies.map((d) => (
+              <Link className="chip" key={d} to={`/projects/${d}`}>
+                {d} ⊣
+              </Link>
+            ))}
+          </dd>
+
+          <dt>
             Consumes
             <InfoTip text="APIs this project is a client of (server/client edges, declared in PROJECT.yaml). Contract-scoped: this project re-tests when a provider's contract surface changes - its proto dir or OpenAPI document - never for the provider's internals." />
           </dt>

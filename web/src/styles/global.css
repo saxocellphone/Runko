@@ -2799,6 +2799,16 @@ tr.thread-row > td {
 .graph-edge.consumes {
   stroke-dasharray: 6 5;
 }
+/* Test-only edges (2026-07-24): a real build coupling that stops at its
+   declarer - dotted, so it reads as weaker than a build edge without
+   disappearing the way it did when the UI knew only two kinds. */
+.graph-edge.test {
+  stroke-dasharray: 2 4;
+}
+.graph-legend-test {
+  border-style: dotted;
+  border-color: var(--border-strong);
+}
 .graph-legend-consumes {
   border-style: dashed;
   border-color: var(--border-strong);

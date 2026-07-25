@@ -106,7 +106,8 @@
           "properties": {
             "declared": { "type": "array", "items": { "type": "string" }, "description": "Gates affected computation (§13.3)." },
             "inferred": { "type": "array", "items": { "type": "string" }, "description": "Advisory-only, never gates merges (§13.3)." },
-            "consumes": { "type": "array", "items": { "type": "string" }, "description": "§13.3.1 server/client edges: providers whose API contract this project is a client of. Contract-scoped closure - the client joins affected only when the provider's contract surface changes - distinct from build-grade declared dependencies." }
+            "consumes": { "type": "array", "items": { "type": "string" }, "description": "§13.3.1 server/client edges: providers whose API contract this project is a client of. Contract-scoped closure - the client joins affected only when the provider's contract surface changes - distinct from build-grade declared dependencies." },
+            "test_dependencies": { "type": "array", "items": { "type": "string" }, "description": "Non-transitive build-grade edges (2026-07-24): projects this one's own CHECKS build or run - an e2e suite linking another project's package, a test execing its binary - and that its consumers do NOT inherit. The read cone materializes them exactly like a dependency; the affected closure adds this project when they change and stops there, never continuing on to this project's own dependents." }
           }
         }
       },
