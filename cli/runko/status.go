@@ -88,6 +88,28 @@ type StatusReport struct {
 	// against; empty when nothing is in flight (fully landed, or only
 	// jj's undescribed working-copy commit which is reported via DirtyPaths).
 	Stack []StackEntry
+	// MirrorFrozenRefs are the outbound-mirror refs currently frozen on
+	// divergence - DEPLOYMENT-WIDE state, not this checkout's. Reported
+	// here because a frozen trunk ref is silent everywhere else: landing
+	// keeps succeeding, but no landed commit reaches the mirror, so
+	// post-land CI (which checks out the landed head THERE) stops running
+	// and nothing deploys. Prod ran 19h in exactly that state on
+	// 2026-07-24 without a single surface saying so. Empty when healthy,
+	// when no mirror is configured, or when the read failed - this is a
+	// warning channel, never a gate.
+	MirrorFrozenRefs []string
+}
+
+// mirrorStatusView is the subset of GET /api/mirror/status this command
+// reads. The daemon marshals that payload with Go field names and no tags,
+// so these names must match its own (encoding/json matches case-
+// insensitively, but not across renames).
+type mirrorStatusView struct {
+	Configured bool
+	Cursors    []struct {
+		Ref    string
+		Frozen bool
+	}
 }
 
 // RunStatus builds the report. cred is nil when no credential resolved -
@@ -147,6 +169,21 @@ func RunStatus(ctx context.Context, client *http.Client, cred *Credential, credE
 			strings.TrimSuffix(cred.URL, "/")+"/api/workspaces/"+url.PathEscape(r.WorkspaceID),
 			cred.AuthHeader(), nil, &info); err == nil {
 			r.WorkspaceStatus = info.Status
+		}
+	}
+
+	// Deployment health, best-effort: any read failure (older daemon
+	// without the route, no permission, mirror unconfigured) leaves the
+	// field empty and says nothing, exactly like the other server
+	// enrichments here.
+	var mirror mirrorStatusView
+	if err := apiJSON(ctx, client, http.MethodGet,
+		strings.TrimSuffix(cred.URL, "/")+"/api/mirror/status",
+		cred.AuthHeader(), nil, &mirror); err == nil && mirror.Configured {
+		for _, c := range mirror.Cursors {
+			if c.Frozen {
+				r.MirrorFrozenRefs = append(r.MirrorFrozenRefs, c.Ref)
+			}
 		}
 	}
 
@@ -286,6 +323,14 @@ func PrintStatus(w io.Writer, r StatusReport) {
 		fmt.Fprintf(w, "  trunk:        %s/%s has new commits this line is missing - `runko workspace sync` (or let `change push` auto-sync)\n", r.Remote, r.TrunkRef)
 	} else {
 		fmt.Fprintf(w, "  trunk:        %s/%s - base is current\n", r.Remote, r.TrunkRef)
+	}
+	// Deployment-wide, and deliberately loud: a frozen mirror does not
+	// block anything the person in front of this terminal is doing, which
+	// is exactly why it can rot for hours unnoticed. Silent when healthy.
+	if len(r.MirrorFrozenRefs) > 0 {
+		fmt.Fprintf(w, "  MIRROR:       FROZEN on %s - landed changes are NOT reaching the mirror,\n", strings.Join(r.MirrorFrozenRefs, ", "))
+		fmt.Fprintln(w, "                so post-land CI and deploys are stalled deployment-wide.")
+		fmt.Fprintln(w, "                An operator unfreezes after reviewing the divergence.")
 	}
 	if r.DirtyPaths > 0 {
 		fmt.Fprintf(w, "  working tree: %d uncommitted path(s) - `runko change create` commits ALL of them\n", r.DirtyPaths)

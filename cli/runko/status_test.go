@@ -170,6 +170,96 @@ func TestRunStatusUnpushedChangeReads404AsNotPushed(t *testing.T) {
 	}
 }
 
+// A frozen outbound mirror is deployment-wide and blocks NOTHING the
+// person at this terminal is doing - landing keeps succeeding while no
+// landed commit reaches the mirror, so post-land CI and every deploy
+// silently stall. Prod sat in that state for 19h on 2026-07-24 because no
+// surface said so; status is the surface that says so.
+func TestRunStatusReportsAFrozenMirror(t *testing.T) {
+	repo := statusFixture(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/whoami":
+			json.NewEncoder(w).Encode(map[string]any{"name": "alice"})
+		case "/api/mirror/status":
+			json.NewEncoder(w).Encode(map[string]any{
+				"Configured": true,
+				"Cursors": []map[string]any{
+					{"Ref": "refs/heads/main", "Frozen": true},
+					{"Ref": "refs/tags/*", "Frozen": false},
+				},
+			})
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	defer srv.Close()
+
+	cred := Credential{URL: srv.URL, Secret: "tok"}
+	r, err := RunStatus(context.Background(), srv.Client(), &cred, "", repo.Dir, "origin", "main")
+	if err != nil {
+		t.Fatalf("RunStatus: %v", err)
+	}
+	if len(r.MirrorFrozenRefs) != 1 || r.MirrorFrozenRefs[0] != "refs/heads/main" {
+		t.Fatalf("want only the frozen ref reported, got %+v", r.MirrorFrozenRefs)
+	}
+
+	var b strings.Builder
+	PrintStatus(&b, r)
+	out := b.String()
+	if !strings.Contains(out, "MIRROR:") || !strings.Contains(out, "refs/heads/main") {
+		t.Fatalf("a frozen mirror must be visible in the rendered status, got:\n%s", out)
+	}
+	if !strings.Contains(out, "deploys are stalled") {
+		t.Fatalf("the line must say what it COSTS, not just that a ref is frozen, got:\n%s", out)
+	}
+}
+
+// The healthy case stays silent, and a daemon that does not serve the
+// route (or serves it without a mirror) must not turn status into a
+// warning generator.
+func TestRunStatusHealthyOrAbsentMirrorSaysNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body map[string]any
+		code int
+	}{
+		{name: "healthy", body: map[string]any{"Configured": true, "Cursors": []map[string]any{{"Ref": "refs/heads/main", "Frozen": false}}}},
+		{name: "unconfigured", body: map[string]any{"Configured": false}},
+		{name: "route absent", code: http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := statusFixture(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				switch {
+				case req.URL.Path == "/api/whoami":
+					json.NewEncoder(w).Encode(map[string]any{"name": "alice"})
+				case req.URL.Path == "/api/mirror/status" && tc.code == 0:
+					json.NewEncoder(w).Encode(tc.body)
+				default:
+					http.NotFound(w, req)
+				}
+			}))
+			defer srv.Close()
+
+			cred := Credential{URL: srv.URL, Secret: "tok"}
+			r, err := RunStatus(context.Background(), srv.Client(), &cred, "", repo.Dir, "origin", "main")
+			if err != nil {
+				t.Fatalf("RunStatus: %v", err)
+			}
+			if len(r.MirrorFrozenRefs) != 0 {
+				t.Fatalf("nothing to warn about, got %+v", r.MirrorFrozenRefs)
+			}
+			var b strings.Builder
+			PrintStatus(&b, r)
+			if strings.Contains(b.String(), "MIRROR:") {
+				t.Fatalf("healthy mirror must print no MIRROR line, got:\n%s", b.String())
+			}
+		})
+	}
+}
+
 func TestRunStatusUnreachableServerKeepsLocalFacts(t *testing.T) {
 	repo := statusFixture(t)
 
