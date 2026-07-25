@@ -9,10 +9,58 @@ import (
 )
 
 // labelRef matches an in-repo Bazel label inside a BUILD file: "//pkg/dir"
-// or "//pkg/dir:target". External repos (@repo//...), relative labels
-// (":target") and the pseudo-packages below are deliberately out of scope -
-// this rule is about edges between PROJECTS in this tree.
-var labelRef = regexp.MustCompile(`"//([A-Za-z0-9_/.+-]*)(?::[A-Za-z0-9_/.+-]+)?"`)
+// or "//pkg/dir:target". Starlark strings take either quote style, and
+// missing a single-quoted label would be a silent FALSE NEGATIVE - the one
+// failure direction that lets this bug class back in - so both are
+// matched. (RE2 has no backreferences, so a mismatched pair like "//a/b'
+// matches too; that costs a spurious edge on input Starlark would reject
+// anyway.) External repos (@repo//...), relative labels (":target") and
+// the pseudo-packages below are deliberately out of scope - this rule is
+// about edges between PROJECTS in this tree.
+//
+// Known gap: a ROOT-PACKAGE label ("//:target") names a target in the root
+// BUILD file rather than a directory, and is skipped. The declaration this
+// rule would demand buys nothing today - the root project's path is "", so
+// a dependency on it widens no cone, and its build-sensitive files already
+// escalate every project through root_invalidation.
+var labelRef = regexp.MustCompile(`["']//([A-Za-z0-9_/.+-]*)(?::[A-Za-z0-9_/.+-]+)?["']`)
+
+// comment strips Starlark line comments before scanning, so a
+// commented-out dep does not demand a manifest edge for a dependency that
+// does not exist. Quote-aware: a '#' inside a string (a genrule cmd, a
+// URL) is content, not a comment.
+func stripComments(content []byte) []byte {
+	out := make([]byte, 0, len(content))
+	var quote byte
+	for i := 0; i < len(content); i++ {
+		c := content[i]
+		switch {
+		case quote != 0:
+			if c == '\\' && i+1 < len(content) {
+				out = append(out, c, content[i+1])
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#':
+			// Skip to end of line; keep the newline so line structure
+			// (and any label on the next line) survives.
+			for i < len(content) && content[i] != '\n' {
+				i++
+			}
+			if i < len(content) {
+				out = append(out, '\n')
+			}
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
 
 // pseudoPackages are the //-prefixed names Bazel reserves; they name no
 // package in the tree and own no project.
@@ -78,7 +126,7 @@ func BuildLabelEdges(projects []Project, files []File) []LabelEdge {
 			continue
 		}
 		seen := map[string]bool{}
-		for _, m := range labelRef.FindAllStringSubmatch(string(f.Content), -1) {
+		for _, m := range labelRef.FindAllStringSubmatch(string(stripComments(f.Content)), -1) {
 			pkg := m[1]
 			if pkg == "" || pseudoPackages[strings.SplitN(pkg, "/", 2)[0]] {
 				continue

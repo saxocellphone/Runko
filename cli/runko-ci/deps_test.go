@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -72,5 +74,47 @@ func TestDepsAcceptsEitherDeclaration(t *testing.T) {
 		if err := execCLI("deps", "--repo", dir, "--json"); err != nil {
 			t.Fatalf("%s: verb must succeed: %v", field, err)
 		}
+	}
+}
+
+// TestDepsSeesUnmaterializedFiles: a sparse workspace is the normal way to
+// work in a Runko monorepo, and a file outside the cone is tracked-but-
+// absent from disk. Auditing only what happens to be materialized turns
+// "0 undeclared" into a statement about the cone rather than the repo -
+// the guard would have been blind to exactly the projects a narrow
+// workspace never checks out.
+func TestDepsSeesUnmaterializedFiles(t *testing.T) {
+	dir := seedDepsRepo(t, "schema: project/v1\nname: cli\ntype: app\n")
+
+	// Stand in for a sparse cone: git still tracks the file, disk does not
+	// hold it.
+	if err := os.Remove(filepath.Join(dir, "cli", "BUILD.bazel")); err != nil {
+		t.Fatalf("unmaterialize: %v", err)
+	}
+	res, err := Deps(dir)
+	if err != nil {
+		t.Fatalf("Deps: %v", err)
+	}
+	if res.FromIndex != 1 {
+		t.Fatalf("want 1 file read from HEAD, got %d", res.FromIndex)
+	}
+	if len(res.Undeclared) != 1 {
+		t.Fatalf("the undeclared edge must survive unmaterialization, got %+v", res.Edges)
+	}
+
+	// A manifest outside the cone must still define its project, or every
+	// label into it would resolve to the wrong owner (or to none).
+	if err := os.Remove(filepath.Join(dir, "templates", "PROJECT.yaml")); err != nil {
+		t.Fatalf("unmaterialize manifest: %v", err)
+	}
+	res, err = Deps(dir)
+	if err != nil {
+		t.Fatalf("Deps: %v", err)
+	}
+	if res.Projects != 3 || res.FromIndex != 2 {
+		t.Fatalf("want 3 projects (2 from HEAD), got projects=%d from_index=%d", res.Projects, res.FromIndex)
+	}
+	if len(res.Undeclared) != 1 || res.Undeclared[0].Path != "cli/BUILD.bazel" {
+		t.Fatalf("undeclared edge lost when the target's manifest was unmaterialized: %+v", res.Undeclared)
 	}
 }

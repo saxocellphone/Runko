@@ -193,15 +193,21 @@ against the build graph - every Bazel label reference crossing a project
 boundary under `--repo`, flagged with whether a `dependencies` /
 `test_dependencies` / `consumes` edge declares it - and reads the WORKING
 TREE, not a revision, so a manifest edit is audited beside the build file
-that needs it. Strict-deps: the referencing project must declare the
-referenced one DIRECTLY, any of the three kinds. An undeclared edge is
-invisible to BOTH affected computation and the workspace cone (the class
-that left four of this repo's projects with unbuildable fresh workspaces
-until 2026-07-24), so the verb exits 1 with
-`undeclared_project_dependency` naming the manifest to edit. `--json`
-emits `{"projects", "build_files", "edges": [{"File", "From", "To",
-"Label", "Declared"}], "undeclared": [{"code", "path", "message",
-"suggestion"}]}`. Wired into `make check-bazel`, the `bazel-check` lane:
+that needs it. A tracked file the working tree does NOT hold - the normal
+case in a sparse workspace - is read from `HEAD` instead and counted in
+`from_index`, because an audit that silently skipped whatever the cone
+left out would be answering "0 undeclared" about the cone rather than
+about the repo. Strict-deps: the referencing project must declare the
+referenced one DIRECTLY, any of the three kinds. Both Starlark quote
+styles are scanned and comments are stripped first (quote-aware, so a `#`
+inside a genrule command is content); a root-package label (`//:target`)
+is out of scope. An undeclared edge is invisible to BOTH affected
+computation and the workspace cone (the class that left four of this
+repo's projects with unbuildable fresh workspaces until 2026-07-24), so
+the verb exits 1 with `undeclared_project_dependency` naming the manifest
+to edit. `--json` emits `{"projects", "build_files", "from_index",
+"edges": [{"File", "From", "To", "Label", "Declared"}], "undeclared":
+[{"code", "path", "message", "suggestion"}]}`. Wired into `make check-bazel`, the `bazel-check` lane:
 like the gazelle drift check it is repo-wide by nature.
 
 Commands not listed here (`runko auth` - stubbed, needs a live control
