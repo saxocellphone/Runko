@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/saxocellphone/runko/internal/clierr"
 	"github.com/saxocellphone/runko/platform/land"
+	"github.com/saxocellphone/runko/platform/receive"
 )
 
 func newChangeCmd(a *app) *cobra.Command {
@@ -39,7 +41,7 @@ onto trunk once the merge gates are green.`,
 		RunE: groupRunE,
 	}
 	cmd.AddCommand(
-		newChangeCreateCmd(), newChangeAmendCmd(), newChangePushCmd(),
+		newChangeCreateCmd(), newChangeAmendCmd(), newChangePushCmd(a),
 		newChangeRequirementsCmd(a), newChangeLandCmd(a), newChangeApproveCmd(a),
 		newChangeAckPolicyCmd(a),
 		newChangeListCmd(a), newChangeAbandonCmd(a), newChangeDescribeCmd(a),
@@ -76,12 +78,13 @@ explicit submit step. Newly-added files that look like build artifacts
 			if jsonOut {
 				return json.NewEncoder(os.Stdout).Encode(map[string]string{"change_id": id})
 			}
-			// Nudge the two remaining steps of the submit loop. The description is a
-			// SEPARATE control-plane field (§8.6, never derived from the commit
-			// message) that RequireDescription gates agent lands on - surfacing it
-			// here means an agent sets it up front instead of discovering the blocker
-			// only at `change requirements` (FIX #6).
-			fmt.Printf("created change %s\n  -> runko change describe --description \"WHAT changed and WHY\"   # agent changes must, before landing\n  -> runko change push                                       # submit it for review\n", id)
+			// Nudge the rest of the submit loop. The description is still a
+			// separate control-plane field that RequireDescription gates agent
+			// lands on, but `change push` now seeds it from this commit's body
+			// - so the nudge points at writing a real message, not at a second
+			// command to remember. A subject-only commit has no body to seed
+			// from, which is exactly when describe is still needed.
+			fmt.Printf("created change %s\n  -> runko change push   # submit it for review (its description comes from this commit's body)\n", id)
 			return nil
 		},
 	}
@@ -134,10 +137,132 @@ default keeps HEAD's message. Refused in a jj colocated checkout
 	return cmd
 }
 
-func newChangePushCmd() *cobra.Command {
+// pushedChange is one Change-bearing commit in the line a push submitted,
+// paired with the prose under its subject line.
+type pushedChange struct {
+	changeID string
+	body     string
+}
+
+// commitTrailer matches a git trailer line ("Change-Id: I...",
+// "Signed-off-by: ..."), the shape git's own interpret-trailers uses.
+var commitTrailer = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]*:[ \t]`)
+
+// commitBodyDescription extracts a commit message's prose body: everything
+// under the subject line, minus the trailing trailer paragraph. Returns ""
+// when the commit says nothing beyond its subject - a one-line commit has
+// no description to seed, and inventing one from the subject would just
+// restate the title the Change already carries.
+func commitBodyDescription(msg string) string {
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	if len(lines) < 2 {
+		return ""
+	}
+	body := lines[1:]
+	end := len(body)
+	for end > 0 && strings.TrimSpace(body[end-1]) == "" {
+		end--
+	}
+	// Walk back over the last paragraph; drop it when it is trailers only.
+	start := end
+	for start > 0 && strings.TrimSpace(body[start-1]) != "" {
+		start--
+	}
+	if start < end {
+		trailersOnly := true
+		for _, l := range body[start:end] {
+			if !commitTrailer.MatchString(l) {
+				trailersOnly = false
+				break
+			}
+		}
+		if trailersOnly {
+			end = start
+		}
+	}
+	return strings.TrimSpace(strings.Join(body[:end], "\n"))
+}
+
+// pushedSeries lists the Change-bearing commits between the local trunk ref
+// and the pushed tip, bottom -> top, each with a non-empty body. One push
+// updates every Change in the stack, so seeding walks the same series the
+// receive funnel just processed. Later commits win for a Change-Id that
+// appears more than once (a Change grown by an amend commit): that commit
+// is the Change's head, so its message is the current one.
+func pushedSeries(dir, remote, trunk string) []pushedChange {
+	base, err := runGit(dir, "rev-parse", "--verify", "refs/remotes/"+remote+"/"+trunk)
+	if err != nil {
+		return nil
+	}
+	tip := "HEAD"
+	if isJJWorkspace(dir) {
+		if t, jerr := jjTipCommit(dir); jerr == nil {
+			tip = t
+		}
+	}
+	out, err := runGit(dir, "rev-list", "--first-parent", "--reverse", base+".."+tip)
+	if err != nil || out == "" {
+		return nil
+	}
+	seen := map[string]int{}
+	var series []pushedChange
+	for _, sha := range strings.Split(out, "\n") {
+		msg, err := runGit(dir, "log", "-1", "--format=%B", sha)
+		if err != nil {
+			continue
+		}
+		id, ok := receive.ParseChangeID(msg)
+		if !ok {
+			continue
+		}
+		body := commitBodyDescription(msg)
+		if body == "" {
+			continue
+		}
+		if i, dup := seen[id]; dup {
+			series[i].body = body
+			continue
+		}
+		seen[id] = len(series)
+		series = append(series, pushedChange{changeID: id, body: body})
+	}
+	return series
+}
+
+// seedPushedDescriptions gives every just-pushed Change with no description
+// the prose from its own commit message. Writing the what-and-why twice -
+// once for git, once for the control plane - is pure duplication, and the
+// omission surfaces much later as an unmergeable Change rather than at push
+// time.
+//
+// Only ever FILLS: a Change the server already has a description for is
+// untouched, so an explicit `change describe` is never clobbered by a
+// re-push. Entirely best-effort - the push has already succeeded and
+// nothing here may fail it - so an unreachable control plane, a change the
+// caller cannot read, or a rejected write is skipped silently rather than
+// turning a good push into a bad exit code.
+func seedPushedDescriptions(ctx context.Context, client *http.Client, cred Credential, dir, remote, trunk string) {
+	for _, c := range pushedSeries(dir, remote, trunk) {
+		var info ChangeInfo
+		if err := apiJSON(ctx, client, http.MethodGet,
+			strings.TrimSuffix(cred.URL, "/")+"/api/changes/"+url.PathEscape(c.changeID),
+			cred.AuthHeader(), nil, &info); err != nil {
+			continue
+		}
+		if strings.TrimSpace(info.Description) != "" {
+			continue
+		}
+		if _, err := DescribeChange(ctx, client, cred.URL, cred.AuthHeader(), c.changeID, &c.body, nil); err != nil {
+			continue
+		}
+		fmt.Fprintf(warnWriter, "described %s from its commit message body (`runko change describe` to replace it, --no-describe to skip)\n", c.changeID)
+	}
+}
+
+func newChangePushCmd(a *app) *cobra.Command {
 	var (
-		repoDir, remote, trunk      string
-		noSync, noSnapshot, jsonOut bool
+		repoDir, remote, trunk                  string
+		noSync, noSnapshot, noDescribe, jsonOut bool
 	)
 	cmd := &cobra.Command{
 		Use:   "push",
@@ -146,7 +271,12 @@ func newChangePushCmd() *cobra.Command {
 with the worktree's workspace-origin push options. Auto-syncs a stale
 base onto the trunk tip first and, in a workspace-bound checkout,
 auto-snapshots the working tree beforehand - both best-effort
-opt-outs. One push updates EVERY Change in the stack (series receive).`,
+opt-outs. One push updates EVERY Change in the stack (series receive).
+
+A Change with no description yet takes one from its commit message body
+(the prose under the subject, trailers stripped) - you already wrote it
+there, and an agent Change without a description is not mergeable.
+Anything already described is left alone; --no-describe opts out.`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), repoDir)
@@ -159,6 +289,14 @@ opt-outs. One push updates EVERY Change in the stack (series receive).`,
 			changeID, err := pushChange(wd, remote, trunk, !noSync, !noSnapshot)
 			if err != nil {
 				return err
+			}
+			if !noDescribe {
+				// After the push: the Changes must exist server-side before
+				// they can be described. Best-effort throughout - the push
+				// has already succeeded, so nothing here may fail it.
+				if cred, cerr := a.credential(); cerr == nil {
+					seedPushedDescriptions(cmd.Context(), http.DefaultClient, cred, wd, remote, trunk)
+				}
 			}
 			if jsonOut {
 				return json.NewEncoder(os.Stdout).Encode(map[string]string{
@@ -176,6 +314,7 @@ opt-outs. One push updates EVERY Change in the stack (series receive).`,
 	fl.StringVar(&trunk, "trunk", "main", "trunk ref name")
 	fl.BoolVar(&noSync, "no-sync", false, "push as-is even when the base is stale (skip the automatic rebase onto the trunk tip)")
 	fl.BoolVar(&noSnapshot, "no-snapshot", false, "skip the automatic workspace snapshot before pushing")
+	fl.BoolVar(&noDescribe, "no-describe", false, "do not seed an empty Change description from the commit message body")
 	fl.BoolVar(&jsonOut, "json", false, "emit {change_id, ref} as JSON instead of a human summary")
 	return cmd
 }

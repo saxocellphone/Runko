@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +41,108 @@ func configureIdentity(t *testing.T, dir string) {
 	if _, err := runGit(dir, "config", "user.email", "test@runko.dev"); err != nil {
 		t.Fatalf("configure user.email: %v", err)
 	}
+}
+
+func TestCommitBodyDescription(t *testing.T) {
+	for _, tc := range []struct {
+		name, msg, want string
+	}{
+		{
+			name: "body with trailers stripped",
+			msg:  "subject line\n\nwhy this change exists.\n\nand a second paragraph.\n\nChange-Id: I123\nSigned-off-by: A <a@b.c>\n",
+			want: "why this change exists.\n\nand a second paragraph.",
+		},
+		{
+			// A one-line commit has nothing to say beyond its title, and the
+			// Change already carries the title - seeding it would just
+			// duplicate, and would mask the missing description.
+			name: "subject only yields nothing",
+			msg:  "subject line\n\nChange-Id: I123\n",
+			want: "",
+		},
+		{name: "no body at all", msg: "subject line\n", want: ""},
+		{
+			// Only the LAST paragraph is trailer-eligible: prose that happens
+			// to start with "Note:" must survive.
+			name: "prose that looks trailer-ish is kept",
+			msg:  "subject\n\nNote: this sentence is prose, not a trailer.\n\nreal body.\n\nChange-Id: I1\n",
+			want: "Note: this sentence is prose, not a trailer.\n\nreal body.",
+		},
+		{name: "crlf", msg: "subject\r\n\r\nbody here.\r\n\r\nChange-Id: I1\r\n", want: "body here."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := commitBodyDescription(tc.msg); got != tc.want {
+				t.Fatalf("commitBodyDescription:\n got %q\nwant %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Writing the what-and-why twice - once in the commit, once for the
+// control plane - is duplication, and forgetting the second surfaces much
+// later as an unmergeable agent Change. push seeds it; what it must NEVER
+// do is clobber a description someone set deliberately.
+func TestSeedPushedDescriptionsFillsOnlyEmptyOnes(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("base")
+	repo.Run("update-ref refs/remotes/origin/main HEAD")
+	empty, described := fakeChangeID("seed-empty"), fakeChangeID("seed-described")
+	repo.WriteFile("a.txt", "a\n")
+	repo.Commit("bottom subject\n\nthe bottom body.\n\nChange-Id: " + empty)
+	repo.WriteFile("b.txt", "b\n")
+	repo.Commit("top subject\n\nthe top body.\n\nChange-Id: " + described)
+
+	var posted map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, empty):
+			json.NewEncoder(w).Encode(ChangeInfo{State: "open", Description: ""})
+		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, described):
+			json.NewEncoder(w).Encode(ChangeInfo{State: "open", Description: "set by hand"})
+		case req.Method == http.MethodPost && strings.Contains(req.URL.Path, "/describe"):
+			var body map[string]string
+			json.NewDecoder(req.Body).Decode(&body)
+			if posted != nil {
+				t.Errorf("described more than one change; second was %s", req.URL.Path)
+			}
+			posted = body
+			if !strings.Contains(req.URL.Path, empty) {
+				t.Errorf("described the wrong change: %s", req.URL.Path)
+			}
+			json.NewEncoder(w).Encode(ChangeInfo{State: "open"})
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	defer srv.Close()
+
+	cred := Credential{URL: srv.URL, Secret: "tok"}
+	seedPushedDescriptions(context.Background(), srv.Client(), cred, repo.Dir, "origin", "main")
+
+	if posted == nil {
+		t.Fatalf("the change with no description must be seeded from its commit body")
+	}
+	if posted["description"] != "the bottom body." {
+		t.Fatalf("seeded the wrong text: %q", posted["description"])
+	}
+	if _, ok := posted["test_plan"]; ok {
+		t.Fatalf("push must not invent a test plan - it has no source for one: %+v", posted)
+	}
+}
+
+// The push has already succeeded by the time seeding runs, so nothing here
+// may turn a good push into a failure.
+func TestSeedPushedDescriptionsSurvivesAnUnreachableServer(t *testing.T) {
+	repo := gitfixture.New(t)
+	repo.WriteFile("README.md", "hi\n")
+	repo.Commit("base")
+	repo.Run("update-ref refs/remotes/origin/main HEAD")
+	repo.WriteFile("a.txt", "a\n")
+	repo.Commit("subject\n\nbody.\n\nChange-Id: " + fakeChangeID("seed-unreachable"))
+
+	cred := Credential{URL: "http://127.0.0.1:1", Secret: "tok"}
+	seedPushedDescriptions(context.Background(), http.DefaultClient, cred, repo.Dir, "origin", "main")
 }
 
 func TestPushChangeGoesToMagicRef(t *testing.T) {
