@@ -187,7 +187,17 @@ func (w *MirrorWorker) syncTrunk(ctx context.Context, remote *mirror.Remote) err
 		return fmt.Errorf("mirror: %s diverged (mirror at %.12s, expected %.12s) - frozen; unfreeze via POST /api/mirror/unfreeze after review", trunk, remoteSHA, expected)
 	}
 	if remoteSHA != localTip {
-		if err := remote.PushWithLease(trunk, remoteSHA); err != nil {
+		// Push the PINNED localTip read above, not the live ref: a land that
+		// completes during the ls-remote round trip above would otherwise be
+		// carried by this push while the cursor below records the older tip,
+		// leaving the mirror one commit AHEAD of what we think we wrote. The
+		// next sync reads that gap as a foreign write and freezes trunk on
+		// our own push (prod, 2026-07-24: two lands 4s apart froze the mirror
+		// and starved every downstream image build until an admin unfroze
+		// it). Pinned, the pushed object and the recorded cursor are the same
+		// commit by construction; a tip that moved mid-sync is simply carried
+		// by the next tick, which now sees remote == cursor and fast-forwards.
+		if err := remote.PushWithLease(trunk, remoteSHA, localTip); err != nil {
 			// Lost the lease between ls-remote and push: same verdict.
 			if freezeErr := w.Store.FreezeMirrorCursor(ctx, mirrorRemoteName, trunk); freezeErr != nil {
 				return freezeErr

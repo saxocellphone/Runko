@@ -117,6 +117,59 @@ func TestMirrorDivergenceFreezesButNeverBlocksLanding(t *testing.T) {
 	}
 }
 
+// The prod freeze of 2026-07-24: two changes landed 4s apart, the second
+// during a sync's ls-remote round trip. The push carried the LIVE ref (the
+// newer tip) while syncTrunk recorded the tip it had rev-parsed before the
+// round trip, leaving the mirror one commit ahead of its own cursor - and
+// the next sync read that gap as a foreign write and froze trunk, starving
+// every downstream image build until an admin unfroze it.
+//
+// The invariant that kills it: a push carries the PINNED sha it was handed,
+// so the object on the mirror and the sha the caller records are the same
+// commit no matter what trunk does mid-sync.
+func TestMirrorPushCarriesThePinnedTipNotTheLiveRef(t *testing.T) {
+	f, w, target := newMirrorFixture(t)
+	ctx := context.Background()
+	if err := w.SyncOnce(ctx); err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+	pinned, _ := gitRevParse(f.bare, "refs/heads/main")
+
+	// A land moves trunk - standing in for one that completes while a sync is
+	// in flight, after it has read the tip it intends to push and record.
+	f.greenAndApprove()
+	if dec, apiErr := f.srv.landChangeCore(ctx, smChangeID, f.change(), nil, nil, false); apiErr != nil || !dec.Landed {
+		t.Fatalf("land: %+v %+v", dec, apiErr)
+	}
+	moved, _ := gitRevParse(f.bare, "refs/heads/main")
+	if moved == pinned {
+		t.Fatalf("fixture bug: the land did not move trunk off %s", pinned)
+	}
+
+	// Push the tip the caller resolved BEFORE the land, exactly as syncTrunk
+	// does. Resolving refs/heads/main here instead would ship `moved` while
+	// the caller goes on to record `pinned`.
+	if err := w.Remote.PushWithLease("refs/heads/main", pinned, pinned); err != nil {
+		t.Fatalf("PushWithLease: %v", err)
+	}
+	got, _ := gitfixtureRunGit(target, "rev-parse", "refs/heads/main")
+	if got != pinned {
+		t.Fatalf("push carried the live ref instead of the pinned tip: mirror at %s, recorded %s - the next sync would freeze on our own write", got, pinned)
+	}
+
+	// End to end: whatever a sync leaves on the mirror is what the cursor
+	// says it left, so the freeze branch can only ever see a REAL foreign
+	// write.
+	if err := w.SyncOnce(ctx); err != nil {
+		t.Fatalf("sync after the land: %v", err)
+	}
+	cursor, ok, _ := f.store.GetMirrorCursor(ctx, mirrorRemoteName, "refs/heads/main")
+	mirrorTip, _ := gitfixtureRunGit(target, "rev-parse", "refs/heads/main")
+	if !ok || cursor.Frozen || cursor.LastSyncedSHA != mirrorTip {
+		t.Fatalf("cursor must equal the mirror tip after a sync: cursor %+v, mirror %s", cursor, mirrorTip)
+	}
+}
+
 func TestMirrorUnfreezeAdoptsRemoteTipThenOverwritesOnce(t *testing.T) {
 	f, w, target := newMirrorFixture(t)
 	ctx := context.Background()

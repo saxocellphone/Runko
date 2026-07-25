@@ -125,12 +125,18 @@ func (r *Remote) LsRemote(ref string) (string, error) {
 	return fields[0], nil
 }
 
-// PushWithLease pushes localRef to the mirror, succeeding only if the
+// PushWithLease pushes tip to the mirror's ref, succeeding only if the
 // mirror's ref still points at expected ("" = the ref must not exist yet) -
 // §18.6.1's single-writer lease as a git primitive. A lease failure means
 // someone else wrote the mirror; the CALLER decides what freezes.
-func (r *Remote) PushWithLease(ref, expected string) error {
-	_, err := r.git("push", "--force-with-lease="+ref+":"+expected, r.URL, "+"+ref+":"+ref)
+//
+// tip is a PINNED object, never the live ref: the caller records what it
+// pushed in a cursor, and resolving the ref here instead would let a
+// concurrent land move it between the caller's read and this push - the
+// mirror would then hold a commit the cursor never saw and the next sync
+// would read its own write as a foreign one (see runkod's syncTrunk).
+func (r *Remote) PushWithLease(ref, expected, tip string) error {
+	_, err := r.git("push", "--force-with-lease="+ref+":"+expected, r.URL, "+"+tip+":"+ref)
 	return err
 }
 
