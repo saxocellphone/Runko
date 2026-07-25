@@ -164,7 +164,12 @@ jobs:
   # runs kubectl and holds no cluster credential, only a Contents:write PAT on
   # the one GitOps repo. Runko records the desired digest in git; Argo deploys.
   pin:
-    needs: images
+    # BOTH jobs: images for the built digests, setup for the GitOps target it
+    # resolved from the tree. GitHub populates needs.<job> ONLY for jobs named
+    # here, so omitting setup silently empties every needs.setup.outputs.*
+    # below - the job then mints a token for the wrong repo, checks this repo
+    # out instead of the GitOps one, and dies in yq with an empty filename.
+    needs: [setup, images]
     # Pin even if some image legs failed (fail-fast: false), so the digests that
     # DID build reach git; only skip when the images job was skipped entirely (a
     # non-deployable land - nothing to pin).
