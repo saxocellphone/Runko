@@ -139,7 +139,13 @@ func (s *Server) approveChangeCore(ctx context.Context, key string, change Chang
 	if err != nil {
 		return checks.MergeRequirements{}, internalErr(err)
 	}
-	owners, err := s.ownerRequirements(ctx, key, change.HeadSHA, change.AuthoredBy, result, indexed)
+	// No zones here (nil): an auto-approve zone waives whether a
+	// requirement must be SATISFIED, never whether it EXISTS, and this call
+	// asks the second question. An owner of an in-zone path may still
+	// approve explicitly - refusing them as "not a required owner" would be
+	// wrong, and the approval is exactly what a human does when they decide
+	// to review a bootstrap change after all.
+	owners, _, err := s.ownerRequirements(ctx, key, change.HeadSHA, change.AuthoredBy, result, indexed, nil)
 	if err != nil {
 		return checks.MergeRequirements{}, internalErr(err)
 	}

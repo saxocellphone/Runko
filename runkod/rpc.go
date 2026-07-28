@@ -1419,6 +1419,7 @@ func protoMergeRequirements(m checks.MergeRequirements) *runkov1.MergeRequiremen
 		Mergeable:    m.Mergeable,
 		Blockers:     m.Blockers,
 		AttentionSet: m.AttentionSet,
+		AutoApproved: m.AutoApproved,
 	}
 }
 

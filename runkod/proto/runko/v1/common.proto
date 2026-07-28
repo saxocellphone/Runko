@@ -201,6 +201,13 @@ message MergeRequirements {
   // and required owners who haven't responded at the current head, plus
   // the author once any reviewer has. Empty on bot-lane views.
   repeated string attention_set = 6;
+  // True when a tree-declared auto-approve zone waived this change's
+  // approvals (2026-07-28): the owners report satisfied and any
+  // agent-policy finding reports acknowledged because trunk's manifests
+  // put these paths in bootstrap posture - not because a human acted.
+  // Required checks are unaffected. Clients must surface it: a green
+  // gate should never let a reader infer that someone reviewed this.
+  bool auto_approved = 7;
 }
 
 // Comment mirrors docs/spec/mcp-tools/common.schema.json#/$defs/ChangeComment

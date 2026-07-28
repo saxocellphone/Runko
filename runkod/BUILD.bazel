@@ -92,6 +92,7 @@ go_test(
         "api_test.go",
         "approve_test.go",
         "auth_test.go",
+        "autoapprove_test.go",
         "automerge_test.go",
         "bootstraporg_test.go",
         "comment_test.go",

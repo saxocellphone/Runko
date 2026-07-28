@@ -233,7 +233,10 @@ func (s *Server) principalOwnsAnchor(ctx context.Context, change Change, path, n
 		}
 		return false, nil
 	}
-	owners, err := s.ownerRequirements(ctx, change.ChangeKey, change.HeadSHA, change.AuthoredBy, result, indexed)
+	// nil zones: this asks WHO owns the change, not whether their approval
+	// is still required - an auto-approve zone waives the gate, not the
+	// ownership (api.go's ownerRequirements says the same).
+	owners, _, err := s.ownerRequirements(ctx, change.ChangeKey, change.HeadSHA, change.AuthoredBy, result, indexed, nil)
 	if err != nil {
 		return false, err
 	}
