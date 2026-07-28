@@ -60,8 +60,10 @@ func newChangeCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create -m <message>",
 		Short: "Commit the working tree as one Change",
-		Long: `Commits ALL working-tree changes as one commit carrying a fresh
-Change-Id trailer. No auto-push - ` + "`change push`" + ` stays the
+		Long: `Commits ALL working-tree changes as one commit carrying a
+Change-Id trailer. In a plain-git checkout the id is freshly minted; in
+a jj colocated checkout it is derived from jj's change id (stable across
+later rewrites of that change). No auto-push - ` + "`change push`" + ` stays the
 explicit submit step. Newly-added files that look like build artifacts
 (executable+binary, or >=5 MiB) are refused with suspect_artifact;
 --allow-large is the escape for an intentional binary asset.`,
@@ -102,23 +104,24 @@ explicit submit step. Newly-added files that look like build artifacts
 // raw `git commit --amend` that fails without a configured git author.
 func newChangeAmendCmd() *cobra.Command {
 	var (
-		msg, dir string
-		jsonOut  bool
+		msg, dir            string
+		allowLarge, jsonOut bool
 	)
 	cmd := &cobra.Command{
 		Use:   "amend",
 		Short: "Fold the working tree into HEAD's Change",
-		Long: `The native git commit --amend: folds the working tree into HEAD's
-existing Change, PRESERVING its Change-Id. -m rewords; the
-default keeps HEAD's message. Refused in a jj colocated checkout
-(jj squash / jj describe are the natives there).`,
+		Long: `Folds the working tree into HEAD's existing Change, PRESERVING its
+Change-Id. -m rewords; the default keeps HEAD's message. In a plain-git
+checkout this is git commit --amend; in a jj colocated checkout it is
+jj squash (with the same --allow-large escape as change create for
+files over jj's snapshot size cap).`,
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wd, err := resolveWorkspaceDir(mustWorkspaceFlag(cmd), dir)
 			if err != nil {
 				return err
 			}
-			id, err := AmendChange(wd, msg)
+			id, err := AmendChange(wd, msg, allowLarge)
 			if err != nil {
 				return err
 			}
@@ -133,6 +136,7 @@ default keeps HEAD's message. Refused in a jj colocated checkout
 	fl.StringVarP(&msg, "message", "m", "", "new change message (default: keep HEAD's, just fold in the working tree)")
 	fl.StringVar(&dir, "dir", ".", "repository directory")
 	addWorkspaceFlag(cmd)
+	fl.BoolVar(&allowLarge, "allow-large", false, "include large files jj would otherwise refuse to snapshot (same escape as change create; plain-git path ignores this)")
 	fl.BoolVar(&jsonOut, "json", false, "emit {change_id} as JSON")
 	return cmd
 }

@@ -6,6 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -529,4 +532,215 @@ func TestStatusCmdStrayPositionalIsUsageError(t *testing.T) {
 	if !errors.As(err, &ue) {
 		t.Fatalf("expected a usage error for a stray positional, got %v", err)
 	}
+}
+
+// --- jj dirtyPaths coverage ---
+//
+// Until these existed, `dirtyPaths(dir, true)` had zero callers in tests:
+// flipping `if jj` to `if false` left the whole package green. They run
+// real jj (requireJJ) and assert the count is what `change create` would
+// actually sweep - including the sparse case where git status over-counts.
+
+// jjSummaryCount is the ground truth for what createChangeJJ would include:
+// one non-empty line per path in `jj diff -r @ --summary`.
+func jjSummaryCount(t *testing.T, dir string) int {
+	t.Helper()
+	out, err := runJJ(dir, "diff", "-r", "@", "--summary")
+	if err != nil {
+		t.Fatalf("jj diff -r @ --summary: %v", err)
+	}
+	return countLines(out)
+}
+
+func TestDirtyPathsJJCleanWorkingCopy(t *testing.T) {
+	requireJJ(t)
+	dir := newColocatedJJRepo(t)
+	jjCommitFile(t, dir, "README.md", "hi\n", "seed")
+
+	// Empty undescribed @ after a commit: nothing for change create to take.
+	if empty, err := runJJ(dir, "log", "--no-graph", "-r", "@", "-T", "empty"); err != nil {
+		t.Fatal(err)
+	} else if strings.TrimSpace(empty) != "true" {
+		t.Fatalf("precondition: want empty @ after seed commit, got %q", empty)
+	}
+	if got, want := dirtyPaths(dir, true), 0; got != want {
+		t.Fatalf("clean empty @: dirtyPaths=%d, want %d", got, want)
+	}
+	if got, want := dirtyPaths(dir, true), jjSummaryCount(t, dir); got != want {
+		t.Fatalf("dirtyPaths (%d) must match jj summary (%d)", got, want)
+	}
+}
+
+func TestDirtyPathsJJModifiedAndUntracked(t *testing.T) {
+	requireJJ(t)
+	dir := newColocatedJJRepo(t)
+	jjCommitFile(t, dir, "a.txt", "a\n", "seed")
+	// Two modifications + one new file (jj auto-tracks; the new path is in @).
+	writeTestFile(t, dir, "a.txt", "a2\n")
+	writeTestFile(t, dir, "b.txt", "b\n")
+	writeTestFile(t, dir, "c.txt", "c\n")
+
+	want := jjSummaryCount(t, dir)
+	if want < 3 {
+		t.Fatalf("precondition: want at least 3 paths in @, jj summary=%d", want)
+	}
+	if got := dirtyPaths(dir, true); got != want {
+		t.Fatalf("dirtyPaths=%d, want jj summary count %d", got, want)
+	}
+	// createChangeJJ would take exactly those paths - refuse nothing_to_commit
+	// only when the count is zero (covered separately after create).
+}
+
+func TestDirtyPathsJJEmptyAfterCreate(t *testing.T) {
+	requireJJ(t)
+	dir := jjTrailerRepo(t)
+	writeTestFile(t, dir, "proj/a.txt", "work\n")
+	if _, err := CreateChange(dir, "one change", false); err != nil {
+		t.Fatalf("CreateChange: %v", err)
+	}
+	// create parks a fresh empty undescribed @ above the described commit.
+	if empty, err := runJJ(dir, "log", "--no-graph", "-r", "@", "-T", "empty"); err != nil {
+		t.Fatal(err)
+	} else if strings.TrimSpace(empty) != "true" {
+		t.Fatalf("post-create @ must be empty, got %q", empty)
+	}
+	if got := dirtyPaths(dir, true); got != 0 {
+		t.Fatalf("empty @ after change create: dirtyPaths=%d, want 0 (nothing create would sweep)", got)
+	}
+	_, err := CreateChange(dir, "should refuse", false)
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "nothing_to_commit" {
+		t.Fatalf("create on empty @ must be nothing_to_commit (count matches create), got %v", err)
+	}
+}
+
+// Sparse is the load-bearing difference between the jj and git branches:
+// after `jj sparse set --clear --add keep`, git status still lists every
+// de-materialized out-of-cone path as ` D ...`, while jj cannot see them
+// and change create would not include them. A mutation that forces the git
+// branch (`if jj` -> `if false`) reports that phantom and fails this test.
+func TestDirtyPathsJJIgnoresOutOfConeGitNoise(t *testing.T) {
+	requireJJ(t)
+	dir := jjTrailerRepo(t)
+	writeTestFile(t, dir, "keep/a.txt", "a\n")
+	writeTestFile(t, dir, "drop/b.txt", "b\n")
+	if _, err := CreateChange(dir, "seed both trees", false); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := runJJ(dir, "sparse", "set", "--clear", "--add", "keep"); err != nil {
+		t.Fatalf("jj sparse set: %v", err)
+	}
+	writeTestFile(t, dir, "keep/a.txt", "in-cone edit\n")
+
+	gitN := countLines(mustGitStatus(t, dir))
+	jjN := jjSummaryCount(t, dir)
+	if jjN != 1 {
+		t.Fatalf("precondition: want 1 in-cone dirty path via jj, got %d", jjN)
+	}
+	if gitN <= jjN {
+		t.Fatalf("precondition: git must over-count under sparse (git=%d, jj=%d); else this cannot kill the git-branch mutation", gitN, jjN)
+	}
+	if got := dirtyPaths(dir, true); got != jjN {
+		t.Fatalf("jj dirtyPaths=%d, want %d (git would report %d - mutation to git branch over-counts)", got, jjN, gitN)
+	}
+	// End-to-end: RunStatus must take the jj branch via isJJWorkspace, not
+	// only the unit helper with jj=true forced.
+	r, err := RunStatus(context.Background(), http.DefaultClient, nil, "no stored credential", dir, "origin", "main")
+	if err != nil {
+		t.Fatalf("RunStatus: %v", err)
+	}
+	if !r.IsJJWorkspace {
+		t.Fatal("expected IsJJWorkspace on a colocated checkout")
+	}
+	if r.DirtyPaths != jjN {
+		t.Fatalf("RunStatus.DirtyPaths=%d, want jj count %d (got git-shaped %d?)", r.DirtyPaths, jjN, gitN)
+	}
+}
+
+// A jj error must not print as "working tree: clean". Hide jj from PATH so
+// runJJ fails with jj_not_found; the git fallback still sees the dirt.
+func TestDirtyPathsJJErrorFallsBackToGitNotClean(t *testing.T) {
+	requireJJ(t)
+	dir := newColocatedJJRepo(t)
+	jjCommitFile(t, dir, "README.md", "hi\n", "seed")
+	writeTestFile(t, dir, "README.md", "dirty\n")
+	writeTestFile(t, dir, "wip.txt", "uncommitted\n")
+
+	// Confirm the jj path sees dirt before we hide the binary.
+	if n := dirtyPaths(dir, true); n < 2 {
+		t.Fatalf("precondition: want dirty tree via jj, got %d", n)
+	}
+	gitN := countLines(mustGitStatus(t, dir))
+	if gitN < 2 {
+		t.Fatalf("precondition: git must also see dirt for the fallback, got %d", gitN)
+	}
+
+	// Strip jj from PATH but keep git (and the rest of a minimal env).
+	// requireJJ already rewrote HOME; only PATH changes here.
+	t.Setenv("PATH", stripPathEntry(t, os.Getenv("PATH"), "jj"))
+	if _, err := exec.LookPath("jj"); err == nil {
+		t.Fatal("setup: jj still on PATH after strip; cannot exercise the error path")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Fatalf("setup: git must remain on PATH for the fallback: %v", err)
+	}
+
+	got := dirtyPaths(dir, true)
+	if got == 0 {
+		t.Fatal("jj error must not fail-open to 0 (status would say clean on a dirty tree)")
+	}
+	if got != gitN {
+		t.Fatalf("jj-error fallback: dirtyPaths=%d, want git count %d", got, gitN)
+	}
+
+	// Human output must not claim clean either (PrintStatus keys on DirtyPaths).
+	var b strings.Builder
+	PrintStatus(&b, StatusReport{
+		Dir: dir, Remote: "origin", TrunkRef: "main",
+		IsJJWorkspace: true, DirtyPaths: got,
+	})
+	if strings.Contains(b.String(), "working tree: clean") {
+		t.Fatalf("PrintStatus must not say clean when dirtyPaths fell back to %d:\n%s", got, b.String())
+	}
+	if !strings.Contains(b.String(), "uncommitted path") {
+		t.Fatalf("PrintStatus should name uncommitted paths, got:\n%s", b.String())
+	}
+}
+
+func mustGitStatus(t *testing.T, dir string) string {
+	t.Helper()
+	out, err := runGit(dir, "status", "--porcelain", "-uall")
+	if err != nil {
+		t.Fatalf("git status: %v", err)
+	}
+	return out
+}
+
+// stripPathEntry removes every PATH component whose base name is binName
+// (so hiding `jj` does not require knowing which directory holds it).
+func stripPathEntry(t *testing.T, pathEnv, binName string) string {
+	t.Helper()
+	var keep []string
+	for _, dir := range filepath.SplitList(pathEnv) {
+		if dir == "" {
+			continue
+		}
+		// Drop the directory only when it is the one that resolves binName -
+		// crude but enough: drop any component that contains an executable
+		// named binName. Safer approach: rebuild PATH from LookPath's dir.
+		candidate := filepath.Join(dir, binName)
+		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+			continue
+		}
+		keep = append(keep, dir)
+	}
+	// Ensure a known-good core PATH remains even if the ambient PATH was
+	// mostly the jj install dir.
+	out := strings.Join(keep, string(filepath.ListSeparator))
+	if out == "" {
+		out = "/usr/bin:/bin"
+	} else {
+		out = out + string(filepath.ListSeparator) + "/usr/bin:/bin"
+	}
+	return out
 }

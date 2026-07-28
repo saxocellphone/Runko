@@ -61,8 +61,12 @@ type StatusReport struct {
 	WorkspaceStatus string
 	Remote          string
 	TrunkRef        string
-	// DirtyPaths counts uncommitted paths (`git status --porcelain
-	// -uall`) - what the next `change create` would sweep in.
+	// DirtyPaths counts uncommitted paths - what the next `change create`
+	// would sweep in. jj checkouts use `jj diff -r @ --summary` (not git
+	// status: git over-counts paths outside jj's sparse set). If that jj
+	// command fails we fall back to the git count rather than reporting a
+	// confident zero - status is the orientation verb and a silent "clean"
+	// on a dirty tree is worse than an overstated number.
 	DirtyPaths int
 	// StaleBase: the remote trunk tip is missing from this line's
 	// ancestry, so a sync (or push's auto-sync) would rebase. Best-effort:
@@ -133,9 +137,7 @@ func RunStatus(ctx context.Context, client *http.Client, cred *Credential, credE
 			r.Branch = "head"
 		}
 	}
-	if out, err := runGit(dir, "status", "--porcelain", "-uall"); err == nil {
-		r.DirtyPaths = countLines(out)
-	}
+	r.DirtyPaths = dirtyPaths(dir, r.IsJJWorkspace)
 	if bound, ok := checkoutPrincipal(dir); ok {
 		r.AuthorsAs = bound.Name
 	}
@@ -278,6 +280,34 @@ func statusStack(dir, base string, jj bool) []StackEntry {
 		}
 	}
 	return stack
+}
+
+// dirtyPaths counts what the next `change create` would actually sweep in.
+// In a jj checkout that is the working-copy commit's own diff, NOT `git
+// status`: git additionally reports paths outside jj's sparse set, which jj
+// cannot see and which `change create` refuses rather than commits - so
+// counting them would overstate the change by exactly the files that will
+// not be in it.
+//
+// Fail-open-to-zero is forbidden here: a jj error used to return 0 and
+// PrintStatus said "working tree: clean" on a dirty tree (the non-root -R
+// bug surfaced exactly that way). Fall back to the git porcelain count -
+// still a real number, offline-safe, never aborts the verb. Git may
+// overstate under sparse; overstatement is honest uncertainty, "clean" is a
+// lie. Only if git also fails do we return 0 (no local tool answered).
+func dirtyPaths(dir string, jj bool) int {
+	if jj {
+		out, err := runJJ(dir, "diff", "-r", "@", "--summary")
+		if err == nil {
+			return countLines(out)
+		}
+		// Fall through to git rather than invent a confident zero.
+	}
+	out, err := runGit(dir, "status", "--porcelain", "-uall")
+	if err != nil {
+		return 0
+	}
+	return countLines(out)
 }
 
 func countLines(s string) int {

@@ -146,6 +146,10 @@ func baseCommand(usage string) string {
 	return strings.TrimSpace(usage[:cut])
 }
 
+// longFlagPattern matches --flag-name tokens (long form only; short -m/-w
+// are aliases the contract rarely re-lists and agents learn from Usage).
+var longFlagPattern = regexp.MustCompile(`--[a-z][a-z0-9-]*`)
+
 // commandCellPattern matches a `| \`runko ...\` | ... |` table row in
 // docs/cli-contract.md's --json output table specifically (anchored to line
 // start so prose mentioning a command in passing, e.g. the "not yet
@@ -153,23 +157,125 @@ func baseCommand(usage string) string {
 // the table this test is meant to cross-check).
 var commandCellPattern = regexp.MustCompile(`(?m)^\| ` + "`" + `(runko(?:-ci)? [a-z][a-z -]*)` + "`" + ` \|`)
 
+// commandRowPattern captures each contract table row's command cell and the
+// rest of the line (the --json / behavior prose). The optional parenthetical
+// after the command cell covers `org agent-policy` (`get` / `set` / `reset`).
+var commandRowPattern = regexp.MustCompile(`(?m)^\| ` + "`" + `(runko(?:-ci)? [a-z][a-z0-9 -]*)` + "`" + `(?: \([^)]*\))? \| (.+)$`)
+
+// structuralFlags are always shown in the agent Usage inventory but often
+// left implicit in contract prose (connection flags, the universal --json,
+// and the local --dir checkout pin). They are exempt from both directions
+// of the flag cross-check.
+var structuralFlags = map[string]bool{
+	"--json":       true,
+	"--dir":        true,
+	"--runkod-url": true,
+	"--token":      true,
+}
+
+// flagCrossRefExempt lists per-command flags that the contract row mentions
+// in backticks but that are NOT flags of that command - they name another
+// verb's flag, a next-step example, or a wired sub-invocation. Kept tiny;
+// prefer fixing a real Usage omission over growing this list.
+var flagCrossRefExempt = map[string]map[string]bool{
+	// hooks' contract describes the snippet calling `agent event --from-hook`.
+	"runko agent hooks": {"--from-hook": true},
+	// branch takes a positional name; --branch is attach's selector.
+	"runko workspace branch": {"--branch": true, "--jj": true},
+}
+
+// nounGroup keys sibling verbs that share a flag vocabulary, e.g. every
+// `runko change *` command. Used so a flag the agent table already teaches
+// for one sibling (change create --allow-large) cannot go missing on another
+// sibling whose contract documents the same flag (change amend).
+func nounGroup(binary, base string) string {
+	noun, _, _ := strings.Cut(base, " ")
+	if noun == "" {
+		noun = base
+	}
+	return binary + " " + noun
+}
+
+// contractOwnFlags returns backtick-wrapped --flags in a contract row that
+// look like documentation of THIS command's options. Spans that are git/jj
+// invocations are skipped (so `git commit --amend` does not yield --amend),
+// and the contract's `--no`-op typo-shape is ignored.
+func contractOwnFlags(row string) map[string]bool {
+	out := map[string]bool{}
+	for i := 0; i < len(row); {
+		start := strings.IndexByte(row[i:], '`')
+		if start < 0 {
+			break
+		}
+		start += i
+		end := strings.IndexByte(row[start+1:], '`')
+		if end < 0 {
+			break
+		}
+		end += start + 1
+		span := row[start+1 : end]
+		i = end + 1
+		if strings.HasPrefix(span, "git ") || strings.HasPrefix(span, "jj ") {
+			continue
+		}
+		for _, f := range longFlagPattern.FindAllString(span, -1) {
+			if f == "--no" { // contract writes `--no`-op for "no-op"
+				continue
+			}
+			out[f] = true
+		}
+	}
+	return out
+}
+
 // TestCommandsMatchesCLIContract cross-checks this package's Commands table
 // against docs/cli-contract.md's own command table, so the two documents
 // (one hand-maintained for humans, one rendered for agents) can't silently
-// drift - a command added to one without the other is exactly the kind of
-// gap this test exists to catch.
+// drift.
+//
+// Two layers:
+//
+//  1. Command NAMES - every contract table cell must have a Commands entry
+//     (the original check). Catches a command added to one side only.
+//
+//  2. FLAGS - descriptions are free-form prose and would thrash under exact
+//     match; flags are a stable token surface. For each command, every
+//     backtick-documented --flag in its contract row that already appears in
+//     ANY sibling Usage under the same noun group (runko change *, etc.) must
+//     also appear in THIS command's Usage. That is exactly the class of bug
+//     that left change amend without --allow-large after create gained it and
+//     the contract documented both: create's Usage puts --allow-large in the
+//     group inventory, amend's contract backticks it, amend's Usage omitted it.
+//
+//     Full set-equality against every contract-mentioned flag is deliberately
+//     NOT required - the agent table is a terse cheat-sheet and the contract
+//     documents admin-only / rare / deploy-time flags agents should not learn
+//     as everyday invocations. Expanding the inventory for those is a
+//     deliberate edit, not something this test demands.
 func TestCommandsMatchesCLIContract(t *testing.T) {
 	data, err := os.ReadFile("../../docs/cli-contract.md")
 	if err != nil {
 		t.Fatalf("read docs/cli-contract.md: %v", err)
 	}
+	doc := string(data)
 
 	haveBase := map[string]bool{}
+	// groupInventory[nounGroup] = union of --flags across that group's Usage strings.
+	groupInventory := map[string]map[string]bool{}
 	for _, c := range Commands {
-		haveBase[c.Binary+" "+baseCommand(c.Usage)] = true
+		base := baseCommand(c.Usage)
+		full := c.Binary + " " + base
+		haveBase[full] = true
+		g := nounGroup(c.Binary, base)
+		if groupInventory[g] == nil {
+			groupInventory[g] = map[string]bool{}
+		}
+		for _, f := range longFlagPattern.FindAllString(c.Usage, -1) {
+			groupInventory[g][f] = true
+		}
 	}
 
-	matches := commandCellPattern.FindAllStringSubmatch(string(data), -1)
+	matches := commandCellPattern.FindAllStringSubmatch(doc, -1)
 	if len(matches) == 0 {
 		t.Fatalf("expected to find at least one `runko ...` command cell in docs/cli-contract.md")
 	}
@@ -177,6 +283,44 @@ func TestCommandsMatchesCLIContract(t *testing.T) {
 		cell := strings.TrimSpace(m[1])
 		if !haveBase[cell] {
 			t.Fatalf("docs/cli-contract.md documents %q but agentsmd.Commands has no matching entry - keep the two in sync", cell)
+		}
+	}
+
+	// Flag layer: build contract row text per command (rows can repeat, e.g.
+	// change push appears twice with complementary detail).
+	rowText := map[string]string{}
+	for _, m := range commandRowPattern.FindAllStringSubmatch(doc, -1) {
+		cell := strings.TrimSpace(m[1])
+		rowText[cell] += " " + m[2]
+	}
+
+	for _, c := range Commands {
+		base := baseCommand(c.Usage)
+		full := c.Binary + " " + base
+		text, ok := rowText[full]
+		if !ok {
+			// Name layer already requires contract → Commands; the reverse
+			// (Commands entry with no contract row) is allowed only if the
+			// contract formats the cell differently. Fail closed so a rename
+			// cannot hide a command from flag checks.
+			t.Errorf("agentsmd.Commands has %q but docs/cli-contract.md has no matching table row", full)
+			continue
+		}
+		usageFlags := map[string]bool{}
+		for _, f := range longFlagPattern.FindAllString(c.Usage, -1) {
+			usageFlags[f] = true
+		}
+		g := nounGroup(c.Binary, base)
+		exempt := flagCrossRefExempt[full]
+		for f := range contractOwnFlags(text) {
+			if structuralFlags[f] || !groupInventory[g][f] || usageFlags[f] {
+				continue
+			}
+			if exempt[f] {
+				continue
+			}
+			t.Errorf("%s: docs/cli-contract.md documents %s and the agent inventory already lists it on a %s sibling, but this command's Usage omits it - agents will not learn the flag",
+				full, f, g)
 		}
 	}
 }

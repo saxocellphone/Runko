@@ -78,6 +78,7 @@ go_test(
         "approve_test.go",
         "auth_test.go",
         "change_test.go",
+        "changecreate_jj_test.go",
         "changeid_test.go",
         "ci_test.go",
         "describe_test.go",
@@ -108,8 +109,10 @@ go_test(
     deps = [
         "//internal/clierr",
         "//internal/gitfixture",
+        "//internal/gitstore",
         "//platform/agentsmd",
         "//platform/checks",
+        "//platform/core",
         "//platform/land",
         "//platform/project",
         "//platform/receive",
