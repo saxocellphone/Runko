@@ -55,11 +55,28 @@ export function MergeGates({
     <div>
       {banner}
 
+      {open && requirements.autoApproved && (
+        // The declaration lives in the tree, so the change page is where
+        // most readers will ever learn it applies to what they are looking
+        // at. Say it plainly: a satisfied owner row below was WAIVED, not
+        // approved, and nobody has necessarily read this change.
+        <div className="mergeable-banner mergeable-off">
+          Auto-approve zone — approvals waived by this repo's manifests, not granted by a
+          reviewer. Checks still gate.
+        </div>
+      )}
+
       {hasOwners && (
         <div className="gate-section">
           <p className="gate-title">
             Owners
-            <InfoTip text="Required because this change touches paths these owners are responsible for - computed from the touched paths, not from every project the change might affect. An agent can never satisfy this on its own; a human approval is always required." />
+            <InfoTip
+              text={
+                requirements.autoApproved
+                  ? "Required because this change touches paths these owners are responsible for. Those paths sit in an auto-approve zone, so the requirements are satisfied without anyone approving - an owner can still approve explicitly, and disabling zones in org settings restores the gate."
+                  : "Required because this change touches paths these owners are responsible for - computed from the touched paths, not from every project the change might affect. An agent can never satisfy this on its own; a human approval is always required."
+              }
+            />
           </p>
           {owners!.required.map((o) => {
             const satisfied = owners!.satisfied.includes(o);
