@@ -159,6 +159,16 @@ export const pathOrg =
 
 export const currentOrg: string = pathOrg || (!usingDemoData && storedOrg ? storedOrg : "");
 
+// The base every ORG-SCOPED call must resolve against - RPC and REST
+// alike. On an org-less control plane (no root-mounted org, the default
+// since 2026-07-17) the root serves only the hub's own APIs, so an
+// org-scoped path built on the bare baseUrl comes back "this control
+// plane has no root-mounted org - every org lives at /o/<name>/". That is
+// what the change page's Acknowledge button did until 2026-07-28: the
+// only org-scoped REST call in this file that reached for baseUrl.
+// Hub-level endpoints (api/orgs*, api/signup, api/auth/config,
+// api/invite-requests) are the ones that legitimately use baseUrl -
+// client.test.ts pins that split.
 const transportBase =
   currentOrg && baseUrl ? new URL(`o/${currentOrg}/`, baseUrl).toString() : baseUrl;
 
@@ -183,10 +193,15 @@ function authHeaders(): Record<string, string> {
  * carries the signed-in Basic credential. Approve-rights humans only;
  * the server refuses agents. A no-op on demo data (the showcase mints no
  * agent-policy checks).
+ *
+ * Org-scoped, so it resolves against transportBase: on an org-less
+ * control plane the bare root has no change to acknowledge and answers
+ * "this control plane has no root-mounted org" - what every click of the
+ * Acknowledge button got between the org-less flip and 2026-07-28.
  */
 export async function ackPolicy(changeId: string): Promise<void> {
   if (usingDemoData) return;
-  const res = await fetch(new URL(`api/changes/${encodeURIComponent(changeId)}/ack-policy`, baseUrl), {
+  const res = await fetch(new URL(`api/changes/${encodeURIComponent(changeId)}/ack-policy`, transportBase), {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
     body: "{}",
