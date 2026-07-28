@@ -230,6 +230,10 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "§13.4.2's derived 'whose turn is it' (added 2026-07-10, stage 16): requested reviewers and required owners who haven't approved or commented at the current head_sha, plus the author once any reviewer has responded to the current version. Entries are principal names or owner refs. Optional: absent on pre-stage-16 daemons and bot-lane views."
+        },
+        "auto_approved": {
+          "type": "boolean",
+          "description": "True when this gate's owner approvals were WAIVED by a tree-declared auto-approve zone (added 2026-07-28): trunk's manifests put the change's paths in bootstrap posture, so every required owner reports satisfied and any agent-policy finding reports acknowledged with no human involved. Required checks are unaffected - auto mode waives approvals, never CI. Optional and omitted when false: an ordinary governed gate looks exactly as it always did."
         }
       },
       "description": "Same structure surfaced to humans (Change page) and agents (get_merge_requirements) - §8.3, §13.4."

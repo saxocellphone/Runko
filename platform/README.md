@@ -104,3 +104,22 @@ changelog.
   receive guarded the inert surface while the live one rode the ordinary
   gate. Per-head minting means every amend re-evaluates; a trivial-rebase
   carry keeps an acknowledgement exactly as it keeps approvals.
+- **2026-07-28** — **approval is a tree-declared posture, not a global one**
+  (a new contract surface: `PROJECT.yaml`'s `auto_approve`). A project may
+  declare its subtree an **auto-approve zone**, where the merge gate reads
+  owner requirements as satisfied and `agent-policy` findings as
+  acknowledged — the bootstrap posture, so an agent scaffolding a new
+  project lands unattended instead of blocking on a human who has nothing
+  to review yet. It waives **approvals only**: required checks still gate
+  (unreviewed is a governance choice, unbuilt is breakage). Resolution is
+  `index.AutoApproved`: the **nearest ancestor project that declares the
+  field decides**, so the root manifest is the whole-repo switch and a
+  nested `auto_approve: false` carves back out — OWNERS' nearest-file rule
+  applied to governance, tri-state (`*bool`) so unset stays inheritable.
+  Two properties make it safe to hand agents: the daemon resolves it from
+  **trunk's** tree, never the change's own head (a change enabling it
+  cannot approve itself — it lands under the zone it is trying to leave),
+  and enabling it edits a manifest, which is already the human lane. The
+  gate reports the waiver as `MergeRequirements.AutoApproved`
+  (`auto_approved` on the wire, omitted when false): a green gate must
+  never make a reader infer that nobody read the change.
