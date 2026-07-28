@@ -1085,25 +1085,50 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	}
 	requiredNames := requiredCheckNames(result, indexed)
 	requiredNames = mergeCheckNames(requiredNames, s.effectiveGlobalChecks(ctx))
+
+	// Auto-approve zones (2026-07-28) are resolved from TRUNK's manifests,
+	// never from `indexed` above - `indexed` is the change's OWN head tree,
+	// and reading the declaration there would let a change enable
+	// auto_approve in its own manifest and thereby approve itself. A lane
+	// caller resolves nothing: a bot lane already lands under its own
+	// waiver, and stacking a second one on top would only obscure which
+	// policy let it through.
+	var zones []index.IndexedProject
+	fullyAuto := false
+	if lane == nil {
+		zones = s.autoApproveZones(ctx)
+		fullyAuto = index.AutoApprovedAll(zones, result.Paths)
+	}
+
 	// The reserved agent-policy check (2026-07-24 enforcement split) is
 	// required exactly when the receive funnel minted (or a trivial rebase
 	// carried) a run under that name at this head - manifest checks and
-	// org globals never declare it; its presence IS the policy finding.
+	// org globals never declare it; its presence IS the policy finding. In
+	// an auto-approve zone the finding is recorded but not required: the
+	// acknowledgement it waits for is exactly the human step the zone
+	// declares unnecessary. Only a WHOLLY in-zone change gets that - one
+	// governed path in the diff and the ack stands, since the finding is
+	// one verdict over the whole change, not a per-path one.
 	for _, run := range runs {
 		if run.Name == checks.AgentPolicyCheckName {
-			requiredNames = mergeCheckNames(requiredNames, []string{checks.AgentPolicyCheckName})
+			if !fullyAuto {
+				requiredNames = mergeCheckNames(requiredNames, []string{checks.AgentPolicyCheckName})
+			}
 			break
 		}
 	}
 
 	var owners []checks.OwnerRequirement
+	autoApproved := false
 	if lane != nil {
 		requiredNames = mergeCheckNames(requiredNames, lane.RequiredChecks)
 	} else {
-		owners, err = s.ownerRequirements(ctx, key, change.HeadSHA, change.AuthoredBy, result, indexed)
+		var waived bool
+		owners, waived, err = s.ownerRequirements(ctx, key, change.HeadSHA, change.AuthoredBy, result, indexed, zones)
 		if err != nil {
 			return checks.MergeRequirements{}, err
 		}
+		autoApproved = waived || fullyAuto
 	}
 
 	// §14.4.2 staleness, consulted for the first time in stage 12c-③: a
@@ -1126,6 +1151,7 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 	sort.Strings(staleNames)
 
 	req := checks.ComputeMergeRequirements(key, owners, requiredNames, runs, nil, staleNames, nil)
+	req.AutoApproved = autoApproved
 
 	// A change whose base is not on trunk cannot land regardless of gate
 	// state - attemptLand refuses it (§7.4's ancestors-land-first rule).
@@ -1152,7 +1178,13 @@ func (s *Server) mergeRequirements(ctx context.Context, key string, change Chang
 		}
 	}
 
-	if lane == nil && !s.AllowUnpolicedLand && len(req.RequiredChecks) == 0 && len(req.RequiredOwners) == 0 {
+	// Default-deny asks "does ANY policy resolve for this change" - and a
+	// wholly in-zone change has one: trunk's manifests say this subtree is
+	// deliberately ungoverned while it is being built. Without this, the
+	// bootstrap case auto-approve exists for (a fresh project with no
+	// owners and no checks yet) would still be refused as unpoliced, and
+	// the zone would only ever help projects that were already governed.
+	if lane == nil && !s.AllowUnpolicedLand && !fullyAuto && len(req.RequiredChecks) == 0 && len(req.RequiredOwners) == 0 {
 		req.Mergeable = false
 		req.Blockers = append(req.Blockers,
 			"no merge policy resolves for this change: its touched paths require no checks (no ci.checks, no org global checks) and no owner approvals - landing unpoliced changes is refused outside the eval profile (an ownerless org seeds its governance with `runko org bootstrap`; otherwise declare owners/ci.checks in PROJECT.yaml, or start runkod with --insecure-allow-unpoliced-land)")
@@ -1251,24 +1283,42 @@ func mergeCheckNames(names, extra []string) []string {
 // the moment genesis seeds OWNERS with its creator. Agents never
 // self-satisfy: §8.7's "no approving at all" covers their own authorship,
 // so an agent-authored change always keeps a human owner in the loop.
-func (s *Server) ownerRequirements(ctx context.Context, key, headSHA, authoredBy string, result affected.Result, indexed []index.IndexedProject) ([]checks.OwnerRequirement, error) {
+// zones are trunk's auto-approve declarations (nil when the org vetoed auto
+// mode or nothing declares one). An owner requirement whose every
+// contributing path sits in a zone is SATISFIED without anyone approving -
+// the bootstrap waiver - and the second return value reports whether any
+// requirement was satisfied that way, so the caller can say so on the wire
+// instead of letting a waived gate read as a reviewed one. The waiver is
+// per-path, not per-change: a change straddling a zone and a governed
+// project still waits on the governed project's owners.
+func (s *Server) ownerRequirements(ctx context.Context, key, headSHA, authoredBy string, result affected.Result, indexed, zones []index.IndexedProject) ([]checks.OwnerRequirement, bool, error) {
 	required := map[string]bool{}
+	// autoOnly[ref] stays true only while EVERY path that required ref is
+	// in a zone; one governed contributor turns the waiver off for that
+	// owner, which is the conservative reading of a straddling change.
+	autoOnly := map[string]bool{}
 	for _, path := range result.Paths {
 		project, ok := owningProject(indexed, path)
 		if !ok {
 			continue
 		}
+		auto := index.AutoApproved(zones, path)
 		for _, o := range project.Owners {
-			required[o.Ref] = true
+			if !required[o.Ref] {
+				required[o.Ref] = true
+				autoOnly[o.Ref] = auto
+				continue
+			}
+			autoOnly[o.Ref] = autoOnly[o.Ref] && auto
 		}
 	}
 	if len(required) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	approvals, err := s.Store.ListApprovals(ctx, key)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	approved := map[string]bool{}
 	for _, a := range approvals {
@@ -1296,11 +1346,61 @@ func (s *Server) ownerRequirements(ctx context.Context, key, headSHA, authoredBy
 		refs = append(refs, ref)
 	}
 	sort.Strings(refs)
+	waived := false
 	out := make([]checks.OwnerRequirement, len(refs))
 	for i, ref := range refs {
-		out[i] = checks.OwnerRequirement{OwnerRef: ref, Satisfied: approved[ref]}
+		satisfied := approved[ref]
+		if !satisfied && autoOnly[ref] {
+			satisfied = true
+			waived = true
+		}
+		out[i] = checks.OwnerRequirement{OwnerRef: ref, Satisfied: satisfied}
 	}
-	return out, nil
+	return out, waived, nil
+}
+
+// autoApproveZones resolves the auto-approve declarations the gate may honor:
+// TRUNK's indexed projects, or nil for the ordinary governed posture. Trunk
+// is the whole security argument - a change cannot declare its way past its
+// own gate, because the declaration only counts once it has landed under
+// whatever policy governed it at the time.
+//
+// nil is returned whenever the answer is not clearly yes: the org vetoed auto
+// mode, trunk is unborn, or the scan failed. Every one of those reads as "no
+// zones", which restores the approval gate rather than removing it - the
+// direction an unavailable answer must fail.
+func (s *Server) autoApproveZones(ctx context.Context) []index.IndexedProject {
+	if s.autoApproveDisabled(ctx) {
+		return nil
+	}
+	gstore := gitstore.New(s.RepoDir)
+	tip, err := gstore.ResolveRef("refs/heads/" + s.TrunkRef)
+	if err != nil {
+		return nil // unborn trunk: nothing has landed, so nothing declares a zone
+	}
+	indexed, err := s.indexedProjectsAt(gstore, core.Revision(tip))
+	if err != nil {
+		log.Printf("runkod: scan trunk for auto-approve zones (gate stays governed): %v", err)
+		return nil
+	}
+	return indexed
+}
+
+// autoApproveDisabled reads the org's deployment-wide veto. Unlike
+// requireResolvedThreads - an opt-in whose unavailability safely reads as off
+// - this one is a KILL SWITCH, so an unreadable settings row must read as
+// "disabled": failing the other way would resume waiving approvals across the
+// org precisely while the control plane is degraded.
+func (s *Server) autoApproveDisabled(ctx context.Context) bool {
+	if s.SettingsOrg == "" || s.Directory == nil {
+		return false
+	}
+	settings, err := s.Directory.GetOrgSettings(ctx, s.SettingsOrg)
+	if err != nil {
+		log.Printf("runkod: org %q settings unavailable for disable_auto_approve (auto-approve reads as disabled): %v", s.SettingsOrg, err)
+		return true
+	}
+	return settings.DisableAutoApprove
 }
 
 // owningProject returns the project owning path by longest-path-prefix match,

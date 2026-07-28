@@ -141,3 +141,24 @@ changelog.
   unknown to rerun. Snapshot pushes warn instead of refusing for ackable
   classes — retiring the trunk-drift false positive (finding I0b79457d
   chased).
+- **2026-07-28** — **the merge gate honors tree-declared auto-approve
+  zones** (`PROJECT.yaml`'s `auto_approve`, resolved by
+  `index.AutoApproved` — see [`platform/README.md`](../platform/README.md)).
+  Inside a zone `mergeRequirements` reports owner requirements as
+  *satisfied* without an approval and stops requiring the reserved
+  `agent-policy` check, and a wholly in-zone change also satisfies
+  default-deny — a fresh ownerless project is exactly the case the zone
+  exists for, so refusing it as unpoliced would defeat the point. Waived
+  are approvals only: required checks, the agent description gate
+  (`RequireDescription` is what the agent owes its reviewers, not what a
+  human owes the change), and `require_resolved_threads` all survive.
+  Zones resolve from **trunk's** tree, never `computeAffected`'s
+  change-head index — that is what stops a change from enabling
+  `auto_approve` in its own manifest and approving itself — and per PATH,
+  so a change straddling a zone and a governed project still waits on the
+  governed owners. The gate reports the waiver as `auto_approved`
+  (REST + `runko/v1`), and `disable_auto_approve` in org settings is the
+  deployment-wide veto, read live and failing CLOSED (an unreadable
+  settings row reads as disabled). Owner *requirements* are unchanged by a
+  zone — only their satisfaction — so `approve` and the review views still
+  know who owns in-zone code.

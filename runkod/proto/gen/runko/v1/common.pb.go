@@ -1227,7 +1227,14 @@ type MergeRequirements struct {
 	// §13.4.2's derived "whose turn is it" (stage 16): requested reviewers
 	// and required owners who haven't responded at the current head, plus
 	// the author once any reviewer has. Empty on bot-lane views.
-	AttentionSet  []string `protobuf:"bytes,6,rep,name=attention_set,json=attentionSet,proto3" json:"attention_set,omitempty"`
+	AttentionSet []string `protobuf:"bytes,6,rep,name=attention_set,json=attentionSet,proto3" json:"attention_set,omitempty"`
+	// True when a tree-declared auto-approve zone waived this change's
+	// approvals (2026-07-28): the owners report satisfied and any
+	// agent-policy finding reports acknowledged because trunk's manifests
+	// put these paths in bootstrap posture - not because a human acted.
+	// Required checks are unaffected. Clients must surface it: a green
+	// gate should never let a reader infer that someone reviewed this.
+	AutoApproved  bool `protobuf:"varint,7,opt,name=auto_approved,json=autoApproved,proto3" json:"auto_approved,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1302,6 +1309,13 @@ func (x *MergeRequirements) GetAttentionSet() []string {
 		return x.AttentionSet
 	}
 	return nil
+}
+
+func (x *MergeRequirements) GetAutoApproved() bool {
+	if x != nil {
+		return x.AutoApproved
+	}
+	return false
 }
 
 // Comment mirrors docs/spec/mcp-tools/common.schema.json#/$defs/ChangeComment
@@ -1870,14 +1884,15 @@ const file_runko_v1_common_proto_rawDesc = "" +
 	"\tautomerge\x18\x11 \x01(\bR\tautomerge\x12!\n" +
 	"\fautomerge_by\x18\x12 \x01(\tR\vautomergeBy\x12\x1b\n" +
 	"\tlanded_at\x18\x10 \x01(\x03R\blandedAt\x12*\n" +
-	"\x11base_behind_trunk\x18\x13 \x01(\x05R\x0fbaseBehindTrunk\"\xe9\x01\n" +
+	"\x11base_behind_trunk\x18\x13 \x01(\x05R\x0fbaseBehindTrunk\"\x8e\x02\n" +
 	"\x11MergeRequirements\x12\x1b\n" +
 	"\tchange_id\x18\x01 \x01(\tR\bchangeId\x12+\n" +
 	"\x06owners\x18\x02 \x01(\v2\x13.runko.v1.OwnerGateR\x06owners\x12+\n" +
 	"\x06checks\x18\x03 \x01(\v2\x13.runko.v1.CheckGateR\x06checks\x12\x1c\n" +
 	"\tmergeable\x18\x04 \x01(\bR\tmergeable\x12\x1a\n" +
 	"\bblockers\x18\x05 \x03(\tR\bblockers\x12#\n" +
-	"\rattention_set\x18\x06 \x03(\tR\fattentionSet\"\x9c\x02\n" +
+	"\rattention_set\x18\x06 \x03(\tR\fattentionSet\x12#\n" +
+	"\rauto_approved\x18\a \x01(\bR\fautoApproved\"\x9c\x02\n" +
 	"\aComment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x06author\x18\x02 \x01(\v2\x0f.runko.v1.ActorR\x06author\x12\x12\n" +

@@ -134,6 +134,17 @@ type OrgSettings struct {
 	// permissiveness; flipping it is the org's move to the default-deny
 	// posture for its release surface.
 	EnforceTagPolicy bool `json:"enforce_tag_policy,omitempty"`
+	// DisableAutoApprove is the deployment-wide VETO over tree-declared
+	// auto-approve zones (2026-07-28, index.AutoApproved): with it set, a
+	// manifest's auto_approve goes inert org-wide and every change faces
+	// the ordinary owner gate again. Default off - the tree decides, which
+	// is the whole point of putting the declaration there - but an org that
+	// decides bootstrap season is over gets one switch instead of a
+	// manifest sweep, and gets it without waiting for a change to land.
+	// Deliberately phrased as a DISABLE: a setting that instead *enabled*
+	// zones would demote the tree's declaration to advisory, which is the
+	// arrangement §10.3 rejects.
+	DisableAutoApprove bool `json:"disable_auto_approve,omitempty"`
 }
 
 // OrgMembership is one (org, role) pair for a principal. Roles: "admin"
