@@ -263,6 +263,10 @@ export interface OrgSettings {
   /** §14.10.3: gate refs/tags/* writes to org admins, releasers,
    * tag-scoped bot lanes, and the operator. */
   enforce_tag_policy?: boolean;
+  /** The org-wide veto over tree-declared auto-approve zones: with it on,
+   * a project's auto_approve goes inert and every change faces the
+   * ordinary owner gate again. Off by default - the tree decides. */
+  disable_auto_approve?: boolean;
 }
 
 export interface OrgMember {

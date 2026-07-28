@@ -31,6 +31,7 @@ export function OrgSettingsPage() {
   const [revalidation, setRevalidation] = useState("");
   const [requireResolvedThreads, setRequireResolvedThreads] = useState(false);
   const [enforceTagPolicy, setEnforceTagPolicy] = useState(false);
+  const [disableAutoApprove, setDisableAutoApprove] = useState(false);
   const [mirrorRepo, setMirrorRepo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -57,6 +58,7 @@ export function OrgSettingsPage() {
       setRevalidation(settings.revalidation_policy ?? "");
       setRequireResolvedThreads(!!settings.require_resolved_threads);
       setEnforceTagPolicy(!!settings.enforce_tag_policy);
+      setDisableAutoApprove(!!settings.disable_auto_approve);
       setMirrorRepo(settings.github_mirror_repo ?? "");
       setMembers(mem);
     } catch (err) {
@@ -108,6 +110,7 @@ export function OrgSettingsPage() {
           public_read: publicRead,
           require_resolved_threads: requireResolvedThreads,
           enforce_tag_policy: enforceTagPolicy,
+          disable_auto_approve: disableAutoApprove,
         }),
       "Settings saved.",
     );
@@ -244,6 +247,25 @@ export function OrgSettingsPage() {
             </label>
             <p className="settings-hint">
               Unresolved review threads block landing, on top of owner approvals and checks.
+            </p>
+            <label className="settings-label" htmlFor="org-disable-auto-approve">
+              <input
+                id="org-disable-auto-approve"
+                type="checkbox"
+                checked={disableAutoApprove}
+                disabled={!isAdmin}
+                onChange={(e) => setDisableAutoApprove(e.target.checked)}
+              />{" "}
+              Disable auto-approve zones
+            </label>
+            <p className="settings-hint">
+              A project can declare <code>auto_approve: true</code> in its{" "}
+              <code>PROJECT.yaml</code> to mark its subtree a bootstrap zone, where changes
+              land without owner approvals or policy acknowledgements — checks still gate.
+              Declaring it on the root manifest covers the whole repo; a nested{" "}
+              <code>auto_approve: false</code> carves a project back out. Tick this to
+              override every such declaration org-wide and put all changes back under the
+              ordinary owner gate.
             </p>
           </section>
 
