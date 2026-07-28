@@ -227,13 +227,43 @@ jobs:
         env:
           KUST: ${{ needs.setup.outputs.gitops_kustomization }}
         # .pinned-from (computed beside the kustomization below) records the
-        # FULL monorepo sha the digests were pinned from - a plain file the
+        # monorepo sha each image's digest was pinned from - a plain file the
         # reconciler ignores, so a `git revert` of a stale pin restores it
         # along with the digests, unlike anything parsed from commit messages.
+        # PER IMAGE (one "<sha> <image_ref>" line each) since 2026-07-28: the
+        # single repo-wide sha it used to hold made the ancestry guard below
+        # all-or-nothing, which STRANDED digests - see the guard's comment.
+        # A legacy single-sha file still reads as every image's provenance,
+        # so the first run after this change behaves exactly as before and
+        # then upgrades the file in place.
         run: |
           shopt -s nullglob
           cd gitops
           PINFROM="$(dirname "$KUST")/.pinned-from"
+
+          # pinned_from <image_ref> -> the sha that image was last pinned
+          # from ("" when unknown), reading both file formats.
+          pinned_from() {
+            local want="$1" sha ref legacy=""
+            if [ -r "$PINFROM" ]; then
+              while read -r sha ref; do
+                [ -n "$sha" ] || continue
+                if [ -z "$ref" ]; then legacy="$sha"; continue; fi
+                [ "$ref" = "$want" ] && { printf '%s\n' "$sha"; return; }
+              done < "$PINFROM"
+            fi
+            printf '%s\n' "$legacy"
+          }
+
+          # A sha this run's checkout knows and that is NOT an ancestor of
+          # HEAD_SHA is NEWER than this run - the caller must not regress it.
+          is_newer_than_head() {
+            local prev="$1"
+            [ -n "$prev" ] || return 1
+            git -C "$GITHUB_WORKSPACE" cat-file -e "$prev^{commit}" 2>/dev/null || return 1
+            git -C "$GITHUB_WORKSPACE" cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null || return 1
+            ! git -C "$GITHUB_WORKSPACE" merge-base --is-ancestor "$prev" "$HEAD_SHA"
+          }
           # Collect (name, image_ref, digest) from the per-leg artifacts,
           # validating each digest (mirrors the runkod deploy-record guard) -
           # a bad value must never reach git.
@@ -261,39 +291,67 @@ jobs:
           # SEMANTIC edit (set each image's digest by name; idempotent), commit,
           # push. Rapid out-of-order lands self-correct on the next land, and
           # :sha-<head> tags stay the manual rollback handle.
+          pinned=()   # indices this run actually wrote, filled per attempt
           for attempt in 1 2 3 4 5; do
             git fetch --quiet origin main
             git reset --quiet --hard origin/main
-            # ANCESTRY GUARD - re-checked on EVERY attempt, against the state
-            # just fetched: if the GitOps repo is already pinned from a runko
-            # commit that is NOT an ancestor of this run's head, a newer land
-            # already pinned (stacked lands' builds finish out of order) -
-            # skip rather than regress the deployment. Equal shas pass
-            # (idempotent re-run). Unknown shas fail OPEN (pin anyway):
-            # a missing/garbled .pinned-from must never block deploys.
-            prev=$(cat "$PINFROM" 2>/dev/null || true)
-            if [ -n "$prev" ] \
-              && git -C "$GITHUB_WORKSPACE" cat-file -e "$prev^{commit}" 2>/dev/null \
-              && git -C "$GITHUB_WORKSPACE" cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
-              if ! git -C "$GITHUB_WORKSPACE" merge-base --is-ancestor "$prev" "$HEAD_SHA"; then
-                echo "::notice::skipping pin: GitOps repo already pinned from $prev, which is newer than this run's $HEAD_SHA"
-                exit 0
-              fi
-            fi
+            # ANCESTRY GUARD, PER IMAGE - re-evaluated on EVERY attempt against
+            # the state just fetched: an image already pinned from a runko
+            # commit that is NOT an ancestor of this run's head was pinned by a
+            # NEWER land (stacked lands' builds finish out of order), so leave
+            # that one alone rather than regress it. Equal shas pass
+            # (idempotent re-run). Unknown shas fail OPEN (pin anyway): a
+            # missing/garbled .pinned-from must never block deploys.
+            #
+            # Per IMAGE, not per repo (2026-07-28): the old repo-wide guard
+            # skipped the whole job, so a newer land that rebuilt a NARROWER
+            # image set (affected scoping - e.g. a web-only change) stranded
+            # every other image's freshly built digest with no self-healing
+            # path, since the next land only re-pins what IT rebuilds. Found
+            # live: a runkod gate change and a web change landed seconds
+            # apart; web pinned first and runkod's digest never reached git.
+            pinned=()
             for i in "${!digests[@]}"; do
+              prev=$(pinned_from "${refs[$i]}")
+              if is_newer_than_head "$prev"; then
+                echo "::notice::skipping ${names[$i]}: already pinned from $prev, which is newer than this run's $HEAD_SHA"
+                continue
+              fi
+              pinned+=("$i")
+            done
+            if [ ${#pinned[@]} -eq 0 ]; then
+              echo "::notice::every image this run built is already pinned from a newer land; nothing to do"
+              exit 0
+            fi
+            for i in "${pinned[@]}"; do
               n=$(yq "[.images[] | select(.name == \"${refs[$i]}\")] | length" "$KUST")
               [ "$n" = "1" ] || { echo "::error::${refs[$i]} has no entry in $KUST images: block - add one"; exit 1; }
               yq -i "(.images[] | select(.name == \"${refs[$i]}\").digest) = \"${digests[$i]}\"" "$KUST"
             done
-            printf '%s\n' "$HEAD_SHA" > "$PINFROM"
+            # Rewrite .pinned-from as one "<sha> <image_ref>" line per image:
+            # this run's head for what it just pinned, each other image's
+            # existing provenance carried forward (a legacy bare-sha file
+            # answers for every image, so nothing is lost in the upgrade).
+            carried=""
+            for ref in $(yq -r '.images[].name' "$KUST"); do
+              sha=""
+              for i in "${pinned[@]}"; do
+                [ "${refs[$i]}" = "$ref" ] && { sha="$HEAD_SHA"; break; }
+              done
+              [ -n "$sha" ] || sha=$(pinned_from "$ref")
+              [ -n "$sha" ] || continue
+              carried+="$sha $ref"$'\n'
+            done
+            printf '%s' "$carried" > "$PINFROM"
             git add "$KUST" "$PINFROM"
             if git diff --cached --quiet; then
               echo "digests already current at origin/main - nothing to push"
               break
             fi
-            git commit -q -m "$(basename "$(dirname "$KUST")"): pin ${names[*]} from ${GITHUB_REPOSITORY##*/}@${HEAD_SHA:0:9}"
+            pinned_names=(); for i in "${pinned[@]}"; do pinned_names+=("${names[$i]}"); done
+            git commit -q -m "$(basename "$(dirname "$KUST")"): pin ${pinned_names[*]} from ${GITHUB_REPOSITORY##*/}@${HEAD_SHA:0:9}"
             if git push origin HEAD:main; then
-              echo "pushed pin for ${names[*]}"
+              echo "pushed pin for ${pinned_names[*]}"
               break
             fi
             echo "push rejected (attempt $attempt/5); re-applying onto new origin/main"
@@ -302,8 +360,8 @@ jobs:
 
           # Backstop against a vacuous push exiting 0: the local kustomization
           # (just committed+pushed, or already matching origin) MUST carry every
-          # digest we pinned.
-          for i in "${!digests[@]}"; do
+          # digest we pinned - the skipped ones are deliberately absent.
+          for i in "${pinned[@]}"; do
             grep -qF "${digests[$i]}" "$KUST" || { echo "::error::pin verification failed: ${names[$i]} (${digests[$i]}) absent from $KUST"; exit 1; }
+            echo "pinned + verified: ${names[$i]} ${digests[$i]}"
           done
-          echo "pinned + verified: ${names[*]}"
