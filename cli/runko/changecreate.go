@@ -833,11 +833,22 @@ func printRequirements(changeID string, reqs checks.MergeRequirements) {
 	} else {
 		fmt.Printf("%s: blocked from landing\n", changeID)
 	}
+	if reqs.AutoApproved {
+		fmt.Println("  auto-approve zone: approvals waived by trunk's manifests, not granted by a human")
+	}
 	for _, o := range reqs.RequiredOwners {
 		mark := "○ outstanding"
 		for _, s := range reqs.SatisfiedOwners {
-			if s == o {
-				mark = "✓ approved"
+			if s != o {
+				continue
+			}
+			// Under an auto-approve zone a satisfied owner may have been
+			// WAIVED rather than approved (and a mixed change carries some
+			// of each), so the per-row word drops to the one that is true
+			// either way - the banner above says who did the satisfying.
+			mark = "✓ approved"
+			if reqs.AutoApproved {
+				mark = "✓ satisfied"
 			}
 		}
 		fmt.Printf("  owner  %-40s %s\n", o, mark)

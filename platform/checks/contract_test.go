@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -260,5 +261,28 @@ func TestMergeRequirementsMatchesCommonSchema(t *testing.T) {
 	}
 	if err := validateJSON(t, sch, emptyPayload); err != nil {
 		t.Fatalf("empty MergeRequirements failed schema validation: %v\npayload: %s", err, emptyPayload)
+	}
+
+	// An auto-approved gate (2026-07-28) carries one extra wire field, and
+	// its absence from a governed gate is the compatibility promise: the
+	// payload above must be byte-identical to a pre-auto-mode daemon's.
+	if bytes.Contains(payload, []byte("auto_approved")) {
+		t.Fatalf("a governed gate must not emit auto_approved: %s", payload)
+	}
+	auto := req
+	auto.AutoApproved = true
+	autoPayload, err := json.Marshal(auto)
+	if err != nil {
+		t.Fatalf("marshal auto-approved MergeRequirements: %v", err)
+	}
+	if err := validateJSON(t, sch, autoPayload); err != nil {
+		t.Fatalf("auto-approved MergeRequirements failed schema validation: %v\npayload: %s", err, autoPayload)
+	}
+	var back MergeRequirements
+	if err := json.Unmarshal(autoPayload, &back); err != nil {
+		t.Fatalf("unmarshal auto-approved MergeRequirements: %v", err)
+	}
+	if !back.AutoApproved {
+		t.Fatalf("auto_approved did not survive the round trip: %s", autoPayload)
 	}
 }

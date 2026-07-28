@@ -80,7 +80,17 @@ type Manifest struct {
 	RootInvalidation []RootInvalidationEntry `yaml:"root_invalidation,omitempty"`
 	Prose            []string                `yaml:"prose,omitempty"`
 	Visibility       string                  `yaml:"visibility,omitempty"`
-	CI               *CIConfig               `yaml:"ci,omitempty"`
+	// AutoApprove declares this project's subtree an auto-approve zone
+	// (2026-07-28): the merge gate reads its owner requirements as
+	// satisfied and its agent-policy findings as acknowledged, so agents
+	// land inside it unattended - the bootstrap posture, checks still
+	// gating. A POINTER because the field is tri-state: unset inherits the
+	// nearest declaring ancestor project (root true covers the repo),
+	// false carves a nested project back out of one. index.AutoApproved
+	// resolves it; the daemon reads it from trunk, never a change's own
+	// head.
+	AutoApprove *bool     `yaml:"auto_approve,omitempty"`
+	CI          *CIConfig `yaml:"ci,omitempty"`
 	// DeployRegistry is the root-oriented registry base (§14.10):
 	// runko-ci images prefixes it to each deploy.image name to form a full
 	// image_ref. Repo-wide, read from the root project. See

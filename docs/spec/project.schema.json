@@ -126,6 +126,11 @@
       "default": "default",
       "description": "L3, rare. 'restricted' opts this project into per-principal read enforcement (Josh-filtered remotes, search filtering, orientation redaction) per §15.2. Hard limit: this is access control over a shared object store, not isolation (NG7) - documented, not hidden."
     },
+    "auto_approve": {
+      "type": "boolean",
+      "default": false,
+      "description": "L3, bootstrap-oriented (added 2026-07-28). Declares this project's subtree an AUTO-APPROVE zone: the §13.5 merge gate reads its owner-approval requirements as satisfied and its agent-policy findings as acknowledged, so an agent lands inside it with no human in the loop. Required checks still gate - auto mode waives APPROVALS, never CI. Inherited by nearest declaring ancestor: on the root manifest it covers the whole repo, and a nested project carves itself back out with 'auto_approve: false'. The daemon resolves it from TRUNK's tree, never from the change's own head, so the change that enables it cannot approve itself; an org vetoes it deployment-wide with the disable_auto_approve org setting."
+    },
     "ci": {
       "type": "object",
       "additionalProperties": false,

@@ -52,7 +52,14 @@ type IndexedProject struct {
 	// RootInvalidation.
 	Checks     []CheckDef
 	Visibility string
-	Owners     []OwnerEntry
+	// AutoApprove is the manifest's tree-borne auto-approve declaration
+	// (2026-07-28), tri-state like the manifest field: nil = undeclared,
+	// inherit the nearest declaring ancestor. Resolve it with AutoApproved
+	// rather than reading it off one project - the inheritance IS the
+	// contract (a root declaration covers every path). Not persisted by
+	// Sync, like RootInvalidation: the gate scans trunk's tree, §10.3.
+	AutoApprove *bool
+	Owners      []OwnerEntry
 	// Consumes are the manifest's §13.3.1 server/client edges: providers
 	// whose declared API contract this project is a client of. They join
 	// this project into the affected closure only when the provider's
@@ -301,6 +308,7 @@ func (s *scanner) loadProject(dir string) (IndexedProject, error) {
 		RootInvalidationRefinable: refinable,
 		Prose:                     manifest.Prose,
 		Visibility:                visibility,
+		AutoApprove:               manifest.AutoApprove,
 		Owners:                    owners,
 		RequiredChecks:            requiredChecks,
 		Checks:                    checks,

@@ -44,6 +44,15 @@ type MergeRequirements struct {
 	// (runkod derives it from its store); optional on the wire - omitted
 	// when nil so pre-stage-16 consumers see byte-identical output.
 	AttentionSet []string
+
+	// AutoApproved marks a gate whose owner approvals were waived by a
+	// tree-declared auto-approve zone (2026-07-28, index.AutoApproved):
+	// the owners read satisfied and agent-policy findings read acknowledged
+	// because trunk's manifests put this subtree in bootstrap posture - NOT
+	// because a human approved anything. Consumers surface it; nobody
+	// should have to infer "unreviewed" from a green gate. Set by the
+	// daemon (runkod's merge gate), never derived here.
+	AutoApproved bool
 }
 
 // CheckSet pairs a policy with the project list its scope resolves to -
@@ -185,6 +194,10 @@ type mergeRequirementsWire struct {
 	Blockers  []string `json:"blockers"`
 	// AttentionSet is optional in the schema (§13.4.2); omitted when nil.
 	AttentionSet []string `json:"attention_set,omitempty"`
+	// AutoApproved is optional in the schema (2026-07-28); omitted when
+	// false, so an ordinary governed gate serializes byte-identically to
+	// what pre-auto-mode consumers already parse.
+	AutoApproved bool `json:"auto_approved,omitempty"`
 }
 
 // MarshalJSON renders MergeRequirements in the schema's nested shape (see
@@ -205,6 +218,7 @@ func (m MergeRequirements) MarshalJSON() ([]byte, error) {
 	w.Mergeable = m.Mergeable
 	w.Blockers = nonNilStrings(m.Blockers)
 	w.AttentionSet = m.AttentionSet
+	w.AutoApproved = m.AutoApproved
 	return json.Marshal(w)
 }
 
@@ -229,6 +243,7 @@ func (m *MergeRequirements) UnmarshalJSON(data []byte) error {
 		Mergeable:         w.Mergeable,
 		Blockers:          w.Blockers,
 		AttentionSet:      w.AttentionSet,
+		AutoApproved:      w.AutoApproved,
 	}
 	return nil
 }

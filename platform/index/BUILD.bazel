@@ -4,6 +4,7 @@ go_library(
     name = "index",
     srcs = [
         "affectedinfo.go",
+        "autoapprove.go",
         "doc.go",
         "scan.go",
         "sync.go",
@@ -23,6 +24,7 @@ go_library(
 go_test(
     name = "index_test",
     srcs = [
+        "autoapprove_test.go",
         "runwhen_test.go",
         "scan_test.go",
         "sync_pg_test.go",
