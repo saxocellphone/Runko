@@ -103,6 +103,18 @@ type Server struct {
 	// POST /api/github/connect then answers a structured
 	// github_app_not_configured.
 	GithubRemote func(repoPath string) *mirror.Remote
+	// GithubToken mints a repo-scoped installation token for "owner/name",
+	// and GithubAPIBase is the REST base (https://api.github.com, or a GHES
+	// /api/v3). Together they let connect write the repo's Actions variable
+	// and secret (githubsecrets.go) - the same App credential the mirror
+	// already pushes with, so no second credential enters the deployment.
+	// nil/empty on a deployment without App credentials: provisioning then
+	// reports itself skipped rather than failing the connect.
+	GithubToken   func(ctx context.Context, repoPath string) (string, error)
+	GithubAPIBase string
+	// GithubClient is the HTTP client for those REST calls; nil means
+	// http.DefaultClient. Tests point it at an httptest GitHub.
+	GithubClient *http.Client
 	// OrgName + Directory are set on org-scoped servers built by an
 	// OrgHub (orghub.go). When OrgName is non-empty, store-backed
 	// accounts must be members of that org to authenticate here at all
