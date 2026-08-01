@@ -21,6 +21,7 @@ go_library(
         "eventbus.go",
         "github.go",
         "githubdispatch.go",
+        "githubsecrets.go",
         "gitleaks.go",
         "history.go",
         "hook.go",
@@ -78,6 +79,7 @@ go_library(
         "@com_github_jackc_pgx_v5//pgxpool",
         "@in_gopkg_yaml_v3//:yaml_v3",
         "@org_golang_google_protobuf//types/known/timestamppb",
+        "@org_golang_x_crypto//nacl/box",
     ],
 )
 
@@ -107,6 +109,7 @@ go_test(
         "eventbus_test.go",
         "github_test.go",
         "githubdispatch_test.go",
+        "githubsecrets_test.go",
         "gitleaks_test.go",
         "history_test.go",
         "hook_test.go",
@@ -170,5 +173,6 @@ go_test(
         "//runkod/proto/gen/runko/v1/runkov1connect",
         "@com_connectrpc_connect//:connect",
         "@com_github_jackc_pgx_v5//pgxpool",
+        "@org_golang_x_crypto//nacl/box",
     ],
 )

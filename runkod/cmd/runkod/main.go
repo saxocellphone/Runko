@@ -412,6 +412,12 @@ func cmdServe(args []string) error {
 	server.OrgName = defaultOrgName
 	if !orgless {
 		server.GithubRemote = githubRemoteFor(*repoDir)
+		if ghApp != nil {
+			// The same App credential the mirror pushes with, reused for the
+			// Actions variable/secret writes `github connect` performs.
+			server.GithubToken = ghApp.Token
+			server.GithubAPIBase = *githubAPI
+		}
 		restoreGithubWiring(ctx, directory, defaultOrgName, mirrorWorker, githubRemoteFor(*repoDir), *mirrorRemote != "")
 	}
 	hub := &runkod.OrgHub{
@@ -486,6 +492,10 @@ func cmdServe(args []string) error {
 				Directory:                directory,
 				SettingsOrg:              orgName,
 				GithubRemote:             githubRemoteFor(orgRepoDir),
+			}
+			if ghApp != nil {
+				orgServer.GithubToken = ghApp.Token
+				orgServer.GithubAPIBase = *githubAPI
 			}
 			// Each org gets its own when-ready land worker, same as the
 			// root server's (NewOrgServer is called once per org - the

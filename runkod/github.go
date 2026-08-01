@@ -52,6 +52,16 @@ func (s *Server) handleGithubConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Repo string `json:"repo"`
+		// CIToken is the credential the runko-checks workflow reports
+		// results with, stored as the repo's RUNKO_CI_TOKEN secret. Empty
+		// leaves the secret alone and says so in the response - connect
+		// still succeeds, because the mirror half does not depend on it.
+		CIToken string `json:"ci_token"`
+		// OrgURL is the mount the CLI is talking to, stored as the repo's
+		// RUNKO_URL variable. The client is authoritative here: it is the
+		// URL that actually reached this server, which is what the runner
+		// must post back to.
+		OrgURL string `json:"org_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Repo == "" {
 		writeAPIError(w, typedErr(http.StatusBadRequest, clierr.Error{
@@ -110,12 +120,23 @@ func (s *Server) handleGithubConnect(w http.ResponseWriter, r *http.Request) {
 
 	s.Mirror.SetRemote(remote)
 	s.Mirror.Trigger()
-	log.Printf("runkod: org %s wired to github repo %s by %s (was %q) - mirror armed and first sync triggered",
-		s.SettingsOrg, body.Repo, forceActor(s.principalFor(r)), previous)
-	writeJSON(w, http.StatusOK, map[string]string{
+
+	// CI provisioning is best-effort BY DESIGN: the mirror is already armed
+	// and persisted above, so a missing App permission (secrets: write) must
+	// not roll that back or fail the verb. The error travels in the response
+	// where the CLI prints it as the remaining manual step.
+	ci, ciErr := s.provisionCI(r.Context(), body.Repo, body.OrgURL, body.CIToken)
+	if ciErr != nil {
+		ci.Skipped = ciErr.Error()
+	}
+
+	log.Printf("runkod: org %s wired to github repo %s by %s (was %q) - mirror armed and first sync triggered; ci: var=%q secret=%q skipped=%q",
+		s.SettingsOrg, body.Repo, forceActor(s.principalFor(r)), previous, ci.Variable, ci.Secret, ci.Skipped)
+	writeJSON(w, http.StatusOK, map[string]any{
 		"org":        s.SettingsOrg,
 		"repo":       body.Repo,
 		"remote_url": remote.URL,
 		"mirror":     "armed; first sync triggered (watch GET /api/mirror/status)",
+		"ci":         ci,
 	})
 }

@@ -26,4 +26,9 @@ use_repo(
     "com_github_spf13_cobra",
     "in_gopkg_yaml_v3",
     "org_golang_google_protobuf",
+    # nacl/box: GitHub requires Actions secrets be sealed client-side
+    # (crypto_box_seal), and crypto/ecdh carries X25519 but no
+    # XSalsa20-Poly1305. `bazel mod tidy` does NOT extend this list, so the
+    # entry is hand-maintained alongside go.mod.
+    "org_golang_x_crypto",
 )

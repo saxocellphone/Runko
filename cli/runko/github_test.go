@@ -32,7 +32,7 @@ func TestConnectGithubDecodesResult(t *testing.T) {
 	defer server.Close()
 
 	res, err := ConnectGithub(context.Background(), http.DefaultClient,
-		Credential{URL: server.URL, Secret: "sekret"}, "acme/monorepo")
+		Credential{URL: server.URL, Secret: "sekret"}, "acme/monorepo", "ci-tok")
 	if err != nil {
 		t.Fatalf("ConnectGithub: %v", err)
 	}
@@ -42,6 +42,11 @@ func TestConnectGithubDecodesResult(t *testing.T) {
 	var sent map[string]string
 	if err := json.Unmarshal(gotBody, &sent); err != nil || sent["repo"] != "acme/monorepo" {
 		t.Fatalf("request body: %s (%v)", gotBody, err)
+	}
+	// The CI values ride the same call: the token as given, and the org URL
+	// as the credential's own mount (what the runner must report back to).
+	if sent["ci_token"] != "ci-tok" || sent["org_url"] != server.URL {
+		t.Fatalf("ci fields not sent: %s", gotBody)
 	}
 }
 
@@ -57,7 +62,7 @@ func TestConnectGithubSurfacesStructuredError(t *testing.T) {
 	defer server.Close()
 
 	_, err := ConnectGithub(context.Background(), http.DefaultClient,
-		Credential{URL: server.URL, Secret: "sekret"}, "acme/monorepo")
+		Credential{URL: server.URL, Secret: "sekret"}, "acme/monorepo", "")
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "github_app_not_configured" {
 		t.Fatalf("expected structured github_app_not_configured, got %T: %v", err, err)

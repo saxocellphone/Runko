@@ -124,8 +124,8 @@ func ciInitReport(written []string, images, jsonOut bool) error {
 	steps := []string{
 		"add ci.checks to each project's PROJECT.yaml (a name + command per check)",
 		"adjust the RUNNER CONTRACT block in runko-checks.yml (setup-go/node/bazel, services)",
-		"install the Runko GitHub App on this repo, then: runko github connect --repo <owner>/<name>",
-		"set repo secrets RUNKO_URL (your org mount) and RUNKO_CI_TOKEN (the org's deploy token)",
+		"install the Runko GitHub App on this repo, then: runko github connect --repo <owner>/<name> --ci-token <token>",
+		"connect sets the repo's RUNKO_URL and (given --ci-token) RUNKO_CI_TOKEN; without that secret every dispatched check runs and then fails before it can report",
 	}
 	if images {
 		steps = append(steps,

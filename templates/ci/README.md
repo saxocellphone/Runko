@@ -17,9 +17,16 @@ checks or deploys — it emits events and consumes results.
 ## Adopt (both workflows)
 
 1. **Copy** the file(s) you want into your repo's `.github/workflows/`.
-2. **Secrets** (repo → Settings → Secrets): set `RUNKO_URL` to your org mount
-   (e.g. `https://<host>/o/<org>`) and `RUNKO_CI_TOKEN` to your org's **deploy
-   token**. GitHub provides `GITHUB_TOKEN` automatically. *(Optional repo
+2. **Credentials** — since 2026-07-29 `runko github connect --repo
+   <owner>/<name> --ci-token <token>` writes these for you: `RUNKO_URL` as a
+   repo *variable* (your org mount) and `RUNKO_CI_TOKEN` as a repo *secret*.
+   That needs the Runko GitHub App to hold `secrets: write` and
+   `variables: write`; when it does not, connect reports the reason in
+   `ci.skipped` and you set them by hand (repo → Settings → Secrets).
+   **Do not leave `RUNKO_CI_TOKEN` unset**: every dispatched check then runs
+   and fails at its first report with an empty URL, which the merge gate
+   cannot tell apart from a check that is still running.
+   GitHub provides `GITHUB_TOKEN` automatically. *(Optional repo
    Variables: `RUNKO_CI_VERSION` pins the `runko-ci` release — default
    `cli-latest` — and `RUNKO_CI_DOWNLOAD_URL` points at a fork/mirror/GHES
    release base. The workflows download the `runko-ci` binary, so no language
