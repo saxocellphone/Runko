@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/saxocellphone/runko/internal/clierr"
+	"github.com/saxocellphone/runko/platform/index"
 )
 
 func newWorkspaceCmd(a *app) *cobra.Command {
@@ -50,7 +52,7 @@ func newWorkspaceCreateCmd(a *app) *cobra.Command {
 		projects, newPaths             []string
 	)
 	cmd := &cobra.Command{
-		Use:   "create --name <name> --project <p> [--project <p2>...]",
+		Use:   "create [--name <name>] [--project <p>...]",
 		Short: "Register and materialize a new workspace",
 		Long: `Registers the workspace (registry row + snapshot ref namespace) and
 materializes it: worktree off a shared blobless clone, sparse cone
@@ -59,8 +61,12 @@ With no --dir/--clone-dir everything lands under
 $RUNKO_WORKSPACE_HOME (default ~/runko-ws). --new-path grants affinity
 for a project that does not exist at trunk yet (the greenfield
 bootstrap). --jj materializes a standalone jj colocated checkout
-instead (full clone; jj cannot lazy-fetch promisor blobs).`,
+instead (full clone; jj cannot lazy-fetch promisor blobs).
+
+On a TTY, omitted --name / --project are prompted (progressive
+disclosure). Scripts, pipes, and --json still require the flags.`,
 		Example: `  runko workspace create --name checkout-fix --project checkout
+  runko workspace create   # interactive: prompts for name + projects
   runko workspace create --name new-svc --new-path services/new-svc
   runko workspace create --name fix --project checkout --by agent-x --as agent-x --token <tok>`,
 		Args: noArgs,
@@ -93,8 +99,35 @@ instead (full clone; jj cannot lazy-fetch promisor blobs).`,
 			if by == "" {
 				by = cred.Name
 			}
-			if name == "" || by == "" || len(projects)+len(newPaths) == 0 {
-				return fmt.Errorf("workspace create: --name and at least one --project (or --new-path) are required (and --by, when signed in with a bare token)")
+			// TTY progressive disclosure (moon/Nx-style): humans can omit
+			// --name/--project and answer prompts. --json and non-TTY keep
+			// the structured refusal so scripts never hang on stdin.
+			if stdinIsTTY() && !jsonOut {
+				in := bufio.NewReader(os.Stdin)
+				if name == "" {
+					name, err = promptWorkspaceName(in, os.Stdout, defaultWorkspaceName())
+					if err != nil {
+						return err
+					}
+				}
+				if len(projects)+len(newPaths) == 0 {
+					var listed []index.IndexedProject
+					if err := apiJSON(cmd.Context(), http.DefaultClient, http.MethodGet,
+						strings.TrimRight(cred.URL, "/")+"/api/projects", cred.AuthHeader(), nil, &listed); err != nil {
+						return err
+					}
+					projects, err = promptProjectSelect(in, os.Stdout, listed)
+					if err != nil {
+						return err
+					}
+					projects, err = maybePromptIncludeRoot(in, os.Stdout, projects, listed)
+					if err != nil {
+						return err
+					}
+				}
+			}
+			if err := requireWorkspaceCreateFlags(name, by, projects, newPaths); err != nil {
+				return err
 			}
 			// File the --as credential BEFORE materializing: the materialization
 			// stamps the qualified credential helper that reads it back, and a

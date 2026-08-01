@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -677,5 +679,107 @@ func TestWorkspaceJJRefusesCloneDir(t *testing.T) {
 	var ce *clierr.Error
 	if !errors.As(err, &ce) || ce.Code != "jj_no_shared_store" {
 		t.Fatalf("expected jj_no_shared_store, got %v", err)
+	}
+}
+
+// TestWorkspaceCreateNonTTYRequiresFlags: progressive disclosure is
+// TTY-only. Piped/scripted stdin (and --json) keep a §6.5 missing_field
+// so CI never hangs waiting on a prompt.
+func TestWorkspaceCreateNonTTYRequiresFlags(t *testing.T) {
+	orig := stdinIsTTY
+	stdinIsTTY = func() bool { return false }
+	t.Cleanup(func() { stdinIsTTY = orig })
+
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("non-TTY missing flags must not hit the server: %s", r.URL.Path)
+	}))
+	defer srv.Close()
+	if _, err := saveCredential(Credential{URL: srv.URL, Name: "val", Secret: "hunter2hunter2"}); err != nil {
+		t.Fatalf("seed credential: %v", err)
+	}
+
+	err := execCLI("workspace", "create")
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "missing_field" {
+		t.Fatalf("want missing_field, got %v", err)
+	}
+	if ce.Field != "name" {
+		t.Fatalf("first missing field should be name, got %q", ce.Field)
+	}
+
+	err = execCLI("workspace", "create", "--name", "ws1")
+	if !errors.As(err, &ce) || ce.Code != "missing_field" || ce.Field != "project" {
+		t.Fatalf("name without project: want missing_field/project, got %#v", err)
+	}
+
+	err = execCLI("workspace", "create", "--json")
+	if !errors.As(err, &ce) || ce.Code != "missing_field" {
+		t.Fatalf("--json without flags: want missing_field, got %v", err)
+	}
+}
+
+// TestWorkspaceCreateTTYPromptsFillFlags: with a fake TTY + stdin, omitted
+// --name/--project are filled from prompts (same path auth login uses for
+// password prompting) and the create POST carries the resolved values.
+func TestWorkspaceCreateTTYPromptsFillFlags(t *testing.T) {
+	orig := stdinIsTTY
+	stdinIsTTY = func() bool { return true }
+	t.Cleanup(func() { stdinIsTTY = orig })
+
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var gotName string
+	var gotProjects []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/projects":
+			json.NewEncoder(w).Encode([]map[string]any{
+				{"name": "repo", "path": "", "type": "other"},
+				{"name": "cli", "path": "cli", "type": "app"},
+				{"name": "docs", "path": "docs", "type": "other"},
+			})
+		case "/api/workspaces":
+			var body struct {
+				Name     string   `json:"name"`
+				Projects []string `json:"projects"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			gotName = body.Name
+			gotProjects = body.Projects
+			// Refuse after recording - no worktree machinery needed.
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(clierr.Error{Code: "invalid_workspace_name", Message: "stub"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	if _, err := saveCredential(Credential{URL: srv.URL, Name: "val", Secret: "hunter2hunter2"}); err != nil {
+		t.Fatalf("seed credential: %v", err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Answers: accept default name, select "cli" by name, accept include-repo.
+	go func() {
+		fmt.Fprint(w, "\ncli\n\n")
+		w.Close()
+	}()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = oldStdin; r.Close() })
+
+	err = execCLI("workspace", "create")
+	var ce *clierr.Error
+	if !errors.As(err, &ce) || ce.Code != "invalid_workspace_name" {
+		t.Fatalf("expected stub refusal after prompts, got %v", err)
+	}
+	if gotName != defaultWorkspaceName() {
+		t.Fatalf("prompted name: want default %q, got %q", defaultWorkspaceName(), gotName)
+	}
+	if strings.Join(gotProjects, ",") != "cli,repo" {
+		t.Fatalf("prompted projects: want cli,repo (repo offered), got %v", gotProjects)
 	}
 }
